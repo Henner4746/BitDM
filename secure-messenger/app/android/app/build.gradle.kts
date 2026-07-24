@@ -26,6 +26,25 @@ if (hasKeystore) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
+// Ohne diesen Abbruch erzeugt Gradle klaglos eine UNSIGNIERTE APK und Flutter
+// meldet "√ Built app-release.apk" — also Erfolg fuer ein Artefakt, das sich auf
+// keinem Geraet installieren laesst. Das faellt erst beim Installationsversuch
+// auf, im schlimmsten Fall beim Nutzer. Darum hier hart abbrechen, und zwar nur
+// wenn tatsaechlich ein Release-Artefakt gebaut wird (Debug-Builds bleiben
+// unberuehrt).
+gradle.taskGraph.whenReady {
+    val releaseTargets = listOf("assembleRelease", "bundleRelease", "packageRelease")
+    val buildsRelease = allTasks.any { task -> releaseTargets.any { task.name.equals(it, true) } }
+    if (buildsRelease && !hasKeystore) {
+        throw GradleException(
+            "\n\n  Release-Build abgebrochen: android/key.properties fehlt.\n" +
+            "  Ohne Schluesseldatei entstuende eine UNSIGNIERTE APK, die sich\n" +
+            "  nicht installieren laesst.\n\n" +
+            "  Vorlage kopieren und ausfuellen:  android/key.properties.example\n"
+        )
+    }
+}
+
 android {
     namespace = "com.bitdm.bitdm"
     compileSdk = flutter.compileSdkVersion
