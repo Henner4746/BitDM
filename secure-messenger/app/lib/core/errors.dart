@@ -24,6 +24,17 @@ class InvalidAddressException extends MessengerException {
   const InvalidAddressException(this.address) : super('invalid address: $address');
 }
 
+/// The given recovery phrase is not a valid BIP39 phrase — unknown word,
+/// wrong word count, or failed checksum. Thrown by `restoreIdentity()`.
+/// Use `isValidRecoveryPhrase()` to pre-check in the UI.
+///
+/// Deliberately carries NO copy of the phrase: an exception message tends to
+/// end up in logs and crash reports, and this one would be the user's identity.
+class InvalidRecoveryPhraseException extends MessengerException {
+  const InvalidRecoveryPhraseException(
+      [super.message = 'invalid recovery phrase']);
+}
+
 /// Referenced a contact/chat id that is not a known contact.
 class UnknownContactException extends MessengerException {
   final String contactId;

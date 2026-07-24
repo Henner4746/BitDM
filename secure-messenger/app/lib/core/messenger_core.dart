@@ -18,20 +18,75 @@ export 'errors.dart';
 /// Max UTF-8 byte length of a single text message.
 const int kMaxTextBytes = 4096;
 
+/// Number of words in a recovery phrase (BIP39, 128 bits of entropy).
+const int kRecoveryPhraseWords = 12;
+
 abstract class MessengerCore {
   // ------------------------------------------------------------- identity
-  /// First launch: generate an identity (key pair) and open local storage.
-  /// Later launches: load the existing identity. Idempotent.
-  /// Returns the own [myId] address.
-  /// Throws `StorageException`, `CryptoException`.
-  Future<String> initialize();
+  //
+  // NOTE ON THE LIFECYCLE (changed 2026-07-25, see PLAN.md §2):
+  // `initialize()` used to create an identity on first launch. That is wrong
+  // once recovery phrases exist: the user must first CHOOSE between "new
+  // identity" and "restore from phrase", and that choice happens in the UI.
+  // Silently creating one would leave a user who wanted to restore already
+  // holding a different identity.
+  //
+  // The flow is therefore:
+  //     initialize()            -> false  (no identity yet)
+  //        UI shows welcome screen
+  //        -> createIdentity()      (new)      -> show the 12 words
+  //        -> restoreIdentity(...)  (restore)
+  //     initialize()            -> true   (identity loaded, go to chats)
 
-  /// True after [initialize] has completed.
+  /// Open local storage and load an existing identity if there is one.
+  /// Does NOT create anything. Idempotent.
+  ///
+  /// Returns `true` if an identity was loaded (proceed to the app), `false` if
+  /// none exists yet (show onboarding).
+  /// Throws `StorageException`.
+  Future<bool> initialize();
+
+  /// True once an identity is loaded — i.e. [initialize] returned true, or
+  /// [createIdentity] / [restoreIdentity] completed.
   bool get isInitialized;
 
+  /// Whether local storage already holds an identity. Cheap, synchronous
+  /// snapshot of what [initialize] returned.
+  bool get hasIdentity;
+
   /// The own address ("long number") to share so others can add you.
-  /// Throws `NotInitializedException` if read before [initialize] completes.
+  /// Throws `NotInitializedException` if read before an identity exists.
   String get myId;
+
+  /// Create a BRAND NEW identity and persist it.
+  ///
+  /// Returns the [kRecoveryPhraseWords]-word recovery phrase. The UI MUST show
+  /// it and make the user write it down — it is the only way back after losing
+  /// the device, and it cannot be recovered afterwards from anywhere else.
+  ///
+  /// Throws `StateError` if an identity already exists (call [initialize]
+  /// first), `StorageException`, `CryptoException`.
+  Future<List<String>> createIdentity();
+
+  /// Restore an identity from a recovery phrase and persist it.
+  /// Returns the resulting [myId].
+  ///
+  /// The old device (if any) keeps working until it next connects; the server
+  /// hands out the newest prekeys, so "last restore wins". Message history is
+  /// NOT restored — only the identity and, with it, the ability to be reached.
+  ///
+  /// Throws `InvalidRecoveryPhraseException` if the phrase fails its checksum,
+  /// `StateError` if an identity already exists, `StorageException`.
+  Future<String> restoreIdentity(List<String> words);
+
+  /// Cheap, OFFLINE check of a recovery phrase (word list + checksum).
+  /// The UI calls this to validate the input fields before [restoreIdentity].
+  bool isValidRecoveryPhrase(List<String> words);
+
+  /// The recovery phrase of the current identity, for "show my phrase" in
+  /// settings. Guard this behind device authentication in the UI.
+  /// Throws `NotInitializedException`, `StorageException`.
+  Future<List<String>> getRecoveryPhrase();
 
   /// Cheap, OFFLINE format + checksum check of a peer address (no network).
   /// The UI calls this to validate the paste field before [addContact].

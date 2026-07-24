@@ -45,8 +45,77 @@ class FakeMessengerCore implements MessengerCore {
   }
 
   @override
-  Future<String> initialize() async {
+  bool get hasIdentity => _hasIdentity;
+
+  /// Set this before [initialize] to simulate a returning user (identity
+  /// already on the device) instead of a first launch.
+  bool simulateExistingIdentity = false;
+
+  bool _hasIdentity = false;
+  List<String> _phrase = const [];
+
+  @override
+  Future<bool> initialize() async {
     await Future<void>.delayed(const Duration(milliseconds: 250));
+    _hasIdentity = simulateExistingIdentity;
+    if (_hasIdentity) {
+      _phrase = _demoPhrase;
+      _adoptIdentity();
+    }
+    return _hasIdentity;
+  }
+
+  @override
+  Future<List<String>> createIdentity() async {
+    if (_hasIdentity) {
+      throw StateError('identity already exists — call initialize() first');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    _phrase = _demoPhrase;
+    _hasIdentity = true;
+    _adoptIdentity();
+    return List.unmodifiable(_phrase);
+  }
+
+  @override
+  Future<String> restoreIdentity(List<String> words) async {
+    if (_hasIdentity) {
+      throw StateError('identity already exists — call initialize() first');
+    }
+    if (!isValidRecoveryPhrase(words)) {
+      throw const InvalidRecoveryPhraseException();
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    _phrase = List.of(words);
+    _hasIdentity = true;
+    _adoptIdentity();
+    return _myId;
+  }
+
+  @override
+  bool isValidRecoveryPhrase(List<String> words) {
+    // The fake has no wordlist and no checksum — it only mimics the SHAPE of
+    // the check so the UI can wire up live validation. The real core verifies
+    // against the BIP39 wordlist and checksum.
+    return words.length == kRecoveryPhraseWords &&
+        words.every((w) => RegExp(r'^[a-z]{3,8}$').hasMatch(w));
+  }
+
+  @override
+  Future<List<String>> getRecoveryPhrase() async {
+    if (!_init) throw const NotInitializedException();
+    return List.unmodifiable(_phrase);
+  }
+
+  /// Demo phrase — a real BIP39 phrase so the UI can be laid out against
+  /// realistic word lengths. Never used for anything but display.
+  static const _demoPhrase = [
+    'abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'abandon',
+    'abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'about',
+  ];
+
+  /// Populates the demo state once an identity exists, whichever way it came.
+  void _adoptIdentity() {
     _myId = _me;
     final t = _now;
     _contacts[_c1] = Contact(id: _c1, addedAt: t);
@@ -57,7 +126,6 @@ class FakeMessengerCore implements MessengerCore {
     ];
     _msgs[_c2] = [];
     _init = true;
-    return _myId;
   }
 
   @override
