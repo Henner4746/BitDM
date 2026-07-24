@@ -1,0 +1,187 @@
+import 'package:flutter/material.dart';
+
+// ---- identity / mock constants ----
+const myId = 'B3XK-7QMD-2FTV-9SLN-4HRW-6JYC-8PZB-5NKQ';
+const c1 = 'K7QP-2M9X-4TVB-8HRS-J3NC-5WDY-6ZFM-Q2LX';
+const c2 = 'T4RB-9NKM-3JWD-7XLP-2QCV-8HFY-5ZTB-8VQD';
+const c3 = 'Z9HC-4LPM-8XKV-2WRT-6NDB-3JQY-7FSZ-M4KP';
+
+String shortId(String id) =>
+    '${id.substring(0, 4)}…${id.substring(id.length - 4)}';
+
+// ---- Nocturne palette ----
+class Pal {
+  final Color shell, bg, surf, surf2, navbg, ink, muted, dim, line, lineSoft,
+      accent, accLight, wash, tint, tintLine, tintInk, scrim, onAcc, accHover;
+  const Pal({
+    required this.shell,
+    required this.bg,
+    required this.surf,
+    required this.surf2,
+    required this.navbg,
+    required this.ink,
+    required this.muted,
+    required this.dim,
+    required this.line,
+    required this.lineSoft,
+    required this.accent,
+    required this.accLight,
+    required this.wash,
+    required this.tint,
+    required this.tintLine,
+    required this.tintInk,
+    required this.scrim,
+    required this.onAcc,
+    required this.accHover,
+  });
+}
+
+const palDark = Pal(
+  shell: Color(0xFF0B0C12),
+  bg: Color(0xFF161826),
+  surf: Color(0xFF232532),
+  surf2: Color(0xFF1C1E2C),
+  navbg: Color(0xFF1B1D2B),
+  ink: Color(0xFFE9E9ED),
+  muted: Color(0xFF9397AB),
+  dim: Color(0xFF75798C),
+  line: Color(0xFF3F424D),
+  lineSoft: Color(0x24E9E9ED),
+  accent: Color(0xFF9184D9),
+  accLight: Color(0xFFB5ABFC),
+  wash: Color(0x249184D9),
+  tint: Color(0xFF2B2741),
+  tintLine: Color(0xFF423A6A),
+  tintInk: Color(0xFFD2CEFD),
+  scrim: Color(0xA80B0C12),
+  onAcc: Color(0xFF161826),
+  accHover: Color(0xFFB5ABFC),
+);
+
+const palLight = Pal(
+  shell: Color(0xFFCFD3E5),
+  bg: Color(0xFFF3F5FE),
+  surf: Color(0xFFE4E7F5),
+  surf2: Color(0xFFECEFFB),
+  navbg: Color(0xFFE9ECF8),
+  ink: Color(0xFF292B31),
+  muted: Color(0xFF595D6C),
+  dim: Color(0xFF75798C),
+  line: Color(0xFFCFD3E5),
+  lineSoft: Color(0x24292B31),
+  accent: Color(0xFF5D5294),
+  accLight: Color(0xFF423A6A),
+  wash: Color(0x1F5D5294),
+  tint: Color(0xFFE7E5FE),
+  tintLine: Color(0xFFB5ABFC),
+  tintInk: Color(0xFF423A6A),
+  scrim: Color(0x66292B31),
+  onAcc: Color(0xFFF3F5FE),
+  accHover: Color(0xFF423A6A),
+);
+
+const avPalDark = [
+  Color(0xFF9184D9), Color(0xFF5D5294), Color(0xFF3F424D),
+  Color(0xFFB5ABFC), Color(0xFF292B31), Color(0xFF796CBF),
+];
+const avPalLight = [
+  Color(0xFF5D5294), Color(0xFFB5ABFC), Color(0xFFCFD3E5),
+  Color(0xFF9184D9), Color(0xFFE7E5FE), Color(0xFF796CBF),
+];
+
+// ---- i18n ----
+const Map<String, List<String>> jumpLabels = {
+  'en': ['Onboarding', 'Secure device', 'My ID', 'Add', 'Chat list', 'Chat', 'Settings'],
+  'de': ['Onboarding', 'Gerät absichern', 'Meine ID', 'Adden', 'Chatliste', 'Chat', 'Einstellungen'],
+};
+
+const Map<String, Map<String, String>> strings = {
+  'en': {
+    'h1a': 'No name.', 'h1b': 'No number.',
+    'intro': 'BitDM creates an identity on this device. You get one long ID — that is all anyone needs to add you.',
+    'b1': 'No phone number, no email', 'b2': 'Keys never leave the device', 'b3': 'No account, no recovery',
+    'create': 'Create identity', 'createNote': 'Takes under a second. Works offline.',
+    'wiped': 'All data was deleted. The old identity cannot be recovered.',
+    'myId': 'My ID', 'myIdSub': 'Share it so someone can add you.', 'share': 'Share', 'copy': 'Copy', 'copied': 'Copied',
+    'idNote': 'The ID holds no private key. Details under Settings › Security.',
+    'addTitle': 'Add contact', 'idLabel': 'BitDM ID', 'paste': 'Paste', 'scan': 'Scan QR', 'sendReq': 'Send request',
+    'pending': 'Pending', 'reqSentNote': 'Request sent. The chat opens once the other side confirms.',
+    'demo': 'Demo:', 'simAccept': 'simulate confirmation',
+    'addFoot': 'No messages are transmitted before confirmation. A contact can be removed unilaterally at any time.',
+    'chats': 'Chats', 'wantsChat': 'Wants to start an encrypted chat with you.', 'accept': 'Accept', 'decline': 'Decline',
+    'noNames': 'Contacts appear as an ID and a pattern. There are no names — not even local ones.',
+    'encDetails': 'Encrypted · Details', 'message': 'Message', 'send': 'Send',
+    'encryption': 'Encryption', 'protocol': 'Protocol', 'sessionKey': 'Session key', 'selfDestruct': 'Self-destructing messages',
+    'selfDestructSub': 'Optional, per device', 'readReceipts': 'Read receipts', 'readReceiptsSub': 'Default: off',
+    'verifyNote': 'Compare the session key in person to verify the other side.', 'close': 'Close',
+    'secureTitle': 'Secure this device', 'secureSub': 'Your identity exists only here. Add at least one way to prove it is you before the app unlocks.',
+    'secureFoot': 'You can add or remove factors later under Settings › Access.', 'secureSkip': 'Skip for now', 'secureDone': 'Continue',
+    'access': 'Access', 'on2': 'Active', 'offMethod': 'Not set up', 'add': 'Set up', 'remove': 'Remove',
+    'bio': 'Biometrics', 'bioSub': 'Fingerprint or face unlock on this device',
+    'passkey': 'Passkey', 'passkeySub': 'Stored in your device keychain, synced by the OS',
+    'hw': 'Hardware security key', 'hwSub': 'FIDO2 key over USB-C or NFC',
+    'totp': 'Two-factor code', 'totpSub': 'Six-digit code from an authenticator app',
+    'enrollBio': 'Touch the sensor', 'enrollBioBody': 'Place your finger on the sensor to bind biometric unlock to this identity.',
+    'enrollPasskey': 'Confirm with your device', 'enrollPasskeyBody': 'The system dialog will ask for your screen lock. The passkey never leaves your keychain.',
+    'enrollHw': 'Insert or tap your key', 'enrollHwBody': 'Plug the key into USB-C or hold it against the back of the phone, then touch the contact.',
+    'enrollTotp': 'Add authenticator', 'enrollTotpBody': 'Scan the QR in your authenticator app or enter the secret, then confirm the six-digit code.',
+    'secret': 'Secret', 'codeLabel': 'Six-digit code', 'confirm': 'Confirm', 'waiting': 'Waiting for device',
+    'minOne': 'At least one factor stays required.',
+    'settings': 'Settings', 'general': 'General', 'security': 'Security', 'identity': 'Identity', 'emergency': 'Emergency',
+    'language': 'Language', 'languageSub': 'App-wide', 'appearance': 'Appearance', 'appearanceSub': 'Dark by default',
+    'screenshot': 'Screenshot protection', 'screenshotSub': 'Warning in chat, preview blocked',
+    'myIdQr': 'My ID & QR', 'fingerprint': 'Key fingerprint',
+    'panic': 'Panic mode', 'panicSub': 'Delete identity, contacts and messages instantly and irreversibly.',
+    'panicTitle': 'Delete everything?', 'panicBody': 'This identity, all contacts and all messages will be removed from this device. There is no recovery.',
+    'cancel': 'Cancel', 'delete': 'Delete',
+    'dark': 'Dark', 'light': 'Light', 'off': 'Off', 'h1': '1 hour', 'h24': '24 hours', 'd7': '7 days', 'on': 'On',
+    'navChats': 'Chats', 'navId': 'My ID', 'navSet': 'Settings',
+    'voice': 'Voice message', 'newContact': 'New contact',
+    'm1': 'Did you get the file?', 'm2': 'Yes, everything arrived.', 'm3': 'See you tomorrow.', 'm4': 'Photo sent.', 'm5': 'File received, thanks.', 'reply': 'Understood.',
+    'hintShot': 'Screenshot protection on', 'hintEnc': 'End-to-end encrypted', 'hintEph': 'Messages delete after ',
+  },
+  'de': {
+    'h1a': 'Kein Name.', 'h1b': 'Keine Nummer.',
+    'intro': 'BitDM erzeugt eine Identität auf diesem Gerät. Du erhältst eine lange ID — sie ist alles, was andere brauchen, um dich hinzuzufügen.',
+    'b1': 'Keine Telefonnummer, keine E-Mail', 'b2': 'Schlüssel verlassen das Gerät nicht', 'b3': 'Kein Konto, keine Wiederherstellung',
+    'create': 'Identität erstellen', 'createNote': 'Dauert unter einer Sekunde. Offline möglich.',
+    'wiped': 'Alle Daten wurden gelöscht. Die alte Identität ist nicht wiederherstellbar.',
+    'myId': 'Meine ID', 'myIdSub': 'Teile sie, damit dich jemand hinzufügen kann.', 'share': 'Teilen', 'copy': 'Kopieren', 'copied': 'Kopiert',
+    'idNote': 'Die ID enthält keinen privaten Schlüssel. Details unter Einstellungen › Sicherheit.',
+    'addTitle': 'Kontakt hinzufügen', 'idLabel': 'BitDM-ID', 'paste': 'Einfügen', 'scan': 'QR scannen', 'sendReq': 'Anfrage senden',
+    'pending': 'Ausstehend', 'reqSentNote': 'Anfrage gesendet. Der Chat öffnet sich, sobald die Gegenseite bestätigt.',
+    'demo': 'Zur Demo:', 'simAccept': 'Bestätigung simulieren',
+    'addFoot': 'Vor der Bestätigung werden keine Nachrichten übertragen. Ein Kontakt kann jederzeit einseitig entfernt werden.',
+    'chats': 'Chats', 'wantsChat': 'Möchte einen verschlüsselten Chat mit dir beginnen.', 'accept': 'Annehmen', 'decline': 'Ablehnen',
+    'noNames': 'Kontakte erscheinen als ID und Muster. Namen gibt es nicht — auch nicht lokal.',
+    'encDetails': 'Verschlüsselt · Details', 'message': 'Nachricht', 'send': 'Senden',
+    'encryption': 'Verschlüsselung', 'protocol': 'Protokoll', 'sessionKey': 'Sitzungsschlüssel', 'selfDestruct': 'Selbstlöschende Nachrichten',
+    'selfDestructSub': 'Optional, pro Gerät', 'readReceipts': 'Lesebestätigungen', 'readReceiptsSub': 'Standard: aus',
+    'verifyNote': 'Vergleiche den Sitzungsschlüssel persönlich, um die Gegenseite zu verifizieren.', 'close': 'Schließen',
+    'secureTitle': 'Gerät absichern', 'secureSub': 'Deine Identität liegt nur hier. Richte mindestens einen Nachweis ein, bevor die App entsperrt.',
+    'secureFoot': 'Faktoren lassen sich später unter Einstellungen › Zugriff ergänzen oder entfernen.', 'secureSkip': 'Später', 'secureDone': 'Weiter',
+    'access': 'Zugriff', 'on2': 'Aktiv', 'offMethod': 'Nicht eingerichtet', 'add': 'Einrichten', 'remove': 'Entfernen',
+    'bio': 'Biometrie', 'bioSub': 'Fingerabdruck oder Gesichtsentsperrung dieses Geräts',
+    'passkey': 'Passkey', 'passkeySub': 'Im Schlüsselbund des Geräts, vom System synchronisiert',
+    'hw': 'Hardware-Sicherheitsschlüssel', 'hwSub': 'FIDO2-Schlüssel über USB-C oder NFC',
+    'totp': 'Zwei-Faktor-Code', 'totpSub': 'Sechsstelliger Code aus einer Authenticator-App',
+    'enrollBio': 'Sensor berühren', 'enrollBioBody': 'Lege den Finger auf den Sensor, um die biometrische Entsperrung an diese Identität zu binden.',
+    'enrollPasskey': 'Mit dem Gerät bestätigen', 'enrollPasskeyBody': 'Der Systemdialog fragt die Displaysperre ab. Der Passkey verlässt den Schlüsselbund nicht.',
+    'enrollHw': 'Schlüssel einstecken oder auflegen', 'enrollHwBody': 'Stecke den Schlüssel in USB-C oder halte ihn an die Rückseite, dann Kontakt berühren.',
+    'enrollTotp': 'Authenticator hinzufügen', 'enrollTotpBody': 'Scanne den QR in der Authenticator-App oder gib das Secret ein, dann bestätige den sechsstelligen Code.',
+    'secret': 'Secret', 'codeLabel': 'Sechsstelliger Code', 'confirm': 'Bestätigen', 'waiting': 'Warte auf Gerät',
+    'minOne': 'Mindestens ein Faktor bleibt erforderlich.',
+    'settings': 'Einstellungen', 'general': 'Allgemein', 'security': 'Sicherheit', 'identity': 'Identität', 'emergency': 'Notfall',
+    'language': 'Sprache', 'languageSub': 'Gilt für die ganze App', 'appearance': 'Erscheinungsbild', 'appearanceSub': 'Standard: dunkel',
+    'screenshot': 'Screenshot-Schutz', 'screenshotSub': 'Warnhinweis im Chat, Vorschau geblockt',
+    'myIdQr': 'Meine ID & QR', 'fingerprint': 'Schlüssel-Fingerprint',
+    'panic': 'Panik-Modus', 'panicSub': 'Identität, Kontakte und Nachrichten sofort und unwiderruflich löschen.',
+    'panicTitle': 'Alles löschen?', 'panicBody': 'Diese Identität, alle Kontakte und alle Nachrichten werden von diesem Gerät entfernt. Es gibt keine Wiederherstellung.',
+    'cancel': 'Abbrechen', 'delete': 'Löschen',
+    'dark': 'Dunkel', 'light': 'Hell', 'off': 'Aus', 'h1': '1 Std.', 'h24': '24 Std.', 'd7': '7 Tage', 'on': 'An',
+    'navChats': 'Chats', 'navId': 'Meine ID', 'navSet': 'Einstellungen',
+    'voice': 'Sprachnachricht', 'newContact': 'Neuer Kontakt',
+    'm1': 'Hast du die Datei bekommen?', 'm2': 'Ja, alles angekommen.', 'm3': 'Bis morgen dann.', 'm4': 'Bild gesendet.', 'm5': 'Datei erhalten, danke.', 'reply': 'Verstanden.',
+    'hintShot': 'Screenshot-Schutz aktiv', 'hintEnc': 'Ende-zu-Ende verschlüsselt', 'hintEph': 'Nachrichten löschen sich nach ',
+  },
+};

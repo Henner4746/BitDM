@@ -1,0 +1,37 @@
+BitDM — Flutter app  (app/)
+
+Ownership legend:
+  [A]  Person A  = UI / design / interface consumer
+  [B]  Person B  = crypto / security / backend / server   (YOU)
+  [AB] shared + FROZEN — change ONLY by mutual agreement
+
+app/
+├── pubspec.yaml                         [AB]  UI deps pinned by A; core deps added by B
+├── android/                             [B]   native config (INTERNET permission already set)
+├── lib/
+│   ├── main.dart                        [A]   app entry + current UI (self-contained prototype)
+│   ├── data.dart                        [A]   palettes + EN/DE strings
+│   ├── painters.dart                    [A]   identicon / QR / waveform
+│   ├── ui/                              [A]   (future: screens split out of main.dart)
+│   ├── state/                           [A]   (future: app state / providers)
+│   └── core/                            <=== THE HANDOFF SURFACE
+│       ├── messenger_core.dart          [AB]  THE INTERFACE — frozen
+│       ├── models.dart                  [AB]  Message / Contact / SafetyNumber / enums — frozen
+│       ├── errors.dart                  [AB]  exception types — frozen
+│       ├── fake_messenger_core.dart     [AB]  behaviour reference (A builds UI against it)
+│       ├── real_messenger_core.dart     [B]   <=== YOU CREATE THIS (implements MessengerCore)
+│       ├── crypto/                       [B]   libsignal glue: identity, prekeys, X3DH, ratchet
+│       ├── net/                          [B]   WebSocket client + prekey REST
+│       └── store/                        [B]   secure key store + local message DB
+└── test/                                [AB]
+
+server/  (separate project, Python)      [B]
+├── relay_server.py                      [B]   relay + key server (draft — see reference/)
+└── test_relay.py                        [B]
+
+RULES
+  - [B] never edits [A] files; [A] never edits [B] files.
+  - [AB] files are the contract — touch them only together.
+  - Integration = one line: the UI swaps FakeMessengerCore() -> RealMessengerCore().
+
+This ZIP mirrors only the core/ handoff files + docs; drop lib/core/*.dart into app/lib/core/.
