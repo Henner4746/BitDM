@@ -1,3 +1,18 @@
+> ## ⚠️ Historischer Übergabestand — überholt seit 2026-07-25
+>
+> Dieses Verzeichnis ist das Starter-Kit, mit dem Person A (Lennard) die Arbeit
+> übergeben hat. Es bleibt als Beleg des Ausgangszustands erhalten, ist aber
+> **nicht mehr maßgeblich**. Alle offenen Punkte sind inzwischen entschieden.
+>
+> **Maßgeblich ist [`../PLAN.md`](../PLAN.md).**
+>
+> Wichtigste Abweichungen:
+> - **„No recovery"** unten ist **ersetzt** durch eine BIP39-Seed-Phrase (12 Wörter).
+> - **Adressformat** ist entschieden: Base32, exakt 56 Zeichen, Anzeige 14×4.
+> - **Auth** nutzt XEdDSA, nicht Ed25519 — libsignal-Schlüssel sind Curve25519.
+> - **Lesebestätigungen / verschwindende Nachrichten** kommen in den Core, aber erst v1.1.
+> - Das Interface ist **nicht mehr eingefroren** (Person A ist raus).
+
 # DECISIONS (v1)
 
 Locked unless renegotiated together. **OPEN** = your call, Person B.

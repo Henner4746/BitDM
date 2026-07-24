@@ -1,3 +1,21 @@
+> ## ⚠️ Historisches Dokument — überholt seit 2026-07-25
+>
+> Dieses Dokument beschreibt die ursprüngliche Aufteilung zwischen zwei Personen.
+> **Person A (Lennard) hat das Projekt verlassen**, nachdem die UI-Gestaltung fertig war.
+> Die hier beschriebene Rollentrennung gilt nicht mehr, und das Interface ist
+> **nicht mehr eingefroren**.
+>
+> **Maßgeblich ist jetzt [`../../PLAN.md`](../../PLAN.md).**
+>
+> Der wichtigste Irrtum hier: Milestone M2 verspricht, es werde „nur **eine
+> Zeile** getauscht". Das ist **widerlegt** — `main.dart`, `data.dart` und
+> `painters.dart` enthalten keine einzige Referenz auf `MessengerCore`. Die
+> Trennung wurde dokumentiert, aber nie verdrahtet; die gesamte Zustandsschicht
+> fehlt. Siehe PLAN.md §6.
+>
+> Aufgehoben bleibt das Dokument, weil es die ursprüngliche Absicht festhält und
+> erklärt, warum der Code so aussieht, wie er aussieht.
+
 # Arbeitsaufteilung — Secure Messenger (2 Personen)
 
 Ziel: Zwei Leute arbeiten **gleichzeitig**, ohne sich zu blockieren. Möglich wird
@@ -46,6 +64,8 @@ Fake-Daten + Fake-Antworten) — so läuft deine App sofort, ganz ohne Krypto.
 - [ ] State-Management (Empfehlung: **Riverpod** oder Provider), Empty-States, Ladeanimationen
 
 **Deine Dateien:** `app/lib/ui/**`, `app/lib/state/**`, `app/assets/**`, `app/pubspec.yaml` (UI-Pakete)
+*(Nachtrag: `lib/ui/` und `lib/state/` wurden nie angelegt — der gesamte UI-Code
+liegt in `lib/main.dart`. Sie entstehen erst beim Umbau in Phase 4.)*
 **Deine Skills:** Flutter/Dart-Widgets, Design, UX. Kein Krypto-Wissen nötig.
 
 ---
@@ -63,7 +83,9 @@ implementierst `MessengerCore` „echt".
 - [ ] **Prekey-Verwaltung**: Bundle beim Start hochladen, nachfüllen, wenn verbraucht
 - [ ] **Server** (liegt schon fertig da → pflegen & deployen):
   - `server/relay_server.py` — Relay + Key-Server *(fertig, getestet)*
-  - Härten: **SQLite-Persistenz**, dann **VPS-Deployment (77.90.4.46) mit TLS/HTTPS**
+  - Härten: **SQLite-Persistenz**, dann **VPS-Deployment mit TLS/HTTPS**
+    *(Nachtrag: Der Client bekommt einen **Hostnamen**, nie die rohe IP —
+    sonst wäre jeder Serverumzug ein Zwangsupdate für alle Nutzer.)*
 - [ ] **Sicherheits-Feature**: „Safety Number"/Fingerprint zum Verifizieren eines Kontakts
 
 **Deine Dateien:** `app/lib/core/**` (außer dem Interface), `server/**`
@@ -121,7 +143,13 @@ secure-messenger/
 | **M3** | Übers Internet | Feinschliff GUI | Server **auf VPS + TLS**, Reconnect stabil |
 | **M4** | Sicher & rund | QR, Verify-Screen | Safety-Numbers, Key-Storage gehärtet, Push |
 
-Bei **M2** wird in der App nur **eine Zeile** getauscht: `MockMessengerCore()` → `RealMessengerCore()`. Das ist der ganze Zauber der Trennung.
+> **Widerlegt.** Der Satz lautete ursprünglich: „Bei M2 wird in der App nur *eine
+> Zeile* getauscht: `MockMessengerCore()` → `RealMessengerCore()`."
+>
+> Diese Zeile existiert nicht. Die UI wurde nie an das Interface angebunden —
+> sie hält ihren Zustand in einem einzigen `StatefulWidget` mit 32 `setState`
+> und fest eingetippten Konstanten in `data.dart`. Der Umbau ist eine eigene
+> Phase, siehe PLAN.md §5 Phase 4.
 
 ---
 

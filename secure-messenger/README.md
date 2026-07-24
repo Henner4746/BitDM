@@ -8,10 +8,11 @@ Schlüssel, und die "lange Nummer" zum Hinzufügen ist dein *öffentlicher* Schl
 
 | | |
 |---|---|
-| **Identität** | X25519-Schlüsselpaar, einmalig auf dem Gerät erzeugt. Privater Schlüssel verlässt das Handy nie. |
-| **Deine ID** | = öffentlicher Schlüssel, als lange ID kodiert (mit Prüfsumme). Das teilst du. |
-| **Kontakt adden** | Du fügst jemanden über seine ID hinzu. Keine Registrierung, keine Nummer. |
-| **Verschlüsselung** | ECDH (X25519) → HKDF → **AES-256-GCM**. Server sieht nur Zeichensalat. |
+| **Identität** | Curve25519-Schlüsselpaar, abgeleitet aus einer **BIP39-Seed-Phrase** (12 Wörter). Privater Schlüssel verlässt das Gerät nie. |
+| **Deine ID** | = öffentlicher Schlüssel als **56-stellige Adresse** (Base32 + 3-Byte-Prüfsumme), angezeigt in 14 Gruppen à 4. Das teilst du. |
+| **Kontakt adden** | Du fügst jemanden über seine Adresse hinzu. Keine Registrierung, keine Nummer. |
+| **Verschlüsselung** | **Signal-Protokoll**: X3DH für den Sitzungsaufbau, Double Ratchet für Forward Secrecy. Server sieht nur Zeichensalat. |
+| **Wiederherstellung** | Neues Gerät: 12 Wörter eingeben → gleiche Identität. Nachrichten kommen **nicht** zurück, nur Identität und Kontakte. |
 
 ## Architektur (3 Teile)
 
@@ -33,17 +34,26 @@ Schlüssel, und die "lange Nummer" zum Hinzufügen ist dein *öffentlicher* Schl
 
 ## Entscheidungen (v1)
 
-- **App:** Flutter (eine Codebasis, cleanes GUI); Krypto via **`libsignal_protocol_dart`** — echtes Signal-Protokoll, **Double Ratchet + Forward Secrecy von Anfang an**.
-- **Server:** Python-Relay auf dem VPS (77.90.4.46).
-- **Umfang v1:** 1:1-Textchat.
+- **App:** Flutter (eine Codebasis, cleanes GUI); Krypto via **`libsignal_protocol_dart` 0.8.2** — echtes Signal-Protokoll, **Double Ratchet + Forward Secrecy von Anfang an**.
+- **Server:** Python-Relay auf dem VPS, erreichbar über **Hostnamen** (nie über die rohe IP — sonst wäre jeder Umzug ein Zwangsupdate).
+- **Umfang v1:** 1:1-Textchat, ein Gerät je Identität.
+- **Lizenz:** **GPL-3.0** — quelloffen ist bei einem Sicherheitsversprechen Voraussetzung, nicht Beiwerk. Vertrieb später über F-Droid *und* Play.
+
+> Vollständiges Entscheidungsprotokoll samt Begründungen, Sicherheitsbefunden und
+> Phasenplan: **[`../PLAN.md`](../PLAN.md)**
 
 ## Roadmap
 
-- [x] **Phase 0** — Krypto-Kern + ID-System (Proof of Concept, Python)
-- [x] **Phase 1** — Relay-/Key-Server (Python, FastAPI + WebSocket): Prekey-Bundles, Auth, Live- & Offline-Zustellung. **Getestet, 4/4 ✅**
-- [ ] **Phase 2** — Flutter-App MVP: Identität erzeugen, ID anzeigen/teilen (QR), Kontakt adden, X3DH + Double Ratchet über libsignal, 1:1-Textchat
-- [ ] **Phase 3** — Cleanes GUI (Chat-Liste, Chat-Screen), Feinschliff
-- [ ] **Phase 4** — Härtung: Server-Persistenz (SQLite), Push-Notifications, Medien, VPS-Deployment mit TLS
+- [x] **Krypto-Kern + ID-System** (Proof of Concept, Python)
+- [x] **UI-Gestaltung** (Lennard) — Screens fertig, aber noch ohne Anbindung an den Core
+- [x] **Relay-/Key-Server gehärtet** — Besitznachweis, XEdDSA, SQLite, Rate-Limits, Queue-Grenzen. **15/15 Tests ✅**
+- [x] **Android-Sicherheitsbefunde** — echter Signaturschlüssel, Auto-Backup aus, Schriften lokal, Versionen gepinnt
+- [ ] **Erste echte Ende-zu-Ende-Nachricht** über den Relay (Seed, libsignal, verschlüsselte DB, WebSocket-Client)
+- [ ] **UI-Umbau** — Zustandsschicht bauen, an den Core hängen; Optik bleibt unangetastet
+- [ ] **Empfangsmodi + Build-Varianten** (F-Droid ohne Google, Play mit FCM)
+- [ ] **Lokaler Modus** — ohne Internet, per Bluetooth finden und Wi-Fi Direct übertragen
+
+Reihenfolge und Begründungen: **[`../PLAN.md`](../PLAN.md) §5**
 
 ## Faktencheck "256 vs. 512 Bit"
 
@@ -62,12 +72,21 @@ py -m pip install cryptography
 py core/crypto_core.py
 ```
 
-Relay-Server + End-to-End-Test:
+Relay-Server + End-to-End-Test (Abhängigkeiten sind exakt gepinnt):
 ```bash
-py -m pip install fastapi uvicorn websockets httpx
+py -m pip install -r server/requirements.txt
+```
+Server starten (in einem eigenen Fenster):
+```bash
 py -m uvicorn relay_server:app --app-dir server --host 127.0.0.1 --port 8099
+```
+Tests laufen lassen:
+```bash
 py server/test_relay.py
 ```
+Geprüft werden nicht nur Registrierung und Zustellung, sondern gezielt die
+Angriffe: Registrierung ohne Besitznachweis, mit falscher Signatur, Überschreiben
+fremder Bundles, Prekey-Drain, übergroße Umschläge, Doppelzustellung.
 
 GUI-Prototyp (**BitDM**, Direction „Nocturne") — lauffähige Web-Umsetzung des Designs.
 UI-only (Mock-Daten, noch keine Krypto), responsive: am Desktop im Handy-Rahmen,
