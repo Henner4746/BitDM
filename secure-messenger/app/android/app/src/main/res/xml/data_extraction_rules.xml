@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+).
+
+  BitDM speichert Identitaetsschluessel, Signal-Sessions und die verschluesselte
+  Nachrichtendatenbank auf dem Geraet. Nichts davon darf das Geraet verlassen —
+  weder in ein Cloud-Backup noch bei einem Geraetewechsel.
+
+  Wiederhergestellt wird eine Identitaet ausschliesslich ueber die
+  BIP39-Seed-Phrase, die der Nutzer selbst notiert hat. Das ist der einzige
+  vorgesehene Weg; ein Backup waere ein zweiter, unkontrollierter.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

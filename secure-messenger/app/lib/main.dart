@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'data.dart';
 import 'painters.dart';
 
@@ -56,13 +55,22 @@ class _HomeState extends State<Home> {
     super.dispose();
   }
 
-  // ---- fonts (google_fonts, with a monospace fallback if unavailable) ----
+  // ---- fonts (bundled locally; the app never fetches them at runtime) ----
+  //
+  // Both families are variable fonts with a `wght` axis, so a single file
+  // covers every weight the UI uses (w300 … w900). `fontWeight` alone does not
+  // drive that axis reliably, so the axis is set explicitly via fontVariations
+  // and `fontWeight` is kept for Flutter's own fallback/metrics handling.
   TextStyle _font(String family, double size, FontWeight weight, Color? color, double? spacing, double height) {
-    try {
-      return GoogleFonts.getFont(family, fontSize: size, fontWeight: weight, color: color, letterSpacing: spacing, height: height);
-    } catch (_) {
-      return TextStyle(fontFamily: 'monospace', fontSize: size, fontWeight: weight, color: color, letterSpacing: spacing, height: height);
-    }
+    return TextStyle(
+      fontFamily: family,
+      fontVariations: [FontVariation('wght', weight.value.toDouble())],
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+      letterSpacing: spacing,
+      height: height,
+    );
   }
   TextStyle doto({double size = 14, FontWeight weight = FontWeight.w400, Color? color, double? spacing, double height = 1.2}) =>
       _font('Doto', size, weight, color, spacing, height);

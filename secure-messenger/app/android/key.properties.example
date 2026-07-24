@@ -1,0 +1,20 @@
+# Vorlage fuer android/key.properties
+#
+# ANLEITUNG
+#   1. Diese Datei kopieren nach:  android/key.properties
+#   2. Werte eintragen (Passwoerter im Klartext — deshalb gitignored)
+#   3. key.properties NIEMALS committen. Bereits in .gitignore eingetragen,
+#      hier zur Sicherheit nochmal erwaehnt.
+#
+# Der Keystore selbst gehoert NICHT ins Repo. Erzeugt wurde er mit:
+#   keytool -genkeypair -v -keystore C:\Users\Henrik\bitdm-release.jks \
+#           -storetype JKS -keyalg RSA -keysize 4096 -validity 10000 -alias bitdm
+#
+# WARNUNG: Keystore-Datei und Passwort sind unersetzbar. Gehen sie verloren,
+# kann fuer BitDM nie wieder ein Update veroeffentlicht werden — Android lehnt
+# Updates mit abweichendem Signaturschluessel ab. Getrennt voneinander sichern.
+
+storeFile=C:\\Users\\Henrik\\bitdm-release.jks
+storePassword=DEIN_KEYSTORE_PASSWORT
+keyAlias=bitdm
+keyPassword=DEIN_SCHLUESSEL_PASSWORT

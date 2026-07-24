@@ -31,10 +31,18 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-  google_fonts: ^6.2.1
+  # Alle Versionen sind EXAKT gepinnt (kein ^), nicht aus Vorsicht, sondern
+  # weil F-Droid reproduzierbare Builds verlangt: derselbe Quellstand muss
+  # bitgleiche Artefakte erzeugen. Caret-Bereiche loesen sich je nach
+  # Aufloesungszeitpunkt unterschiedlich auf und brechen das.
+  cupertino_icons: 1.0.9
+
+  # google_fonts wurde bewusst ENTFERNT: es laedt Schriften zur Laufzeit von
+  # fonts.gstatic.com nach und verraet Google damit bei jedem Kaltstart IP und
+  # Zeitstempel. In einer App ohne Telefonnummer und ohne Username ist das ein
+  # Selbstwiderspruch. Doto und Chivo Mono liegen jetzt unter assets/fonts/.
+  # Nebeneffekt: http, crypto und path_provider waren nur ueber google_fonts
+  # transitiv eingebunden und sind damit ebenfalls verschwunden.
 
 dev_dependencies:
   flutter_test:
@@ -45,7 +53,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^6.0.0
+  flutter_lints: 6.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -57,6 +65,19 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Lokal eingebettete Schriften — die App stellt zur Laufzeit KEINE
+  # Netzwerkanfrage fuer Typografie. Beides sind Variable Fonts mit
+  # wght-Achse, eine Datei deckt daher alle genutzten Schnitte (w300-w900) ab.
+  # Lizenz: SIL Open Font License, siehe assets/fonts/OFL-*.txt
+  # (OFL ist mit GPL-3.0 vereinbar und fuer F-Droid unproblematisch).
+  fonts:
+    - family: Doto
+      fonts:
+        - asset: assets/fonts/Doto.ttf
+    - family: Chivo Mono
+      fonts:
+        - asset: assets/fonts/ChivoMono.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

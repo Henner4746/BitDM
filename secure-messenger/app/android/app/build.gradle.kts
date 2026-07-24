@@ -1,7 +1,29 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// ---------------------------------------------------------------------------
+//  Signaturschluessel
+//
+//  key.properties liegt NICHT im Repo (siehe .gitignore) und enthaelt das
+//  Passwort im Klartext. Vorlage: key.properties.example.
+//
+//  Warum das wichtig ist: Bis hierher wurde der Release-Build mit dem
+//  Android-DEBUG-Schluessel signiert. Der ist auf jedem Rechner mit Android-SDK
+//  identisch (Passwort "android"), d. h. jeder Beliebige kann eine APK bauen,
+//  die Android als gueltiges Update fuer BitDM akzeptiert. Die App-Signatur ist
+//  die aeusserste Vertrauensschicht — ist sie offen, nuetzt die Signal-Krypto
+//  darunter nichts.
+// ---------------------------------------------------------------------------
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+val hasKeystore = keystorePropertiesFile.exists()
+if (hasKeystore) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
 android {
@@ -25,11 +47,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasKeystore) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (hasKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            // Kein Rueckfall auf den Debug-Schluessel. Fehlt key.properties,
+            // bleibt der Build UNSIGNIERT und schlaegt sichtbar fehl — besser
+            // als eine scheinbar fertige Release-APK mit dem oeffentlich
+            // bekannten Debug-Schluessel, die niemandem auffaellt.
         }
     }
 }
