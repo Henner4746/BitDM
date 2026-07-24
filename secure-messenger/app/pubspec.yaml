@@ -37,6 +37,17 @@ dependencies:
   # Aufloesungszeitpunkt unterschiedlich auf und brechen das.
   cupertino_icons: 1.0.9
 
+  # Krypto-Primitive: HKDF, PBKDF2, SHA-256, X25519.
+  # Verifizierter Publisher (dint.dev), ~471k Downloads/Woche.
+  #
+  # BIP39 selbst ist BEWUSST nicht als Paket eingebunden: das gaengige `bip39`
+  # ist fuenf Jahre alt und stammt von einem unverifizierten Uploader. Es sitzt
+  # aber an der Wurzel saemtlicher Schluessel. BIP39 ist ohnehin kein
+  # Krypto-Primitiv, sondern eine Kodierung ueber PBKDF2 — die riskanten Teile
+  # kommen aus diesem Paket, der Rest liegt in lib/core/crypto/bip39.dart und
+  # ist gegen die offiziellen Testvektoren geprueft.
+  cryptography: 2.9.0
+
   # google_fonts wurde bewusst ENTFERNT: es laedt Schriften zur Laufzeit von
   # fonts.gstatic.com nach und verraet Google damit bei jedem Kaltstart IP und
   # Zeitstempel. In einer App ohne Telefonnummer und ohne Username ist das ein
