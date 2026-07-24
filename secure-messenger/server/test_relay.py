@@ -1,12 +1,17 @@
 """
-test_relay.py  --  automatischer End-to-End-Test fuer den Relay-Server.
+test_relay.py  --  End-to-End-Test fuer den BitDM-Relay-Server.
 
-Spielt zwei echte Nutzer (Alice & Bob) ueber echte Netzwerk-Sockets durch:
-  Test 1: beide online  -> Nachricht kommt sofort an.
-  Test 2: Empfaenger offline -> Nachricht wird gepuffert und beim Reconnect zugestellt.
+Spielt echte Nutzer ueber echte Netzwerk-Sockets durch. Der "Ciphertext" ist ein
+Platzhalter-Blob — getestet wird der SERVER, nicht die App-Krypto.
 
-Der "Ciphertext" ist hier ein Platzhalter-Blob -- getestet wird der SERVER
-(Registrierung, Prekey-Ausgabe, Auth, Weiterleitung), nicht die App-Krypto.
+Neben dem Normalbetrieb werden gezielt die Angriffe geprueft, gegen die der
+Server gehaertet wurde:
+  S2  fremdes Bundle ueberschreiben, Registrierung ohne/mit falschem Nachweis
+  S4  uebergrosser Ciphertext
+      One-Time-Prekeys duerfen nur genau einmal ausgegeben werden
+
+Start des Servers vorher:
+    py -m uvicorn relay_server:app --app-dir server --host 127.0.0.1 --port 8099
 """
 
 import asyncio
@@ -17,7 +22,8 @@ import os
 
 import httpx
 import websockets
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from xeddsa.bindings import (ed25519_priv_sign, priv_force_sign,
+                             priv_to_curve25519_pub)
 
 BASE = "http://127.0.0.1:8099"
 WS = "ws://127.0.0.1:8099/ws"
@@ -28,23 +34,62 @@ def b64(b: bytes) -> str:
 
 
 def encode_id(public_key_bytes: bytes) -> str:
-    checksum = hashlib.sha256(public_key_bytes).digest()[:2]
-    return base64.b32encode(public_key_bytes + checksum).decode().rstrip("=").lower()
+    """Muss exakt der Serverfunktion entsprechen: 56 Zeichen, 3-Byte-Pruefsumme."""
+    checksum = hashlib.sha256(public_key_bytes).digest()[:3]
+    return base64.b32encode(public_key_bytes + checksum).decode("ascii").lower()
 
 
-def make_user():
-    priv = Ed25519PrivateKey.generate()
-    pub = priv.public_key().public_bytes_raw()
-    user_id = encode_id(pub)
+def sign(priv: bytes, msg: bytes) -> bytes:
+    """XEdDSA — so signiert auch libsignals Curve.calculateSignature."""
+    return ed25519_priv_sign(priv_force_sign(priv, False), msg)
+
+
+def canonical_bytes(bundle: dict) -> bytes:
+    """Muss exakt PreKeyBundle.canonical_bytes() im Server entsprechen."""
+    payload = {
+        "user_id": bundle["user_id"],
+        "identity_key": bundle["identity_key"],
+        "signed_prekey_id": bundle["signed_prekey_id"],
+        "signed_prekey": bundle["signed_prekey"],
+        "signed_prekey_sig": bundle["signed_prekey_sig"],
+        "one_time_prekeys": sorted(
+            ([k["key_id"], k["public_key"]] for k in bundle["one_time_prekeys"]),
+            key=lambda x: x[0],
+        ),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+
+def make_user(n_otk: int = 5):
+    priv = os.urandom(32)
+    pub = priv_to_curve25519_pub(priv)
     bundle = {
-        "user_id": user_id,
+        "user_id": encode_id(pub),
         "identity_key": b64(pub),
         "signed_prekey_id": 1,
-        "signed_prekey": b64(os.urandom(32)),       # Platzhalter (echte Werte: libsignal)
+        "signed_prekey": b64(os.urandom(32)),        # Platzhalter (echt: libsignal)
         "signed_prekey_sig": b64(os.urandom(64)),
-        "one_time_prekeys": [{"key_id": i, "public_key": b64(os.urandom(32))} for i in range(5)],
+        "one_time_prekeys": [
+            {"key_id": i, "public_key": b64(os.urandom(32))} for i in range(n_otk)
+        ],
     }
-    return {"priv": priv, "user_id": user_id, "bundle": bundle}
+    return {"priv": priv, "user_id": bundle["user_id"], "bundle": bundle}
+
+
+async def register(http, user, *, signer_priv=None, skip_challenge=False):
+    """Registrierung mit Besitznachweis. signer_priv erlaubt es, absichtlich
+    mit dem falschen Schluessel zu signieren."""
+    bundle = user["bundle"]
+    if skip_challenge:
+        return await http.post(f"{BASE}/register",
+                               json={"bundle": bundle, "signature": b64(os.urandom(64))})
+
+    chal = await http.post(f"{BASE}/register/challenge", json={"user_id": bundle["user_id"]})
+    nonce = base64.b64decode(chal.json()["nonce"])
+    message = nonce + hashlib.sha256(canonical_bytes(bundle)).digest()
+    signature = sign(signer_priv or user["priv"], message)
+    return await http.post(f"{BASE}/register",
+                           json={"bundle": bundle, "signature": b64(signature)})
 
 
 async def connect_authed(user):
@@ -53,74 +98,160 @@ async def connect_authed(user):
     challenge = json.loads(await ws.recv())
     assert challenge["type"] == "challenge"
     nonce = base64.b64decode(challenge["nonce"])
-    signature = user["priv"].sign(nonce)
-    await ws.send(json.dumps({"signature": b64(signature)}))
+    await ws.send(json.dumps({"signature": b64(sign(user["priv"], nonce))}))
     result = json.loads(await ws.recv())
     assert result.get("ok") is True, "Auth fehlgeschlagen"
     return ws
 
 
+async def expect(ws, wanted_type, timeout=5):
+    """Liest, bis eine Nachricht des gewuenschten Typs kommt.
+
+    Noetig, weil der Server auch unaufgefordert sendet — direkt nach der Auth
+    z. B. `prekeys_low`, und nach jedem Versand ein `ack`. Ohne dieses
+    Ueberspringen liest ein Test die Antwort auf die falsche Anfrage.
+    """
+    while True:
+        msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
+        if msg.get("type") == wanted_type:
+            return msg
+
+
 async def main():
     passed = []
 
-    async with httpx.AsyncClient() as http:
+    def check(name, ok):
+        passed.append((name, bool(ok)))
+
+    async with httpx.AsyncClient(timeout=10) as http:
         alice, bob = make_user(), make_user()
 
-        # ---- Registrierung ----
-        r1 = await http.post(f"{BASE}/register", json=alice["bundle"])
-        r2 = await http.post(f"{BASE}/register", json=bob["bundle"])
-        assert r1.json()["ok"] and r2.json()["ok"]
-        print(f"[i] Alice ID: {alice['user_id'][:24]}...")
-        print(f"[i] Bob   ID: {bob['user_id'][:24]}...")
+        # ---------------------------------------------------- Grundfunktionen
+        check("Adresse ist 56 Zeichen", len(alice["user_id"]) == 56)
 
-        # ---- Alice holt Bobs Prekey-Bundle (X3DH-Vorbereitung) ----
+        r1 = await register(http, alice)
+        r2 = await register(http, bob)
+        check("Registrierung mit Besitznachweis", r1.status_code == 200 and r2.status_code == 200)
+
         pk = (await http.get(f"{BASE}/prekey/{bob['user_id']}")).json()
-        ok_prekey = pk["identity_key"] == bob["bundle"]["identity_key"] and pk["one_time_prekey"] is not None
-        passed.append(("Prekey-Bundle abrufen", ok_prekey))
+        check("Prekey-Bundle abrufen",
+              pk["identity_key"] == bob["bundle"]["identity_key"]
+              and pk["one_time_prekey"] is not None)
 
-        # ---- Test 1: beide online ----
+        # One-Time-Prekeys duerfen nie doppelt vergeben werden
+        seen = {pk["one_time_prekey"]["key_id"]}
+        dup = False
+        for _ in range(4):
+            got = (await http.get(f"{BASE}/prekey/{bob['user_id']}")).json()["one_time_prekey"]
+            if got is None:
+                break
+            if got["key_id"] in seen:
+                dup = True
+            seen.add(got["key_id"])
+        check("One-Time-Prekey nur einmal vergeben", not dup)
+
+        # ------------------------------------- S3: Prekey-Drain laeuft ins Leere
+        # Opfer mit vielen Prekeys; ein Angreifer versucht, den Pool zu leeren.
+        victim = make_user(n_otk=60)
+        await register(http, victim)
+        handed_out = 0
+        for _ in range(40):
+            got = (await http.get(f"{BASE}/prekey/{victim['user_id']}")).json()
+            if got["one_time_prekey"] is not None:
+                handed_out += 1
+        # Das Bundle bleibt weiterhin abrufbar (Sitzungsaufbau bleibt moeglich),
+        # aber die Zahl ausgegebener One-Time-Prekeys ist gedeckelt.
+        still_reachable = (await http.get(f"{BASE}/prekey/{victim['user_id']}")).status_code
+        check("S3: Prekey-Drain gedeckelt", handed_out <= 12)
+        check("S3: Bundle trotz Drosselung erreichbar", still_reachable == 200)
+
+        # ------------------------------------------------------- S2: Angriffe
+        mallory = make_user()
+
+        # (a) Registrierung ohne vorherige Challenge
+        r = await register(http, mallory, skip_challenge=True)
+        check("S2: Registrierung ohne Nonce abgelehnt", r.status_code == 401)
+
+        # (b) Richtiges Nonce, aber mit fremdem Schluessel signiert
+        r = await register(http, mallory, signer_priv=os.urandom(32))
+        check("S2: falsche Signatur abgelehnt", r.status_code == 403)
+
+        # (c) Angreifer will Alices Bundle mit eigenen Prekeys ueberschreiben
+        forged = {
+            "priv": mallory["priv"],
+            "user_id": alice["user_id"],
+            "bundle": {**alice["bundle"],
+                       "one_time_prekeys": [{"key_id": 99, "public_key": b64(os.urandom(32))}]},
+        }
+        r = await register(http, forged)          # signiert mit Mallorys Schluessel
+        check("S2: fremdes Bundle ueberschreiben abgelehnt", r.status_code == 403)
+
+        # ------------------------------------------------------ Zustellung
         bob_ws = await connect_authed(bob)
         alice_ws = await connect_authed(alice)
+
         secret_ct = b64(b"<verschluesselter-blob-1>")
-        await alice_ws.send(json.dumps({"type": "message", "to": bob["user_id"], "ciphertext": secret_ct}))
-        await alice_ws.recv()  # ack
-        msg = json.loads(await asyncio.wait_for(bob_ws.recv(), timeout=5))
-        ok_online = msg["type"] == "message" and msg["from"] == alice["user_id"] and msg["ciphertext"] == secret_ct
-        passed.append(("Live-Zustellung (beide online)", ok_online))
+        await alice_ws.send(json.dumps(
+            {"type": "message", "to": bob["user_id"], "ciphertext": secret_ct}))
+        msg = await expect(bob_ws, "message")
+        check("Live-Zustellung (beide online)",
+              msg["from"] == alice["user_id"] and msg["ciphertext"] == secret_ct)
 
-        # ---- Test 2: Empfaenger offline -> puffern -> Reconnect ----
         await bob_ws.close()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)
         offline_ct = b64(b"<verschluesselter-blob-2>")
-        await alice_ws.send(json.dumps({"type": "message", "to": bob["user_id"], "ciphertext": offline_ct}))
-        await alice_ws.recv()  # ack
+        await alice_ws.send(json.dumps(
+            {"type": "message", "to": bob["user_id"], "ciphertext": offline_ct}))
         bob_ws2 = await connect_authed(bob)
-        queued = json.loads(await asyncio.wait_for(bob_ws2.recv(), timeout=5))
-        ok_offline = queued["type"] == "message" and queued["ciphertext"] == offline_ct
-        passed.append(("Offline-Zustellung (gepuffert)", ok_offline))
+        queued = await expect(bob_ws2, "message")
+        check("Offline-Zustellung (gepuffert)", queued["ciphertext"] == offline_ct)
 
-        # ---- Test 3: Auth mit falscher Signatur muss scheitern ----
+        # Nach Zustellung muss die Warteschlange leer sein (keine Doppel-Zustellung)
+        await bob_ws2.close()
+        await asyncio.sleep(0.3)
+        bob_ws3 = await connect_authed(bob)
+        try:
+            again = await expect(bob_ws3, "message", timeout=1.5)
+            check("Zugestellte Nachricht wird geloescht", False)
+        except asyncio.TimeoutError:
+            check("Zugestellte Nachricht wird geloescht", True)
+
+        # -------------------------------------------------------- S4: Groesse
+        huge = b64(os.urandom(128 * 1024))        # > 64 KiB Grenze
+        await alice_ws.send(json.dumps(
+            {"type": "message", "to": bob["user_id"], "ciphertext": huge}))
+        resp = await expect(alice_ws, "error")
+        check("S4: uebergrosser Ciphertext abgelehnt", "gross" in resp.get("reason", ""))
+
+        # Ungueltige Zieladresse
+        await alice_ws.send(json.dumps(
+            {"type": "message", "to": "keine-gueltige-adresse", "ciphertext": secret_ct}))
+        resp = await expect(alice_ws, "error")
+        check("Ungueltige Zieladresse abgelehnt", "Zieladresse" in resp.get("reason", ""))
+
+        # ------------------------------------------------ WS-Auth mit Muell
         ok_authfail = False
         try:
-            bad_ws = await websockets.connect(f"{WS}?user_id={alice['user_id']}")
-            json.loads(await bad_ws.recv())  # challenge
-            await bad_ws.send(json.dumps({"signature": b64(os.urandom(64))}))  # Muell
-            res = json.loads(await bad_ws.recv())
+            bad = await websockets.connect(f"{WS}?user_id={alice['user_id']}")
+            json.loads(await bad.recv())                       # challenge
+            await bad.send(json.dumps({"signature": b64(os.urandom(64))}))
+            res = json.loads(await bad.recv())
             ok_authfail = res.get("ok") is False
-            await bad_ws.close()
+            await bad.close()
         except Exception:
             ok_authfail = True
-        passed.append(("Falsche Signatur wird abgelehnt", ok_authfail))
+        check("Falsche WS-Signatur wird abgelehnt", ok_authfail)
 
         await alice_ws.close()
-        await bob_ws2.close()
+        await bob_ws3.close()
 
     print("\n=== Ergebnis ===")
     for name, ok in passed:
         print(f"  [{'PASS' if ok else 'FAIL'}]  {name}")
-    all_ok = all(ok for _, ok in passed)
-    print(f"\n{'ALLE TESTS BESTANDEN' if all_ok else 'ES GAB FEHLER'} ({sum(ok for _, ok in passed)}/{len(passed)})")
-    return 0 if all_ok else 1
+    n_ok = sum(ok for _, ok in passed)
+    print(f"\n{'ALLE TESTS BESTANDEN' if n_ok == len(passed) else 'ES GAB FEHLER'} "
+          f"({n_ok}/{len(passed)})")
+    return 0 if n_ok == len(passed) else 1
 
 
 if __name__ == "__main__":
