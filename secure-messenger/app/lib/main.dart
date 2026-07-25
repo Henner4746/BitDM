@@ -62,7 +62,7 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<Home> {
+class _HomeState extends State<Home> with WidgetsBindingObserver {
   String screen = 'onboard';
   String? chat;
   bool reqSent = false, sheet = false, panic = false, wiped = false, copied = false;
@@ -75,6 +75,10 @@ class _HomeState extends State<Home> {
   @override
   void initState() {
     super.initState();
+    // Der Kern verbindet nur nach, solange die App sichtbar ist. Im
+    // Hintergrund weiterzuprobieren waere der schnellste Weg, den Akku zu
+    // leeren; das gehoert an den Vordergrunddienst, den es noch nicht gibt.
+    WidgetsBinding.instance.addObserver(this);
     st.addListener(_aktualisiere);
     st.boot().then((_) {
       if (!mounted) return;
@@ -85,6 +89,11 @@ class _HomeState extends State<Home> {
 
   void _aktualisiere() {
     if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState zustand) {
+    st.vordergrund(zustand == AppLifecycleState.resumed);
   }
 
   String lang = 'en', mode = 'dark';
@@ -102,6 +111,7 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     st.removeListener(_aktualisiere);
     draftCtl.dispose();
     addCtl.dispose();

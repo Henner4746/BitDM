@@ -11,6 +11,7 @@
 // Kern und wird dort geprueft.
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -44,6 +45,7 @@ class AppState extends ChangeNotifier {
   String? letzterFehler;
 
   final _abos = <StreamSubscription<Object?>>[];
+  final _zufall = Random();
 
   Future<void> boot() async {
     hatIdentitaet = await core.initialize();
@@ -61,11 +63,80 @@ class AppState extends ChangeNotifier {
     unawaited(core.connect());
   }
 
+  // ═══════════════════════════════════════════════════════ Wiederverbinden
+  //
+  // BEWUSST NUR IM VORDERGRUND. Solange die App sichtbar ist, wartet ein
+  // Mensch auf seine Nachricht — da lohnt jeder Versuch. Im Hintergrund
+  // weiterzuprobieren waere dagegen der schnellste Weg, den Akku zu leeren,
+  // und gehoert an den Vordergrunddienst, den es noch nicht gibt.
+  //
+  // Ohne das hier faellt die App beim ersten Funkloch stumm und kommt nie
+  // zurueck: RelayClient meldet den Abbruch und ueberlaesst die Entscheidung
+  // ausdruecklich dieser Schicht.
+
+  Timer? _wiederverbindung;
+  int _fehlversuche = 0;
+  bool _imVordergrund = true;
+
+  /// Groesster Abstand zwischen zwei Versuchen.
+  ///
+  /// 30 Sekunden und nicht mehr: wer die App offen hat, soll nicht minutenlang
+  /// auf eine Verbindung warten, die laengst wieder da waere.
+  static const Duration maxAbstand = Duration(seconds: 30);
+
+  /// Wird von der Oberflaeche gemeldet, wenn die App in den Vorder- oder
+  /// Hintergrund geht.
+  void vordergrund(bool sichtbar) {
+    if (_imVordergrund == sichtbar) return;
+    _imVordergrund = sichtbar;
+    if (sichtbar) {
+      _fehlversuche = 0;
+      if (verbindung != ConnectionState.online) unawaited(_versucheVerbindung());
+    } else {
+      _wiederverbindung?.cancel();
+      _wiederverbindung = null;
+    }
+  }
+
+  Future<void> _versucheVerbindung() async {
+    _wiederverbindung?.cancel();
+    _wiederverbindung = null;
+    if (!hatIdentitaet || !_imVordergrund) return;
+    await core.connect();
+  }
+
+  void _planeWiederverbindung() {
+    if (!_imVordergrund || _wiederverbindung != null) return;
+
+    // Verdoppeln mit Zufallsanteil. Der Zufall ist nicht Zierrat: ohne ihn
+    // kaemen nach einem Ausfall des Relays alle Clients gleichzeitig zurueck
+    // und legten ihn erneut lahm.
+    final stufe = _fehlversuche.clamp(0, 5);
+    final basis = Duration(seconds: 1 << stufe);
+    final gedeckelt = basis > maxAbstand ? maxAbstand : basis;
+    final streuung = Duration(
+        milliseconds: _zufall.nextInt(gedeckelt.inMilliseconds ~/ 2 + 1));
+    _fehlversuche++;
+
+    _wiederverbindung = Timer(gedeckelt + streuung, () {
+      _wiederverbindung = null;
+      unawaited(_versucheVerbindung());
+    });
+  }
+
   void _hoereZu() {
     if (_abos.isNotEmpty) return;
     _abos
       ..add(core.connectionStateChanges.listen((s) {
         verbindung = s;
+        if (s == ConnectionState.online) {
+          _fehlversuche = 0;
+          _wiederverbindung?.cancel();
+          _wiederverbindung = null;
+        } else if (s == ConnectionState.disconnected ||
+            s == ConnectionState.error) {
+          _planeWiederverbindung();
+        }
         notifyListeners();
       }))
       ..add(core.incomingMessages.listen((m) {
@@ -193,6 +264,8 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _wiederverbindung?.cancel();
+    _wiederverbindung = null;
     for (final a in _abos) {
       unawaited(a.cancel());
     }
