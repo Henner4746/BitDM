@@ -21,6 +21,30 @@
     <uses-feature android:name="android.hardware.nfc" android:required="false"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
+    <!-- Die Kamera-Bibliothek traegt "camera.any" OHNE required="false" ein.
+         Beim Zusammenfuehren der Manifeste bleibt es dann erforderlich, und
+         der Play Store blendet die App auf jedem Geraet ohne Kamera aus —
+         wegen einer Funktion, die hier nur zum QR-Scannen dient und die es
+         auch ohne gibt (Adresse einfuegen).
+
+         tools:replace ueberschreibt den Eintrag der Bibliothek. Ohne diese
+         Zeile faellt es erst auf, wenn jemand die App im Store nicht findet
+         und niemand weiss, warum. -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false"
+        tools:replace="android:required"/>
+
+    <!-- Ein Sicherheitsschluessel laesst sich auch EINSTECKEN. Dafuer braucht
+         es keine Berechtigung: den Zugriff auf ein einzelnes USB-Geraet gibt
+         der Nutzer im Systemdialog frei, und nur fuer dieses eine Geraet.
+         Diese Angabe sagt nur, dass die App USB-Geraete bedienen KANN.
+
+         required=false, weil viele Telefone keinen USB-Host koennen — dort
+         bleibt der Weg ueber NFC. Ohne das schliesst der Play Store sie
+         aus. -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false"/>
+
     <!-- ══════════════════════════════════════════════════════════════════
          AUSDRUECKLICH ENTFERNT, was die Kamera-Bibliothek mitbringt.
 
