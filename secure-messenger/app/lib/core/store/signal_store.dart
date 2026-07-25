@@ -29,6 +29,48 @@ import '../crypto/signal_identity.dart';
 /// das, um gezielt zu schreiben statt alles.
 enum StoreSection { identity, preKey, signedPreKey, session }
 
+/// Was seit dem letzten Festschreiben angefasst wurde — nicht nur WELCHER
+/// Speicher, sondern WELCHE Eintraege.
+///
+/// Der Unterschied ist keine Feinheit. Wuerde beim Empfang einer Nachricht der
+/// ganze Sitzungsbereich neu geschrieben, waeren das bei 100 Kontakten rund
+/// 100 Datensaetze fuer eine einzige geaenderte Sitzung — bei jeder Nachricht,
+/// auf dem Flash-Speicher eines Telefons. Mit den einzelnen Schluesseln wird
+/// genau eine Zeile angefasst.
+///
+/// Ein aufgefuehrter Schluessel bedeutet "hat sich geaendert", nicht
+/// "existiert". Ob geschrieben oder geloescht werden muss, ergibt sich beim
+/// Festschreiben daraus, ob er im Zustand noch vorkommt. Damit sind Anlegen und
+/// Loeschen derselbe Fall.
+class StoreDelta {
+  final Set<String> identities = <String>{};
+  final Set<int> preKeys = <int>{};
+  final Set<int> signedPreKeys = <int>{};
+  final Set<String> sessions = <String>{};
+
+  bool get isEmpty =>
+      identities.isEmpty &&
+      preKeys.isEmpty &&
+      signedPreKeys.isEmpty &&
+      sessions.isEmpty;
+
+  bool get isNotEmpty => !isEmpty;
+
+  Set<StoreSection> get sections => {
+        if (identities.isNotEmpty) StoreSection.identity,
+        if (preKeys.isNotEmpty) StoreSection.preKey,
+        if (signedPreKeys.isNotEmpty) StoreSection.signedPreKey,
+        if (sessions.isNotEmpty) StoreSection.session,
+      };
+
+  void clear() {
+    identities.clear();
+    preKeys.clear();
+    signedPreKeys.clear();
+    sessions.clear();
+  }
+}
+
 /// Zustand aller vier Speicher im Arbeitsspeicher.
 ///
 /// Bewusst eine eigene Klasse und nicht vier lose Maps: die Transaktion oben
@@ -86,21 +128,30 @@ class BitdmSignalStore implements SignalProtocolStore {
 
   final SignalIdentity _identity;
   final SignalStoreState _state;
-  final Set<StoreSection> _dirty = <StoreSection>{};
+  final StoreDelta _delta = StoreDelta();
 
   /// Welche Bereiche seit dem letzten Festschreiben veraendert wurden.
-  Set<StoreSection> get dirtySections => Set.unmodifiable(_dirty);
+  Set<StoreSection> get dirtySections => _delta.sections;
+
+  /// Welche EINZELNEN Eintraege veraendert wurden.
+  StoreDelta get delta => _delta;
 
   /// Ob ueberhaupt etwas zu schreiben waere.
-  bool get isDirty => _dirty.isNotEmpty;
+  bool get isDirty => _delta.isNotEmpty;
 
   /// Der aktuelle Zustand — fuer die Schicht, die ihn festschreibt.
   SignalStoreState get state => _state;
 
-  /// Nach erfolgreichem Festschreiben aufzurufen.
-  void markClean() => _dirty.clear();
+  /// Die eigene Identitaet. Sie kommt aus der Seed-Phrase und aendert sich nie.
+  SignalIdentity get identity => _identity;
 
-  void _touch(StoreSection s) => _dirty.add(s);
+  /// Nach erfolgreichem Festschreiben aufzurufen.
+  ///
+  /// Ausdruecklich getrennt vom Schreiben selbst: schlaegt die Transaktion
+  /// fehl, bleibt der Merkzettel stehen und der naechste Versuch schreibt
+  /// wieder alles Offene. Wuerde hier zu frueh geleert, gingen die Aenderungen
+  /// still verloren.
+  void markClean() => _delta.clear();
 
   // ══════════════════════════════════════════════ IdentityKeyStore
 
@@ -165,7 +216,7 @@ class BitdmSignalStore implements SignalProtocolStore {
       return false; // unveraendert
     }
     _state.identities[name] = serialized;
-    _touch(StoreSection.identity);
+    _delta.identities.add(name);
     return true; // neu oder geaendert
   }
 
@@ -203,7 +254,7 @@ class BitdmSignalStore implements SignalProtocolStore {
   @override
   Future<void> storePreKey(int preKeyId, PreKeyRecord record) async {
     _state.preKeys[preKeyId] = record.serialize();
-    _touch(StoreSection.preKey);
+    _delta.preKeys.add(preKeyId);
   }
 
   @override
@@ -213,7 +264,7 @@ class BitdmSignalStore implements SignalProtocolStore {
   @override
   Future<void> removePreKey(int preKeyId) async {
     if (_state.preKeys.remove(preKeyId) != null) {
-      _touch(StoreSection.preKey);
+      _delta.preKeys.add(preKeyId);
     }
   }
 
@@ -245,7 +296,7 @@ class BitdmSignalStore implements SignalProtocolStore {
   Future<void> storeSignedPreKey(
       int signedPreKeyId, SignedPreKeyRecord record) async {
     _state.signedPreKeys[signedPreKeyId] = record.serialize();
-    _touch(StoreSection.signedPreKey);
+    _delta.signedPreKeys.add(signedPreKeyId);
   }
 
   @override
@@ -255,7 +306,7 @@ class BitdmSignalStore implements SignalProtocolStore {
   @override
   Future<void> removeSignedPreKey(int signedPreKeyId) async {
     if (_state.signedPreKeys.remove(signedPreKeyId) != null) {
-      _touch(StoreSection.signedPreKey);
+      _delta.signedPreKeys.add(signedPreKeyId);
     }
   }
 
@@ -276,7 +327,7 @@ class BitdmSignalStore implements SignalProtocolStore {
   Future<void> storeSession(
       SignalProtocolAddress address, SessionRecord record) async {
     _state.sessions[address.toString()] = record.serialize();
-    _touch(StoreSection.session);
+    _delta.sessions.add(address.toString());
   }
 
   @override
@@ -286,7 +337,7 @@ class BitdmSignalStore implements SignalProtocolStore {
   @override
   Future<void> deleteSession(SignalProtocolAddress address) async {
     if (_state.sessions.remove(address.toString()) != null) {
-      _touch(StoreSection.session);
+      _delta.sessions.add(address.toString());
     }
   }
 
@@ -296,8 +347,8 @@ class BitdmSignalStore implements SignalProtocolStore {
         _state.sessions.keys.where((k) => _nameOf(k) == name).toList();
     for (final k in treffer) {
       _state.sessions.remove(k);
+      _delta.sessions.add(k);
     }
-    if (treffer.isNotEmpty) _touch(StoreSection.session);
   }
 
   @override

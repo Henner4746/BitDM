@@ -1,0 +1,337 @@
+// encrypted_database.dart — die verschluesselte lokale Datenbank.
+//
+// Alles, was BitDM auf dem Geraet behaelt, liegt in dieser einen Datei:
+// Sitzungen, Prekeys, Identitaeten und spaeter die Nachrichten selbst. Die
+// Datei ist als Ganzes verschluesselt, nicht bloss ihre Inhalte — wer sie in
+// die Hand bekommt, sieht nicht einmal, wie viele Kontakte es gibt.
+//
+// Der Schluessel kommt NICHT aus einem Passwort, sondern aus der Seed-Phrase
+// (KeyDerivation, Label "bitdm database key v1"). Er hat volle Entropie.
+// Deshalb wird er als Rohschluessel uebergeben und nicht durch eine
+// Schluesselableitung geschickt: eine KDF haerten nur schwache Eingaben, und
+// wir haben keine schwache Eingabe. Gemessen macht das beim Oeffnen den
+// Unterschied zwischen 27 ms und 0,8 ms — auf einem Telefon bei jedem
+// Kaltstart.
+
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:sqlite3/sqlite3.dart';
+
+/// Wird geworfen, wenn die geladene SQLite-Bibliothek gar nicht verschluesseln
+/// kann.
+///
+/// Das ist der gefaehrlichste denkbare Fehler dieser Datei, weil er sich
+/// ANDERNFALLS NICHT BEMERKBAR MACHT: gewoehnliches SQLite ignoriert unbekannte
+/// PRAGMAs stillschweigend. `PRAGMA key` liefe ohne Fehler durch, jede Abfrage
+/// funktionierte, und die Datenbank laege im Klartext auf dem Geraet.
+class DatabaseNotEncryptedException implements Exception {
+  const DatabaseNotEncryptedException();
+  @override
+  String toString() => 'DatabaseNotEncryptedException: die geladene '
+      'SQLite-Bibliothek kennt keine Verschluesselung (PRAGMA cipher leer). '
+      'Steht in pubspec.yaml unter hooks/user_defines/sqlite3 noch '
+      'source: sqlite3mc?';
+}
+
+/// Wird geworfen, wenn sich die Datenbank nicht aufschliessen laesst.
+///
+/// Bewusst ohne die urspruengliche Meldung: SqliteException haengt an jeden
+/// Fehler die ausloesende Anweisung an — und die ausloesende Anweisung ist hier
+/// `PRAGMA key = "x'...'"`. Diese Meldung landet sonst in Protokollen und
+/// Absturzberichten und traegt den Datenbankschluessel mit sich.
+class DatabaseUnlockException implements Exception {
+  final String hinweis;
+  const DatabaseUnlockException(this.hinweis);
+  @override
+  String toString() => 'DatabaseUnlockException: $hinweis';
+}
+
+/// Wird geworfen, wenn seit dem Laden jemand anderes geschrieben hat.
+///
+/// Siehe [EncryptedDatabase.transaction]. Der Fall ist kein Sperrkonflikt —
+/// SQLite regelt Sperren selbst — sondern ein Zustand im Arbeitsspeicher, der
+/// nicht mehr zur Datei passt.
+class StaleStateException implements Exception {
+  final int erwartet;
+  final int gefunden;
+  const StaleStateException(this.erwartet, this.gefunden);
+  @override
+  String toString() => 'StaleStateException: erwartete Stand $erwartet, '
+      'gefunden $gefunden — der Zustand im Arbeitsspeicher ist veraltet';
+}
+
+class EncryptedDatabase {
+  EncryptedDatabase._(this._db, this.pfad, this._generation);
+
+  final Database _db;
+  final String pfad;
+  int _generation;
+
+  /// Aktueller Schreibstand der Datei. Siehe [transaction].
+  int get generation => _generation;
+
+  Database get raw => _db;
+
+  /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
+  static const int schemaVersion = 1;
+
+  /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
+  ///
+  /// Gegen ZWEI Isolate hilft das nicht — die teilen keinen Speicher. Dafuer
+  /// ist der Standzaehler in [transaction] da.
+  static final Set<String> _offen = <String>{};
+
+  /// Oeffnet die Datenbank und schliesst sie mit [databaseKey] auf.
+  ///
+  /// [databaseKey] sind die 32 Bytes aus KeyDerivation. Eine Passphrase ist
+  /// hier nicht vorgesehen.
+  static EncryptedDatabase open(String pfad, Uint8List databaseKey) {
+    if (databaseKey.length != 32) {
+      throw ArgumentError('Datenbankschluessel muss 32 Bytes haben, '
+          'hat ${databaseKey.length}');
+    }
+    final absolut = File(pfad).absolute.path;
+    if (!_offen.add(absolut)) {
+      throw StateError('Datenbank ist in diesem Isolate bereits offen: $absolut');
+    }
+
+    Database? db;
+    try {
+      db = sqlite3.open(pfad);
+
+      // Der Verschluesselungsteil MUSS vor allem anderen kommen. Sobald
+      // irgendetwas die Datei liest, ist es zu spaet.
+      _entsperren(db, databaseKey);
+      _pruefeVerschluesselung(db);
+      _pruefeSchluessel(db);
+      _grundeinstellungen(db);
+      final generation = _schemaAnlegen(db);
+
+      return EncryptedDatabase._(db, absolut, generation);
+    } catch (_) {
+      db?.close();
+      _offen.remove(absolut);
+      rethrow;
+    }
+  }
+
+  static void _entsperren(Database db, Uint8List key) {
+    // Das Verfahren wird ausdruecklich festgenagelt statt dem Standard
+    // ueberlassen. sqlite3mc kennt mehrere (chacha20, aes256cbc, sqlcipher,
+    // ...) und waehlt eines davon als Standard. Aendert eine kuenftige Fassung
+    // diesen Standard, liesse sich jede bestehende Datenbank nach einem
+    // App-Update nicht mehr oeffnen — geprueft: mit dem falschen Verfahren
+    // meldet SQLite "file is not a database".
+    //
+    // chacha20 ist hier ChaCha20-Poly1305. Auf Telefonen ohne
+    // AES-Hardwarebefehle ist es deutlich schneller als AES, und die gibt es
+    // im Zielbereich ab minSdk 24 durchaus noch.
+    const cipher = 'chacha20';
+
+    // x'...' uebergibt den Schluessel roh. Ohne die x'...'-Schreibweise gaelte
+    // die Zeichenkette als Passphrase und liefe durch eine KDF — sinnlose
+    // Arbeit bei einem Schluessel mit voller Entropie.
+    final hex = _hex(key);
+    try {
+      db.execute("PRAGMA cipher = '$cipher'");
+      db.execute('PRAGMA key = "x\'$hex\'"');
+    } on SqliteException catch (e) {
+      // Die Meldung von SqliteException traegt die ausloesende Anweisung —
+      // also den Schluessel. Sie darf hier nicht nach draussen.
+      throw DatabaseUnlockException('Aufschliessen fehlgeschlagen '
+          '(SQLite-Code ${e.resultCode})');
+    }
+  }
+
+  /// Beweist, dass ueberhaupt eine verschluesselnde Bibliothek geladen ist.
+  ///
+  /// Gewoehnliches SQLite liefert auf unbekannte PRAGMAs eine leere Ergebnis-
+  /// menge statt eines Fehlers — nachgemessen. Genau diese Stille macht den
+  /// Fehler so gefaehrlich, und genau sie wird hier abgefragt.
+  ///
+  /// Das ist eine Aussage ueber die BIBLIOTHEK, nicht ueber die Datei. Dass
+  /// auch wirklich verschluesselt auf die Platte geschrieben wird, prueft
+  /// test/store/encrypted_database_test.dart an den Rohbytes.
+  static void _pruefeVerschluesselung(Database db) {
+    final ergebnis = db.select('PRAGMA cipher');
+    if (ergebnis.isEmpty) throw const DatabaseNotEncryptedException();
+  }
+
+  /// Prueft, ob der Schluessel wirklich passt — und zwar sofort.
+  ///
+  /// `PRAGMA key` selbst meldet einen falschen Schluessel NICHT. Es merkt sich
+  /// ihn nur; der Fehler faellt erst beim ersten Lesen der Datei auf. Ohne
+  /// diese Zeile kaeme er darum irgendwo tief in der App heraus, als
+  /// SqliteException "file is not a database" — an einer Stelle, die mit
+  /// Schluesseln nichts zu tun hat.
+  ///
+  /// Das Inhaltsverzeichnis zu zaehlen ist die billigste Abfrage, die
+  /// tatsaechlich eine Seite entschluesseln muss. Bei einer noch leeren Datei
+  /// gelingt sie und liefert 0 — richtig so, das ist der Erstlauf.
+  static void _pruefeSchluessel(Database db) {
+    try {
+      db.select('SELECT count(*) FROM sqlite_master');
+    } on SqliteException catch (e) {
+      throw DatabaseUnlockException('falscher Schluessel oder beschaedigte '
+          'Datei (SQLite-Code ${e.resultCode})');
+    }
+  }
+
+  static void _grundeinstellungen(Database db) {
+    // WAL: weniger Schreibvorgaenge je Aenderung, und Lesen blockiert nicht.
+    db.execute('PRAGMA journal_mode = WAL');
+
+    // FULL, nicht NORMAL. NORMAL spart fsync-Aufrufe, kann bei Stromausfall
+    // aber die zuletzt bestaetigten Transaktionen verlieren — also genau das
+    // zurueckgeben, was die Alles-oder-nichts-Transaktion gerade erkauft hat:
+    // ein verbrauchter Prekey ohne die zugehoerige neue Sitzung. Eine
+    // Nachricht je Sekunde ist kein Durchsatzproblem, ein toter Gespraechs-
+    // faden schon.
+    db.execute('PRAGMA synchronous = FULL');
+
+    // Zwischenergebnisse (Sortierungen, temporaere Tabellen) bleiben im
+    // Arbeitsspeicher. Sonst koennte SQLite sie in eine temporaere DATEI
+    // auslagern, und fuer die gilt die Verschluesselung der Hauptdatei nicht
+    // zwingend.
+    db.execute('PRAGMA temp_store = MEMORY');
+
+    // Geloeschte Inhalte werden ueberschrieben statt nur freigegeben. Die
+    // Datei ist zwar verschluesselt, aber wer spaeter an den Schluessel kommt,
+    // koennte sonst geloeschte Nachrichten aus der Freiliste zurueckholen.
+    db.execute('PRAGMA secure_delete = ON');
+
+    db.execute('PRAGMA foreign_keys = ON');
+
+    // Ausdruecklich gesetzt statt dem Standard ueberlassen: 2 MB Seitencache.
+    db.execute('PRAGMA cache_size = -2000');
+  }
+
+  static int _schemaAnlegen(Database db) {
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS meta (
+        key   TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+      )
+    ''');
+
+    final vorhanden = _metaLesen(db, 'schema_version');
+    if (vorhanden == null) {
+      _schemaV1(db);
+      _metaSchreiben(db, 'schema_version', '$schemaVersion');
+      _metaSchreiben(db, 'generation', '0');
+    } else {
+      final gefunden = int.parse(vorhanden);
+      if (gefunden > schemaVersion) {
+        throw StateError('Datenbank stammt aus einer neueren App-Fassung '
+            '(Schema $gefunden, diese App kennt $schemaVersion)');
+      }
+      // Kuenftige Migrationen von `gefunden` nach `schemaVersion` kommen hier
+      // hin, jeweils in einer eigenen Transaktion.
+    }
+
+    return int.parse(_metaLesen(db, 'generation') ?? '0');
+  }
+
+  static void _schemaV1(Database db) {
+    // Adressen sind BitDM-Adressen (Base32 des oeffentlichen Schluessels),
+    // Sitzungsadressen zusaetzlich mit ":geraeteId". Sie sind damit selbst
+    // schon der Schluessel — eine eigene ID waere nur eine Umleitung.
+    db.execute('''
+      CREATE TABLE identities (
+        address TEXT PRIMARY KEY NOT NULL,
+        key     BLOB NOT NULL
+      )
+    ''');
+    db.execute('''
+      CREATE TABLE pre_keys (
+        id     INTEGER PRIMARY KEY NOT NULL,
+        record BLOB NOT NULL
+      )
+    ''');
+    db.execute('''
+      CREATE TABLE signed_pre_keys (
+        id     INTEGER PRIMARY KEY NOT NULL,
+        record BLOB NOT NULL
+      )
+    ''');
+    db.execute('''
+      CREATE TABLE sessions (
+        address TEXT PRIMARY KEY NOT NULL,
+        record  BLOB NOT NULL
+      )
+    ''');
+  }
+
+  static String? _metaLesen(Database db, String key) {
+    final r = db.select('SELECT value FROM meta WHERE key = ?', [key]);
+    return r.isEmpty ? null : r.first['value'] as String;
+  }
+
+  static void _metaSchreiben(Database db, String key, String value) {
+    db.execute(
+      'INSERT INTO meta (key, value) VALUES (?, ?) '
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      [key, value],
+    );
+  }
+
+  String? meta(String key) => _metaLesen(_db, key);
+
+  /// Fuehrt [arbeit] in genau EINER Transaktion aus.
+  ///
+  /// BEGIN IMMEDIATE nimmt die Schreibsperre sofort statt erst beim ersten
+  /// Schreibzugriff. Sonst koennte die Transaktion nach halber Arbeit an einem
+  /// SQLITE_BUSY scheitern.
+  ///
+  /// STANDZAEHLER: Vor der Arbeit wird geprueft, ob die Datei noch auf dem
+  /// Stand ist, den dieser Verbinder zuletzt gesehen hat. Das faengt einen
+  /// Fall ab, den SQLites eigene Sperren NICHT abfangen: zwei Isolate — etwa
+  /// die App und ein Weckruf im Sparmodus — halten je einen eigenen Zustand im
+  /// Arbeitsspeicher. Beide Transaktionen waeren fuer sich sauber, aber die
+  /// zweite schriebe einen Zustand zurueck, der die Aenderungen der ersten nie
+  /// gesehen hat. Sitzungen gingen verloren, ohne dass ein Fehler auftritt.
+  ///
+  /// Hier wird daraus ein lautes [StaleStateException] statt eines stillen
+  /// Datenverlusts.
+  T transaction<T>(T Function(Database db) arbeit) {
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      final inDatei = int.parse(_metaLesen(_db, 'generation') ?? '0');
+      if (inDatei != _generation) {
+        throw StaleStateException(_generation, inDatei);
+      }
+
+      final ergebnis = arbeit(_db);
+
+      final neu = _generation + 1;
+      _metaSchreiben(_db, 'generation', '$neu');
+      _db.execute('COMMIT');
+      _generation = neu;
+      return ergebnis;
+    } catch (_) {
+      // Ein fehlgeschlagenes ROLLBACK darf den eigentlichen Fehler nicht
+      // verdecken.
+      try {
+        _db.execute('ROLLBACK');
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  void close() {
+    _db.close();
+    _offen.remove(pfad);
+  }
+
+  static const _ziffern = '0123456789abcdef';
+
+  static String _hex(Uint8List bytes) {
+    final b = StringBuffer();
+    for (final byte in bytes) {
+      b.write(_ziffern[(byte >> 4) & 0x0F]);
+      b.write(_ziffern[byte & 0x0F]);
+    }
+    return b.toString();
+  }
+}

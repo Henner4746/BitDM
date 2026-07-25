@@ -21,6 +21,23 @@ version: 1.0.0+1
 environment:
   sdk: ^3.12.2
 
+# Waehlt aus, welches SQLite package:sqlite3 einbindet.
+#
+# `sqlite3mc` ist SQLite3MultipleCiphers — dasselbe SQLite, ergaenzt um
+# Verschluesselung der gesamten Datei. Ohne diese Zeile bindet package:sqlite3
+# das gewoehnliche SQLite ein, und `PRAGMA key` waere still wirkungslos: die
+# Datenbank laege im Klartext auf dem Geraet, ohne dass irgendetwas fehlschlaegt.
+# Genau davor schuetzt der Test in test/store/encrypted_database_test.dart, der
+# die Rohbytes der Datei ansieht.
+#
+# Warum nicht SQLCipher: package:sqlite3 unterstuetzt zwar `source: sqlcipher`,
+# aber der Autor raet fuer neue Projekte zu sqlite3mc. sqlite3mc kann bestehende
+# SQLCipher-Dateien lesen, umgekehrt nicht — die Wahl haelt also mehr offen.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc
+
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
 # consider running `flutter pub upgrade --major-versions`. Alternatively,
@@ -48,6 +65,17 @@ dependencies:
   # ist gegen die offiziellen Testvektoren geprueft.
   cryptography: 2.9.0
   libsignal_protocol_dart: 0.8.2
+
+  # Verschluesselte lokale Datenbank.
+  #
+  # sqlite3 statt sqflite: die FFI-Anbindung arbeitet synchron und ohne
+  # Platform-Channel. Das spart pro Abfrage eine Runde ueber den
+  # Nachrichtenkanal und laesst sich sauber in ein Isolate legen — beides
+  # zaehlt fuer das Ziel, sparsam mit Akku und Speicher umzugehen.
+  #
+  # Verifizierter Publisher (simonbinder.eu), MIT. Loest sqlcipher_flutter_libs
+  # ab, das seit 0.7.0+eol nichts mehr tut.
+  sqlite3: 3.5.0
 
   # google_fonts wurde bewusst ENTFERNT: es laedt Schriften zur Laufzeit von
   # fonts.gstatic.com nach und verraet Google damit bei jedem Kaltstart IP und
