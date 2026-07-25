@@ -29,7 +29,22 @@ import 'core/lock/vault_store.dart';
 import 'core/messenger_core.dart';
 
 class AppState extends ChangeNotifier {
-  AppState(this.core, {this.tresor, this.stickZugang});
+  AppState(this.core,
+      {this.tresor, this.stickZugang, SchluesselAblage? geraeteAblage})
+      // Kein initializing formal: nach aussen soll der Name ohne Unterstrich
+      // stehen, innen muss er vom Zwischenspeicher unterscheidbar bleiben.
+      // ignore: prefer_initializing_formals
+      : _geraeteAblage = geraeteAblage;
+
+  /// Der gesicherte Bereich des Geraets.
+  ///
+  /// Hereinreichbar, weil er sonst der EINZIGE Faktor waere, der ungeprueft
+  /// bleibt — und er ist der, auf den am Ende alle zurueckfallen. Erst beim
+  /// ersten Gebrauch gebaut: schon das Anlegen verlangt eine Bildschirmsperre.
+  final SchluesselAblage? _geraeteAblage;
+  SchluesselAblage? _gebaut;
+  SchluesselAblage get geraeteAblage =>
+      _geraeteAblage ?? (_gebaut ??= GeraeteAblage.mitAnmeldung());
 
   /// Null in Tests — dort gibt es keinen Schluesselspeicher des Geraets.
   final VaultSecretStore? tresor;
@@ -123,7 +138,7 @@ class AppState extends ChangeNotifier {
   /// Die App fragt nichts davon selbst ab und bekommt es nie zu sehen. Sie
   /// versucht nur, den Fachschluessel zu lesen; die Abfrage zeigt das System.
   Future<bool> entsperreMitGeraet() =>
-      _entsperreMit(KeystoreFactor(ablage: GeraeteAblage.mitAnmeldung()));
+      _entsperreMit(KeystoreFactor(ablage: geraeteAblage));
 
   /// Entsperrt mit einem Sicherheitsschluessel.
   ///
@@ -163,6 +178,7 @@ class AppState extends ChangeNotifier {
     try {
       hatIdentitaet = await core.initialize();
       gesperrt = false;
+      _weggelegtUm = null;
       if (hatIdentitaet) await _nachIdentitaet();
       notifyListeners();
       return true;
@@ -181,7 +197,7 @@ class AppState extends ChangeNotifier {
   /// Bildschirmsperre hat — dann gibt es nichts, woran sich etwas binden
   /// liesse.
   Future<void> fuegeGeraetHinzu() async {
-    await _fuegeHinzu(KeystoreFactor(ablage: GeraeteAblage.mitAnmeldung()));
+    await _fuegeHinzu(KeystoreFactor(ablage: geraeteAblage));
   }
 
   /// Nimmt einen Sicherheitsschluessel als Faktor auf.
@@ -225,7 +241,7 @@ class AppState extends ChangeNotifier {
     await t.entferne(
       slotId,
       faktor: slot?.kind == UnlockFactorKind.biometric
-          ? KeystoreFactor(ablage: GeraeteAblage.mitAnmeldung())
+          ? KeystoreFactor(ablage: geraeteAblage)
           : null,
     );
     await _ladeFaktoren();
@@ -296,15 +312,80 @@ class AppState extends ChangeNotifier {
     if (_imVordergrund == sichtbar) return;
     _imVordergrund = sichtbar;
     if (sichtbar) {
+      if (_sollWiederSperren()) {
+        unawaited(sperreWieder());
+        return;
+      }
       _ungelesen = 0;
       unawaited(Benachrichtigungen.instanz.raeumeAuf());
       unawaited(raeumeAbgelaufeneWeg());
       _fehlversuche = 0;
       if (verbindung != ConnectionState.online) unawaited(_versucheVerbindung());
     } else {
+      _weggelegtUm = DateTime.now();
       _wiederverbindung?.cancel();
       _wiederverbindung = null;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════ Von selbst zusperren
+
+  /// Wann die App zuletzt weggelegt wurde. Null heisst: sie war nicht weg.
+  DateTime? _weggelegtUm;
+
+  /// Wie lange die App zu bleiben darf, ohne wieder zu verriegeln.
+  ///
+  /// SOFORT WAERE FALSCH. Wer seine Adresse in eine andere App kopiert, den
+  /// Sicherheitsschluessel per NFC bedient oder eine Benachrichtigung
+  /// wegwischt, ist zwei Sekunden weg — und muesste jedes Mal wieder den Stick
+  /// anlegen. Nach ein paar solchen Runden schaltet der Nutzer die Sperre ab,
+  /// und dann schuetzt sie gar nichts mehr.
+  ///
+  /// GAR NICHT WAERE AUCH FALSCH: dann haelt die einmal geoeffnete App den
+  /// Schluessel im Speicher, bis Android sie abraeumt — womoeglich tagelang.
+  ///
+  /// Eine Minute ist der Kompromiss. Kurz genug, dass ein aus der Hand
+  /// gegebenes Telefon zu ist, lang genug fuer alles, was zum normalen
+  /// Gebrauch gehoert.
+  static const Duration sperrfrist = Duration(minutes: 1);
+
+  bool _sollWiederSperren() {
+    if (faktoren.isEmpty) return false; // ohne Faktor gibt es nichts zu sperren
+    if (gesperrt) return false;
+    final weg = _weggelegtUm;
+    if (weg == null) return false;
+    return DateTime.now().difference(weg) >= sperrfrist;
+  }
+
+  /// Verriegelt wieder: Datenbank zu, Schluessel aus dem Speicher.
+  ///
+  /// Nicht bloss ein Bildschirm davor. Ein Vorhang liesse die Datenbank offen
+  /// und die Schluessel im Arbeitsspeicher — wer den Prozess lesen kann, kaeme
+  /// daran vorbei.
+  Future<void> sperreWieder() async {
+    if (faktoren.isEmpty) return;
+    _weggelegtUm = null;
+    _wiederverbindung?.cancel();
+    _wiederverbindung = null;
+    for (final a in _abos) {
+      unawaited(a.cancel());
+    }
+    _abos.clear();
+
+    tresor?.sperre();
+    await core.lock();
+
+    // Auch das, was die Oberflaeche schon geholt hat, muss weg. Die Verlaeufe
+    // stehen hier IM KLARTEXT — sie kamen ja entschluesselt aus der Datenbank.
+    // Die Datenbank zu schliessen und den Text daneben liegen zu lassen waere
+    // halbe Arbeit.
+    verlaeufe.clear();
+    kontakte = const [];
+    meineAdresse = '';
+    frischePhrase = null;
+
+    gesperrt = true;
+    notifyListeners();
   }
 
   Future<void> _versucheVerbindung() async {

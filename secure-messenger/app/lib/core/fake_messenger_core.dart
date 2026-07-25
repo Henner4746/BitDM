@@ -302,6 +302,17 @@ class FakeMessengerCore implements MessengerCore {
     _setConn(ConnectionState.disconnected);
   }
 
+  /// Schliesst wieder ab, ohne etwas zu loeschen.
+  ///
+  /// Im Entwurf gibt es keine Datenbank und keine Schluessel; nachgestellt
+  /// wird nur der Zustand, auf den es der Oberflaeche ankommt: nicht mehr
+  /// bereit, aber es GIBT eine Identitaet.
+  @override
+  Future<void> lock() async {
+    _init = false;
+    _setConn(ConnectionState.disconnected);
+  }
+
   @override
   Future<void> dispose() async {
     await _incoming.close();

@@ -204,6 +204,20 @@ abstract class MessengerCore {
   /// the instance stays usable.
   Future<void> wipeEverything();
 
+  /// Close the database and drop every derived key from memory, WITHOUT
+  /// deleting anything. Call when the app lock should re-engage.
+  ///
+  /// WHY THIS IS NOT A UI FLAG: hiding the screen behind an overlay would
+  /// leave the database open and the keys live in RAM. Anyone who can read
+  /// the process — a debugger, a memory dump, a rooted phone — walks past the
+  /// overlay. This actually closes the file and forgets the keys, so the next
+  /// [initialize] has to go through the key slot again.
+  ///
+  /// The streams above stay open; the instance stays usable. After this
+  /// [isInitialized] is false and [initialize] behaves as it does on a cold
+  /// start: it asks the secret store, which is where the lock lives.
+  Future<void> lock();
+
   /// Release all resources and CLOSE every stream above. The instance is
   /// unusable afterwards. Call on app shutdown.
   Future<void> dispose();

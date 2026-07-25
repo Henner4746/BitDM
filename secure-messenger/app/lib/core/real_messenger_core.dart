@@ -816,6 +816,31 @@ class RealMessengerCore implements MessengerCore {
     _setzeVerbindung(ConnectionState.disconnected);
   }
 
+  /// Schliesst wieder ab, ohne etwas zu loeschen.
+  ///
+  /// Wichtig ist, WAS hier passiert: die Datenbankdatei wird geschlossen und
+  /// die abgeleiteten Schluessel fallen aus dem Speicher. Eine Sperre, die nur
+  /// den Bildschirm verdeckt, waere wertlos — die Datenbank laege weiter offen,
+  /// und wer den Prozess lesen kann, kaeme daran vorbei.
+  ///
+  /// Die Verbindung zum Relay geht dabei mit. Das ist gewollt: solange die
+  /// App zu ist, gibt es niemanden, der eine ankommende Nachricht
+  /// entschluesseln koennte, und ein offener Draht waere nur ein Signal nach
+  /// aussen, dass dieses Geraet gerade laeuft.
+  @override
+  Future<void> lock() async {
+    await _raeumeVerbindungAb();
+    _db?.close();
+    _db = null;
+    _store = null;
+    _chats = null;
+    _signalRepo = null;
+    // _hatIdentitaet bleibt stehen: es GIBT eine Identitaet, sie ist nur
+    // gerade nicht zu haben. Die Oberflaeche unterscheidet daran den
+    // Sperrbildschirm vom Onboarding.
+    _setzeVerbindung(ConnectionState.disconnected);
+  }
+
   @override
   Future<void> dispose() async {
     await _raeumeVerbindungAb();
