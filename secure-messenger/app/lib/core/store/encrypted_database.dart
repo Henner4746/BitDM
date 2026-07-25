@@ -74,7 +74,7 @@ class EncryptedDatabase {
   Database get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -216,18 +216,41 @@ class EncryptedDatabase {
     ''');
 
     final vorhanden = _metaLesen(db, 'schema_version');
-    if (vorhanden == null) {
-      _schemaV1(db);
-      _metaSchreiben(db, 'schema_version', '$schemaVersion');
+    var gefunden = vorhanden == null ? 0 : int.parse(vorhanden);
+
+    if (gefunden > schemaVersion) {
+      throw StateError('Datenbank stammt aus einer neueren App-Fassung '
+          '(Schema $gefunden, diese App kennt $schemaVersion)');
+    }
+
+    if (gefunden == 0) {
       _metaSchreiben(db, 'generation', '0');
-    } else {
-      final gefunden = int.parse(vorhanden);
-      if (gefunden > schemaVersion) {
-        throw StateError('Datenbank stammt aus einer neueren App-Fassung '
-            '(Schema $gefunden, diese App kennt $schemaVersion)');
+    }
+
+    // Jede Stufe einzeln und in einer eigenen Transaktion. Bricht der Vorgang
+    // in der Mitte ab, ist die Datenbank auf der letzten vollstaendig
+    // erreichten Stufe — nicht irgendwo dazwischen.
+    while (gefunden < schemaVersion) {
+      final naechste = gefunden + 1;
+      db.execute('BEGIN IMMEDIATE');
+      try {
+        switch (naechste) {
+          case 1:
+            _schemaV1(db);
+          case 2:
+            _schemaV2(db);
+          default:
+            throw StateError('keine Migration nach Schema $naechste');
+        }
+        _metaSchreiben(db, 'schema_version', '$naechste');
+        db.execute('COMMIT');
+      } catch (_) {
+        try {
+          db.execute('ROLLBACK');
+        } catch (_) {}
+        rethrow;
       }
-      // Kuenftige Migrationen von `gefunden` nach `schemaVersion` kommen hier
-      // hin, jeweils in einer eigenen Transaktion.
+      gefunden = naechste;
     }
 
     return int.parse(_metaLesen(db, 'generation') ?? '0');
@@ -261,6 +284,51 @@ class EncryptedDatabase {
         record  BLOB NOT NULL
       )
     ''');
+  }
+
+  /// Kontakte und Nachrichten.
+  static void _schemaV2(Database db) {
+    db.execute('''
+      CREATE TABLE contacts (
+        address      TEXT PRIMARY KEY NOT NULL,
+        display_name TEXT,
+        added_at     INTEGER NOT NULL,
+        state        INTEGER NOT NULL,
+        verified     INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
+    // seq ist der Grund, warum diese Tabelle nicht nach der Zeit sortiert.
+    //
+    // sent_at kommt vom ABSENDER. Er kann hineinschreiben, was er will — eine
+    // Gegenstelle koennte ihre Nachrichten mit einem Datum von 2030 versehen
+    // und damit dauerhaft oben in der Unterhaltung kleben, oder mit 1970 und
+    // sich verstecken. Sortiert wird deshalb nach seq: einer Nummer, die
+    // DIESES Geraet beim Speichern vergibt und die niemand von aussen
+    // beeinflussen kann. Angezeigt wird trotzdem sent_at — das ist die
+    // Information, die den Nutzer interessiert.
+    db.execute('''
+      CREATE TABLE messages (
+        seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+        id          TEXT NOT NULL,
+        chat_id     TEXT NOT NULL,
+        sender_id   TEXT NOT NULL,
+        body        TEXT NOT NULL,
+        kind        INTEGER NOT NULL,
+        is_mine     INTEGER NOT NULL,
+        sent_at     INTEGER NOT NULL,
+        received_at INTEGER,
+        status      INTEGER NOT NULL
+      )
+    ''');
+
+    // Doppelt zugestellte Nachrichten fallen hier auf, statt zweimal in der
+    // Unterhaltung zu stehen. sender_id gehoert dazu: sonst koennte die
+    // Gegenstelle eine Kennung belegen, die spaeter fuer eine eigene Nachricht
+    // gebraucht wird.
+    db.execute(
+        'CREATE UNIQUE INDEX idx_messages_eindeutig ON messages(chat_id, sender_id, id)');
+    db.execute('CREATE INDEX idx_messages_chat ON messages(chat_id, seq)');
   }
 
   static String? _metaLesen(Database db, String key) {

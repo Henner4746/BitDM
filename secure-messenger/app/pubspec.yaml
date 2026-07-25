@@ -90,6 +90,16 @@ dependencies:
   # ab, das seit 0.7.0+eol nichts mehr tut.
   sqlite3: 3.5.0
 
+  # Der Schluesselspeicher des Geraets — hier liegt die Entropie, aus der die
+  # gesamte Identitaet entsteht. Verifizierter Publisher (steenbakker.dev),
+  # BSD-3-Clause.
+  #
+  # Wird ueber lib/core/secret_store.dart angesprochen, nie direkt: das Paket
+  # ist ein Plattform-Plugin und laeuft in Tests nicht. Die Schnittstelle davor
+  # laesst sich ersetzen — und spaeter durch die App-Sperre (lib/core/lock/)
+  # ablOesen, ohne dass der Kern etwas davon merkt.
+  flutter_secure_storage: 10.3.1
+
   # google_fonts wurde bewusst ENTFERNT: es laedt Schriften zur Laufzeit von
   # fonts.gstatic.com nach und verraet Google damit bei jedem Kaltstart IP und
   # Zeitstempel. In einer App ohne Telefonnummer und ohne Username ist das ein

@@ -93,23 +93,36 @@ class SignalStoreRepository {
   /// Schlaegt die Transaktion fehl, bleibt der Merkzettel stehen und der
   /// naechste Versuch schreibt dasselbe noch einmal.
   void commit(BitdmSignalStore store) {
+    if (store.delta.isEmpty) return;
+    db.transaction((raw) => schreibeDelta(raw, store));
+    store.markClean();
+  }
+
+  /// Schreibt die offenen Aenderungen INNERHALB einer bereits laufenden
+  /// Transaktion — ohne [BitdmSignalStore.markClean] zu rufen.
+  ///
+  /// Dafuer gibt es einen bestimmten Grund. Beim Empfang einer Nachricht muss
+  /// der Sitzungsfortschritt ZUSAMMEN mit der Nachricht selbst festgeschrieben
+  /// werden. Der Ratchet ist beim Entschluesseln weitergerueckt; genau diese
+  /// Nachricht laesst sich danach nie wieder entschluesseln. Wuerde der
+  /// Fortschritt in einer eigenen Transaktion landen und das Speichern der
+  /// Nachricht scheitern, waere sie fuer immer verloren — ohne dass jemand
+  /// einen Fehler gesehen haette.
+  ///
+  /// Siehe ChatRepository.speichereEmpfangen.
+  static void schreibeDelta(Database raw, BitdmSignalStore store) {
     final delta = store.delta;
     if (delta.isEmpty) return;
-
     final state = store.state;
 
-    db.transaction((raw) {
-      _schreibeText(raw, 'identities', 'address', 'key',
-          delta.identities, state.identities);
-      _schreibeZahl(raw, 'pre_keys', 'id', 'record',
-          delta.preKeys, state.preKeys);
-      _schreibeZahl(raw, 'signed_pre_keys', 'id', 'record',
-          delta.signedPreKeys, state.signedPreKeys);
-      _schreibeText(raw, 'sessions', 'address', 'record',
-          delta.sessions, state.sessions);
-    });
-
-    store.markClean();
+    _schreibeText(raw, 'identities', 'address', 'key',
+        delta.identities, state.identities);
+    _schreibeZahl(raw, 'pre_keys', 'id', 'record',
+        delta.preKeys, state.preKeys);
+    _schreibeZahl(raw, 'signed_pre_keys', 'id', 'record',
+        delta.signedPreKeys, state.signedPreKeys);
+    _schreibeText(raw, 'sessions', 'address', 'record',
+        delta.sessions, state.sessions);
   }
 
   static void _schreibeText(
