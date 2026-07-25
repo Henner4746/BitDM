@@ -816,6 +816,22 @@ class RealMessengerCore implements MessengerCore {
     _setzeVerbindung(ConnectionState.disconnected);
   }
 
+  /// Hinterlegt beim Relay, wohin angestossen werden soll.
+  ///
+  /// Ohne Verbindung passiert NICHTS und es fliegt kein Fehler: ein Anstoss
+  /// beschleunigt die Zustellung, er ist nie Voraussetzung dafuer. Wer hier
+  /// wuerfe, machte den Verbindungsaufbau von etwas abhaengig, das auch
+  /// fehlschlagen darf.
+  @override
+  Future<void> setPushEndpoint(String? endpoint) async {
+    try {
+      _relay?.setzePushEndpunkt(endpoint);
+    } catch (_) {
+      // Nicht verbunden. Beim naechsten Verbinden traegt die Oberflaeche ihn
+      // erneut ein.
+    }
+  }
+
   /// Schliesst wieder ab, ohne etwas zu loeschen.
   ///
   /// Wichtig ist, WAS hier passiert: die Datenbankdatei wird geschlossen und

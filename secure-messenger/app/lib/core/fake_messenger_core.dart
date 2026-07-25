@@ -304,6 +304,16 @@ class FakeMessengerCore implements MessengerCore {
 
   /// Schliesst wieder ab, ohne etwas zu loeschen.
   ///
+  /// Zuletzt hinterlegter Anstoss-Endpunkt. Im Entwurf gibt es keinen Relay,
+  /// dem sich etwas sagen liesse — gemerkt wird er trotzdem, damit Tests
+  /// nachsehen koennen, ob die Oberflaeche ihn ueberhaupt weiterreicht.
+  String? pushEndpunkt;
+
+  @override
+  Future<void> setPushEndpoint(String? endpoint) async {
+    pushEndpunkt = endpoint;
+  }
+
   /// Im Entwurf gibt es keine Datenbank und keine Schluessel; nachgestellt
   /// wird nur der Zustand, auf den es der Oberflaeche ankommt: nicht mehr
   /// bereit, aber es GIBT eine Identitaet.

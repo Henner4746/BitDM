@@ -242,6 +242,13 @@ class RelayClient {
         final grund = m['reason'] as String? ?? 'unbekannter Fehler';
         _loeseAckAus(m['id'], grund);
 
+      case 'push_ok':
+        // Die Bestaetigung fuer den Anstoss-Endpunkt. Niemand wartet darauf —
+        // sie hier trotzdem zu nennen, ist wichtig: sonst faellt sie unten in
+        // "unbekannte Nachrichtenart" und die Oberflaeche zeigt einen Fehler,
+        // wo alles in Ordnung ist.
+        break;
+
       default:
         _events.add(RelayProtocolError('unbekannte Nachrichtenart: '
             '${m['type']}'));
@@ -302,6 +309,27 @@ class RelayClient {
       _wartendeAcks.remove(id);
       throw const RelayException('keine Bestaetigung vom Server');
     }
+  }
+
+  /// Hinterlegt beim Relay, wohin angestossen werden soll, wenn diese Adresse
+  /// nicht verbunden ist. Null loescht den Eintrag.
+  ///
+  /// UEBER DIE BESTEHENDE VERBINDUNG und nicht ueber einen eigenen Pfad: hier
+  /// ist schon nachgewiesen, wem diese Adresse gehoert. Ein zweiter Weg
+  /// muesste denselben Nachweis noch einmal fuehren, und jede zweite Umsetzung
+  /// desselben Nachweises ist eine Gelegenheit, ihn falsch zu machen.
+  ///
+  /// OHNE WARTEN AUF ANTWORT. Der Relay bestaetigt mit push_ok, aber ob der
+  /// Anstoss eingetragen ist, aendert nichts daran, ob Nachrichten ankommen —
+  /// er beschleunigt nur. Darauf zu warten hiesse, den Verbindungsaufbau von
+  /// etwas abhaengig zu machen, das auch fehlschlagen darf.
+  void setzePushEndpunkt(String? endpunkt) {
+    final ws = _ws;
+    if (ws == null) throw const RelayException('nicht verbunden');
+    ws.add(jsonEncode({
+      'type': 'push_endpoint',
+      'endpoint': endpunkt ?? '',
+    }));
   }
 
   Future<void> close() async {

@@ -204,6 +204,11 @@ abstract class MessengerCore {
   /// the instance stays usable.
   Future<void> wipeEverything();
 
+  /// Tell the relay where to nudge this device when it is offline, or null to
+  /// stop. Silently does nothing when not connected — a push endpoint only
+  /// speeds delivery up; it is never required for a message to arrive.
+  Future<void> setPushEndpoint(String? endpoint);
+
   /// Close the database and drop every derived key from memory, WITHOUT
   /// deleting anything. Call when the app lock should re-engage.
   ///

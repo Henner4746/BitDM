@@ -53,7 +53,14 @@ enum EmpfangsTakt {
 
   /// Alle vier Stunden. Fuer alle, denen es reicht, ein paarmal am Tag zu
   /// sehen, ob etwas da ist.
-  vierStunden(240);
+  vierStunden(240),
+
+  /// Angestossen werden, statt selbst nachzusehen.
+  ///
+  /// Am sparsamsten: die App laeuft gar nicht, bis etwas anliegt. Braucht
+  /// einen Verteiler auf dem Telefon (die ntfy-App) — ohne den gibt es kein
+  /// UnifiedPush.
+  push(-2);
 
   const EmpfangsTakt(this.minuten);
 
@@ -69,6 +76,12 @@ enum EmpfangsTakt {
 
   bool get an => this != EmpfangsTakt.aus;
   bool get dauerhaft => this == EmpfangsTakt.staendig;
+
+  /// Ob angestossen wird, statt selbst nachzusehen.
+  bool get angestossen => this == EmpfangsTakt.push;
+
+  /// Ob in festen Abstaenden nachgesehen wird.
+  bool get imTakt => minuten > 0;
 
   Duration get abstand => Duration(minutes: minuten < 0 ? 0 : minuten);
 }

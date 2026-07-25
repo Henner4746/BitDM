@@ -58,6 +58,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
 
+    <!-- WAKE_LOCK kommt ueber das UnifiedPush-Paket herein, nicht von hier.
+         Hier steht sie trotzdem, weil in dieser Datei jede Berechtigung einen
+         Grund haben soll — auch die, die ein Paket mitbringt.
+
+         WOFUER: kommt ein Anstoss an, waehrend das Telefon schlaeft, muss es
+         wach bleiben, bis die App die Nachricht beim Relay abgeholt hat. Ohne
+         sie schliefe es mitten im Abholen wieder ein.
+
+         Sie erlaubt NICHT, das Telefon aufzuwecken oder wach zu halten,
+         solange nichts passiert — nur, ein begonnenes Stueck Arbeit zu Ende
+         zu bringen. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
     <!-- ══════════════════════════════════════════════════════════════════
          AUSDRUECKLICH ENTFERNT, was die Kamera-Bibliothek mitbringt.
 

@@ -28,6 +28,7 @@ import 'core/lock/key_vault.dart';
 import 'core/lock/keystore_factor.dart';
 import 'core/lock/unlock_factor.dart';
 import 'core/lock/vault_store.dart';
+import 'core/push.dart';
 import 'core/messenger_core.dart';
 
 class AppState extends ChangeNotifier {
@@ -338,6 +339,17 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Traegt den Anstoss-Endpunkt erneut ein, sobald die Verbindung steht.
+  ///
+  /// NOETIG, WEIL DER RELAY IHN VERLIEREN KANN: bei einem Serverumzug oder
+  /// einem Zuruecksetzen der Datenbank stuende dort nichts mehr, und die App
+  /// wuerde nie wieder angestossen — ohne dass irgendwo ein Fehler erschiene.
+  void _traegePushEndpunktEin() {
+    final e = pushEndpunkt;
+    if (e == null || !empfangsTakt.angestossen) return;
+    unawaited(core.setPushEndpoint(e));
+  }
+
   Future<void> _nachIdentitaet() async {
     meineAdresse = core.myId;
     await _ladeEinstellungen();
@@ -433,16 +445,96 @@ class AppState extends ChangeNotifier {
   bool get _sperrtGleich =>
       faktoren.isNotEmpty && !_nieSperren && sperrfrist == Duration.zero;
 
+  /// Die Anbindung an den Verteiler auf dem Telefon. Null in Tests.
+  PushAnbindung? push;
+
+  /// Der zuletzt vom Verteiler genannte Endpunkt.
+  String? pushEndpunkt;
+
   Future<void> setzeEmpfangsTakt(EmpfangsTakt takt) async {
+    final vorher = empfangsTakt;
     final t = tresor;
     if (t != null) await t.setzeEmpfangsTakt(takt.minuten);
     empfangsTakt = takt;
     if (!takt.an) await _beendeHintergrundempfang();
+
+    // BEIM WECHSEL AUFRAEUMEN, und zwar in dieser Reihenfolge: erst abmelden,
+    // dann anmelden. Andersherum koennte der Verteiler den frischen Endpunkt
+    // gleich wieder wegwerfen.
+    if (vorher.angestossen && !takt.angestossen) {
+      await _beendePush();
+    }
+    if (takt.angestossen && !vorher.angestossen) {
+      await _startePush();
+    }
     notifyListeners();
+  }
+
+  /// Meldet BitDM beim Verteiler an. Der Endpunkt kommt spaeter ueber den
+  /// Rueckruf, nicht von hier.
+  Future<void> _startePush({String? verteiler}) async {
+    final p = push;
+    if (p == null) throw const PushException(PushHindernis.keinVerteiler);
+    await p.melde(verteilerName: verteiler);
+  }
+
+  Future<void> _beendePush() async {
+    pushEndpunkt = null;
+    // ERST beim Relay loeschen, DANN beim Verteiler abmelden. Andersherum
+    // bliebe ein Endpunkt eingetragen, an den niemand mehr horcht — der Relay
+    // klopfte dann ins Leere und wuesste es nicht.
+    try {
+      await core.setPushEndpoint(null);
+    } catch (_) {
+      // Nicht verbunden. Der Endpunkt bleibt eingetragen, bis die App das
+      // naechste Mal online ist; angestossen wird dann ins Leere, was nichts
+      // kaputtmacht.
+    }
+    await push?.melde_ab();
+  }
+
+  /// Der Verteiler nennt einen Endpunkt — beim Einrichten und immer dann, wenn
+  /// er ihn von sich aus wechselt.
+  ///
+  /// DASS ER WECHSELN KANN, ist der Grund, warum das ein Rueckruf ist: ntfy
+  /// vergibt nach einer Neuinstallation ein neues Thema. Wer den alten
+  /// Endpunkt beim Relay stehen laesst, wird nie wieder angestossen und merkt
+  /// es nicht.
+  Future<void> nimmPushEndpunkt(String endpunkt) async {
+    if (!PushAnbindung.eigenerServer(endpunkt)) {
+      // Ein fremder Server wuerde vom Relay ohnehin abgelehnt. Hier faellt es
+      // frueher auf, und die Meldung kann sagen, WARUM.
+      letzterFehler = 'Push-Endpunkt auf fremdem Server: $endpunkt';
+      notifyListeners();
+      return;
+    }
+    pushEndpunkt = endpunkt;
+    await core.setPushEndpoint(endpunkt);
+    notifyListeners();
+  }
+
+  /// Ein Anstoss ist angekommen: verbinden, abholen, wieder trennen.
+  ///
+  /// Was NICHT im Anstoss steht: Absender, Inhalt, Anzahl. Er sagt nur, dass
+  /// etwas anliegt.
+  Future<void> beiAnstoss() async {
+    if (!empfangMoeglich) return;
+    await core.connect();
+    // Der Relay leert seine Warteschlange gleich nach der Anmeldung. Kurz
+    // offen lassen, damit das durchlaeuft.
+    await Future<void>.delayed(const Duration(seconds: 20));
+    if (!_imVordergrund) await core.disconnect();
   }
 
   Future<void> _starteHintergrundempfang() async {
     if (!empfangMoeglich) return;
+
+    // BEIM ANSTOSSEN LAEUFT NICHTS. Das ist der ganze Vorteil: kein Dienst,
+    // keine dauerhafte Benachrichtigung, kein Akkuverbrauch. Der Verteiler auf
+    // dem Telefon haelt die Verbindung, und die weckt BitDM, wenn etwas
+    // anliegt.
+    if (empfangsTakt.angestossen) return;
+
     final dienst = empfangsDienst;
     if (dienst == null) return;
 
@@ -599,6 +691,7 @@ class AppState extends ChangeNotifier {
           _fehlversuche = 0;
           _wiederverbindung?.cancel();
           _wiederverbindung = null;
+          _traegePushEndpunktEin();
         } else if (s == ConnectionState.disconnected ||
             s == ConnectionState.error) {
           _planeWiederverbindung();

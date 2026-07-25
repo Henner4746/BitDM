@@ -160,6 +160,22 @@ flutter {
     source = "../.."
 }
 
+// Googles Tink kommt zweimal herein, und die beiden Fassungen vertragen sich
+// nicht: unifiedpush_android zieht `tink` (die Fassung fuer gewoehnliches
+// Java), flutter_secure_storage `tink-android`. Beide enthalten dieselben
+// Klassennamen, und der Bau bricht mit "Duplicate class" ab.
+//
+// Herausgeworfen wird die JAVA-Fassung. `tink-android` ist die fuer Android
+// gedachte und deckt dieselben Klassen ab.
+//
+// WOFUER TINK UEBERHAUPT DA IST: UnifiedPush kann verschluesselte Nutzlasten
+// im Anstoss uebertragen. BitDM benutzt das NICHT — der Anstoss ist leer, die
+// Nachricht holt die App danach beim Relay ab. Selbst wenn dieser Weg brechen
+// wuerde, faellt in dieser App nichts aus.
+configurations.all {
+    exclude(group = "com.google.crypto.tink", module = "tink")
+}
+
 dependencies {
     // Die Umschreibhilfe fuer java.time bei minSdk 24. Gehoert zum
     // Android-Werkzeugkasten und laeuft ausschliesslich beim Uebersetzen.

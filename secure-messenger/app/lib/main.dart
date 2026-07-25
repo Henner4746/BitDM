@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +20,7 @@ import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
 import 'core/empfang.dart';
+import 'core/push.dart';
 import 'data.dart';
 import 'painters.dart';
 import 'fido_probe_screen.dart';
@@ -78,6 +81,18 @@ Future<void> main() async {
       verzeichnis: verzeichnis.path,
     ),
   )..empfangsDienst = EmpfangsDienst();
+
+  // Die Rueckrufe des Verteilers MUESSEN bei jedem Start stehen, nicht erst
+  // wenn der Nutzer etwas einstellt: ein Anstoss kann kommen, bevor er die App
+  // ueberhaupt angefasst hat.
+  zustand.push = PushAnbindung(
+    beiEndpunkt: (e) => unawaited(zustand.nimmPushEndpunkt(e)),
+    beiAnstoss: () => unawaited(zustand.beiAnstoss()),
+    beiAbmeldung: () => unawaited(zustand.setzeEmpfangsTakt(EmpfangsTakt.aus)),
+  );
+  if (zustand.empfangsTakt.angestossen) {
+    unawaited(zustand.push!.starte());
+  }
 
   runApp(BitApp(state: zustand));
 }
@@ -438,6 +453,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         EmpfangsTakt.viertelstunde => t('bg15Note'),
         EmpfangsTakt.stunde => t('bg60Note'),
         EmpfangsTakt.vierStunden => t('bg240Note'),
+        EmpfangsTakt.push => t('bgPushNote'),
       };
 
   /// Stellt um, wann die App sich von selbst wieder abschliesst.
@@ -1576,8 +1592,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           settingHead(t('bgReceive'), t('bgReceiveSub')),
           const SizedBox(height: 8),
           segmented(
-            const ['0', '-1', '15', '60', '240'],
-            [t('bgOff'), t('bgLive'), t('bg15'), t('bg60'), t('bg240')],
+            const ['0', '-2', '-1', '15', '60'],
+            [t('bgOff'), t('bgPush'), t('bgLive'), t('bg15'), t('bg60')],
             '${st.empfangsTakt.minuten}',
             (v) => _setzeEmpfangsTakt(int.parse(v)),
           ),
