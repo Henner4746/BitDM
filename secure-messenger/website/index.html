@@ -1,0 +1,822 @@
+<!doctype html>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  RICHTUNGSVERTRAG — BitDM Startseite
+
+  THESIS      Die Seite ist die Frontplatte eines Signalgeraets, nicht die
+              Werbeseite einer App. Sie verweigert das Kategorie-Uebliche:
+              Handy-Mockups, Feature-Kaertchen, Vertrauens-Logos. Was ein
+              Geraet kann, liest man an seinen Anzeigen ab.
+  OWN-WORLD   Nocturne, geerbt aus App und Prototyp. Grund #0b0c12, Module
+              #161826, EIN violetter Akzent, der nur Anzeigen zuendet.
+              Doto (Punktmatrix) ausschliesslich fuer Anzeigen, Chivo Mono
+              versal und gesperrt fuer eingebrannte Beschriftungen.
+  STORY       Besucher versteht: die Adresse IST der Schluessel, es gibt kein
+              Konto. Er glaubt es, weil die Seite auch zeigt, was der Server
+              trotzdem sieht. Er laedt die App oder liest den Quellcode.
+  FIRST VIEWPORT  Eine Punktmatrix-Anzeige ueber die volle Breite zeigt eine
+              56-stellige Adresse in 14 Gruppen. Darunter die Erklaerung,
+              darunter die Bedienleiste mit den drei Bezugswegen.
+  FORM        Gerätefeld — Kandidat 5 der Strukturliste, per concept-seed
+              zugeteilt (key 626891dd). Staging: die durchlaufende Zeile aus
+              dem Step-Row-Challenger, uebersetzt in die Adressanzeige.
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<html lang="de" data-lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BitDM — Verschlüsselt schreiben, ohne Konto</title>
+<meta name="description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer und ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll, quelloffen unter GPL-3.0.">
+<meta name="theme-color" content="#0b0c12">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
+
+<style>
+/* ─── Schriften: lokal eingebettet. Die Seite laedt nichts von Dritten. ─── */
+@font-face{font-family:'Doto';src:url('fonts/Doto.ttf') format('truetype');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Chivo Mono';src:url('fonts/ChivoMono.ttf') format('truetype');font-weight:100 900;font-display:swap}
+
+:root{
+  --ground:#0b0c12; --panel:#161826; --panel-2:#12141f;
+  --line:#3f424d; --line-soft:#272a38;
+  --lit-hi:#d2cefd; --lit:#b5abfc; --lit-mid:#9184d9;
+  --unlit:#5d5294; --unlit-deep:#423a6a;
+  /* --unlit ist ein BAUTEIL-Ton (dunkle Lampe, Rahmen), kein Textton: auf
+     Panel erreicht er nur 2.6:1. Gedaempfter Text nutzt --dim, der die
+     violette Faerbung behaelt und auf allen drei Untergruenden AA besteht. */
+  --dim:#8a80c2;
+  --ink:#f3f5fe; --body:#cfd3e5; --muted:#9397ab;
+  --r-lg:14px; --r:8px; --r-sm:4px; --r-pill:99px;
+  --rail:clamp(18px,4vw,56px);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--ground); color:var(--body);
+  font:400 16px/1.65 'Chivo Mono',ui-monospace,monospace;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+
+/* ─── Zweisprachigkeit: ohne JavaScript bleibt Deutsch sichtbar ─── */
+[data-lang="de"] .en{display:none}
+[data-lang="en"] .de{display:none}
+
+/* ─── Eingebrannte Beschriftung ─── */
+.screen{
+  font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--muted);
+}
+.screen-lit{color:var(--lit-mid)}
+
+/* ─── Anzeige ─── */
+.readout{font-family:'Doto',monospace; font-weight:700; letter-spacing:.02em; color:var(--lit)}
+
+h1,h2,h3{font-family:'Doto',monospace; font-weight:700; letter-spacing:.02em;
+  text-transform:uppercase; color:var(--ink); margin:0; line-height:1.05}
+
+a{color:var(--lit)}
+a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
+
+.wrap{max-width:1180px; margin:0 auto; padding:0 var(--rail)}
+
+/* ════════════ Bezel: die obere Gehaeusekante ════════════ */
+.bezel{
+  position:sticky; top:0; z-index:40;
+  background:linear-gradient(180deg,#0d0e16 0%,rgba(11,12,18,.92) 100%);
+  border-bottom:1px solid var(--line-soft);
+  backdrop-filter:saturate(140%) blur(8px);
+}
+.bezel-in{display:flex; align-items:center; gap:20px; height:58px}
+.mark{display:flex; align-items:baseline; gap:10px; margin-right:auto; text-decoration:none}
+.mark-name{font-family:'Doto',monospace; font-weight:700; font-size:21px;
+  letter-spacing:.04em; color:var(--ink); text-transform:uppercase}
+.mark-rev{font:500 10px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+  color:var(--dim); text-transform:uppercase}
+
+/* Kippschalter fuer die Sprache — ein echtes Bedienelement, kein Link */
+.toggle{display:flex; border:1px solid var(--line); border-radius:var(--r-pill);
+  padding:2px; background:var(--panel-2)}
+.toggle button{
+  appearance:none; border:0; background:transparent; cursor:pointer;
+  padding:5px 11px; border-radius:var(--r-pill); color:var(--muted);
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s, background .18s;
+}
+.toggle button:hover{color:var(--body)}
+.toggle button[aria-pressed="true"]{background:var(--unlit-deep); color:var(--lit-hi)}
+
+.src-link{
+  display:inline-flex; align-items:center; gap:8px; text-decoration:none;
+  color:var(--muted); font:600 10px/1 'Chivo Mono',monospace;
+  letter-spacing:.14em; text-transform:uppercase; transition:color .18s;
+}
+.src-link:hover{color:var(--lit)}
+@media (max-width:640px){.src-link{display:none}}
+
+/* ════════════ Hauptanzeige ════════════ */
+.display-mod{padding:clamp(44px,7vw,88px) 0 clamp(30px,4vw,44px)}
+
+.display{
+  position:relative; border:1px solid var(--line); border-radius:var(--r-lg);
+  background:
+    radial-gradient(circle at 1px 1px, rgba(66,58,106,.55) 1px, transparent 1.6px) 0 0/9px 9px,
+    linear-gradient(180deg,#101220 0%,#0c0d16 100%);
+  padding:clamp(22px,3.6vw,40px) clamp(16px,3vw,36px) clamp(18px,2.6vw,28px);
+  box-shadow:0 22px 60px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(181,171,252,.07);
+  overflow:hidden;
+}
+.display::after{  /* Glasabdeckung der Anzeige */
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(160deg,rgba(210,206,253,.055) 0%,transparent 42%);
+}
+.display-head{display:flex; align-items:center; gap:12px; margin-bottom:clamp(16px,2.4vw,24px);
+  flex-wrap:wrap}
+.display-head .screen{white-space:nowrap}
+.rule{flex:1; min-width:24px; height:1px; background:var(--line-soft)}
+/* Auf schmalen Geraeten traegt die lange deutsche Beschriftung nicht mehr
+   neben Trennlinie und Zusatz — dann faellt der Zusatz weg statt zu ueberlaufen. */
+@media (max-width:520px){
+  .display-head .screen:not(.screen-lit){display:none}
+  .display-head .rule{display:none}
+}
+
+/* Die durchlaufende Zeile: 14 Gruppen a 4 Zeichen */
+#addr{
+  display:flex; flex-wrap:wrap; gap:clamp(9px,1.5vw,18px);
+  font-size:clamp(15px,3.4vw,30px);
+  word-break:keep-all;
+}
+#addr .grp{display:flex; gap:.09em}
+#addr .ch{
+  color:var(--lit); text-shadow:0 0 14px rgba(181,171,252,.32);
+  transition:color .12s;
+}
+#addr .ch.scramble{color:var(--dim); text-shadow:none}
+
+.display-foot{
+  display:flex; flex-wrap:wrap; align-items:center; gap:14px;
+  margin-top:clamp(18px,2.6vw,26px); padding-top:16px;
+  border-top:1px solid var(--line-soft);
+}
+.regen{
+  appearance:none; cursor:pointer; background:var(--panel);
+  border:1px solid var(--line); border-radius:var(--r);
+  color:var(--body); padding:9px 15px;
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:border-color .18s, color .18s, background .18s;
+}
+.regen:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
+.regen:active{background:#101220}
+
+/* ════════════ These ════════════ */
+.thesis{padding:clamp(30px,5vw,54px) 0 clamp(24px,4vw,40px); max-width:68ch}
+.thesis h1{font-size:clamp(26px,5.2vw,46px); margin-bottom:22px}
+.thesis p{font-size:clamp(15px,1.9vw,18px); line-height:1.7; color:var(--body); margin:0 0 16px}
+.thesis strong{color:var(--lit-hi); font-weight:600}
+
+/* ════════════ Bedienleiste ════════════ */
+.rail{
+  display:grid; gap:14px; padding-bottom:clamp(40px,6vw,72px);
+  grid-template-columns:repeat(auto-fit,minmax(258px,1fr));
+}
+.slot{
+  border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel);
+  padding:20px; display:flex; flex-direction:column; gap:12px;
+}
+.slot-head{display:flex; align-items:center; gap:9px}
+.lamp{width:8px; height:8px; border-radius:var(--r-pill); flex:none;
+  background:var(--unlit-deep); box-shadow:none}
+.lamp.on{background:var(--lit); box-shadow:0 0 10px rgba(181,171,252,.75)}
+.slot p{margin:0; font-size:13.5px; line-height:1.6; color:var(--muted)}
+.slot .act{margin-top:auto}
+
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:9px;
+  width:100%; padding:12px 16px; border-radius:var(--r);
+  font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  text-decoration:none; cursor:pointer; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--body);
+  transition:border-color .18s, color .18s, background .18s, box-shadow .18s;
+}
+.btn:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
+.btn-primary{background:var(--unlit-deep); border-color:var(--unlit); color:var(--lit-hi)}
+.btn-primary:hover{background:#4d4482; box-shadow:0 8px 22px -10px rgba(0,0,0,.85)}
+.btn[aria-disabled="true"]{
+  cursor:not-allowed; color:var(--dim); border-style:dashed;
+  border-color:var(--line-soft); background:transparent;
+}
+.btn[aria-disabled="true"]:hover{color:var(--dim); background:transparent; border-color:var(--line-soft)}
+
+.field{display:flex; gap:8px}
+.field input{
+  flex:1; min-width:0; background:var(--panel-2); border:1px solid var(--line);
+  border-radius:var(--r); padding:11px 13px; color:var(--ink);
+  font:400 13px/1 'Chivo Mono',monospace;
+}
+.field input::placeholder{color:var(--muted)}
+.field input:hover{border-color:var(--unlit-deep)}
+.hint{font-size:11.5px; line-height:1.55; color:var(--muted); margin:0}
+
+/* ════════════ Module ════════════ */
+.mod{border-top:1px solid var(--line-soft); padding:clamp(46px,7vw,86px) 0}
+.mod-head{margin-bottom:clamp(24px,3.6vw,38px)}
+.mod-head .screen{display:block; margin-bottom:13px}
+.mod-head h2{font-size:clamp(20px,3.4vw,31px); max-width:22ch}
+.mod-head p{margin:14px 0 0; max-width:64ch; color:var(--muted); font-size:14.5px; line-height:1.7}
+
+/* Was der Server sieht — zwei Anzeigen nebeneinander */
+.split{display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+.pane{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel-2); overflow:hidden}
+.pane-head{display:flex; align-items:center; gap:9px; padding:13px 17px; border-bottom:1px solid var(--line-soft)}
+.pane-body{padding:17px; font-size:13px; line-height:1.75}
+.plain{color:var(--lit-hi)}
+.cipher{color:var(--dim); word-break:break-all; font-size:11.5px; line-height:1.8}
+
+.sees{list-style:none; margin:20px 0 0; padding:0; display:grid; gap:1px;
+  border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--line-soft)}
+.sees li{display:flex; align-items:center; gap:12px; padding:13px 17px; background:var(--panel)}
+.sees .what{flex:1; font-size:13.5px; color:var(--body)}
+.sees .verdict{font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.13em; text-transform:uppercase}
+.sees .yes .verdict{color:var(--lit)}
+.sees .no  .verdict{color:var(--muted)}
+
+/* Signalweg */
+.path{display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.step{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:19px; position:relative}
+.step .screen{display:block; margin-bottom:11px}
+.step h3{font-size:15px; margin-bottom:9px; color:var(--lit-hi)}
+.step p{margin:0; font-size:13px; line-height:1.65; color:var(--muted)}
+
+/* Wiederherstellung: die zwoelf Woerter */
+.words{display:grid; gap:9px; grid-template-columns:repeat(auto-fill,minmax(126px,1fr)); margin-top:6px}
+.word{display:flex; align-items:baseline; gap:9px; border:1px solid var(--line-soft);
+  border-radius:var(--r); background:var(--panel-2); padding:10px 13px}
+.word i{font:500 10px/1 'Chivo Mono',monospace; color:var(--dim); font-style:normal; letter-spacing:.1em}
+.word span{font-family:'Doto',monospace; font-weight:700; font-size:14px; color:var(--lit-hi); letter-spacing:.03em}
+
+/* Grenzen: die eingebrannte Typenschild-Tabelle */
+.plate{border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden}
+.plate-row{display:grid; grid-template-columns:minmax(150px,.9fr) 1.4fr;
+  gap:0; border-bottom:1px solid var(--line-soft)}
+.plate-row:last-child{border-bottom:0}
+.plate-row dt{padding:15px 17px; background:var(--panel-2); border-right:1px solid var(--line-soft);
+  font:600 10.5px/1.5 'Chivo Mono',monospace; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted)}
+.plate-row dd{margin:0; padding:15px 17px; background:var(--panel);
+  font-size:13.5px; line-height:1.6; color:var(--body)}
+@media (max-width:560px){
+  .plate-row{grid-template-columns:1fr}
+  .plate-row dt{border-right:0; border-bottom:1px solid var(--line-soft)}
+}
+
+/* Belege */
+.facts{display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); margin-top:8px}
+.fact{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:19px}
+.fact .num{font-family:'Doto',monospace; font-weight:700; font-size:clamp(24px,3.6vw,32px);
+  color:var(--lit); letter-spacing:.02em; display:block; margin-bottom:9px}
+.fact p{margin:0; font-size:12.5px; line-height:1.6; color:var(--muted)}
+
+/* ════════════ Fuss ════════════ */
+footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44px; margin-top:20px}
+.foot-grid{display:flex; flex-wrap:wrap; gap:26px 40px; align-items:flex-start}
+.foot-col{min-width:170px}
+.foot-col .screen{display:block; margin-bottom:13px}
+.foot-col a{display:block; color:var(--muted); text-decoration:none; font-size:13px;
+  padding:4px 0; transition:color .18s}
+.foot-col a:hover{color:var(--lit)}
+.foot-note{margin:34px 0 0; padding-top:22px; border-top:1px solid var(--line-soft);
+  font-size:11.5px; line-height:1.7; color:var(--muted); max-width:74ch}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important; transition-duration:.01ms!important}
+}
+</style>
+</head>
+
+<body>
+
+<!-- ═══════════ Gehaeusekante ═══════════ -->
+<header class="bezel">
+  <div class="wrap bezel-in">
+    <a class="mark" href="#top">
+      <span class="mark-name">BitDM</span>
+      <span class="mark-rev de">Vorabversion</span>
+      <span class="mark-rev en">Pre-release</span>
+    </a>
+    <a class="src-link" href="https://github.com/Henner4746/BitDM" rel="noopener">
+      <span class="de">Quellcode</span><span class="en">Source</span>
+    </a>
+    <div class="toggle" role="group" aria-label="Sprache / Language">
+      <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
+      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ═══════════ Hauptanzeige ═══════════ -->
+  <section class="wrap display-mod">
+    <div class="display">
+      <div class="display-head">
+        <span class="screen screen-lit de">Adresse — öffentlicher Schlüssel</span>
+        <span class="screen screen-lit en">Address — public key</span>
+        <span class="rule"></span>
+        <span class="screen de">Beispiel</span>
+        <span class="screen en">Example</span>
+      </div>
+
+      <div id="addr" role="img"
+           aria-label="Beispiel einer BitDM-Adresse: 56 Zeichen in 14 Gruppen"></div>
+
+      <div class="display-foot">
+        <button class="regen" type="button" id="regen">
+          <span class="de">Neu erzeugen</span><span class="en">Generate again</span>
+        </button>
+        <p class="hint" style="margin:0">
+          <span class="de">Kein Konto dahinter. Diese Zeichenkette <em>ist</em> der Schlüssel.
+            Die App erzeugt ihn auf dem Gerät, in einer Zehntelsekunde, ohne einen
+            Server zu fragen.</span>
+          <span class="en">There is no account behind it: this string <em>is</em> the
+            key. The app generates it on the device, in a fraction of a second,
+            without asking any server.</span>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ These ═══════════ -->
+  <section class="wrap thesis">
+    <h1>
+      <span class="de">Deine Identität<br>passt in<br>56 Zeichen</span>
+      <span class="en">Your identity<br>fits into<br>56 characters</span>
+    </h1>
+    <p class="de">
+      Die meisten Messenger fragen zuerst nach deiner Telefonnummer. BitDM fragt
+      nach gar nichts. Beim ersten Start erzeugt die App ein Schlüsselpaar. Die
+      Adresse oben ist der öffentliche Teil davon, lesbar kodiert und mit einer
+      Prüfsumme gegen Vertipper.
+    </p>
+    <p class="de">
+      Das hat eine Folge, die man leicht überliest: <strong>ein Server kann dir
+      keinen falschen Schlüssel unterschieben.</strong> Er müsste dafür die
+      Adresse ändern, und die hast du bereits.
+    </p>
+    <p class="en">
+      Most messengers ask for your phone number first. BitDM asks for nothing at
+      all. On first launch the app generates a key pair. The address above is
+      its public half, readably encoded and carrying a checksum against typos.
+    </p>
+    <p class="en">
+      That has a consequence which is easy to miss: <strong>a server cannot slip
+      you the wrong key.</strong> It would have to change the address, and you
+      already have that.
+    </p>
+  </section>
+
+  <!-- ═══════════ Bedienleiste ═══════════ -->
+  <section class="wrap rail" aria-label="App beziehen">
+
+    <div class="slot">
+      <div class="slot-head">
+        <span class="lamp" aria-hidden="true"></span>
+        <span class="screen de">Google Play</span>
+        <span class="screen en">Google Play</span>
+      </div>
+      <p class="de">Die Veröffentlichung ist vorbereitet, aber noch nicht erfolgt.
+        Sobald die Prüfung durch ist, steht der Link hier.</p>
+      <p class="en">Publication is prepared but has not happened yet. The link
+        will appear here once review is through.</p>
+      <div class="act">
+        <span class="btn" aria-disabled="true">
+          <span class="de">Noch nicht verfügbar</span><span class="en">Not yet available</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-head">
+        <span class="lamp" aria-hidden="true"></span>
+        <span class="screen de">Direkter Download</span>
+        <span class="screen en">Direct download</span>
+      </div>
+      <p class="de">Die APK erscheint hier, sobald sie mit dem echten
+        Release-Schlüssel signiert ist. Der Fingerabdruck steht dann daneben.
+        Prüf ihn, bevor du installierst.</p>
+      <p class="en">The APK appears here once it is signed with the real release
+        key. Its fingerprint will sit next to it. Check it before installing.</p>
+      <div class="act">
+        <span class="btn" aria-disabled="true">
+          <span class="de">In Vorbereitung</span><span class="en">In preparation</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-head">
+        <span class="lamp on" aria-hidden="true"></span>
+        <span class="screen screen-lit de">Bescheid bekommen</span>
+        <span class="screen screen-lit en">Get notified</span>
+      </div>
+      <p class="de">Eine Zeile genügt. Wir führen keine Liste. Deine Mail liegt
+        in einem Postfach und sonst nirgends.</p>
+      <p class="en">One line is enough. We keep no mailing list; your address
+        sits in a mailbox and nowhere else.</p>
+      <div class="act">
+        <form class="field" id="notify">
+          <label for="mail" class="screen" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">E-Mail</label>
+          <input id="mail" type="email" name="mail" required
+                 placeholder="du@beispiel.de" autocomplete="email" spellcheck="false">
+          <button class="btn btn-primary" type="submit" style="width:auto;white-space:nowrap">
+            <span class="de">Senden</span><span class="en">Send</span>
+          </button>
+        </form>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ═══════════ Was der Server sieht ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Sichtbarkeit</span>
+      <span class="screen screen-lit en">Module — visibility</span>
+      <h2>
+        <span class="de">Was der Server sieht</span>
+        <span class="en">What the server sees</span>
+      </h2>
+      <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Inhalt. Sie schützt
+        nicht, <em>dass</em> du geschrieben hast. Wer das verschweigt, verkauft
+        Sicherheit, statt sie zu liefern. Deshalb steht es hier und nicht im
+        Kleingedruckten.</p>
+      <p class="en">End-to-end encryption protects the content. It does not
+        protect the fact <em>that</em> you wrote. Hiding that means selling
+        security instead of delivering it. So it stands here, not in the fine print.</p>
+    </div>
+
+    <div class="split">
+      <div class="pane">
+        <div class="pane-head">
+          <span class="lamp on" aria-hidden="true"></span>
+          <span class="screen screen-lit de">Auf deinem Gerät</span>
+          <span class="screen screen-lit en">On your device</span>
+        </div>
+        <div class="pane-body plain">„Treffen wir uns um acht am üblichen Ort?"</div>
+      </div>
+      <div class="pane">
+        <div class="pane-head">
+          <span class="lamp" aria-hidden="true"></span>
+          <span class="screen de">Im Speicher des Relays</span>
+          <span class="screen en">In the relay's storage</span>
+        </div>
+        <div class="pane-body cipher">MwohBWtsemNtem5nYnFqbmZjaXlsd2txNTJlYmd5ZXJtMzNsY2U2cnBkbG1iN2p6YWg3c2hncXJlbGt2EiEF3pNcRq9yTfMoeGJ1aVdrTjhLcVp4RGZXbUxvUXlUZzAaMwohBW…</div>
+      </div>
+    </div>
+
+    <ul class="sees">
+      <li class="no"><span class="what de">Inhalt der Nachricht</span><span class="what en">Message content</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
+      <li class="no"><span class="what de">Anzeigename deiner Kontakte</span><span class="what en">Your contacts' display names</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
+      <li class="yes"><span class="what de">Absender- und Empfängeradresse</span><span class="what en">Sender and recipient address</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
+      <li class="yes"><span class="what de">Zeitpunkt und Größe</span><span class="what en">Time and size</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
+      <li class="yes"><span class="what de">Wer gerade verbunden ist</span><span class="what en">Who is currently connected</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ Signalweg ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Signalweg</span>
+      <span class="screen screen-lit en">Module — signal path</span>
+      <h2>
+        <span class="de">Wie eine Nachricht entsteht</span>
+        <span class="en">How a message comes about</span>
+      </h2>
+      <p class="de">Signal-Protokoll: X3DH baut die Sitzung auf, der Double
+        Ratchet erneuert die Schlüssel bei jeder Nachricht. Wer sich heute einen
+        Schlüssel beschafft, kann damit nicht nachlesen, was gestern geschrieben wurde.</p>
+      <p class="en">Signal protocol: X3DH sets up the session, the Double
+        Ratchet renews keys with every message. Obtaining a key today does not unlock what
+        was written yesterday.</p>
+    </div>
+
+    <div class="path">
+      <div class="step">
+        <span class="screen de">Schritt 1</span><span class="screen en">Step 1</span>
+        <h3><span class="de">Adresse eintragen</span><span class="en">Enter address</span></h3>
+        <p class="de">Du fügst die 56 Zeichen deines Gegenübers ein. Die Prüfsumme
+          fängt Vertipper ab, bevor irgendetwas gesendet wird.</p>
+        <p class="en">You paste the other side's 56 characters. The checksum
+          catches typos before anything is sent.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
+        <h3><span class="de">Sitzung aufbauen</span><span class="en">Establish session</span></h3>
+        <p class="de">Die App holt ein Schlüsselpaket und rechnet daraus ein
+          gemeinsames Geheimnis aus, auch wenn das Gegenüber gerade offline ist.</p>
+        <p class="en">The app fetches a key bundle and derives a shared secret
+          from it, even while the other side is offline.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
+        <h3><span class="de">Schlüssel weiterdrehen</span><span class="en">Ratchet forward</span></h3>
+        <p class="de">Jede Nachricht bekommt ihren eigenen Schlüssel. Der
+          vorherige wird verworfen und ist nicht wiederherstellbar.</p>
+        <p class="en">Every message gets its own key. The previous one is
+          discarded and cannot be recovered.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 4</span><span class="screen en">Step 4</span>
+        <h3><span class="de">Nachprüfen</span><span class="en">Verify</span></h3>
+        <p class="de">Eine 60-stellige Sicherheitsnummer, die beide Seiten
+          vergleichen können. Stimmt sie, sitzt niemand dazwischen.</p>
+        <p class="en">A 60-digit safety number both sides can compare. If it
+          matches, nobody is sitting in between.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ Wiederherstellung ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Wiederherstellung</span>
+      <span class="screen screen-lit en">Module — recovery</span>
+      <h2>
+        <span class="de">Zwölf Wörter, einmal notiert</span>
+        <span class="en">Twelve words, written down once</span>
+      </h2>
+      <p class="de">Ohne Konto gibt es niemanden, der dich zurücklassen könnte.
+        Deshalb bekommst du beim ersten Start zwölf Wörter. Sie sind der einzige
+        Weg zurück. Einen zweiten gibt es nicht, auch nicht für uns.</p>
+      <p class="en">Without an account, there is nobody who could let you back
+        in. So on first launch you get twelve words. They are the only way back.
+        There is no second one, not even for us.</p>
+    </div>
+    <div class="words" aria-label="Beispiel einer Wiederherstellungsphrase">
+      <div class="word"><i>01</i><span>village</span></div>
+      <div class="word"><i>02</i><span>mother</span></div>
+      <div class="word"><i>03</i><span>food</span></div>
+      <div class="word"><i>04</i><span>ghost</span></div>
+      <div class="word"><i>05</i><span>jeans</span></div>
+      <div class="word"><i>06</i><span>fish</span></div>
+      <div class="word"><i>07</i><span>banner</span></div>
+      <div class="word"><i>08</i><span>trust</span></div>
+      <div class="word"><i>09</i><span>forest</span></div>
+      <div class="word"><i>10</i><span>cupboard</span></div>
+      <div class="word"><i>11</i><span>depend</span></div>
+      <div class="word"><i>12</i><span>agree</span></div>
+    </div>
+  </section>
+
+  <!-- ═══════════ Grenzen ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Grenzen</span>
+      <span class="screen screen-lit en">Module — limits</span>
+      <h2>
+        <span class="de">Was BitDM nicht kann</span>
+        <span class="en">What BitDM cannot do</span>
+      </h2>
+      <p class="de">Ein Typenschild sagt, was ein Gerät aushält und was nicht.
+        Diese Liste wächst mit, statt später still zu verschwinden.</p>
+      <p class="en">A rating plate states what a device withstands and what it does not. This list grows with the product instead of quietly disappearing.</p>
+    </div>
+
+    <dl class="plate">
+      <div class="plate-row">
+        <dt><span class="de">Metadaten</span><span class="en">Metadata</span></dt>
+        <dd><span class="de">Der Relay sieht, wer wann mit wem schreibt. Verschlüsselung ändert daran nichts.</span>
+            <span class="en">The relay sees who writes to whom and when. Encryption does not change that.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Geräte</span><span class="en">Devices</span></dt>
+        <dd><span class="de">Ein Gerät je Identität. Wiederherstellung auf einem zweiten legt das erste still.</span>
+            <span class="en">One device per identity. Restoring on a second one retires the first.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Umfang</span><span class="en">Scope</span></dt>
+        <dd><span class="de">Einzelchats, nur Text. Keine Gruppen, keine Bilder, keine Anrufe.</span>
+            <span class="en">One-to-one chats, text only. No groups, no images, no calls.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
+        <dd><span class="de">Sind die zwölf Wörter weg, ist die Identität weg. Es gibt kein Zurücksetzen und keine Wiederherstellung per Mail.</span>
+            <span class="en">Twelve words gone means identity gone. No reset, no recovery by email.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Prüfung</span><span class="en">Audit</span></dt>
+        <dd><span class="de">Kein externes Sicherheitsaudit. Der Quellcode liegt offen. Das ersetzt kein Audit, macht eines aber möglich.</span>
+            <span class="en">No external security audit. The source is open. That does not replace an audit, but it makes one possible.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Reife</span><span class="en">Maturity</span></dt>
+        <dd><span class="de">Vorabversion. Noch nicht veröffentlicht, noch nicht im Alltag erprobt.</span>
+            <span class="en">Pre-release. Not published yet, not proven in daily use yet.</span></dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ═══════════ Belege ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Nachprüfbarkeit</span>
+      <span class="screen screen-lit en">Module — verifiability</span>
+      <h2>
+        <span class="de">Der Quellcode liegt offen</span>
+        <span class="en">The source is open</span>
+      </h2>
+      <p class="de">Ein Sicherheitsversprechen, das niemand nachprüfen kann, ist wertlos. Der vollständige Quellcode steht unter GPL-3.0 offen: App,
+        Server und Tests.</p>
+      <p class="en">A security promise nobody can check is worthless. The complete
+        source is open under GPL-3.0: app, server and tests.</p>
+    </div>
+
+    <div class="facts">
+      <div class="fact">
+        <span class="num">GPL-3.0</span>
+        <p class="de">Quelloffen. Wer die App verteilt, muss den Quellcode mitliefern.</p>
+        <p class="en">Open source. Anyone distributing the app must ship the source.</p>
+      </div>
+      <div class="fact">
+        <span class="num">24</span>
+        <p class="de">Offizielle BIP39-Testvektoren, gegen die die Ableitung der zwölf Wörter geprüft ist.</p>
+        <p class="en">Official BIP39 test vectors the twelve-word derivation is checked against.</p>
+      </div>
+      <div class="fact">
+        <span class="num">56</span>
+        <p class="de">Zeichen je Adresse, mit Prüfsumme. Jeder einzelne Vertipper fällt auf.</p>
+        <p class="en">Characters per address, with a checksum. Every single typo is caught.</p>
+      </div>
+      <div class="fact">
+        <span class="num">0</span>
+        <p class="de">Anfragen an Dritte. Die App lädt weder Schriften noch Zählpixel nach. Diese Seite auch nicht.</p>
+        <p class="en">Third-party requests. The app loads neither fonts nor trackers, and neither does this page.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ═══════════ Fuss ═══════════ -->
+<footer class="wrap">
+  <div class="foot-grid">
+    <div class="foot-col">
+      <span class="screen de">Projekt</span><span class="screen en">Project</span>
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">
+        <span class="de">Quellcode auf GitHub</span><span class="en">Source on GitHub</span></a>
+      <a href="https://www.gnu.org/licenses/gpl-3.0.html" rel="noopener">
+        <span class="de">Lizenz GPL-3.0</span><span class="en">GPL-3.0 licence</span></a>
+    </div>
+    <div class="foot-col">
+      <span class="screen de">Rechtliches</span><span class="screen en">Legal</span>
+      <a href="privacy.html">
+        <span class="de">Datenschutzerklärung</span><span class="en">Privacy policy</span></a>
+      <a href="privacy.html#impressum">
+        <span class="de">Impressum</span><span class="en">Imprint</span></a>
+    </div>
+    <div class="foot-col">
+      <span class="screen de">Kontakt</span><span class="en">Contact</span>
+      <a href="mailto:bitdm@henrik.click">bitdm@henrik.click</a>
+    </div>
+  </div>
+  <p class="foot-note">
+    <span class="de">BitDM ist eine Vorabversion und noch nicht veröffentlicht. Die
+      oben gezeigte Adresse und die zwölf Wörter sind Beispiele zur Veranschaulichung,
+      keine echten Schlüssel. Google Play und das Google-Play-Logo sind Marken von Google LLC.</span>
+    <span class="en">BitDM is a pre-release and not published yet. The address and
+      the twelve words shown above are illustrative examples, not real keys.
+      Google Play and the Google Play logo are trademarks of Google LLC.</span>
+  </p>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ── Sprache ───────────────────────────────────────────────────────────
+     Ohne JavaScript bleibt Deutsch stehen; hier wird nur umgeschaltet. */
+  var root = document.documentElement;
+  function setLang(l){
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l);
+    document.querySelectorAll('[data-set-lang]').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.setLang === l));
+    });
+    try{ localStorage.setItem('bitdm-lang', l); }catch(e){}
+  }
+  document.querySelectorAll('[data-set-lang]').forEach(function(b){
+    b.addEventListener('click', function(){ setLang(b.dataset.setLang); });
+  });
+  var saved = null;
+  try{ saved = localStorage.getItem('bitdm-lang'); }catch(e){}
+  setLang(saved || ((navigator.language||'de').slice(0,2) === 'de' ? 'de' : 'en'));
+
+  /* ── Adressanzeige ─────────────────────────────────────────────────────
+     Erzeugt eine Zeichenkette im echten Format: Base32-Alphabet, 56 Stellen,
+     14 Gruppen a 4. Es ist KEIN Schluessel — nur die Form ist echt, damit
+     sichtbar wird, wie eine Adresse aussieht. */
+  var ALPHA = 'abcdefghijklmnopqrstuvwxyz234567';
+  var GROUPS = 14, PER = 4, TOTAL = GROUPS * PER;
+  var box = document.getElementById('addr');
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function randomAddress(){
+    var out = '', bytes = new Uint8Array(TOTAL);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    for (var i = 0; i < TOTAL; i++) out += ALPHA[bytes[i] % 32];
+    return out;
+  }
+
+  function build(){
+    box.textContent = '';
+    var cells = [];
+    for (var g = 0; g < GROUPS; g++){
+      var grp = document.createElement('span');
+      grp.className = 'grp';
+      for (var c = 0; c < PER; c++){
+        var ch = document.createElement('span');
+        ch.className = 'ch';
+        grp.appendChild(ch);
+        cells.push(ch);
+      }
+      box.appendChild(grp);
+    }
+    return cells;
+  }
+
+  var cells = build();
+
+  /* Der eine komponierte Moment: die Stellen fallen von links nach rechts
+     in ihren Endwert, mit exponentiell auslaufendem Abstand. Kein Effekt
+     ohne Aussage — es zeigt, dass die Adresse entsteht, nicht vergeben wird. */
+  function render(addr){
+    if (reduced){
+      for (var i = 0; i < cells.length; i++){
+        cells[i].textContent = addr[i];
+        cells[i].classList.remove('scramble');
+      }
+      box.setAttribute('aria-label', 'Beispieladresse: ' + addr);
+      return;
+    }
+    var start = null, settled = 0;
+    for (var j = 0; j < cells.length; j++) cells[j].classList.add('scramble');
+
+    function frame(ts){
+      if (start === null) start = ts;
+      var t = Math.min(1, (ts - start) / 900);
+      var eased = 1 - Math.pow(1 - t, 3);      /* exponentielles Auslaufen */
+      var target = Math.floor(eased * cells.length);
+
+      for (var i = settled; i < target; i++){
+        cells[i].textContent = addr[i];
+        cells[i].classList.remove('scramble');
+      }
+      settled = target;
+      for (var k = target; k < cells.length; k++){
+        cells[k].textContent = ALPHA[(Math.random() * 32) | 0];
+      }
+      if (t < 1) requestAnimationFrame(frame);
+      else {
+        for (var m = 0; m < cells.length; m++){
+          cells[m].textContent = addr[m];
+          cells[m].classList.remove('scramble');
+        }
+        box.setAttribute('aria-label', 'Beispieladresse: ' + addr);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  render(randomAddress());
+  document.getElementById('regen').addEventListener('click', function(){
+    render(randomAddress());
+  });
+
+  /* ── Benachrichtigung ──────────────────────────────────────────────────
+     Es gibt bewusst keine Empfaengerliste auf einem Server. Das Formular
+     oeffnet das Mailprogramm — die Adresse liegt dann in einem Postfach und
+     sonst nirgends. Soll spaeter ein echter Endpunkt dazukommen, wird
+     NOTIFY_ENDPOINT gesetzt und dieser Zweig faellt weg. */
+  var NOTIFY_ENDPOINT = null;
+  var form = document.getElementById('notify');
+  form.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var mail = document.getElementById('mail').value.trim();
+    if (!mail) return;
+    if (NOTIFY_ENDPOINT){
+      form.action = NOTIFY_ENDPOINT; form.method = 'post'; form.submit(); return;
+    }
+    var de = root.getAttribute('data-lang') === 'de';
+    var subject = de ? 'BitDM — bei Veröffentlichung benachrichtigen'
+                     : 'BitDM — notify me at release';
+    var body = de ? 'Bitte gebt mir Bescheid, sobald BitDM verfügbar ist.\n\nMeine Adresse: ' + mail
+                  : 'Please let me know once BitDM is available.\n\nMy address: ' + mail;
+    window.location.href = 'mailto:bitdm@henrik.click?subject=' +
+      encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+  });
+})();
+</script>
+</body>
+</html>

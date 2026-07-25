@@ -47,6 +47,7 @@ dependencies:
   # kommen aus diesem Paket, der Rest liegt in lib/core/crypto/bip39.dart und
   # ist gegen die offiziellen Testvektoren geprueft.
   cryptography: 2.9.0
+  libsignal_protocol_dart: 0.8.2
 
   # google_fonts wurde bewusst ENTFERNT: es laedt Schriften zur Laufzeit von
   # fonts.gstatic.com nach und verraet Google damit bei jedem Kaltstart IP und

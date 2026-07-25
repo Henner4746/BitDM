@@ -1,0 +1,387 @@
+<!doctype html>
+<!--
+  Datenschutzerklaerung + Impressum.
+
+  Google Play verlangt eine Datenschutzerklaerung unter einer oeffentlich
+  erreichbaren, nicht geoblockten, nicht-PDF-URL, die den Entwickler oder die
+  App namentlich nennt, und sie muss zum Data-Safety-Formular in der Play
+  Console passen. Diese Seite erfuellt das.
+
+  Sie erbt die Nocturne-Welt der Startseite, tritt aber im Lese-Modus auf:
+  eine Spalte, ruhige Rhythmik, keine Anzeigen. Ein Geraetefeld gehoert auf die
+  Startseite; ein Beipackzettel ist ein Beipackzettel.
+-->
+<html lang="de" data-lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Datenschutz & Impressum — BitDM</title>
+<meta name="description" content="Datenschutzerklärung und Impressum für BitDM und diese Website.">
+<meta name="theme-color" content="#0b0c12">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
+
+<style>
+@font-face{font-family:'Doto';src:url('fonts/Doto.ttf') format('truetype');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Chivo Mono';src:url('fonts/ChivoMono.ttf') format('truetype');font-weight:100 900;font-display:swap}
+
+:root{
+  --ground:#0b0c12; --panel:#161826; --panel-2:#12141f;
+  --line:#3f424d; --line-soft:#272a38;
+  --lit-hi:#d2cefd; --lit:#b5abfc; --lit-mid:#9184d9;
+  --unlit:#5d5294; --unlit-deep:#423a6a; --dim:#8a80c2;
+  --ink:#f3f5fe; --body:#cfd3e5; --muted:#9397ab;
+  --r-lg:14px; --r:8px; --r-sm:4px; --r-pill:99px;
+  --rail:clamp(18px,4vw,56px);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0; background:var(--ground); color:var(--body);
+  font:400 16px/1.7 'Chivo Mono',ui-monospace,monospace; -webkit-font-smoothing:antialiased}
+
+[data-lang="de"] .en{display:none}
+[data-lang="en"] .de{display:none}
+
+.screen{font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--muted)}
+.screen-lit{color:var(--lit-mid)}
+
+h1,h2{font-family:'Doto',monospace; font-weight:700; letter-spacing:.02em;
+  text-transform:uppercase; color:var(--ink); margin:0; line-height:1.1}
+a{color:var(--lit)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
+
+.wrap{max-width:760px; margin:0 auto; padding:0 var(--rail)}
+
+.bezel{position:sticky; top:0; z-index:40;
+  background:linear-gradient(180deg,#0d0e16 0%,rgba(11,12,18,.92) 100%);
+  border-bottom:1px solid var(--line-soft); backdrop-filter:saturate(140%) blur(8px)}
+.bezel-in{display:flex; align-items:center; gap:20px; height:58px;
+  max-width:1180px; margin:0 auto; padding:0 var(--rail)}
+.mark{display:flex; align-items:baseline; gap:10px; margin-right:auto; text-decoration:none}
+.mark-name{font-family:'Doto',monospace; font-weight:700; font-size:21px;
+  letter-spacing:.04em; color:var(--ink); text-transform:uppercase}
+.back{color:var(--muted); text-decoration:none;
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s}
+.back:hover{color:var(--lit)}
+.toggle{display:flex; border:1px solid var(--line); border-radius:var(--r-pill);
+  padding:2px; background:var(--panel-2)}
+.toggle button{appearance:none; border:0; background:transparent; cursor:pointer;
+  padding:5px 11px; border-radius:var(--r-pill); color:var(--muted);
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s, background .18s}
+.toggle button:hover{color:var(--body)}
+.toggle button[aria-pressed="true"]{background:var(--unlit-deep); color:var(--lit-hi)}
+
+header.page{padding:clamp(44px,7vw,80px) 0 clamp(22px,3vw,32px)}
+header.page .screen{display:block; margin-bottom:15px}
+header.page h1{font-size:clamp(24px,4.6vw,38px)}
+header.page .stamp{margin:20px 0 0; font-size:12.5px; color:var(--muted)}
+
+section{padding:clamp(28px,4vw,42px) 0; border-top:1px solid var(--line-soft)}
+section h2{font-size:clamp(16px,2.6vw,21px); margin-bottom:18px}
+section p{margin:0 0 15px; max-width:68ch}
+section p:last-child{margin-bottom:0}
+section ul{margin:0 0 15px; padding-left:20px; max-width:68ch}
+section li{margin-bottom:9px}
+strong{color:var(--lit-hi); font-weight:600}
+
+/* Die eine Aussage, um die es hier eigentlich geht */
+.headline-claim{
+  border:1px solid var(--line); border-left:1px solid var(--line);
+  border-radius:var(--r-lg); background:var(--panel);
+  padding:clamp(20px,3vw,28px); margin:0 0 26px;
+}
+.headline-claim p{margin:0; font-size:clamp(15px,2vw,17px); line-height:1.65; color:var(--lit-hi)}
+
+.plate{border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden; margin:0 0 15px}
+.plate-row{display:grid; grid-template-columns:minmax(130px,.8fr) 1.4fr;
+  border-bottom:1px solid var(--line-soft)}
+.plate-row:last-child{border-bottom:0}
+.plate-row dt{padding:14px 16px; background:var(--panel-2); border-right:1px solid var(--line-soft);
+  font:600 10.5px/1.5 'Chivo Mono',monospace; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted)}
+.plate-row dd{margin:0; padding:14px 16px; background:var(--panel); font-size:14px; line-height:1.6}
+@media (max-width:560px){
+  .plate-row{grid-template-columns:1fr}
+  .plate-row dt{border-right:0; border-bottom:1px solid var(--line-soft)}
+}
+
+footer{border-top:1px solid var(--line-soft); padding:34px 0 44px; margin-top:14px}
+footer p{margin:0; font-size:11.5px; line-height:1.7; color:var(--muted)}
+footer a{color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important; transition-duration:.01ms!important}
+}
+</style>
+</head>
+
+<body>
+
+<header class="bezel">
+  <div class="bezel-in">
+    <a class="mark" href="index.html"><span class="mark-name">BitDM</span></a>
+    <a class="back" href="index.html">
+      <span class="de">← Zurück</span><span class="en">← Back</span>
+    </a>
+    <div class="toggle" role="group" aria-label="Sprache / Language">
+      <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
+      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <header class="page">
+    <span class="screen screen-lit de">Rechtliches</span>
+    <span class="screen screen-lit en">Legal</span>
+    <h1><span class="de">Datenschutz &amp; Impressum</span><span class="en">Privacy &amp; imprint</span></h1>
+    <p class="stamp">
+      <span class="de">Gilt für die App <strong>BitDM</strong> (<code>com.bitdm.bitdm</code>)
+        und für diese Website. Stand: 25. Juli 2026.</span>
+      <span class="en">Applies to the <strong>BitDM</strong> app
+        (<code>com.bitdm.bitdm</code>) and to this website. Last updated: 25 July 2026.</span>
+    </p>
+  </header>
+
+  <section>
+    <h2><span class="de">Kurzfassung</span><span class="en">In short</span></h2>
+    <div class="headline-claim">
+      <p class="de">BitDM verlangt keine Registrierung, keine Telefonnummer, keine
+        E-Mail-Adresse und kein Passwort. Es gibt kein Nutzerkonto, weil es
+        nichts gibt, woran ein Konto hängen könnte. Nachrichteninhalte sind Ende
+        zu Ende verschlüsselt und für den Server nicht lesbar.</p>
+      <p class="en">BitDM requires no registration, no phone number, no email
+        address and no password. There is no user account, because there is
+        nothing an account could attach to. Message contents are end-to-end
+        encrypted and unreadable to the server.</p>
+    </div>
+    <p class="de">Was der Server dennoch sieht, steht weiter unten unter
+      „Verarbeitung auf dem Server" — vollständig und ohne Beschönigung.</p>
+    <p class="en">What the server does see is listed below under „Processing on
+      the server" — completely and without glossing over.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Verantwortlicher</span><span class="en">Controller</span></h2>
+    <dl class="plate">
+      <div class="plate-row">
+        <dt><span class="de">Betreiber</span><span class="en">Operator</span></dt>
+        <dd>Henrik <span class="de">(Privatperson, nicht gewerblich)</span><span class="en">(private individual, non-commercial)</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Anschrift</span><span class="en">Address</span></dt>
+        <dd><span class="de">Wird auf Anfrage mitgeteilt und ist vor Veröffentlichung im Store einzutragen.</span>
+            <span class="en">Provided on request; to be filled in before store release.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Kontakt</span><span class="en">Contact</span></dt>
+        <dd><a href="mailto:bitdm@henrik.click">bitdm@henrik.click</a></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">App</span><span class="en">App</span></dt>
+        <dd>BitDM — <code>com.bitdm.bitdm</code></dd>
+      </div>
+    </dl>
+    <p class="de" style="font-size:12.5px;color:var(--muted)">Angaben gemäß § 5 DDG.
+      Die Anschrift ist vor der Store-Veröffentlichung zwingend zu ergänzen —
+      Google Play verlangt eine vollständige Identität des Entwicklers.</p>
+    <p class="en" style="font-size:12.5px;color:var(--muted)">The postal address
+      must be completed before store release — Google Play requires a full
+      developer identity.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Was die App auf dem Gerät speichert</span><span class="en">What the app stores on the device</span></h2>
+    <ul class="de">
+      <li>Deinen <strong>privaten Schlüssel</strong> und die daraus abgeleitete
+        Wiederherstellungsphrase, geschützt durch den Android-Schlüsselspeicher.</li>
+      <li>Deine <strong>Kontakte und Nachrichten</strong> in einer verschlüsselten
+        Datenbank auf dem Gerät.</li>
+      <li>Den <strong>Sitzungszustand</strong> der Verschlüsselung.</li>
+    </ul>
+    <ul class="en">
+      <li>Your <strong>private key</strong> and the recovery phrase derived from
+        it, protected by the Android keystore.</li>
+      <li>Your <strong>contacts and messages</strong> in an encrypted database on
+        the device.</li>
+      <li>The <strong>session state</strong> of the encryption.</li>
+    </ul>
+    <p class="de">Nichts davon verlässt das Gerät. Das automatische Android-Backup
+      ist für BitDM <strong>abgeschaltet</strong>, damit dieser Bestand nicht in
+      eine Cloud-Sicherung gerät. Beim Deinstallieren wird alles gelöscht — ohne
+      die zwölf Wörter ist die Identität dann endgültig verloren.</p>
+    <p class="en">None of this leaves the device. Android auto-backup is
+      <strong>disabled</strong> for BitDM so that this data cannot end up in a
+      cloud backup. Uninstalling deletes everything — without the twelve words
+      the identity is then permanently lost.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Verarbeitung auf dem Server</span><span class="en">Processing on the server</span></h2>
+    <p class="de">Damit Nachrichten zugestellt werden können, betreiben wir einen
+      Relay-Server. Er kann Nachrichten <strong>nicht lesen</strong>, sieht aber
+      zwangsläufig Folgendes:</p>
+    <p class="en">To deliver messages we operate a relay server. It
+      <strong>cannot read</strong> messages, but it inevitably sees the following:</p>
+    <dl class="plate">
+      <div class="plate-row">
+        <dt><span class="de">Adressen</span><span class="en">Addresses</span></dt>
+        <dd><span class="de">Absender- und Empfängeradresse jeder Nachricht. Das sind öffentliche Schlüssel, keine Klarnamen.</span>
+            <span class="en">Sender and recipient address of every message. These are public keys, not real names.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Zeit &amp; Größe</span><span class="en">Time &amp; size</span></dt>
+        <dd><span class="de">Zeitpunkt der Zustellung und Länge des verschlüsselten Pakets.</span>
+            <span class="en">Time of delivery and length of the encrypted packet.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Schlüsselpakete</span><span class="en">Key bundles</span></dt>
+        <dd><span class="de">Öffentliche Vorabschlüssel, damit man auch offline erreichbar ist.</span>
+            <span class="en">Public prekeys, so you are reachable while offline.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Zwischenspeicher</span><span class="en">Queue</span></dt>
+        <dd><span class="de">Unzugestellte verschlüsselte Nachrichten, höchstens 14 Tage. Zugestellte werden sofort gelöscht.</span>
+            <span class="en">Undelivered encrypted messages, at most 14 days. Delivered ones are removed immediately.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Verbindungsdaten</span><span class="en">Connection logs</span></dt>
+        <dd><span class="de">Gekürzte IP-Adresse und Zeitstempel im Server-Protokoll, 7 Tage, zur Störungssuche.</span>
+            <span class="en">Truncated IP address and timestamp in the server log, 7 days, for troubleshooting.</span></dd>
+      </div>
+    </dl>
+    <p class="de"><strong>Ehrlich gesagt:</strong> Diese Verbindungsdaten sind
+      Metadaten. Ende-zu-Ende-Verschlüsselung schützt den Inhalt, nicht die
+      Tatsache der Kommunikation. Wer daraus ableiten will, wer mit wem spricht,
+      könnte das grundsätzlich tun. Wir sammeln so wenig wie möglich und
+      bewahren so kurz wie möglich auf — aber wir behaupten nicht, dass gar
+      nichts anfällt.</p>
+    <p class="en"><strong>Honestly:</strong> these connection records are
+      metadata. End-to-end encryption protects content, not the fact that
+      communication happened. Anyone wanting to infer who talks to whom could in
+      principle do so. We collect as little as possible and keep it as briefly as
+      possible — but we do not claim that nothing accrues.</p>
+    <p class="de">Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Erbringung des
+      Dienstes) sowie lit. f (Betriebssicherheit).</p>
+    <p class="en">Legal basis: Art. 6(1)(b) GDPR (providing the service) and
+      (f) (operational security).</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Diese Website</span><span class="en">This website</span></h2>
+    <p class="de">Diese Seite lädt <strong>nichts von Dritten</strong>: keine
+      Schriften, keine Skripte, keine Zählpixel, keine eingebetteten Videos. Es
+      werden keine Cookies gesetzt. Deine Sprachwahl bleibt ausschließlich lokal
+      im Browser (<code>localStorage</code>) und wird nicht übertragen.</p>
+    <p class="en">This page loads <strong>nothing from third parties</strong>: no
+      fonts, no scripts, no tracking pixels, no embedded video. No cookies are
+      set. Your language choice stays in your browser only
+      (<code>localStorage</code>) and is not transmitted.</p>
+    <p class="de">Beim Aufruf fällt technisch bedingt ein Server-Protokolleintrag
+      an (gekürzte IP, Zeitpunkt, aufgerufene Datei), gespeichert für 7 Tage.</p>
+    <p class="en">Loading the page technically produces a server log entry
+      (truncated IP, time, requested file), kept for 7 days.</p>
+    <p class="de">Trägst du im Benachrichtigungsfeld eine E-Mail-Adresse ein,
+      öffnet sich dein Mailprogramm. Es gibt <strong>keine Empfängerliste auf
+      einem Server</strong> — deine Adresse liegt nur dann in einem Postfach,
+      wenn du die Mail selbst abschickst, und wird nach der Benachrichtigung
+      gelöscht.</p>
+    <p class="en">If you enter an email address in the notification field, your
+      mail client opens. There is <strong>no recipient list on a
+      server</strong> — your address only sits in a mailbox if you send the mail
+      yourself, and is deleted after the notification.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Weitergabe an Dritte</span><span class="en">Sharing with third parties</span></h2>
+    <p class="de">Es findet <strong>keine</strong> Weitergabe statt. Es gibt keine
+      Analysedienste, keine Werbenetzwerke, keinen Absturzbericht-Dienst und
+      keinen Verkauf von Daten. Die App enthält keine Werbe-SDKs.</p>
+    <p class="en">There is <strong>no</strong> sharing. No analytics services, no
+      ad networks, no crash-reporting service, no sale of data. The app contains
+      no advertising SDKs.</p>
+    <p class="de">Der Relay-Server steht in Deutschland. Eine Übermittlung in
+      Drittländer findet nicht statt.</p>
+    <p class="en">The relay server is located in Germany. No transfer to third
+      countries takes place.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Deine Rechte</span><span class="en">Your rights</span></h2>
+    <p class="de">Du hast nach DSGVO Rechte auf Auskunft, Berichtigung, Löschung,
+      Einschränkung, Datenübertragbarkeit und Widerspruch sowie ein
+      Beschwerderecht bei einer Aufsichtsbehörde.</p>
+    <p class="en">Under the GDPR you have rights to access, rectification,
+      erasure, restriction, data portability and objection, plus the right to
+      lodge a complaint with a supervisory authority.</p>
+    <p class="de"><strong>Praktischer Hinweis:</strong> Wir können dich nicht
+      identifizieren. Es gibt kein Konto und keinen Namen — nur öffentliche
+      Schlüssel. Eine Auskunft zu „deinen" Daten setzt deshalb voraus, dass du
+      nachweist, über den privaten Schlüssel zu einer Adresse zu verfügen.
+      Deinstallieren löscht alle lokalen Daten sofort; serverseitig verfällt
+      alles binnen 14 Tagen von selbst.</p>
+    <p class="en"><strong>Practical note:</strong> we cannot identify you. There
+      is no account and no name — only public keys. Any request about „your" data
+      therefore requires you to prove control of the private key for an address.
+      Uninstalling deletes all local data immediately; on the server everything
+      expires by itself within 14 days.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Kinder</span><span class="en">Children</span></h2>
+    <p class="de">BitDM richtet sich nicht an Kinder unter 13 Jahren und erhebt
+      wissentlich keine Daten von ihnen.</p>
+    <p class="en">BitDM is not directed at children under 13 and does not
+      knowingly collect data from them.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Änderungen</span><span class="en">Changes</span></h2>
+    <p class="de">Änderungen an dieser Erklärung werden hier veröffentlicht und
+      mit neuem Stand-Datum versehen. Da die App quelloffen ist, lässt sich jede
+      Aussage dieser Seite im Quellcode nachprüfen.</p>
+    <p class="en">Changes to this statement are published here with a new date.
+      Since the app is open source, every claim on this page can be verified in
+      the source code.</p>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <p>
+    <span class="de">BitDM ist quelloffen unter GPL-3.0 —
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>.
+      Google Play und das Google-Play-Logo sind Marken von Google LLC.</span>
+    <span class="en">BitDM is open source under GPL-3.0 —
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>.
+      Google Play and the Google Play logo are trademarks of Google LLC.</span>
+  </p>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var root = document.documentElement;
+  function setLang(l){
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l);
+    document.querySelectorAll('[data-set-lang]').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.setLang === l));
+    });
+    try{ localStorage.setItem('bitdm-lang', l); }catch(e){}
+  }
+  document.querySelectorAll('[data-set-lang]').forEach(function(b){
+    b.addEventListener('click', function(){ setLang(b.dataset.setLang); });
+  });
+  var saved = null;
+  try{ saved = localStorage.getItem('bitdm-lang'); }catch(e){}
+  setLang(saved || ((navigator.language||'de').slice(0,2) === 'de' ? 'de' : 'en'));
+})();
+</script>
+</body>
+</html>
