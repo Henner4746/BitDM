@@ -28,8 +28,16 @@ from xeddsa.bindings import (ed25519_priv_sign, priv_force_sign,
 from relay_server import PreKeyBundle
 from signature_vectors import DART_SIGNATURES, MESSAGE
 
-BASE = "http://127.0.0.1:8099"
-WS = "ws://127.0.0.1:8099/ws"
+# Standard: ein lokal gestarteter Server. Fuer einen Lauf gegen die echte
+# Instanz hinter nginx:
+#
+#   BITDM_TEST_BASE=https://relay.bitdm.net py -3 test_relay.py
+#
+# Das ist der einzige Weg, die Kette WIRKLICH zu pruefen — nginx, TLS,
+# WebSocket-Upgrade, Zeitgrenzen und Ratenbegrenzung sind bei einem Lauf gegen
+# 127.0.0.1 alle nicht dabei.
+BASE = os.getenv("BITDM_TEST_BASE", "http://127.0.0.1:8099").rstrip("/")
+WS = BASE.replace("https://", "wss://").replace("http://", "ws://") + "/ws"
 
 
 def b64(b: bytes) -> str:
