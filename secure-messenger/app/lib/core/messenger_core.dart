@@ -166,6 +166,23 @@ abstract class MessengerCore {
   Future<void> setVerified(String contactId, bool verified);
 
   // ------------------------------------------------------------ lifecycle
+  /// Delete the identity, every key and the whole local database.
+  ///
+  /// Added 2026-07-25 (v1.1 of this contract). The UI has always had a "wipe
+  /// everything" button; until now nothing behind it actually deleted
+  /// anything, because there was nothing real to delete. There is now.
+  ///
+  /// WHY THIS IS FINAL: the local database is encrypted with a key derived
+  /// from the recovery entropy. Deleting that entropy makes the file
+  /// permanently unreadable — even to us, even if the bytes survive on flash
+  /// storage. That is the strongest form of deletion available on a phone,
+  /// and it is why this cannot be undone without the 12 words.
+  ///
+  /// After this the core is back to its pre-identity state: [initialize]
+  /// returns false and the UI must show onboarding again. Unlike [dispose]
+  /// the instance stays usable.
+  Future<void> wipeEverything();
+
   /// Release all resources and CLOSE every stream above. The instance is
   /// unusable afterwards. Call on app shutdown.
   Future<void> dispose();

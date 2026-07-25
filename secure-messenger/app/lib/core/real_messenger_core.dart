@@ -19,6 +19,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -725,6 +726,43 @@ class RealMessengerCore implements MessengerCore {
   String _neueId() {
     final b = List.generate(16, (_) => _zufall.nextInt(256));
     return base64Url.encode(b).replaceAll('=', '');
+  }
+
+  /// Loescht Identitaet, Schluessel und Nachrichten — unwiderruflich.
+  ///
+  /// DIE REIHENFOLGE IST WICHTIG. Zuerst die Entropie aus dem
+  /// Schluesselspeicher, DANN die Datenbankdateien. Bricht es dazwischen ab
+  /// (Akku leer, App abgeschossen), ist die Datenbank bereits unlesbar, weil
+  /// ihr Schluessel aus genau dieser Entropie stammt. Andersherum bliebe im
+  /// schlimmsten Fall eine loeschbare Datenbank mit noch vorhandenem
+  /// Schluessel zurueck — also genau das, was hier verhindert werden soll.
+  ///
+  /// Dass die Bytes auf dem Flash-Speicher womoeglich noch physisch vorhanden
+  /// sind, spielt deshalb keine Rolle: ohne den Schluessel sind sie Rauschen.
+  @override
+  Future<void> wipeEverything() async {
+    await _raeumeVerbindungAb();
+
+    _db?.close();
+    _db = null;
+    _store = null;
+    _chats = null;
+    _signalRepo = null;
+
+    await secretStore.delete();
+
+    for (final endung in ['', '-wal', '-shm']) {
+      final f = File('$databasePath$endung');
+      try {
+        if (f.existsSync()) f.deleteSync();
+      } on FileSystemException {
+        // Die Datei bleibt vielleicht liegen — ohne Schluessel ist sie
+        // wertlos. Kein Grund, den Loeschvorgang deswegen abzubrechen.
+      }
+    }
+
+    _hatIdentitaet = false;
+    _setzeVerbindung(ConnectionState.disconnected);
   }
 
   @override

@@ -347,6 +347,71 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 3)));
   });
 
+  group('Alles loeschen', () {
+    test('loescht Identitaet, Schluessel UND Nachrichten wirklich', () async {
+      // Der Knopf in der Oberflaeche hat bis zum 25.07.2026 nur Anzeigewerte
+      // zurueckgesetzt. Dieser Test haelt fest, dass er jetzt loescht.
+      final a = nutzer('alice');
+      final b = nutzer('bob');
+      addTearDown(a.aufraeumen);
+      addTearDown(b.aufraeumen);
+      await a.starten();
+      await b.starten();
+      await a.core.createIdentity();
+      await b.core.createIdentity();
+      await a.core.connect();
+      await b.core.connect();
+
+      await a.core.addContact(b.core.myId);
+      await Nutzer.warteBis(() => b.kontaktEreignisse.isNotEmpty);
+      await b.core.acceptRequest(a.core.myId);
+      await Nutzer.warteBis(() => a.kontaktEreignisse.isNotEmpty);
+      await a.core.sendMessage(b.core.myId, 'etwas zum Loeschen');
+      await Nutzer.warteBis(() => b.eingang.isNotEmpty);
+
+      expect(File(a.pfad).existsSync(), isTrue);
+      expect(await a.tresor.read(), isNotNull);
+
+      await a.core.wipeEverything();
+
+      expect(await a.tresor.read(), isNull,
+          reason: 'die Entropie muss weg sein — sie ist der Schluessel zu allem');
+      expect(File(a.pfad).existsSync(), isFalse,
+          reason: 'die Datenbankdatei muss weg sein');
+      expect(a.core.hasIdentity, isFalse);
+      expect(await a.core.initialize(), isFalse,
+          reason: 'nach dem Loeschen muss die App wieder ins Onboarding');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('danach laesst sich eine NEUE Identitaet anlegen', () async {
+      final a = nutzer('alice');
+      addTearDown(a.aufraeumen);
+      await a.starten();
+      final alt = (await a.core.createIdentity(), a.core.myId).$2;
+
+      await a.core.wipeEverything();
+      await a.core.createIdentity();
+
+      expect(a.core.myId, isNot(alt),
+          reason: 'die neue Identitaet darf nicht die alte sein');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('mit den zwoelf Woertern kommt die Identitaet zurueck', () async {
+      // Das ist die einzige Ausnahme von "unwiderruflich" — und der Grund,
+      // warum die Phrase beim Anlegen gezeigt werden MUSS.
+      final a = nutzer('alice');
+      addTearDown(a.aufraeumen);
+      await a.starten();
+      final woerter = await a.core.createIdentity();
+      final adresse = a.core.myId;
+
+      await a.core.wipeEverything();
+      expect(await a.core.initialize(), isFalse);
+
+      expect(await a.core.restoreIdentity(woerter), adresse);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+  });
+
   group('Was abgelehnt werden muss', () {
     test('ohne Identitaet gibt es keine Adresse', () async {
       final a = nutzer('alice');

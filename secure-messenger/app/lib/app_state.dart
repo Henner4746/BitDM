@@ -262,6 +262,31 @@ class AppState extends ChangeNotifier {
 
   Future<SafetyNumber> pruefnummer(String id) => core.getSafetyNumber(id);
 
+  // ══════════════════════════════════════════════════════════════════ Loeschen
+
+  /// Loescht alles. Unwiderruflich, ausser man hat die zwoelf Woerter.
+  ///
+  /// Bis zum 25.07.2026 hat der Knopf in der Oberflaeche nur Anzeigewerte
+  /// zurueckgesetzt. Solange die App ein Entwurf war, fiel das nicht auf;
+  /// sobald echte Nachrichten dahinterliegen, ist ein Knopf, der "alles
+  /// geloescht" sagt und es nicht tut, schlimmer als gar keiner.
+  Future<void> allesLoeschen() async {
+    _wiederverbindung?.cancel();
+    _wiederverbindung = null;
+    _fehlversuche = 0;
+
+    await core.wipeEverything();
+
+    hatIdentitaet = false;
+    meineAdresse = '';
+    kontakte = const [];
+    verlaeufe.clear();
+    frischePhrase = null;
+    letzterFehler = null;
+    verbindung = ConnectionState.disconnected;
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _wiederverbindung?.cancel();

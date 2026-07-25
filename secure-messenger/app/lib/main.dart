@@ -250,16 +250,27 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     await st.unterhaltungOeffnen(id);
   }
 
-  void doWipe() => setState(() {
-        final l = lang, m = mode;
-        screen = 'chats'; chat = null; reqSent = false; sheet = false; panic = false;
-        wiped = true; copied = false;
-        auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
-        enroll = null;
-        settings = {'shot': true, 'rec': false, 'eph': '24h'};
-        lang = l; mode = m;
-        draftCtl.clear(); addCtl.clear(); codeCtl.clear();
-      });
+  /// Loescht Identitaet, Schluessel und alle Nachrichten — wirklich.
+  ///
+  /// Bis zum 25.07.2026 setzte diese Funktion nur Anzeigewerte zurueck. Bei
+  /// einem Entwurf war das folgenlos; jetzt liegen echte Nachrichten und eine
+  /// echte Identitaet dahinter, und ein Knopf, der "alles geloescht" behauptet
+  /// und es nicht tut, waere in dieser App der schlimmste denkbare Fehler.
+  Future<void> doWipe() async {
+    setState(() { panic = false; screen = 'creating'; });
+    await st.allesLoeschen();
+    if (!mounted) return;
+    setState(() {
+      final l = lang, m = mode;
+      screen = 'onboard'; chat = null; reqSent = false; sheet = false;
+      wiped = true; copied = false;
+      auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
+      enroll = null;
+      settings = {'shot': true, 'rec': false, 'eph': '24h'};
+      lang = l; mode = m;
+      draftCtl.clear(); addCtl.clear(); codeCtl.clear();
+    });
+  }
 
   // ---- small UI atoms ----
   Widget h2(String s, {double size = 26}) =>

@@ -281,6 +281,17 @@ class FakeMessengerCore implements MessengerCore {
   }
 
   @override
+  Future<void> wipeEverything() async {
+    _msgs.clear();
+    _contacts.clear();
+    _myId = '';
+    _init = false;
+    _hasIdentity = false;
+    simulateExistingIdentity = false;
+    _setConn(ConnectionState.disconnected);
+  }
+
+  @override
   Future<void> dispose() async {
     await _incoming.close();
     await _status.close();
