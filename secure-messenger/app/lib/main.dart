@@ -7,6 +7,7 @@ import 'app_state.dart';
 import 'core/messenger_core.dart';
 import 'core/real_messenger_core.dart';
 import 'core/app_lock.dart';
+import 'core/benachrichtigungen.dart';
 import 'data.dart';
 import 'painters.dart';
 import 'qr_scan_screen.dart';
@@ -41,6 +42,12 @@ Future<void> main() async {
     databasePath: '${verzeichnis.path}/bitdm.db',
     relayUri: Uri.parse(relayBasis),
   );
+
+  // Benachrichtigungen vorbereiten. Die ERLAUBNIS wird bewusst nicht hier
+  // abgefragt: eine App, die vor dem ersten Bildschirm danach fragt, bekommt
+  // meistens ein Nein. Gefragt wird, wenn die erste Unterhaltung zustande
+  // kommt — dann ist klar, wofuer.
+  await Benachrichtigungen.instanz.starte();
 
   runApp(BitApp(state: AppState(core, sperre: tresor)));
 }
@@ -104,6 +111,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // leeren; das gehoert an den Vordergrunddienst, den es noch nicht gibt.
     WidgetsBinding.instance.addObserver(this);
     st.addListener(_aktualisiere);
+    _setzeMeldetexte();
     st.boot().then((_) {
       if (!mounted) return;
       // Wer schon eine Identitaet hat, sieht das Onboarding nicht wieder.
@@ -113,6 +121,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   void _aktualisiere() {
     if (mounted) setState(() {});
+  }
+
+  /// Reicht die uebersetzten Texte fuer Benachrichtigungen durch. Der Kern
+  /// kennt die Sprache nicht und soll sie auch nicht kennen.
+  void _setzeMeldetexte() {
+    st.einNeuText = t('notifOne');
+    st.mehrereNeuText = (n) => t('notifMany').replaceFirst('{n}', '');
   }
 
   @override
@@ -306,6 +321,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> acceptReq(String id) async {
+    await Benachrichtigungen.instanz.frageErlaubnis();
     await st.anfrageAnnehmen(id);
     if (!mounted) return;
     await st.unterhaltungOeffnen(id);
@@ -1042,7 +1058,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('language'), t('languageSub')),
           const SizedBox(height: 8),
-          segmented(['en', 'de'], ['English', 'Deutsch'], lang, (v) => setState(() => lang = v)),
+          segmented(['en', 'de'], ['English', 'Deutsch'], lang,
+            (v) => setState(() { lang = v; _setzeMeldetexte(); })),
         ])),
         const SizedBox(height: 3),
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

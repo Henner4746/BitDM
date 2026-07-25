@@ -104,6 +104,15 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+
+        // Noetig fuer flutter_local_notifications: es benutzt java.time, und
+        // das gibt es erst ab Android 8. Bei minSdk 24 muss der Compiler die
+        // Aufrufe umschreiben.
+        //
+        // Reine Uebersetzungshilfe des Android-Werkzeugkastens, kein Dienst
+        // und keine Verbindung nach draussen — der Google-freie Anspruch
+        // dieser App bleibt unberuehrt.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -149,4 +158,10 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Die Umschreibhilfe fuer java.time bei minSdk 24. Gehoert zum
+    // Android-Werkzeugkasten und laeuft ausschliesslich beim Uebersetzen.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

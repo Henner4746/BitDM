@@ -1,8 +1,8 @@
-// app_state.dart — die Bruecke zwischen Oberflaeche und Kern.
+﻿// app_state.dart â€” die Bruecke zwischen Oberflaeche und Kern.
 //
 // Die Oberflaeche hielt ihre Daten bisher in lokalen Variablen mit
 // Beispieltexten. Diese Datei ersetzt sie durch das, was wirklich in der
-// verschluesselten Datenbank steht — ohne dass an einer einzigen
+// verschluesselten Datenbank steht â€” ohne dass an einer einzigen
 // Gestaltungsentscheidung etwas geaendert werden muesste.
 //
 // Sie ist bewusst duenn. Sie haelt keinen eigenen Zustand, den der Kern nicht
@@ -16,13 +16,14 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import 'core/app_lock.dart';
+import 'core/benachrichtigungen.dart';
 import 'core/fenster.dart';
 import 'core/messenger_core.dart';
 
 class AppState extends ChangeNotifier {
   AppState(this.core, {this.sperre});
 
-  /// Null in Tests — dort gibt es keinen Schluesselspeicher des Geraets.
+  /// Null in Tests â€” dort gibt es keinen Schluesselspeicher des Geraets.
   final LockableSecretStore? sperre;
 
   final MessengerCore core;
@@ -40,7 +41,7 @@ class AppState extends ChangeNotifier {
   /// Alles auf einmal zu laden waere bei vielen Kontakten Arbeit fuer nichts.
   final Map<String, List<Message>> verlaeufe = {};
 
-  /// Die zwoelf Woerter — NUR direkt nach dem Anlegen einer Identitaet und
+  /// Die zwoelf Woerter â€” NUR direkt nach dem Anlegen einer Identitaet und
   /// solange der Nutzer sie noch nicht bestaetigt hat. Danach werden sie hier
   /// vergessen; wer sie spaeter sehen will, holt sie ueber
   /// [phraseAusEinstellungen] neu aus dem Schluesselspeicher.
@@ -81,7 +82,7 @@ class AppState extends ChangeNotifier {
 
   /// Zweiter Anlauf nach einer abgebrochenen Anmeldung.
   ///
-  /// Der Schluesselspeicher zeigt die Abfrage des Geraets erneut — die App
+  /// Der Schluesselspeicher zeigt die Abfrage des Geraets erneut â€” die App
   /// selbst hat keinen Zugriff auf Fingerabdruck oder PIN und will ihn auch
   /// nicht.
   Future<bool> entsperren() async {
@@ -119,10 +120,10 @@ class AppState extends ChangeNotifier {
     unawaited(core.connect());
   }
 
-  // ═══════════════════════════════════════════════════════ Wiederverbinden
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Wiederverbinden
   //
   // BEWUSST NUR IM VORDERGRUND. Solange die App sichtbar ist, wartet ein
-  // Mensch auf seine Nachricht — da lohnt jeder Versuch. Im Hintergrund
+  // Mensch auf seine Nachricht â€” da lohnt jeder Versuch. Im Hintergrund
   // weiterzuprobieren waere dagegen der schnellste Weg, den Akku zu leeren,
   // und gehoert an den Vordergrunddienst, den es noch nicht gibt.
   //
@@ -133,6 +134,15 @@ class AppState extends ChangeNotifier {
   Timer? _wiederverbindung;
   int _fehlversuche = 0;
   bool _imVordergrund = true;
+
+  /// Wie viele Nachrichten seit dem letzten Hinsehen gekommen sind.
+  int _ungelesen = 0;
+
+  /// Die Texte kommen von aussen: der Kern kennt die Sprache des Nutzers
+  /// nicht, und Uebersetzungen gehoeren nicht in eine Datei, die auch ohne
+  /// Oberflaeche laufen soll.
+  String einNeuText = 'Neue Nachricht';
+  String Function(int) mehrereNeuText = (n) => '$n neue Nachrichten';
 
   /// Groesster Abstand zwischen zwei Versuchen.
   ///
@@ -146,6 +156,8 @@ class AppState extends ChangeNotifier {
     if (_imVordergrund == sichtbar) return;
     _imVordergrund = sichtbar;
     if (sichtbar) {
+      _ungelesen = 0;
+      unawaited(Benachrichtigungen.instanz.raeumeAuf());
       unawaited(raeumeAbgelaufeneWeg());
       _fehlversuche = 0;
       if (verbindung != ConnectionState.online) unawaited(_versucheVerbindung());
@@ -198,6 +210,14 @@ class AppState extends ChangeNotifier {
       }))
       ..add(core.incomingMessages.listen((m) {
         verlaeufe.putIfAbsent(m.chatId, () => []).add(m);
+        // Nur melden, wenn niemand hinsieht. Eine Benachrichtigung fuer eine
+        // Nachricht, die gerade auf dem Bildschirm erscheint, waere Laerm.
+        if (!_imVordergrund) {
+          _ungelesen++;
+          unawaited(Benachrichtigungen.instanz.zeigeNeueNachricht(
+              anzahl: _ungelesen,
+              text: _ungelesen == 1 ? einNeuText : mehrereNeuText(_ungelesen)));
+        }
         unawaited(_ladeKontakteNeu());
       }))
       ..add(core.contactEvents.listen((_) => unawaited(_ladeKontakteNeu())))
@@ -218,7 +238,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ═══════════════════════════════════════════════════════════════ Identitaet
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Identitaet
 
   /// Legt eine Identitaet an und haelt die zwoelf Woerter zum Anzeigen bereit.
   Future<void> identitaetAnlegen() async {
@@ -255,7 +275,7 @@ class AppState extends ChangeNotifier {
 
   Future<List<String>> phraseAusEinstellungen() => core.getRecoveryPhrase();
 
-  // ═════════════════════════════════════════════════════════════════ Kontakte
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Kontakte
 
   List<Contact> get aktiveKontakte =>
       kontakte.where((c) => c.state == ContactState.active).toList();
@@ -294,7 +314,7 @@ class AppState extends ChangeNotifier {
     await _ladeKontakteNeu();
   }
 
-  // ══════════════════════════════════════════════════════════════ Nachrichten
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Nachrichten
 
   List<Message> verlaufVon(String id) => verlaeufe[id] ?? const [];
 
@@ -319,7 +339,7 @@ class AppState extends ChangeNotifier {
 
   Future<SafetyNumber> pruefnummer(String id) => core.getSafetyNumber(id);
 
-  // ══════════════════════════════════════════════════════════ Einstellungen
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Einstellungen
 
   AppPreferences einstellungen = const AppPreferences();
 
@@ -327,7 +347,7 @@ class AppState extends ChangeNotifier {
     einstellungen = await core.getPreferences();
     // Die Sperre wird beim Start in MainActivity.onCreate gesetzt, bevor
     // ueberhaupt gezeichnet wird. Hier wird sie nur an die gespeicherte
-    // Einstellung angeglichen — moeglicherweise also geloest.
+    // Einstellung angeglichen â€” moeglicherweise also geloest.
     await Fenster.screenshotSperre(einstellungen.blockScreenshots);
     notifyListeners();
   }
@@ -341,7 +361,7 @@ class AppState extends ChangeNotifier {
 
   /// Raeumt Abgelaufenes weg und meldet, ob sich etwas geaendert hat.
   ///
-  /// Wird beim Start und bei jedem Zurueckkommen in den Vordergrund gerufen —
+  /// Wird beim Start und bei jedem Zurueckkommen in den Vordergrund gerufen â€”
   /// sonst saehe der Nutzer nach dem Aufwachen noch Nachrichten, die laengst
   /// haetten verschwinden sollen.
   Future<void> raeumeAbgelaufeneWeg() async {
@@ -355,7 +375,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ══════════════════════════════════════════════════════════════════ Loeschen
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Loeschen
 
   /// Loescht alles. Unwiderruflich, ausser man hat die zwoelf Woerter.
   ///
@@ -393,7 +413,7 @@ class AppState extends ChangeNotifier {
   }
 }
 
-/// Formatiert eine 56-stellige Adresse in Vierergruppen — dieselbe
+/// Formatiert eine 56-stellige Adresse in Vierergruppen â€” dieselbe
 /// Darstellung, die der Entwurf schon benutzt hat.
 String adresseFormatiert(String a) {
   final sb = StringBuffer();
