@@ -1,0 +1,21 @@
+# Zeilenenden im Repository immer LF — unabhaengig davon, auf welchem System
+# jemand arbeitet. Ohne diese Datei schreibt ein Windows-Werkzeug schnell mal
+# CRLF hinein, und derselbe Quellstand erzeugt dann unterschiedliche Pruefsummen.
+# Fuer ein Projekt, das reproduzierbare F-Droid-Builds liefern soll, ist das
+# kein Schoenheitsfehler.
+* text=auto eol=lf
+
+# Binaerdateien nie anfassen.
+*.ttf   binary
+*.otf   binary
+*.png   binary
+*.jpg   binary
+*.jar   binary
+*.apk   binary
+*.aab   binary
+*.keystore binary
+*.jks   binary
+
+# Der Gradle-Wrapper ist ein Skript und muss unter Linux ausfuehrbar bleiben.
+gradlew text eol=lf
+gradlew.bat text eol=crlf
