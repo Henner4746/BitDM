@@ -8,6 +8,7 @@ import 'core/real_messenger_core.dart';
 import 'core/secret_store.dart';
 import 'data.dart';
 import 'painters.dart';
+import 'qr_scan_screen.dart';
 
 /// Wohin sich die App verbindet.
 ///
@@ -254,6 +255,28 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     Clipboard.setData(ClipboardData(text: st.meineAdresse));
     setState(() => copied = true);
     Future.delayed(const Duration(milliseconds: 1400), () { if (mounted) setState(() => copied = false); });
+  }
+
+  /// Liest eine Adresse per Kamera ein.
+  ///
+  /// Der sicherste Weg, eine Adresse auszutauschen: ein QR-Code im
+  /// persoenlichen Gespraech geht durch keinen Kanal, den jemand veraendern
+  /// koennte. Bei 56 Zeichen ist Abtippen ausserdem fehleranfaellig.
+  Future<void> _scanneQr() async {
+    final adresse = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => QrScanScreen(
+          titel: t('scan'),
+          hinweis: t('scanHint'),
+          keineKamera: t('scanNoCamera'),
+          abbrechen: t('cancel'),
+          istGueltig: (s) =>
+              st.adresseGueltig(s.replaceAll(RegExp(r'[s-]'), '')),
+        ),
+      ),
+    );
+    if (adresse == null || !mounted) return;
+    setState(() => addCtl.text = adresse.replaceAll(RegExp(r'[s-]'), ''));
   }
 
   Future<void> sendReq() async {
@@ -632,7 +655,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             setState(() => addCtl.text = txt);
           }),
           const SizedBox(width: 8),
-          smallBtn(t('scan'), () {}),
+          smallBtn(t('scan'), _scanneQr),
         ]),
         const SizedBox(height: 16),
         outlineBtn(t('sendReq'), sendReq, padding: const EdgeInsets.all(13)),

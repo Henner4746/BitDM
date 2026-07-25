@@ -1,5 +1,41 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Zum Verbinden mit dem Relay. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Zum Einlesen einer Adresse per QR-Code. Wird erst abgefragt, wenn
+         jemand den Scan-Knopf drueckt, nie beim Start. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- ══════════════════════════════════════════════════════════════════
+         AUSDRUECKLICH ENTFERNT, was die Kamera-Bibliothek mitbringt.
+
+         Das camera-Plugin traegt in sein Manifest RECORD_AUDIO und die
+         Speicher-Berechtigungen ein, weil es auch Videos aufnehmen kann. BitDM
+         nimmt nichts auf: der CameraController wird mit enableAudio: false
+         erzeugt und liest nur Einzelbilder.
+
+         Ohne diese Zeilen staende im Play Store bei einer App, die mit
+         Vertraulichkeit wirbt, "kann Audio aufnehmen" und "kann auf Dateien
+         zugreifen". Das zerstoert mehr Vertrauen, als jede Verschluesselung
+         aufbauen kann — und es waere schlicht nicht wahr.
+
+         Geprueft nach jedem Bauen mit:
+             aapt2 dump permissions app-release.apk
+         ══════════════════════════════════════════════════════════════════ -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        tools:node="remove"/>
+
+    <!-- ACCESS_NETWORK_STATE bleibt: sie ist eine "normale" Berechtigung, die
+         der Nutzer nie zu Gesicht bekommt, und sie wird gebraucht, um beim
+         Wiederverbinden nicht ins Leere zu funken, wenn ohnehin kein Netz da
+         ist. -->
+
     <application
         android:label="BitDM"
         android:name="${applicationName}"
