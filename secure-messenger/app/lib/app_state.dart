@@ -838,6 +838,17 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Vergisst die letzte Fehlermeldung.
+  ///
+  /// Damit eine Meldung verschwindet, sobald der Nutzer etwas dagegen tut —
+  /// eine, die stehen bleibt, waehrend man sie schon behoben hat, verwirrt
+  /// mehr als sie hilft.
+  void vergissFehler() {
+    if (letzterFehler == null) return;
+    letzterFehler = null;
+    notifyListeners();
+  }
+
   Future<SafetyNumber> pruefnummer(String id) => core.getSafetyNumber(id);
 
   // ══════════════════════════════════════════════════════════ Einstellungen

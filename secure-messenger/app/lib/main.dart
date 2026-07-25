@@ -20,6 +20,7 @@ import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
 import 'bewegung.dart';
+import 'core/crypto/wordlist_english.dart';
 import 'core/crypto/address.dart';
 import 'core/empfang.dart';
 import 'core/fenster.dart';
@@ -237,6 +238,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// Was beim Sperren zuletzt schiefging, im Klartext fuer den Nutzer.
   String? lockFehler;
 
+  /// Was bei der Wiederherstellung schiefging, im Klartext.
+  String? restoreFehler;
+
   /// Wie der Stick angeschlossen ist. Einstecken ist der Standard: der Kontakt
   /// kann dabei nicht abreissen, und beim Anlegen sind zwei Beruehrungen
   /// noetig — bei NFC ist das die haeufigste Fehlerquelle.
@@ -257,6 +261,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   final stickPinCtl = TextEditingController();
   final pwCtl = TextEditingController();
   final pwCtl2 = TextEditingController();
+  final phraseCtl = TextEditingController();
 
   Pal get p => mode == 'dark' ? palDark : palLight;
   List<Color> get avp => mode == 'dark' ? avPalDark : avPalLight;
@@ -272,6 +277,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     stickPinCtl.dispose();
     pwCtl.dispose();
     pwCtl2.dispose();
+    phraseCtl.dispose();
     super.dispose();
   }
 
@@ -817,6 +823,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       'secure' => secureScreen(),
       'id' => idScreen(),
       'add' => addScreen(),
+      'restore' => wiederherstellenScreen(),
       'chats' => chatsScreen(),
       'chat' => chatScreen(),
       'set' => settingsScreen(),
@@ -903,6 +910,30 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                   outlineBtn(t('create'), doCreate, padding: const EdgeInsets.all(15), fontSize: 13),
                   const SizedBox(height: 8),
                   Text(t('createNote'), style: mono(size: 11, color: p.dim)),
+
+                  // DER WEG ZURUECK. Er fehlte bis zum 25.07.2026 ganz —
+                  // waehrend der Bildschirm mit den zwoelf Woertern sagte,
+                  // sie seien "der einzige Weg zurueck, wenn dieses Telefon
+                  // verloren ist". Wer sie brav aufgeschrieben hatte, stand
+                  // auf einem neuen Telefon vor einer App, die sie nirgends
+                  // annahm.
+                  //
+                  // Leiser gesetzt als das Anlegen: die meisten kommen hier
+                  // zum ersten Mal an. Aber sichtbar, denn wer ihn braucht,
+                  // braucht ihn dringend.
+                  const SizedBox(height: 22),
+                  Container(height: 1, color: p.lineSoft),
+                  const SizedBox(height: 18),
+                  GestureDetector(
+                    onTap: () {
+                      phraseCtl.clear();
+                      setState(() { screen = 'restore'; restoreFehler = null; });
+                    },
+                    child: Text(t('restoreLink').toUpperCase(),
+                        style: mono(size: 11, weight: FontWeight.w600, color: p.accLight, spacing: 1.2)),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(t('restoreLinkSub'), style: mono(size: 11, color: p.dim, height: 1.5)),
                 ],
               ),
             ),
@@ -1094,6 +1125,164 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         nurZahlen: true);
     if (ok != true || !mounted) return;
     await _entsperreMitStick();
+  }
+
+  // ---- WIEDERHERSTELLEN ----
+  //
+  // DIESEN BILDSCHIRM GAB ES BIS ZUM 25.07.2026 NICHT — waehrend der
+  // Bildschirm mit den zwoelf Woertern sagte, sie seien "der einzige Weg
+  // zurueck, wenn dieses Telefon verloren, kaputt oder geloescht ist".
+  //
+  // Der Kern konnte es die ganze Zeit (restoreIdentity), AppState auch
+  // (identitaetWiederherstellen), die Pruefung ebenfalls. Nur der Weg dorthin
+  // fehlte. Wer sein Telefon verlor und die Woerter brav aufgeschrieben hatte,
+  // stand auf dem neuen vor einer App, die sie nirgends annahm.
+  //
+  // WARUM JEDES WORT EINZELN GEPRUEFT WIRD
+  // "Phrase ungueltig" hilft bei zwoelf Woertern niemandem — man weiss nicht,
+  // welches. Hier wird jedes Wort gegen die Liste gehalten und das falsche
+  // hervorgehoben. Bei etwas, das ueber den Verlust der Identitaet
+  // entscheidet, ist das kein Feinschliff.
+
+  /// Die eingegebenen Woerter, klein und ohne Leerraum.
+  List<String> get _phraseWoerter => phraseCtl.text
+      .toLowerCase()
+      .split(RegExp(r'[^a-z]+'))
+      .where((w) => w.isNotEmpty)
+      .toList();
+
+  /// Welche davon nicht in der BIP39-Liste stehen.
+  Set<int> get _unbekannteWoerter {
+    final aus = <int>{};
+    final woerter = _phraseWoerter;
+    for (var i = 0; i < woerter.length; i++) {
+      if (!bip39EnglishWordlist.contains(woerter[i])) aus.add(i);
+    }
+    return aus;
+  }
+
+  Future<void> _stelleWieder() async {
+    final woerter = _phraseWoerter;
+    setState(() => restoreFehler = null);
+
+    if (woerter.length != kRecoveryPhraseWords) {
+      setState(() => restoreFehler = t('restoreCount')
+          .replaceFirst('{n}', '${woerter.length}')
+          .replaceFirst('{soll}', '$kRecoveryPhraseWords'));
+      return;
+    }
+    if (_unbekannteWoerter.isNotEmpty) {
+      setState(() => restoreFehler = t('restoreUnknownWord'));
+      return;
+    }
+
+    setState(() => screen = 'creating');
+    final ok = await st.identitaetWiederherstellen(woerter);
+    if (!mounted) return;
+    if (ok) {
+      phraseCtl.clear();
+      setState(() => screen = 'chats');
+    } else {
+      // Die Woerter stehen alle in der Liste, aber die Pruefsumme stimmt
+      // nicht: es sind die richtigen Woerter in der falschen Reihenfolge,
+      // oder eines ist ein anderes aus derselben Liste. Das muss anders
+      // klingen als "ein Wort kenne ich nicht".
+      setState(() {
+        screen = 'restore';
+        restoreFehler = t('restoreChecksum');
+      });
+    }
+  }
+
+  Widget wiederherstellenScreen() {
+    final woerter = _phraseWoerter;
+    final unbekannt = _unbekannteWoerter;
+    final vollstaendig = woerter.length == kRecoveryPhraseWords;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          iconBtn('<', () => setState(() { screen = 'onboard'; restoreFehler = null; })),
+          const SizedBox(width: 11),
+          Expanded(child: h2(t('restoreTitle'), size: 24)),
+        ]),
+        const SizedBox(height: 12),
+        Text(t('restoreIntro'),
+            style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
+        const SizedBox(height: 16),
+
+        Container(
+          decoration: BoxDecoration(
+              color: p.surf2,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: p.line)),
+          padding: const EdgeInsets.all(12),
+          child: TextField(
+            controller: phraseCtl,
+            maxLines: 4,
+            autocorrect: false,
+            enableSuggestions: false,
+            textCapitalization: TextCapitalization.none,
+            onChanged: (_) => setState(() => restoreFehler = null),
+            style: mono(size: 14, color: p.ink, height: 1.6),
+            cursorColor: p.accent,
+            decoration: InputDecoration.collapsed(
+                hintText: t('restoreHint'),
+                hintStyle: mono(size: 13, color: p.dim, height: 1.6)),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(children: [
+          smallBtn(t('paste'), () async {
+            final d = await Clipboard.getData(Clipboard.kTextPlain);
+            final txt = d?.text?.trim();
+            if (txt == null || txt.isEmpty || !mounted) return;
+            setState(() { phraseCtl.text = txt; restoreFehler = null; });
+          }),
+          const Spacer(),
+          Text('${woerter.length} / $kRecoveryPhraseWords',
+              style: mono(
+                  size: 11,
+                  weight: FontWeight.w600,
+                  color: vollstaendig && unbekannt.isEmpty ? p.accLight : p.dim)),
+        ]),
+        const SizedBox(height: 14),
+
+        // Die Woerter einzeln, damit sichtbar wird, WELCHES nicht stimmt.
+        if (woerter.isNotEmpty)
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (var i = 0; i < woerter.length; i++)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                    color: unbekannt.contains(i) ? p.tint : p.surf,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: unbekannt.contains(i) ? p.accent : p.line)),
+                child: Text('${i + 1} ${woerter[i]}',
+                    style: mono(
+                        size: 11.5,
+                        color: unbekannt.contains(i) ? p.tintInk : p.muted)),
+              ),
+          ]),
+
+        if (restoreFehler != null) ...[
+          const SizedBox(height: 14),
+          _hinweisKasten(restoreFehler!),
+        ],
+
+        const SizedBox(height: 18),
+        outlineBtn(t('restoreDo'), _stelleWieder,
+            padding: const EdgeInsets.all(14), fontSize: 13),
+        const SizedBox(height: 14),
+
+        // WAS DIE WIEDERHERSTELLUNG NICHT ZURUECKBRINGT. Das gehoert VOR die
+        // Handlung, nicht danach: wer hier erwartet, seine Unterhaltungen
+        // wiederzusehen, wird sonst zweimal enttaeuscht.
+        Text(t('restoreNote'), style: mono(size: 11, color: p.dim, height: 1.55)),
+      ]),
+    );
   }
 
   // ---- WIRD ANGELEGT ----
@@ -1611,6 +1800,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ],
         ),
       ),
+      // WAS NICHT RAUSGING, MUSS DASTEHEN. "zuLang" wurde bisher gesetzt und
+      // nirgends gezeigt: die Nachricht verschwand aus dem Eingabefeld und kam
+      // nie an, ohne dass irgendwo etwas stand.
+      if (st.letzterFehler == 'zuLang')
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.fromLTRB(17, 0, 17, 8),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+              color: p.tint,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: p.tintLine)),
+          child: Text(t('tooLong'),
+              style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+        ),
       Container(
         padding: const EdgeInsets.fromLTRB(17, 11, 17, 16),
         decoration: BoxDecoration(border: Border(top: BorderSide(color: p.lineSoft))),
@@ -1627,6 +1831,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
               child: TextField(
                 controller: draftCtl,
+                onChanged: (_) {
+                  if (st.letzterFehler == 'zuLang') st.vergissFehler();
+                },
                 style: mono(size: 13.5, color: p.ink),
                 cursorColor: p.accent,
                 textInputAction: TextInputAction.send,
