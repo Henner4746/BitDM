@@ -16,7 +16,15 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+# FALLE, DIE EINEN HALBEN ABEND KOSTEN KANN: mit --split-per-abi rechnet
+# Flutter einen ABI-Zuschlag auf den versionCode — arm64 bekommt 2000 dazu,
+# armeabi-v7a 1000, x86_64 3000. Ein Build OHNE --split-per-abi hat dagegen
+# den blanken Wert. Wer zwischen beiden hin- und herwechselt, baut versehentlich
+# ein Downgrade, und Android lehnt die Installation ab, ohne einen brauchbaren
+# Grund zu nennen.
+#
+# Deshalb: Testbauten IMMER mit --split-per-abi, und diese Zahl nur nach oben.
+version: 1.0.1+3
 
 environment:
   sdk: ^3.12.2
