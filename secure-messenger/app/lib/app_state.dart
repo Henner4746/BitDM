@@ -21,6 +21,7 @@ import 'core/fenster.dart';
 import 'core/fido/client_pin.dart';
 import 'core/fido/ctap.dart';
 import 'core/fido/stick_zugang.dart';
+import 'core/lock/geraete_fach.dart';
 import 'core/lock/hardware_key_factor.dart';
 import 'core/lock/key_vault.dart';
 import 'core/lock/keystore_factor.dart';
@@ -45,11 +46,27 @@ class AppState extends ChangeNotifier {
 
   /// Erst beim Gebrauch gebaut: schon das Anlegen verlangt eine
   /// Bildschirmsperre, und beim Start gibt es die vielleicht noch nicht.
-  SchluesselAblage ablageFuer(UnlockFactorKind art) =>
-      _ablagenSpeicher[art] ??= ablagen?.call(art) ??
-          (art == UnlockFactorKind.deviceCredential
-              ? GeraeteAblage.geraetePin()
-              : GeraeteAblage.biometrie());
+  SchluesselAblage ablageFuer(UnlockFactorKind art) {
+    final vorhanden = _ablagenSpeicher[art];
+    if (vorhanden != null) return vorhanden;
+    final bauer = ablagen;
+    if (bauer == null) {
+      throw const LockUnavailableException(
+          'Der Schluesselspeicher wurde nicht angebunden');
+    }
+    return _ablagenSpeicher[art] = bauer(art);
+  }
+
+  /// Was das Geraet ueber diese Anmeldeart sagt — BEVOR etwas passiert.
+  ///
+  /// Ohne diese Frage tippt der Nutzer und wartet dann auf einen Dialog, der
+  /// nie kommt. Mit ihr steht vorher da, was fehlt: kein Fingerabdruck
+  /// hinterlegt, keine Bildschirmsperre eingerichtet, keine Hardware.
+  Future<GeraeteStand> geraetestand(UnlockFactorKind art) async {
+    final ablage = ablageFuer(art);
+    if (ablage is GeraeteFach) return ablage.verfuegbar();
+    return const GeraeteStand(true, null);
+  }
 
   KeystoreFactor _keystoreFaktor(UnlockFactorKind art) => KeystoreFactor(
         ablage: ablageFuer(art),

@@ -164,4 +164,14 @@ dependencies {
     // Die Umschreibhilfe fuer java.time bei minSdk 24. Gehoert zum
     // Android-Werkzeugkasten und laeuft ausschliesslich beim Uebersetzen.
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+
+    // Der Anmeldedialog fuer Fingerabdruck, Gesicht und Geraetesperre.
+    //
+    // WARUM NICHT ueber flutter_secure_storage: das Paket baut seinen Dialog
+    // mit dem Application-Context und meldet sich nie an der Activity an. Auf
+    // Samsung erscheint dabei regelmaessig gar kein Dialog — und beim
+    // Antippen passiert dann NICHTS. Diese Bibliothek ist der von Google
+    // vorgesehene Weg und braucht eine echte FragmentActivity, die es hier
+    // gibt. Siehe SchluesselfachKanal.kt.
+    implementation("androidx.biometric:biometric:1.1.0")
 }

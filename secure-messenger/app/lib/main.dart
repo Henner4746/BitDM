@@ -12,6 +12,7 @@ import 'core/fido/ctap.dart';
 import 'core/fido/stick_zugang.dart';
 import 'core/lock/hardware_key_factor.dart';
 import 'core/lock/unlock_factor.dart';
+import 'core/lock/geraete_fach.dart';
 import 'core/lock/key_vault.dart';
 import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
@@ -68,6 +69,14 @@ Future<void> main() async {
     core,
     tresor: tresor,
     stickZugang: (weg) => stickOeffner(weg)(),
+    // Die Fachschluessel liegen neben der Fachdatei, verschluesselt mit
+    // einem Schluessel aus dem gesicherten Bereich des Geraets.
+    ablagen: (art) => GeraeteFach(
+      art == UnlockFactorKind.deviceCredential
+          ? GeraeteArt.geraetesperre
+          : GeraeteArt.biometrie,
+      verzeichnis: verzeichnis.path,
+    ),
   )));
 }
 
@@ -97,16 +106,12 @@ class Home extends StatefulWidget {
 
 /// Die Zeilen im Zugriffs-Bildschirm, in dieser Reihenfolge.
 ///
-/// Vier davon sind echt. Die letzten beiden richten nichts ein, sondern
-/// beantworten die Frage, die sich jeder stellt, der die Liste sieht.
-const List<String> zugriffsZeilen = [
-  'bio',
-  'devpin',
-  'hw',
-  'pw',
-  'passkey',
-  'totp',
-];
+/// ALLE VIER SIND ECHT. Vorher standen hier zwei weitere, die nichts
+/// einrichteten und nur erklaerten, warum es sie nicht gibt — Passkey und
+/// Zwei-Faktor-Code. Sie sind raus: eine Liste, in der die Haelfte der
+/// Eintraege nichts tut, laesst den Nutzer bei jedem der anderen zweifeln,
+/// ob der wohl auch nur so tut.
+const List<String> zugriffsZeilen = ['bio', 'devpin', 'hw', 'pw'];
 
 /// Welche Faktorart hinter welcher Zeile steckt.
 ///
@@ -181,11 +186,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState zustand) {
-    st.vordergrund(zustand == AppLifecycleState.resumed);
+    // WICHTIG: `inactive` zaehlt NICHT als weggelegt.
+    //
+    // Android meldet `inactive`, sobald irgendetwas ueber der App liegt — der
+    // Fingerabdruck-Dialog, die Freigabe fuer einen USB-Stick, ein
+    // Anrufhinweis. Bei einer Sperrfrist von null wuerde die App sich dann
+    // ausgerechnet waehrend der eigenen Anmeldung zusperren, und kein Faktor
+    // liesse sich je einrichten.
+    //
+    // Wirklich weg ist sie erst bei `paused` (Startbildschirm, App-Uebersicht,
+    // andere App) und `hidden`.
+    switch (zustand) {
+      case AppLifecycleState.resumed:
+        st.vordergrund(true);
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        st.vordergrund(false);
+      case AppLifecycleState.inactive:
+        break;
+    }
   }
 
   String lang = 'en', mode = 'dark';
-  Map<String, bool> auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
   String? enroll;
 
   /// Was beim Sperren zuletzt schiefging, im Klartext fuer den Nutzer.
@@ -198,6 +221,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   /// Woran gerade gearbeitet wird. Null heisst: nichts laeuft.
   String? stickSchritt;
+
+  /// Welche Zeile im Zugriffs-Bildschirm gerade arbeitet.
+  ///
+  /// Ohne diese Anzeige sieht ein Antippen aus wie ein Antippen ins Leere —
+  /// und genau so wurde es am 25.07.2026 gemeldet.
+  String? laeuftZeile;
 
   final draftCtl = TextEditingController();
   final addCtl = TextEditingController();
@@ -321,16 +350,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// haben, auch nicht mit Root, auch nicht mit der Datei in der Hand.
   Future<void> methodAct(String key) async {
     final art = zeilenArt[key];
-    if (art == null) {
-      // Nur noch 'totp' landet hier: der einzige, den es nie geben wird, und
-      // der Bildschirm sagt auch warum.
-      setState(() => enroll = key);
-      return;
-    }
+    if (art == null || laeuftZeile != null) return;
 
     final vorhanden = st.faktoren.where((s) => s.kind == art).toList();
     if (vorhanden.isNotEmpty) {
-      await _entferneFaktor(vorhanden.first.id);
+      await _entferneFaktor(key, vorhanden.first.id);
       return;
     }
 
@@ -340,30 +364,53 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       case UnlockFactorKind.passphrase:
         await _richtePasswortEin();
       case UnlockFactorKind.biometric:
-        await _richteKeystoreEin(st.fuegeBiometrieHinzu);
+        await _richteKeystoreEin(key, art, st.fuegeBiometrieHinzu);
       case UnlockFactorKind.deviceCredential:
-        await _richteKeystoreEin(st.fuegeGeraetePinHinzu);
+        await _richteKeystoreEin(key, art, st.fuegeGeraetePinHinzu);
     }
   }
 
-  Future<void> _richteKeystoreEin(Future<void> Function() anlegen) async {
-    setState(() => lockFehler = null);
+  /// Richtet ein Fach im gesicherten Bereich des Geraets ein.
+  ///
+  /// BIS ZUM 25.07.2026 PASSIERTE HIER BEIM ANTIPPEN SICHTBAR NICHTS. Zwei
+  /// Gruende kamen zusammen: der Anmeldedialog erschien nicht (dazu
+  /// SchluesselfachKanal.kt), und wenn doch ein Fehler kam, landete er in
+  /// einer Variablen, die dieser Bildschirm gar nicht anzeigte.
+  ///
+  /// Deshalb jetzt drei Dinge: vorher fragen, ob es ueberhaupt gehen KANN;
+  /// waehrenddessen zeigen, dass etwas laeuft; und jeden Fehler sichtbar
+  /// machen.
+  Future<void> _richteKeystoreEin(
+      String zeile, UnlockFactorKind art, Future<void> Function() anlegen) async {
+    setState(() {
+      lockFehler = null;
+      laeuftZeile = zeile;
+    });
     try {
-      await anlegen();
-    } on LockUnavailableException {
-      if (mounted) setState(() => enroll = 'keineSperre');
-    } on UnlockFailedException {
-      // Anmeldung abgebrochen — es bleibt, wie es war.
-    } catch (e) {
-      // Das Paket meldet ein fehlendes Merkmal als gewoehnlichen
-      // Plattformfehler. Der Text darin ist das Einzige, woran sich
-      // "kein Fingerabdruck hinterlegt" erkennen laesst.
-      final text = '$e';
-      if (mounted) {
-        setState(() => text.contains('BIOMETRIC_UNAVAILABLE')
-            ? enroll = 'keineSperre'
-            : lockFehler = text);
+      // Erst fragen, dann tippen lassen. Ohne diese Frage wartet der Nutzer
+      // auf einen Dialog, den das Geraet gar nicht zeigen kann.
+      final stand = await st.geraetestand(art);
+      if (!stand.ok) {
+        if (mounted) {
+          setState(() => lockFehler = stand.grund ?? t('lockNoScreenLockBody'));
+        }
+        return;
       }
+      await anlegen();
+    } on AnmeldungFehlgeschlagen catch (e) {
+      // Ein Abbruch ist keine Panne, sondern eine Entscheidung — dafuer keine
+      // rote Meldung.
+      if (mounted && !e.abgebrochen) setState(() => lockFehler = e.grund);
+    } on GeraetKannNicht catch (e) {
+      if (mounted) setState(() => lockFehler = e.grund);
+    } on LockUnavailableException catch (e) {
+      if (mounted) setState(() => lockFehler = e.grund);
+    } on UnlockFailedException {
+      if (mounted) setState(() => lockFehler = t('unlockFailed'));
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = '$e');
+    } finally {
+      if (mounted) setState(() => laeuftZeile = null);
     }
   }
 
@@ -372,7 +419,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     try {
       await st.setzeSperrfrist(sekunden);
     } catch (e) {
-      if (mounted) setState(() => lockFehler = '');
+      if (mounted) setState(() => lockFehler = '$e');
     }
   }
 
@@ -380,15 +427,23 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   ///
   /// Verlangt einen offenen Tresor. Sonst waere die Sperre einen Fingertipp
   /// weit — jemand mit dem entsperrten Telefon koennte sie einfach abschalten.
-  Future<void> _entferneFaktor(String slotId) async {
+  Future<void> _entferneFaktor(String zeile, String slotId) async {
+    setState(() {
+      lockFehler = null;
+      laeuftZeile = zeile;
+    });
     try {
       await st.entferneFaktor(slotId);
     } on StateError catch (e) {
       // Das letzte Fach: dahinter steckt kein Fehler, sondern die Regel, dass
       // immer ein Weg hinein bleiben muss.
       if (mounted) setState(() => lockFehler = e.message);
+    } on AnmeldungFehlgeschlagen catch (e) {
+      if (mounted && !e.abgebrochen) setState(() => lockFehler = e.grund);
     } catch (e) {
       if (mounted) setState(() => lockFehler = '$e');
+    } finally {
+      if (mounted) setState(() => laeuftZeile = null);
     }
   }
 
@@ -547,7 +602,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       final l = lang, m = mode;
       screen = 'onboard'; chat = null; reqSent = false; sheet = false;
       wiped = true; copied = false;
-      auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
       enroll = null;
       lang = l; mode = m;
       draftCtl.clear(); addCtl.clear(); codeCtl.clear();
@@ -970,7 +1024,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         const SizedBox(height: 6),
         Text(t('secureSub'), style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
         const SizedBox(height: 16),
-        for (final k in zugriffsZeilen) ...[methodRow(k, statusMode: true), const SizedBox(height: 6)],
+        ...zugriffsBlock(statusMode: true),
         const SizedBox(height: 4),
         Text(t('secureFoot'), style: mono(size: 11, color: p.dim, height: 1.5)),
         const Spacer(),
@@ -984,50 +1038,75 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Widget methodRow(String key, {bool statusMode = true}) {
-    // "bio" und "hw" haben jetzt echte Faecher dahinter. "passkey" und "totp"
-    // nicht — das Antippen erklaert warum, statt eine Einrichtung
-    // vorzutaeuschen.
     final art = zeilenArt[key];
     final on = art != null && st.hatFaktor(art);
-    final mark = on ? '✓' : '·';
-    // Bei "passkey" und "totp" stand hier "EINRICHTEN" — fuer etwas, das sich
-    // nicht einrichten laesst. Genau die Sorte Zusage, wegen der jemand sein
-    // Telefon aus der Hand gibt. Jetzt steht dort, was das Antippen wirklich
-    // bringt: eine Erklaerung.
-    final echt = zeilenArt.containsKey(key);
-    final right = !echt
-        ? t('whyNot')
+    final laeuft = laeuftZeile == key;
+    // Ein anderer Faktor arbeitet gerade. Zwei Anmeldedialoge gleichzeitig
+    // gehen nicht, und der zweite bliebe stumm haengen.
+    final blockiert = laeuftZeile != null && !laeuft;
+
+    final mark = laeuft ? '·' : (on ? '✓' : '·');
+    final right = laeuft
+        ? t('waiting')
         : statusMode
             ? (on ? t('on2') : t('offMethod'))
             : (on ? t('remove') : t('add'));
-    return GestureDetector(
-      onTap: () => methodAct(key),
-      child: Container(
-        padding: const EdgeInsets.all(11),
-        decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8)),
-        child: Row(children: [
-          Container(
-            width: 26, height: 26, alignment: Alignment.center,
-            decoration: BoxDecoration(color: on ? p.tint : p.surf, borderRadius: BorderRadius.circular(8), border: Border.all(color: on ? p.accent : p.line)),
-            child: Text(mark, style: doto(size: 12, weight: FontWeight.w600, color: on ? p.accLight : p.dim)),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t(key), style: TextStyle(fontSize: 13.5, color: p.ink)),
-              Text(t('${key}Sub'), style: mono(size: 11, color: p.dim, height: 1.35)),
-            ]),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(color: on ? p.tint : Colors.transparent, borderRadius: BorderRadius.circular(4), border: Border.all(color: on ? p.tintLine : p.line)),
-            child: Text(right.toUpperCase(), style: mono(size: 10, weight: FontWeight.w500, color: on ? p.tintInk : p.dim, spacing: 1.2)),
-          ),
-        ]),
+
+    return Opacity(
+      opacity: blockiert ? 0.4 : 1,
+      child: GestureDetector(
+        onTap: blockiert ? null : () => methodAct(key),
+        child: Container(
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8)),
+          child: Row(children: [
+            Container(
+              width: 26, height: 26, alignment: Alignment.center,
+              decoration: BoxDecoration(color: on ? p.tint : p.surf, borderRadius: BorderRadius.circular(8), border: Border.all(color: on || laeuft ? p.accent : p.line)),
+              child: laeuft
+                  // Sichtbar, dass etwas laeuft. Fehlte das, sah ein Antippen
+                  // waehrend der Anmeldung aus wie ein Antippen ins Leere.
+                  ? SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 1.6, color: p.accLight))
+                  : Text(mark, style: doto(size: 12, weight: FontWeight.w600, color: on ? p.accLight : p.dim)),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(t(key), style: TextStyle(fontSize: 13.5, color: p.ink)),
+                Text(t('${key}Sub'), style: mono(size: 11, color: p.dim, height: 1.35)),
+              ]),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: on ? p.tint : Colors.transparent, borderRadius: BorderRadius.circular(4), border: Border.all(color: on ? p.tintLine : p.line)),
+              child: Text(right.toUpperCase(), style: mono(size: 10, weight: FontWeight.w500, color: on ? p.tintInk : p.dim, spacing: 1.2)),
+            ),
+          ]),
+        ),
       ),
     );
   }
+
+  /// Die vier Zeilen samt Fehlerkasten.
+  ///
+  /// DER KASTEN IST DER PUNKT: bis zum 25.07.2026 wurden Fehler beim
+  /// Einrichten zwar gesetzt, aber auf diesem Bildschirm nie angezeigt. Wer
+  /// tippte, sah nichts — weder Dialog noch Grund.
+  List<Widget> zugriffsBlock({required bool statusMode}) => [
+        for (final k in zugriffsZeilen) ...[
+          methodRow(k, statusMode: statusMode),
+          const SizedBox(height: 3),
+        ],
+        if (lockFehler != null) ...[
+          const SizedBox(height: 6),
+          _hinweisKasten(lockFehler!),
+        ],
+      ];
 
   // ---- MY ID ----
   Widget idScreen() {
@@ -1441,7 +1520,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ])),
         const SizedBox(height: 22),
         label6(t('access')),
-        for (final k in zugriffsZeilen) ...[methodRow(k, statusMode: false), const SizedBox(height: 3)],
+        ...zugriffsBlock(statusMode: false),
         Padding(padding: const EdgeInsets.fromLTRB(11, 3, 11, 0), child: Text(t('minOne'), style: mono(size: 10.5, color: p.dim))),
 
         // Die Frist erscheint erst, wenn es etwas zu sperren gibt. Ohne
@@ -1693,11 +1772,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
-  /// Erklaert, warum dieser Faktor noch nicht zu haben ist.
-  ///
-  /// Hier lief vorher eine Einrichtungs-Animation, nach der ein Haken stand.
-  /// Die App behauptete damit eine Sperre, die es nicht gab — genau die Sorte
-  /// Zusage, wegen der jemand sein Telefon aus der Hand gibt.
+  /// Die Blaetter, die ueber dem Zugriffs-Bildschirm liegen.
   Widget enrollModal() {
     final en = enroll!;
     if (en == 'keineSperre') {
@@ -1716,31 +1791,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (en == 'hw') return stickModal();
     if (en == 'pw') return passwortModal();
 
-    // Hierher kommen nur noch die beiden, die es nicht gibt.
-    final title = en == 'passkey' ? t('enrollPasskey') : t('enrollTotp');
-    // 2FA ist der einzige Fall, der NIE echt wird: bei einer App ohne Server
-    // laege das Geheimnis auf demselben Geraet, und wer das Geraet hat,
-    // rechnet sich den Code selbst aus.
-    final body = en == "totp" ? t("totpNever") : t("lockNotYet");
-
-    return scrim(
-      onTapOutside: () => setState(() => enroll = null),
-      sheetCard(children: [
-        Center(
-            child: Container(
-                width: 36,
-                height: 3,
-                decoration: BoxDecoration(
-                    color: p.line, borderRadius: BorderRadius.circular(99)))),
-        const SizedBox(height: 11),
-        h2(title, size: 20),
-        const SizedBox(height: 11),
-        Text(body, style: mono(size: 12.5, color: p.muted, height: 1.6)),
-        const SizedBox(height: 14),
-        outlineBtn(t("close"), () => setState(() => enroll = null),
-            padding: const EdgeInsets.all(11)),
-      ]),
-    );
+    // Alles andere ist ein Fehler im Programm, kein Zustand des Nutzers.
+    // Frueher standen hier Passkey und Zwei-Faktor-Code; die Zeilen sind weg.
+    return const SizedBox.shrink();
   }
 
   /// Ein Textfeld im Stil der App, fuer Geheimnisse.

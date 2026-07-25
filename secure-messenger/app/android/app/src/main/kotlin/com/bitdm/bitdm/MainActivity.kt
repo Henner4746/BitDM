@@ -2,7 +2,7 @@ package com.bitdm.bitdm
 
 import android.os.Bundle
 import android.view.WindowManager
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -13,6 +13,12 @@ import io.flutter.plugin.common.MethodChannel
  * lange — sie tat nur nichts. Ein Schalter, der Sicherheit verspricht und
  * keine liefert, ist schlimmer als gar keiner: jemand macht in dem Glauben
  * etwas, das er sonst nicht machen wuerde.
+ *
+ * WARUM FlutterFragmentActivity UND NICHT FlutterActivity
+ * androidx.biometric verlangt eine FragmentActivity — es haengt seinen Dialog
+ * als Fragment ein. FlutterActivity ist keine. Ohne diesen Wechsel gaebe es
+ * keinen Anmeldedialog, und beim Antippen passierte nichts. Genau so war es
+ * am 25.07.2026.
  *
  * FLAG_SECURE bewirkt dreierlei:
  *   - Screenshots und Bildschirmaufnahmen verweigert das System
@@ -26,7 +32,7 @@ import io.flutter.plugin.common.MethodChannel
  * und schon gar nicht gegen die Gegenstelle, die mitschreiben kann, was sie
  * will.
  */
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
 
     private val kanal = "bitdm/fenster"
 
@@ -45,6 +51,14 @@ class MainActivity : FlutterActivity() {
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger, UsbHidKanal.KANAL)
             .setMethodCallHandler(UsbHidKanal(applicationContext))
+
+        // DIESER bekommt die Activity und NICHT den Application-Context. Ein
+        // Anmeldedialog braucht sie; ohne sie erscheint auf manchen Geraeten
+        // gar keiner, und beim Antippen passiert nichts. Siehe
+        // SchluesselfachKanal.kt.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, SchluesselfachKanal.KANAL)
+            .setMethodCallHandler(SchluesselfachKanal(this))
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, kanal)
             .setMethodCallHandler { aufruf, ergebnis ->

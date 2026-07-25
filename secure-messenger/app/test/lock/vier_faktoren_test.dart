@@ -21,6 +21,7 @@ import 'dart:typed_data';
 
 import 'package:bitdm/app_state.dart';
 import 'package:bitdm/core/fake_messenger_core.dart';
+import 'package:bitdm/core/lock/geraete_fach.dart';
 import 'package:bitdm/core/lock/key_vault.dart';
 import 'package:bitdm/core/lock/keystore_factor.dart';
 import 'package:bitdm/core/lock/unlock_factor.dart';
@@ -204,16 +205,15 @@ void main() {
       }
     });
 
-    test('die Namensraeume im Paket sind verschieden', () {
-      // Ohne verschiedene Namensraeume benutzen die Ablagen denselben
-      // Schluessel im gesicherten Bereich, dieselbe Einstellungsdatei und
-      // denselben Schluesselspeicher — das Paket leitet alle drei Namen aus
-      // dem Namensraum ab. Zusammen mit migrateOnAlgorithmChange hebelt das
-      // die Anmeldung aus, ohne dass es jemandem auffaellt.
-      expect(GeraeteAblage.namensraumBiometrie,
-          isNot(GeraeteAblage.namensraumGeraetePin));
-      expect(GeraeteAblage.namensraumBiometrie, isNotEmpty);
-      expect(GeraeteAblage.namensraumGeraetePin, isNotEmpty);
+    test('die beiden Arten sind auch im Geraet verschieden', () {
+      // Jede Art bekommt einen eigenen Schluessel im gesicherten Bereich
+      // (SchluesselfachKanal.kt leitet den Alias aus dieser Kennung ab).
+      // Waeren sie gleich, waere es EIN Faktor mit zwei Namen — und das
+      // Entfernen des einen naehme dem anderen den Schluessel mit.
+      expect(GeraeteArt.biometrie.kennung,
+          isNot(GeraeteArt.geraetesperre.kennung));
+      expect(GeraeteArt.values.map((a) => a.kennung).toSet(),
+          hasLength(GeraeteArt.values.length));
     });
   });
 
