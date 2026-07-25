@@ -405,6 +405,25 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     <div class="slot">
       <div class="slot-head">
         <span class="lamp" aria-hidden="true"></span>
+        <span class="screen de">F-Droid</span>
+        <span class="screen en">F-Droid</span>
+      </div>
+      <p class="de">Der quelloffene App-Katalog. Dort baut nicht der Entwickler
+        die App, sondern F-Droid selbst — aus dem Quellcode, den du auch lesen
+        kannst. Genau deshalb wollen wir dort hin.</p>
+      <p class="en">The open-source app catalogue. There the app is not built by
+        the developer but by F-Droid itself, from the source you can read too.
+        That is exactly why we want to be there.</p>
+      <div class="act">
+        <span class="btn" aria-disabled="true">
+          <span class="de">Noch nicht eingereicht</span><span class="en">Not submitted yet</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-head">
+        <span class="lamp" aria-hidden="true"></span>
         <span class="screen de">Direkter Download</span>
         <span class="screen en">Direct download</span>
       </div>
@@ -686,7 +705,7 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     </div>
     <div class="foot-col">
       <span class="screen de">Kontakt</span><span class="en">Contact</span>
-      <a href="mailto:bitdm@henrik.click">bitdm@henrik.click</a>
+      <a href="mailto:kontakt@bitdm.net">kontakt@bitdm.net</a>
     </div>
   </div>
   <p class="foot-note">
@@ -821,7 +840,7 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
                      : 'BitDM — notify me at release';
     var body = de ? 'Bitte gebt mir Bescheid, sobald BitDM verfügbar ist.\n\nMeine Adresse: ' + mail
                   : 'Please let me know once BitDM is available.\n\nMy address: ' + mail;
-    window.location.href = 'mailto:bitdm@henrik.click?subject=' +
+    window.location.href = 'mailto:kontakt@bitdm.net?subject=' +
       encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
   });
 })();
