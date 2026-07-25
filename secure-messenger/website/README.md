@@ -40,8 +40,8 @@ deshalb bereits umgesetzt und nachgewiesen; die Punkte 1 bis 4 stehen noch aus.
 
 ## Cloudflare
 
-`bitdm.net` läuft über den Cloudflare-Proxy (orange Wolke). Das hat drei
-Folgen, die man kennen muss:
+`bitdm.net` läuft über den Cloudflare-Proxy (orange Wolke). Das hat drei Folgen,
+die man kennen muss:
 
 1. **Cloudflare sieht jeden Besucher** — IP, Zeitpunkt, aufgerufene Seite. Das
    ist in der Datenschutzerklärung unter „Weitergabe an Dritte" benannt, samt
@@ -55,13 +55,23 @@ Folgen, die man kennen muss:
 3. **Der Relay-Server darf NIE über Cloudflare laufen.** Bei der Website sieht
    Cloudflare, wer eine öffentliche Infoseite liest. Beim Relay sähe es, wer
    wann mit wem verbunden ist — also exakt die Metadaten, die das ganze Produkt
-   klein zu halten versucht. Für den Relay-Hostnamen gilt: graue Wolke,
-   DNS only.
+   klein zu halten versucht. Für `relay.bitdm.net` gilt: **graue Wolke,
+   DNS only.**
 
 Cloudflare steht auf „Full (strict)", erwartet am Ursprung also ein gültiges
-Zertifikat. Solange der vHost fehlt, antwortet die Domain mit **HTTP 526**
-(„Invalid SSL certificate") — das ist kein Fehler in der Konfiguration, sondern
-die korrekte Meldung für „Ursprung noch nicht eingerichtet".
+Zertifikat. Fehlt der vHost, antwortet die Domain mit **HTTP 526** — kein
+Konfigurationsfehler, sondern die korrekte Meldung für „Ursprung noch nicht
+eingerichtet".
+
+### Frühere Adresse
+
+Die Seite lag kurzzeitig unter `app.henrik.click`. Diese Domain wurde am
+25.07.2026 aufgegeben: DNS-Eintrag gelöscht, nginx-vHost und Let's-Encrypt-
+Zertifikat entfernt. Sonst wäre die Zertifikatserneuerung nach ~60 Tagen in
+einen Dauerfehler gelaufen, weil certbot die Domain nicht mehr erreicht.
+
+**Falls in der Play Console noch `app.henrik.click` steht: umtragen.** Die
+Adresse ist tot, und Play verlangt eine erreichbare, nicht geoblockte URL.
 
 ## Deployment auf dem VPS
 
