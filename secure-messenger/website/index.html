@@ -622,14 +622,12 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
         <span class="de">Womit genau</span>
         <span class="en">With what, exactly</span>
       </h2>
-      <p class="de">Die Kryptographie stammt aus <strong>libsignal</strong>, der
-        Bibliothek hinter Signal — nicht aus einer eigenen Umsetzung. Das ist die
-        wichtigste Zeile dieser Tabelle: die riskanten Teile sind die, die schon
-        andere geprüft haben.</p>
-      <p class="en">The cryptography comes from <strong>libsignal</strong>, the
-        library behind Signal — not from a home-grown implementation. That is the
-        most important line in this table: the risky parts are the ones others have
-        already reviewed.</p>
+      <p class="de">Die Kryptographie stammt aus <strong>libsignal</strong>, der Bibliothek
+        hinter Signal. Die riskanten Teile sind damit die, an denen schon andere
+        gerechnet und geprüft haben.</p>
+      <p class="en">The cryptography comes from <strong>libsignal</strong>, the library behind
+        Signal. The risky parts are therefore the ones others have already worked
+        through and reviewed.</p>
     </div>
 
     <dl class="plate">
@@ -665,8 +663,8 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       </div>
       <div class="plate-row">
         <dt><span class="de">Die Adresse</span><span class="en">The address</span></dt>
-        <dd><span class="de">32 Byte öffentlicher Schlüssel plus 3 Byte SHA-256-Prüfsumme, in Base32 — zusammen 56 Zeichen. Sie <em>ist</em> der Schlüssel und keine Nummer, die auf ihn zeigt.</span>
-            <span class="en">32 bytes of public key plus 3 bytes of SHA-256 checksum, in Base32 — 56 characters in all. It <em>is</em> the key, not a number pointing at one.</span></dd>
+        <dd><span class="de">32 Byte öffentlicher Schlüssel plus 3 Byte SHA-256-Prüfsumme, in Base32 — zusammen 56 Zeichen. Wer sie hat, hat den Schlüssel selbst.</span>
+            <span class="en">32 bytes of public key plus 3 bytes of SHA-256 checksum, in Base32 — 56 characters in all. Whoever has it has the key itself.</span></dd>
       </div>
     </dl>
   </section>
@@ -739,13 +737,13 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       <div class="step">
         <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
         <h3><span class="de">Je Stück ein Schlüssel</span><span class="en">One key per piece</span></h3>
-        <p class="de">AES-256-GCM, und jedes Stück bekommt einen eigenen Zufallsschlüssel.
-          Nicht aus Übervorsicht: mit <em>einem</em> Schlüssel für die ganze Datei müsste
-          ein Zähler über alle Stücke sauber geführt werden, und ein Fehler dabei bricht
-          GCM vollständig.</p>
-        <p class="en">AES-256-GCM, and every piece gets its own random key. Not out of
-          excess caution: with <em>one</em> key for the whole file a counter would have to
-          be tracked across all pieces, and a single slip there breaks GCM completely.</p>
+        <p class="de">AES-256-GCM, und jedes Stück bekommt einen eigenen Zufallsschlüssel. Mit
+          <em>einem</em> Schlüssel für die ganze Datei müsste ein Zähler über alle
+          Stücke sauber geführt werden — über Abbrüche und Wiederaufnahmen hinweg —,
+          und ein Fehler dabei bricht GCM vollständig.</p>
+        <p class="en">AES-256-GCM, and every piece gets its own random key. With <em>one</em> key for
+          the whole file a counter would have to be tracked across all pieces — across
+          aborts and resumptions —, and a single slip there breaks GCM completely.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
