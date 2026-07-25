@@ -916,6 +916,17 @@ class AppState extends ChangeNotifier {
 
 /// Formatiert eine 56-stellige Adresse in Vierergruppen — dieselbe
 /// Darstellung, die der Entwurf schon benutzt hat.
+/// Ein Beispiel im GENAU SELBEN Format, in dem die App Adressen zeigt und
+/// kopiert.
+///
+/// Es stand hier als fester Text "B3XK-7QMD-2FTV-…" — mit Strichen, waehrend
+/// die Zwischenablage die rohe Adresse ohne Striche lieferte. Wer kopierte und
+/// einfuegte, sah etwas anderes als das Beispiel und hielt die eingefuegte
+/// Adresse fuer falsch. Jetzt kommt es durch dieselbe Funktion wie alles
+/// andere und kann nicht mehr auseinanderlaufen.
+final String beispielAdresse =
+    '${adresseFormatiert('b3xk7qmd2ftv9sln4hrw6jyc8pzb5nkq7wdm3xrv')}…';
+
 String adresseFormatiert(String a) {
   final sb = StringBuffer();
   for (var i = 0; i < a.length; i += 4) {

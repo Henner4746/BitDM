@@ -143,7 +143,7 @@ const Map<String, Map<String, String>> strings = {
     'pending': 'Pending', 'reqSentNote': 'Request sent. The chat opens once the other side confirms.',
 
     'addFoot': 'No messages are transmitted before confirmation. A contact can be removed unilaterally at any time.',
-    'chats': 'Chats', 'wantsChat': 'Wants to start an encrypted chat with you.', 'accept': 'Accept', 'decline': 'Decline',
+    'chats': 'Chats', 'connOnline': 'connected', 'connConnecting': 'connecting', 'connOffline': 'offline', 'connError': 'no connection', 'wantsChat': 'Wants to start an encrypted chat with you.', 'accept': 'Accept', 'decline': 'Decline',
     'noNames': 'Contacts appear as an ID and a pattern. There are no names — not even local ones.',
     'encDetails': 'Encrypted · Details', 'message': 'Message', 'send': 'Send',
     'encryption': 'Encryption', 'protocol': 'Protocol', 'sessionKey': 'Session key', 'selfDestruct': 'Self-destructing messages',
@@ -265,7 +265,7 @@ const Map<String, Map<String, String>> strings = {
     'pending': 'Ausstehend', 'reqSentNote': 'Anfrage gesendet. Der Chat öffnet sich, sobald die Gegenseite bestätigt.',
 
     'addFoot': 'Vor der Bestätigung werden keine Nachrichten übertragen. Ein Kontakt kann jederzeit einseitig entfernt werden.',
-    'chats': 'Chats', 'wantsChat': 'Möchte einen verschlüsselten Chat mit dir beginnen.', 'accept': 'Annehmen', 'decline': 'Ablehnen',
+    'chats': 'Chats', 'connOnline': 'verbunden', 'connConnecting': 'verbindet', 'connOffline': 'offline', 'connError': 'keine Verbindung', 'wantsChat': 'Möchte einen verschlüsselten Chat mit dir beginnen.', 'accept': 'Annehmen', 'decline': 'Ablehnen',
     'noNames': 'Kontakte erscheinen als ID und Muster. Namen gibt es nicht — auch nicht lokal.',
     'encDetails': 'Verschlüsselt · Details', 'message': 'Nachricht', 'send': 'Senden',
     'encryption': 'Verschlüsselung', 'protocol': 'Protokoll', 'sessionKey': 'Sitzungsschlüssel', 'selfDestruct': 'Selbstlöschende Nachrichten',

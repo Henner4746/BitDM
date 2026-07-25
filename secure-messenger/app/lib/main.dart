@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kDebugMode;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -19,6 +19,8 @@ import 'core/lock/key_vault.dart';
 import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
+import 'bewegung.dart';
+import 'core/crypto/address.dart';
 import 'core/empfang.dart';
 import 'core/fenster.dart';
 import 'core/push.dart';
@@ -341,7 +343,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   // ---- actions ----
-  void go(String s) => setState(() { screen = s; sheet = false; panic = false; });
+  void go(String s) {
+    // Die Richtung mitfuehren, damit ein Tippen auf die Leiste genauso
+    // aussieht wie ein Wischen dorthin. Sonst kaeme der Bildschirm beim Tippen
+    // immer von rechts, auch wenn man nach links gegangen ist.
+    final von = reiter.indexOf(screen);
+    final nach = reiter.indexOf(s);
+    if (von >= 0 && nach >= 0 && von != nach) _richtung = nach > von ? 1 : -1;
+    setState(() { screen = s; sheet = false; panic = false; });
+  }
 
   /// Legt eine echte Identitaet an und zeigt danach die zwoelf Woerter.
   ///
@@ -594,10 +604,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   void copyId() {
     if (st.meineAdresse.isEmpty) return;
-    // In die Zwischenablage geht die ROHE Adresse ohne Bindestriche — die
-    // Gegenstelle fuegt sie irgendwo ein, und dort soll sie ohne Nacharbeit
-    // funktionieren.
-    Clipboard.setData(ClipboardData(text: st.meineAdresse));
+    // MIT Bindestrichen, genau wie die App sie ueberall zeigt.
+    //
+    // Bis zum 25.07.2026 ging die rohe Adresse in die Zwischenablage. Das war
+    // gut gemeint — sie sollte anderswo ohne Nacharbeit funktionieren — hatte
+    // aber eine Folge, die einen Tester gekostet hat: das Beispiel im
+    // Eingabefeld zeigte Striche, das Eingefuegte hatte keine, und es sah aus,
+    // als waere beim Kopieren etwas schiefgegangen.
+    //
+    // Die Striche schaden nirgends: jedes Eingabefeld dieser App entfernt sie
+    // wieder, und ueber 56 Zeichen hinweg machen sie den Unterschied zwischen
+    // lesbar und nicht lesbar. Im QR-Code steht weiterhin die rohe Adresse —
+    // dort zaehlt Dichte, nicht Lesbarkeit.
+    Clipboard.setData(ClipboardData(text: adresseFormatiert(st.meineAdresse)));
     setState(() => copied = true);
     Future.delayed(const Duration(milliseconds: 1400), () { if (mounted) setState(() => copied = false); });
   }
@@ -621,7 +640,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       ),
     );
     if (adresse == null || !mounted) return;
-    setState(() => addCtl.text = adresse.replaceAll(RegExp(r'[s-]'), ''));
+    // ACHTUNG, HIER STAND EIN ECHTER FEHLER: RegExp(r'[s-]') ist eine
+    // Zeichenklasse aus 's' und '-', nicht "Leerraum oder Strich". Aus jeder
+    // gescannten Adresse fiel damit der Buchstabe s heraus — und Adressen sind
+    // Base32 in Kleinbuchstaben, s kommt in fast jeder vor. Das Ergebnis
+    // scheiterte an der Pruefsumme, und es sah aus, als taugte der QR-Code
+    // nicht.
+    setState(() => addCtl.text = adresseFormatiert(BitdmAddress.normalize(adresse)));
   }
 
   Future<void> sendReq() async {
@@ -704,7 +729,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   // ---- build ----
   @override
   Widget build(BuildContext context) {
-    final showNav = screen == 'chats' || screen == 'id' || screen == 'set';
+    // Bei gesperrter App KEINE Leiste. Sie tat zwar nichts, aber sie sah
+    // bedienbar aus — und eine Oberflaeche, die auf Tippen nicht reagiert,
+    // laesst den Nutzer an der App zweifeln statt an seinem Finger.
+    //
+    // Auch "noch nicht bereit" gehoert dazu: waehrend boot() laeuft, steht
+    // hinter der Leiste noch nichts.
+    final showNav = st.bereit && !st.gesperrt && reiter.contains(screen);
     return Scaffold(
       backgroundColor: p.bg,
       resizeToAvoidBottomInset: true,
@@ -745,22 +776,95 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
+  /// Die drei Reiter der unteren Leiste, in ihrer Reihenfolge.
+  ///
+  /// Steht hier und nicht nur in buildNav, weil das Wischen dieselbe
+  /// Reihenfolge braucht. Zwei Listen waeren zwei Gelegenheiten, sie
+  /// auseinanderlaufen zu lassen.
+  static const List<String> reiter = ['chats', 'id', 'set'];
+
+  /// In welche Richtung zuletzt gewechselt wurde. Steuert, von welcher Seite
+  /// der neue Bildschirm hereinkommt.
+  int _richtung = 1;
+
+  /// Wechselt zum Nachbarreiter, wenn es einen gibt.
+  ///
+  /// NUR VON DEN DREI REITERN AUS. Aus einem Chat oder dem Hinzufuegen-
+  /// Bildschirm heraus zu wischen waere ein Weg, den niemand sucht und den
+  /// jeder versehentlich findet — dort wischt man, um zu scrollen.
+  void _wischeZuReiter(int schritte) {
+    final jetzt = reiter.indexOf(screen);
+    if (jetzt < 0) return;
+    final ziel = jetzt + schritte;
+    if (ziel < 0 || ziel >= reiter.length) return;
+    setState(() {
+      _richtung = schritte;
+      screen = reiter[ziel];
+      sheet = false;
+      panic = false;
+    });
+  }
+
   Widget buildScreen() {
     if (!st.bereit) return const SizedBox.shrink();
     // Die Sperre kommt VOR allem anderen. Es gibt eine Identitaet, der
     // gesicherte Bereich des Geraets ruecke sie nur noch nicht heraus.
     if (st.gesperrt) return gesperrtScreen();
-    switch (screen) {
-      case 'creating': return arbeitetScreen();
-      case 'phrase': return phraseScreen();
-      case 'secure': return secureScreen();
-      case 'id': return idScreen();
-      case 'add': return addScreen();
-      case 'chats': return chatsScreen();
-      case 'chat': return chatScreen();
-      case 'set': return settingsScreen();
-      default: return onboardScreen();
-    }
+
+    final inhalt = switch (screen) {
+      'creating' => arbeitetScreen(),
+      'phrase' => phraseScreen(),
+      'secure' => secureScreen(),
+      'id' => idScreen(),
+      'add' => addScreen(),
+      'chats' => chatsScreen(),
+      'chat' => chatScreen(),
+      'set' => settingsScreen(),
+      _ => onboardScreen(),
+    };
+
+    // Nur auf den drei Reitern gewischt und ueberblendet. Anderswo waere
+    // beides falsch: der Chat scrollt, und ein Wechsel dorthin ist kein
+    // Nachbarschaftswechsel, sondern ein Sprung.
+    if (!reiter.contains(screen)) return inhalt;
+
+    return GestureDetector(
+      // Nur waagerecht. Ohne diese Beschraenkung faengt die Geste jedes
+      // Scrollen ab.
+      onHorizontalDragEnd: (details) {
+        final v = details.primaryVelocity ?? 0;
+        // Unter 200 Pixeln je Sekunde ist es kein Wischen, sondern ein
+        // verrutschter Finger.
+        if (v < -200) {
+          _wischeZuReiter(1);
+        } else if (v > 200) {
+          _wischeZuReiter(-1);
+        }
+      },
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (kind, animation) {
+          // Der neue Bildschirm kommt von der Seite herein, in die gewischt
+          // wurde. Kaeme er immer von rechts, fuehlte sich das
+          // Zurueckwischen falsch an — man sieht die Bewegung und erwartet
+          // sie in der eigenen Richtung.
+          final hinein = Tween<Offset>(
+            begin: Offset(0.06 * _richtung, 0),
+            end: Offset.zero,
+          ).animate(animation);
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(position: hinein, child: kind),
+          );
+        },
+        // Der Schluessel sagt dem Wechsler, DASS sich etwas geaendert hat.
+        // Ohne ihn haelt er zwei verschiedene Bildschirme fuer denselben und
+        // blendet nichts ueber.
+        child: KeyedSubtree(key: ValueKey(screen), child: inhalt),
+      ),
+    );
   }
 
   // ---- ONBOARD ----
@@ -1225,7 +1329,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             maxLines: 3,
             style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 1.4, height: 1.7),
             cursorColor: p.accent,
-            decoration: InputDecoration.collapsed(hintText: 'B3XK-7QMD-2FTV-…', hintStyle: doto(size: 15, weight: FontWeight.w600, color: p.dim, spacing: 1.4, height: 1.7)),
+            decoration: InputDecoration.collapsed(hintText: beispielAdresse, hintStyle: doto(size: 15, weight: FontWeight.w600, color: p.dim, spacing: 1.4, height: 1.7)),
           ),
         ),
         const SizedBox(height: 8),
@@ -1284,12 +1388,44 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       );
 
   // ---- CHATS ----
+  /// Zeigt, ob die App mit dem Relay verbunden ist.
+  ///
+  /// DAS FEHLTE BISHER GANZ. Wer eine Nachricht schickte und nichts
+  /// zurueckbekam, konnte nicht unterscheiden zwischen "kein Netz" und "der
+  /// andere antwortet nicht" — zwei Lagen, die voellig verschiedenes Handeln
+  /// verlangen.
+  ///
+  /// Der Punkt atmet, solange verbunden wird, und steht still, sobald es
+  /// steht. Ein Punkt, der dauernd blinkt, macht nervoes; einer, der sich nie
+  /// ruehrt, sagt nichts.
+  Widget verbindungsPunkt() {
+    final (farbe, text, aktiv) = switch (st.verbindung) {
+      ConnectionState.online => (p.accLight, t('connOnline'), false),
+      ConnectionState.connecting => (p.muted, t('connConnecting'), true),
+      ConnectionState.error => (p.dim, t('connError'), false),
+      ConnectionState.disconnected => (p.dim, t('connOffline'), false),
+    };
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      AtmenderPunkt(farbe: farbe, aktiv: aktiv, groesse: 7),
+      const SizedBox(width: 6),
+      AnimatedDefaultTextStyle(
+        duration: Bewegung.klein,
+        style: mono(size: 10, weight: FontWeight.w500, color: farbe, spacing: 1.1),
+        child: Text(text.toUpperCase()),
+      ),
+    ]);
+  }
+
   Widget chatsScreen() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(22, 11, 22, 8),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          h2(t('chats')),
+          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            h2(t('chats')),
+            const SizedBox(width: 10),
+            verbindungsPunkt(),
+          ]),
           GestureDetector(
             onTap: () => setState(() { screen = 'add'; addCtl.clear(); reqSent = false; }),
             child: Container(
@@ -1459,7 +1595,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           padding: const EdgeInsets.all(17),
           children: [
             Center(child: Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(hints.join(' · '), textAlign: TextAlign.center, style: mono(size: 10.5, color: p.dim, height: 1.5)))),
-            for (int i = 0; i < list.length; i++) msgBubble(cid, list[i], i),
+            for (int i = 0; i < list.length; i++)
+              // Nur die LETZTE Nachricht bewegt sich. Wuerde die ganze Liste
+              // beim Oeffnen hereingleiten, waere das eine Vorfuehrung, keine
+              // Auskunft — und beim Scrollen zurueck wuerde alles noch einmal
+              // tanzen.
+              if (i == list.length - 1)
+                Hereingleiten(
+                  key: ValueKey(list[i].id),
+                  vonRechts: list[i].isMine,
+                  child: msgBubble(cid, list[i], i),
+                )
+              else
+                msgBubble(cid, list[i], i),
           ],
         ),
       ),
@@ -1767,9 +1915,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 onTap: () => go(it[0]),
                 child: Container(
                   padding: const EdgeInsets.only(top: 11, bottom: 15),
+                  // Der Balken und die Schriftfarbe wandern mit. Ein Sprung
+                  // sagt "es ist etwas anderes", eine Bewegung sagt "du bist
+                  // dorthin gegangen" — und genau das ist beim Wischen die
+                  // Frage.
                   decoration: BoxDecoration(border: Border(top: BorderSide(color: active == it[0] ? p.accent : Colors.transparent, width: 2))),
                   alignment: Alignment.center,
-                  child: Text(it[1].toUpperCase(), style: mono(size: 10.5, weight: FontWeight.w500, color: active == it[0] ? p.ink : p.dim, spacing: 1.2)),
+                  child: AnimatedDefaultTextStyle(
+                    duration: Bewegung.klein,
+                    curve: Curves.easeOut,
+                    style: mono(size: 10.5, weight: FontWeight.w500, color: active == it[0] ? p.ink : p.dim, spacing: 1.2),
+                    child: Text(it[1].toUpperCase()),
+                  ),
                 ),
               ),
             ),
