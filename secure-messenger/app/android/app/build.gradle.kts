@@ -35,12 +35,36 @@ if (hasKeystore) {
 gradle.taskGraph.whenReady {
     val releaseTargets = listOf("assembleRelease", "bundleRelease", "packageRelease")
     val buildsRelease = allTasks.any { task -> releaseTargets.any { task.name.equals(it, true) } }
-    if (buildsRelease && !hasKeystore) {
+    if (!buildsRelease) return@whenReady
+
+    if (!hasKeystore) {
         throw GradleException(
             "\n\n  Release-Build abgebrochen: android/key.properties fehlt.\n" +
             "  Ohne Schluesseldatei entstuende eine UNSIGNIERTE APK, die sich\n" +
             "  nicht installieren laesst.\n\n" +
             "  Vorlage kopieren und ausfuellen:  android/key.properties.example\n"
+        )
+    }
+
+    // Ein vergessener Platzhalter wuerde sonst als "keystore password was
+    // incorrect" durchschlagen — eine Meldung, die in die Irre fuehrt.
+    val placeholder = "HIER_PASSWORT_EINTRAGEN"
+    val unfilled = listOf("storePassword", "keyPassword")
+        .filter { (keystoreProperties[it] as String?).isNullOrBlank() || keystoreProperties[it] == placeholder }
+    if (unfilled.isNotEmpty()) {
+        throw GradleException(
+            "\n\n  Release-Build abgebrochen: in android/key.properties fehlt noch\n" +
+            "  ein echtes Passwort bei: ${unfilled.joinToString(", ")}\n\n" +
+            "  Ersetze dort $placeholder durch dein Keystore-Passwort.\n"
+        )
+    }
+
+    val ks = file(keystoreProperties["storeFile"] as String)
+    if (!ks.exists()) {
+        throw GradleException(
+            "\n\n  Release-Build abgebrochen: Keystore nicht gefunden unter\n" +
+            "  ${ks.absolutePath}\n\n" +
+            "  Pfad in android/key.properties pruefen (Backslashes verdoppeln).\n"
         )
     }
 }
