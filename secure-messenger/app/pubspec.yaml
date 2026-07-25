@@ -110,6 +110,19 @@ dependencies:
   nfc_manager: ^4.2.1
   cbor: ^6.5.1
 
+  # ECDH auf P-256 fuer den Sicherheitsschluessel (lib/core/fido/).
+  #
+  # NICHT package:cryptography: dessen reine Dart-Umsetzung von ECDH wirft
+  # UnimplementedError und funktioniert nur dort, wo eine native Gegenstelle
+  # danebensteht. Auf dem Telefon waere das genauso gescheitert wie im Test —
+  # aufgefallen ist es nur, weil der Test es zuerst versucht hat.
+  #
+  # pointycastle kam ueber libsignal ohnehin schon mit und rechnet in reinem
+  # Dart, auf jeder Plattform gleich. Steht jetzt ausdruecklich hier, weil der
+  # Code es direkt benutzt und nicht davon abhaengen darf, dass ein anderes
+  # Paket es zufaellig mitbringt.
+  pointycastle: 4.0.0
+
   # google_fonts wurde bewusst ENTFERNT: es laedt Schriften zur Laufzeit von
   # fonts.gstatic.com nach und verraet Google damit bei jedem Kaltstart IP und
   # Zeitstempel. In einer App ohne Telefonnummer und ohne Username ist das ein

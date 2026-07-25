@@ -140,6 +140,21 @@ class Ctap2 {
     );
   }
 
+  /// Schickt einen Befehl mit Parametern und liefert die Antwortkarte.
+  ///
+  /// Der Befehlscode steht als erstes Byte VOR dem CBOR — das ist die
+  /// CTAP2-Rahmung, unabhaengig vom Transport.
+  Future<Map<Object?, Object?>> befehl(int code, Uint8List parameter) async {
+    final roh = await _befehl(
+        Uint8List.fromList([code, ...parameter]));
+    if (roh.isEmpty) return const {};
+    final karte = cbor.cbor.decode(roh);
+    if (karte is! Map) {
+      throw const FormatException('Antwort ist keine CBOR-Karte');
+    }
+    return karte;
+  }
+
   /// Schickt einen Befehl und trennt Status von Inhalt.
   Future<Uint8List> _befehl(Uint8List inhalt) async {
     final antwort = await transport.sende(inhalt);
