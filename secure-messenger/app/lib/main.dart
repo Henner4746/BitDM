@@ -7,6 +7,13 @@ import 'app_state.dart';
 import 'core/messenger_core.dart';
 import 'core/real_messenger_core.dart';
 import 'core/app_lock.dart';
+import 'core/fido/client_pin.dart';
+import 'core/fido/ctap.dart';
+import 'core/fido/stick_zugang.dart';
+import 'core/lock/hardware_key_factor.dart';
+import 'core/lock/key_vault.dart';
+import 'core/lock/vault_store.dart';
+import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
 import 'data.dart';
 import 'painters.dart';
@@ -33,10 +40,15 @@ Future<void> main() async {
   // oder in den Dateimanager wandert.
   final verzeichnis = await getApplicationSupportDirectory();
 
-  // Der Tresor ist umstellbar: ohne Sperre liegt die Entropie im
-  // Schluesselspeicher, mit Sperre gibt der gesicherte Bereich sie erst nach
-  // Fingerabdruck oder Geraete-PIN heraus.
-  final tresor = LockableSecretStore();
+  // Solange kein Faktor eingerichtet ist, liegt die Entropie im
+  // Schluesselspeicher des Geraets und die App oeffnet ohne Rueckfrage. Mit
+  // dem ersten Faktor wandert sie in ein Schluesselfach und ist ohne ihn nicht
+  // mehr zu haben — auch nicht mit Root, auch nicht mit der Datei in der Hand.
+  final tresor = VaultSecretStore(
+    datei: vaultDateiIn(verzeichnis.path),
+    basis: DeviceSecretStore(),
+    jetzt: () => DateTime.now().millisecondsSinceEpoch,
+  );
 
   final core = RealMessengerCore(
     secretStore: tresor,
@@ -50,7 +62,12 @@ Future<void> main() async {
   // kommt — dann ist klar, wofuer.
   await Benachrichtigungen.instanz.starte();
 
-  runApp(BitApp(state: AppState(core, sperre: tresor)));
+  runApp(BitApp(
+      state: AppState(
+    core,
+    tresor: tresor,
+    stickZugang: (weg) => stickOeffner(weg)(),
+  )));
 }
 
 class BitApp extends StatelessWidget {
@@ -140,9 +157,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Map<String, bool> auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
   String? enroll;
 
+  /// Was beim Sperren zuletzt schiefging, im Klartext fuer den Nutzer.
+  String? lockFehler;
+
+  /// Wie der Stick angeschlossen ist. Einstecken ist der Standard: der Kontakt
+  /// kann dabei nicht abreissen, und beim Anlegen sind zwei Beruehrungen
+  /// noetig — bei NFC ist das die haeufigste Fehlerquelle.
+  StickWeg stickWeg = StickWeg.usb;
+
+  /// Woran gerade gearbeitet wird. Null heisst: nichts laeuft.
+  String? stickSchritt;
+
   final draftCtl = TextEditingController();
   final addCtl = TextEditingController();
   final codeCtl = TextEditingController();
+  final stickPinCtl = TextEditingController();
 
   Pal get p => mode == 'dark' ? palDark : palLight;
   List<Color> get avp => mode == 'dark' ? avPalDark : avPalLight;
@@ -155,6 +184,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     draftCtl.dispose();
     addCtl.dispose();
     codeCtl.dispose();
+    stickPinCtl.dispose();
     super.dispose();
   }
 
@@ -248,39 +278,104 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     await st.senden(chat!, d);
   }
 
-  /// Die App-Sperre ist noch nicht angeschlossen.
+  /// Richtet einen Faktor ein oder entfernt ihn.
   ///
-  /// Der rechnerische Teil steht und ist geprueft (lib/core/lock/): mehrere
-  /// Faecher, jedes fuer einen Faktor, jedes mit derselben verschluesselten
-  /// Nutzlast. Was fehlt, ist die Anbindung an das Geraet — der
-  /// Schluesselspeicher von Android und ein FIDO2-Stick lassen sich ohne
-  /// echte Hardware weder bauen noch pruefen.
-  ///
-  /// Bis dahin zeigt diese Stelle das AUCH SO. Vorher lief eine
-  /// Einrichtungs-Animation und danach stand ein Haken da — die App
-  /// behauptete eine Sperre, die es nicht gab. Genau die Sorte Zusage, wegen
-  /// der jemand sein Telefom aus der Hand gibt.
+  /// Bis zum 25.07.2026 stand hier eine Attrappe: eine Einrichtungs-Animation,
+  /// danach ein Haken, dahinter nichts. Jetzt liegt darunter ein
+  /// Schluesselfach — die Entropie ist ohne den Faktor wirklich nicht mehr zu
+  /// haben, auch nicht mit Root, auch nicht mit der Datei in der Hand.
   Future<void> methodAct(String key) async {
-    // Fingerabdruck/Geraete-PIN ist der einzige Faktor, der schon wirkt.
-    if (key == 'hw') {
-      // Bei einem Hardware-Stick zuerst herausfinden, ob er ueberhaupt kann,
-      // was noetig waere. Das steht in keiner Produktbeschreibung.
-      await _pruefeStick();
-      return;
-    }
-    if (key != 'bio') {
+    if (key == 'totp') {
+      // Der einzige, der nie kommt — und der Bildschirm sagt auch warum.
       setState(() => enroll = key);
       return;
     }
-    final an = st.sperrmodus == LockMode.geraet;
+
+    final art = key == 'hw'
+        ? UnlockFactorKind.hardwareKey
+        : UnlockFactorKind.biometric;
+    final vorhanden = st.faktoren.where((s) => s.kind == art).toList();
+
+    if (vorhanden.isNotEmpty) {
+      await _entferneFaktor(vorhanden.first.id);
+      return;
+    }
+    if (key == 'hw') {
+      await _richteStickEin();
+      return;
+    }
     try {
-      await st.setzeSperre(an ? LockMode.aus : LockMode.geraet);
+      await st.fuegeGeraetHinzu();
     } on LockUnavailableException {
-      if (mounted) setState(() => enroll = "keineSperre");
-    } on LockedException {
+      if (mounted) setState(() => enroll = 'keineSperre');
+    } on UnlockFailedException {
       // Anmeldung abgebrochen — es bleibt, wie es war.
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = '$e');
     }
   }
+
+  /// Nimmt einen Faktor wieder heraus.
+  ///
+  /// Verlangt einen offenen Tresor. Sonst waere die Sperre einen Fingertipp
+  /// weit — jemand mit dem entsperrten Telefon koennte sie einfach abschalten.
+  Future<void> _entferneFaktor(String slotId) async {
+    try {
+      await st.entferneFaktor(slotId);
+    } on StateError catch (e) {
+      // Das letzte Fach: dahinter steckt kein Fehler, sondern die Regel, dass
+      // immer ein Weg hinein bleiben muss.
+      if (mounted) setState(() => lockFehler = e.message);
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = '$e');
+    }
+  }
+
+  /// Oeffnet das Blatt, auf dem der Stick eingerichtet wird.
+  Future<void> _richteStickEin() async {
+    stickPinCtl.clear();
+    setState(() {
+      enroll = 'hw';
+      lockFehler = null;
+      stickSchritt = null;
+    });
+  }
+
+  /// Legt den Zugang auf dem Stick an und verschliesst die Identitaet damit.
+  Future<void> _stickAnlegen() async {
+    setState(() {
+      stickSchritt = t('stickWorking');
+      lockFehler = null;
+    });
+    try {
+      await st.fuegeStickHinzu(
+        weg: stickWeg,
+        pin: stickPinCtl.text.isEmpty ? null : stickPinCtl.text,
+      );
+      stickPinCtl.clear();
+      if (mounted) setState(() { enroll = null; stickSchritt = null; });
+    } catch (e) {
+      if (mounted) {
+        setState(() { lockFehler = _stickMeldung(e); stickSchritt = null; });
+      }
+    }
+  }
+
+  /// Uebersetzt einen Fehler in etwas, mit dem der Nutzer etwas anfangen kann.
+  ///
+  /// BEIM STICK IST DAS WICHTIGER ALS SONST: er zaehlt Fehlversuche selbst mit
+  /// und sperrt sich nach acht endgueltig. Eine Meldung im Stil von "Fehler
+  /// 0x31" laesst den Nutzer weiterraten, bis der Stick unbrauchbar ist.
+  String _stickMeldung(Object e) => switch (e) {
+        PinFalschException(:final verbleibend) => verbleibend == null
+            ? t('stickPinWrong')
+            : t('stickPinWrongLeft').replaceFirst('{n}', '$verbleibend'),
+        StickPinNoetigException() => t('stickPinNeeded'),
+        StickUngeeignetException(:final grund) => grund,
+        KeinStickException(:final grund) => grund,
+        CtapException(:final bedeutung) => bedeutung,
+        _ => '$e',
+      };
 
   /// Die eigene Adresse, wie der Entwurf sie zeigt: Vierergruppen mit
   /// Bindestrichen. Solange noch keine Identitaet da ist, bleibt es leer.
@@ -513,13 +608,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ]),
       );
 
-  /// Wartet auf die Anmeldung des Geraets.
+  /// Wartet darauf, dass ein Faktor das Fach oeffnet.
   ///
-  /// Die App fragt Fingerabdruck oder PIN NICHT selbst ab und bekommt sie nie
-  /// zu sehen. Sie versucht nur, die Entropie zu lesen — und der gesicherte
-  /// Bereich zeigt die Abfrage. Schlaegt sie fehl, bleibt der Schluessel dort,
-  /// wo er ist.
+  /// Angeboten wird nur, was auch eingerichtet ist. Ein Knopf fuer einen
+  /// Faktor, den es nicht gibt, waere hier besonders bitter: der Nutzer haelt
+  /// einen Stick an das Telefon und wartet auf etwas, das nie kommt.
+  ///
+  /// Fingerabdruck und PIN fragt die App NICHT selbst ab und bekommt sie nie
+  /// zu sehen — sie versucht nur, den Fachschluessel zu lesen, und die Abfrage
+  /// zeigt das System.
   Widget gesperrtScreen() {
+    final hatGeraet = st.hatFaktor(UnlockFactorKind.biometric);
+    final hatStick = st.hatFaktor(UnlockFactorKind.hardwareKey);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
       child: Column(
@@ -531,11 +632,112 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           Text(t("lockedSub"),
               style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
           const SizedBox(height: 22),
-          outlineBtn(t("unlock"), () => st.entsperren(),
-              padding: const EdgeInsets.all(13)),
+
+          if (lockFehler != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                  color: p.tint,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: p.tintLine)),
+              child: Text(lockFehler!,
+                  style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+            ),
+            const SizedBox(height: 14),
+          ],
+
+          if (hatGeraet)
+            outlineBtn(t("unlock"), _entsperreMitGeraet,
+                padding: const EdgeInsets.all(13)),
+          if (hatGeraet && hatStick) const SizedBox(height: 8),
+          if (hatStick) ...[
+            outlineBtn(t("unlockStick"), _entsperreMitStick,
+                accent: !hatGeraet, padding: const EdgeInsets.all(13),
+                weight: hatGeraet ? FontWeight.w400 : FontWeight.w500),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(child: _wegKnopf(StickWeg.usb, t('stickUsb'))),
+              const SizedBox(width: 8),
+              Expanded(child: _wegKnopf(StickWeg.nfc, t('stickNfc'))),
+            ]),
+          ],
+          if (!hatGeraet && !hatStick)
+            // Kann nur passieren, wenn die Fachdatei kaputt ist. Ohne diesen
+            // Hinweis stuende der Nutzer vor einem Bildschirm ohne Knopf.
+            Text(t('lockedNoFactor'),
+                style: mono(size: 12, color: p.dim, height: 1.6)),
         ],
       ),
     );
+  }
+
+  Future<void> _entsperreMitGeraet() async {
+    setState(() => lockFehler = null);
+    try {
+      await st.entsperreMitGeraet();
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = _stickMeldung(e));
+    }
+  }
+
+  /// Entsperrt mit dem Stick, und fragt nach der PIN, wenn er eine verlangt.
+  Future<void> _entsperreMitStick() async {
+    setState(() => lockFehler = null);
+    try {
+      await st.entsperreMitStick(
+          weg: stickWeg,
+          pin: stickPinCtl.text.isEmpty ? null : stickPinCtl.text);
+    } on StickPinNoetigException {
+      if (mounted) await _fragePin();
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = _stickMeldung(e));
+    }
+  }
+
+  /// Fragt die PIN DES STICKS ab — nicht die des Telefons.
+  ///
+  /// Sie verlaesst das Telefon nie im Klartext: uebertragen werden die ersten
+  /// 16 Byte ihres SHA-256, und auch die nur verschluesselt.
+  Future<void> _fragePin() async {
+    stickPinCtl.clear();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surf,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: p.line)),
+        title: Text(t('stickPinLabel'), style: doto(size: 17, color: p.ink)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+            controller: stickPinCtl,
+            obscureText: true,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            style: mono(size: 15, color: p.ink, spacing: 2),
+            decoration: InputDecoration(
+              hintText: '••••••',
+              hintStyle: mono(size: 15, color: p.dim, spacing: 2),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(t('stickPinHint'),
+              style: mono(size: 11, color: p.dim, height: 1.5)),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(t('cancel'), style: mono(size: 12, color: p.dim))),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child:
+                  Text(t('unlock'), style: mono(size: 12, color: p.accLight))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _entsperreMitStick();
   }
 
   // ---- WIRD ANGELEGT ----
@@ -642,9 +844,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Widget methodRow(String key, {bool statusMode = true}) {
-    // Nur "bio" hat einen echten Zustand. Die anderen drei sind aus, und das
-    // Antippen erklaert warum, statt eine Einrichtung vorzutaeuschen.
-    final on = key == "bio" && st.sperrmodus == LockMode.geraet;
+    // "bio" und "hw" haben jetzt echte Faecher dahinter. "passkey" und "totp"
+    // nicht — das Antippen erklaert warum, statt eine Einrichtung
+    // vorzutaeuschen.
+    final on = switch (key) {
+      'bio' => st.hatFaktor(UnlockFactorKind.biometric),
+      'hw' => st.hatFaktor(UnlockFactorKind.hardwareKey),
+      _ => false,
+    };
     final mark = on ? '✓' : '·';
     final right = statusMode ? (on ? t('on2') : t('offMethod')) : (on ? t('remove') : t('add'));
     return GestureDetector(
@@ -1341,13 +1548,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ]),
       );
     }
+    if (en == 'hw') return stickModal();
+
     final title = en == "bio"
         ? t("enrollBio")
         : en == "passkey"
             ? t("enrollPasskey")
-            : en == "hw"
-                ? t("enrollHw")
-                : t("enrollTotp");
+            : t("enrollTotp");
     // 2FA ist der einzige Fall, der NIE echt wird: bei einer App ohne Server
     // laege das Geheimnis auf demselben Geraet, und wer das Geraet hat,
     // rechnet sich den Code selbst aus.
@@ -1370,6 +1577,136 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         outlineBtn(t("close"), () => setState(() => enroll = null),
             padding: const EdgeInsets.all(11)),
       ]),
+    );
+  }
+
+  /// Der Stick wird eingerichtet.
+  ///
+  /// Zwei Dinge stehen hier bewusst DRAUF und nicht im Kleingedruckten:
+  /// dass es ZWEI Beruehrungen braucht (sonst haelt man die zweite
+  /// Aufforderung fuer einen Fehler), und was passiert, wenn der Stick
+  /// verloren geht.
+  Widget stickModal() {
+    final laeuft = stickSchritt != null;
+    return scrim(
+      onTapOutside: laeuft ? () {} : () => setState(() => enroll = null),
+      sheetCard(children: [
+        Center(
+            child: Container(
+                width: 36,
+                height: 3,
+                decoration: BoxDecoration(
+                    color: p.line, borderRadius: BorderRadius.circular(99)))),
+        const SizedBox(height: 11),
+        h2(t('enrollHw'), size: 20),
+        const SizedBox(height: 10),
+        Text(t('stickIntro'), style: mono(size: 12.5, color: p.muted, height: 1.6)),
+        const SizedBox(height: 14),
+
+        // Der Weg zum Stick.
+        Row(children: [
+          Expanded(child: _wegKnopf(StickWeg.usb, t('stickUsb'))),
+          const SizedBox(width: 8),
+          Expanded(child: _wegKnopf(StickWeg.nfc, t('stickNfc'))),
+        ]),
+        const SizedBox(height: 14),
+
+        Text(t('stickPinLabel').toUpperCase(),
+            style: mono(size: 10, weight: FontWeight.w600, color: p.dim, spacing: 1.4)),
+        const SizedBox(height: 6),
+        Container(
+          decoration: BoxDecoration(
+              color: p.surf2,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: p.line)),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: TextField(
+            controller: stickPinCtl,
+            enabled: !laeuft,
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            style: mono(size: 14, color: p.ink, spacing: 2),
+            decoration: InputDecoration(
+              border: InputBorder.none,
+              hintText: '••••••',
+              hintStyle: mono(size: 14, color: p.dim, spacing: 2),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(t('stickPinHint'), style: mono(size: 11, color: p.dim, height: 1.5)),
+        const SizedBox(height: 14),
+
+        if (lockFehler != null) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+                color: p.tint,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: p.tintLine)),
+            child: Text(lockFehler!,
+                style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        if (laeuft) ...[
+          Text(stickSchritt!,
+              style: mono(size: 12.5, color: p.accLight, height: 1.5)),
+          const SizedBox(height: 12),
+        ],
+
+        Row(children: [
+          Expanded(
+              child: outlineBtn(t('cancel'),
+                  laeuft ? () {} : () => setState(() => enroll = null),
+                  accent: false,
+                  padding: const EdgeInsets.all(11),
+                  weight: FontWeight.w400)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: outlineBtn(laeuft ? t('waiting') : t('add'),
+                  laeuft ? () {} : _stickAnlegen,
+                  padding: const EdgeInsets.all(11))),
+        ]),
+        const SizedBox(height: 10),
+        Text(t('stickLostNote'), style: mono(size: 11, color: p.dim, height: 1.5)),
+        const SizedBox(height: 10),
+        // Ob ein Stick hmac-secret ueberhaupt kann, steht in keiner
+        // Produktbeschreibung — die Erweiterung ist optional, und Hersteller
+        // werben nicht damit. Deshalb der Weg, ihn vorher selbst zu fragen.
+        GestureDetector(
+          onTap: laeuft ? null : _pruefeStick,
+          child: Text(t('fidoProbe').toUpperCase(),
+              style: mono(
+                  size: 10,
+                  weight: FontWeight.w600,
+                  color: p.accLight,
+                  spacing: 1.3)),
+        ),
+      ]),
+    );
+  }
+
+  Widget _wegKnopf(StickWeg weg, String beschriftung) {
+    final an = stickWeg == weg;
+    return GestureDetector(
+      onTap: stickSchritt != null ? null : () => setState(() => stickWeg = weg),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 11),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+            color: an ? p.tint : p.surf2,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: an ? p.tintLine : p.line)),
+        child: Text(beschriftung.toUpperCase(),
+            style: mono(
+                size: 11,
+                weight: FontWeight.w500,
+                color: an ? p.tintInk : p.dim,
+                spacing: 1.2)),
+      ),
     );
   }
 

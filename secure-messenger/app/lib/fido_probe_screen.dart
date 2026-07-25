@@ -102,7 +102,9 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
       await transport.trenne();
       if (mounted) setState(() { _info = info; _fehler = null; });
     } catch (e) {
-      if (mounted) setState(() { _fehler = ''; _info = null; });
+      // Die Meldung stand hier bis zum 25.07.2026 auf dem leeren String — bei
+      // einem Fehlschlag ueber Kabel blieb der Bildschirm also stumm.
+      if (mounted) setState(() { _fehler = '$e'; _info = null; });
     } finally {
       if (mounted) setState(() => _laeuft = false);
     }

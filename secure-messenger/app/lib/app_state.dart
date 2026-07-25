@@ -18,13 +18,28 @@ import 'package:flutter/foundation.dart';
 import 'core/app_lock.dart';
 import 'core/benachrichtigungen.dart';
 import 'core/fenster.dart';
+import 'core/fido/client_pin.dart';
+import 'core/fido/ctap.dart';
+import 'core/fido/stick_zugang.dart';
+import 'core/lock/hardware_key_factor.dart';
+import 'core/lock/key_vault.dart';
+import 'core/lock/keystore_factor.dart';
+import 'core/lock/unlock_factor.dart';
+import 'core/lock/vault_store.dart';
 import 'core/messenger_core.dart';
 
 class AppState extends ChangeNotifier {
-  AppState(this.core, {this.sperre});
+  AppState(this.core, {this.tresor, this.stickZugang});
 
   /// Null in Tests — dort gibt es keinen Schluesselspeicher des Geraets.
-  final LockableSecretStore? sperre;
+  final VaultSecretStore? tresor;
+
+  /// Wie ein Sicherheitsschluessel erreicht wird — per NFC oder per Kabel.
+  ///
+  /// Hereingereicht statt fest verdrahtet, damit der Zustand ohne Geraet
+  /// pruefbar bleibt: die Plattformaufrufe fuer NFC und USB laufen in
+  /// `flutter test` nicht.
+  final Future<CtapTransport> Function(StickWeg)? stickZugang;
 
   final MessengerCore core;
 
@@ -56,19 +71,23 @@ class AppState extends ChangeNotifier {
   /// der gesicherte Bereich des Geraets ruecke sie nur noch nicht heraus.
   bool gesperrt = false;
 
-  LockMode sperrmodus = LockMode.aus;
+  /// Die eingerichteten Faktoren, so wie sie in der Fachdatei stehen.
+  ///
+  /// Leer heisst: keine Sperre. Die App oeffnet dann ohne Rueckfrage, und die
+  /// Entropie liegt im Schluesselspeicher des Geraets.
+  List<KeySlot> faktoren = const [];
 
   final _abos = <StreamSubscription<Object?>>[];
   final _zufall = Random();
 
   Future<void> boot() async {
-    sperrmodus = await sperre?.modus() ?? LockMode.aus;
+    await _ladeFaktoren();
     try {
       hatIdentitaet = await core.initialize();
       gesperrt = false;
     } on LockedException {
-      // Es GIBT eine Identitaet, der gesicherte Bereich gibt sie nur nicht
-      // heraus. Das ist kein Fehler, sondern der Zweck der Sperre.
+      // Es GIBT eine Identitaet, sie liegt nur in einem Fach, das noch
+      // niemand geoeffnet hat. Das ist kein Fehler, sondern der Zweck.
       hatIdentitaet = true;
       gesperrt = true;
       bereit = true;
@@ -80,12 +99,67 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Zweiter Anlauf nach einer abgebrochenen Anmeldung.
+  Future<void> _ladeFaktoren() async {
+    try {
+      faktoren = (await tresor?.faecher())?.slots ?? const [];
+    } catch (e) {
+      // Eine unlesbare Fachdatei darf die App nicht am Starten hindern — sonst
+      // kaeme man nicht einmal mehr an den Knopf, mit dem sich alles loeschen
+      // laesst.
+      letzterFehler = '$e';
+      faktoren = const [];
+    }
+  }
+
+  /// Ob es ueberhaupt einen Faktor dieser Art gibt.
+  bool hatFaktor(UnlockFactorKind art) =>
+      faktoren.any((s) => s.kind == art);
+
+  // ═══════════════════════════════════════════════════════════════ Entsperren
+
+  /// Entsperrt mit dem Schluesselspeicher des Geraets — Fingerabdruck,
+  /// Gesicht, PIN oder Muster, je nachdem, was eingerichtet ist.
   ///
-  /// Der Schluesselspeicher zeigt die Abfrage des Geraets erneut — die App
-  /// selbst hat keinen Zugriff auf Fingerabdruck oder PIN und will ihn auch
-  /// nicht.
+  /// Die App fragt nichts davon selbst ab und bekommt es nie zu sehen. Sie
+  /// versucht nur, den Fachschluessel zu lesen; die Abfrage zeigt das System.
+  Future<bool> entsperreMitGeraet() =>
+      _entsperreMit(KeystoreFactor(ablage: GeraeteAblage.mitAnmeldung()));
+
+  /// Entsperrt mit einem Sicherheitsschluessel.
+  ///
+  /// [pin] ist die PIN DES STICKS. Null, solange sie nicht bekannt ist — der
+  /// Faktor meldet dann [StickPinNoetigException], und die Oberflaeche fragt
+  /// nach.
+  Future<bool> entsperreMitStick({String? pin, StickWeg weg = StickWeg.usb}) =>
+      _entsperreMit(HardwareKeyFactor(oeffne: _wegZum(weg), pin: pin));
+
+  /// Der Weg zum Stick, oder ein klarer Fehler statt eines Absturzes.
+  StickOeffner _wegZum(StickWeg weg) {
+    final zugang = stickZugang;
+    if (zugang == null) {
+      throw const LockUnavailableException('kein Weg zum Stick');
+    }
+    return () => zugang(weg);
+  }
+
+  Future<bool> _entsperreMit(UnlockFactor faktor) async {
+    final t = tresor;
+    if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    await t.entsperreMit(faktor);
+    return _nachDemOeffnen();
+  }
+
+  /// Zweiter Anlauf, ohne einen Faktor zu wechseln.
   Future<bool> entsperren() async {
+    if (tresor != null && !(tresor!.istOffen)) {
+      // Ohne offenen Tresor gaebe es nichts zu holen. Welcher Faktor es sein
+      // soll, entscheidet die Oberflaeche.
+      return false;
+    }
+    return _nachDemOeffnen();
+  }
+
+  Future<bool> _nachDemOeffnen() async {
     try {
       hatIdentitaet = await core.initialize();
       gesperrt = false;
@@ -99,14 +173,80 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Schaltet die Sperre um. Wirft [LockUnavailableException], wenn das Geraet
-  /// keine Bildschirmsperre hat, und [LockedException] bei Abbruch.
-  Future<void> setzeSperre(LockMode neu) async {
-    final s = sperre;
-    if (s == null) throw const LockUnavailableException('nicht verfuegbar');
-    await s.setzeModus(neu);
-    sperrmodus = neu;
+  // ══════════════════════════════════════════════════════════ Faktoren pflegen
+
+  /// Nimmt den Schluesselspeicher des Geraets als Faktor auf.
+  ///
+  /// Wirft [LockUnavailableException], wenn das Telefon gar keine
+  /// Bildschirmsperre hat — dann gibt es nichts, woran sich etwas binden
+  /// liesse.
+  Future<void> fuegeGeraetHinzu() async {
+    await _fuegeHinzu(KeystoreFactor(ablage: GeraeteAblage.mitAnmeldung()));
+  }
+
+  /// Nimmt einen Sicherheitsschluessel als Faktor auf.
+  ///
+  /// Verlangt ZWEI Beruehrungen: einmal, um den Zugang anzulegen, einmal, um
+  /// das Geheimnis dazu zu holen. Das ist kein Fehler — anders geht es nicht.
+  Future<void> fuegeStickHinzu(
+      {String? pin, String? name, StickWeg weg = StickWeg.usb}) async {
+    await _fuegeHinzu(HardwareKeyFactor(
+      oeffne: _wegZum(weg),
+      pin: pin,
+      label: (name == null || name.trim().isEmpty)
+          ? 'Sicherheitsschluessel'
+          : name.trim(),
+    ));
+  }
+
+  Future<void> _fuegeHinzu(UnlockFactor faktor) async {
+    final t = tresor;
+    if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    try {
+      await t.fuegeHinzu(faktor);
+    } finally {
+      // Auch nach einem Fehlschlag neu einlesen: beim Stick kann der Zugang
+      // schon angelegt sein, wenn erst das Holen des Geheimnisses scheitert.
+      await _ladeFaktoren();
+      notifyListeners();
+    }
+  }
+
+  /// Entfernt einen Faktor.
+  ///
+  /// Beim LETZTEN ist die App danach wieder ungesperrt, und die Entropie liegt
+  /// wieder im Schluesselspeicher. Das ist Absicht: eine App, die sich nach
+  /// dem Entfernen des letzten Faktors gar nicht mehr oeffnen liesse, waere
+  /// eine Falle.
+  Future<void> entferneFaktor(String slotId) async {
+    final t = tresor;
+    if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    final slot = faktoren.where((s) => s.id == slotId).firstOrNull;
+    await t.entferne(
+      slotId,
+      faktor: slot?.kind == UnlockFactorKind.biometric
+          ? KeystoreFactor(ablage: GeraeteAblage.mitAnmeldung())
+          : null,
+    );
+    await _ladeFaktoren();
     notifyListeners();
+  }
+
+  /// Wie viele Fehlversuche der Stick noch zulaesst.
+  ///
+  /// Zum Anzeigen, BEVOR jemand die PIN raet: nach acht Fehlversuchen sperrt
+  /// sich der Stick endgueltig, und alle Zugaenge darauf sind verloren.
+  Future<int?> stickVersuche({StickWeg weg = StickWeg.usb}) async {
+    if (stickZugang == null) return null;
+    final transport = await _wegZum(weg)();
+    await transport.verbinde();
+    try {
+      return await ClientPin(Ctap2(transport)).verbleibendeVersuche();
+    } finally {
+      try {
+        await transport.trenne();
+      } catch (_) {}
+    }
   }
 
   Future<void> _nachIdentitaet() async {
