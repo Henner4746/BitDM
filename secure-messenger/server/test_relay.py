@@ -289,6 +289,52 @@ async def main():
             ok_authfail = True
         check("Falsche WS-Signatur wird abgelehnt", ok_authfail)
 
+        # ═══════════════════════════════════ Anstoss-Endpunkt (UnifiedPush)
+        #
+        # DER GEFAEHRLICHSTE TEIL DIESER FUNKTION: der Relay schickt eine
+        # Anfrage an eine Adresse, die ein Client ihm nennt. Ohne Pruefung
+        # waere er ein Werkzeug, mit dem sich beliebige fremde Server
+        # anschreiben lassen — jemand traegt eine fremde Adresse ein und laesst
+        # den Relay fuer sich klopfen. Genau dafuer sind die naechsten Tests da.
+        from relay_server import push_endpunkt_gueltig
+
+        gut = "https://push.bitdm.net/upAbc123_-xyz"
+        check("Eigener Push-Endpunkt wird angenommen",
+              push_endpunkt_gueltig(gut))
+
+        schlecht = {
+            "fremder Host":        "https://evil.example.com/upAbc123",
+            "ohne TLS":            "http://push.bitdm.net/upAbc123",
+            "fremder Pfad":        "https://push.bitdm.net/admin",
+            "Pfad ohne up-Praefix":"https://push.bitdm.net/geheim123",
+            "Pfadwanderung":       "https://push.bitdm.net/upAbc/../admin",
+            "leer":                "",
+            "kein String":         None,
+            "zu lang":             "https://push.bitdm.net/up" + "A" * 600,
+            "Host im Nutzerteil":  "https://push.bitdm.net@evil.example.com/upAbc",
+        }
+        for name, url in schlecht.items():
+            check(f"Push-Endpunkt abgelehnt: {name}",
+                  not push_endpunkt_gueltig(url))
+
+        # Ueber die Verbindung eintragen und wieder loeschen.
+        await alice_ws.send(json.dumps(
+            {"type": "push_endpoint", "endpoint": gut}))
+        res = json.loads(await alice_ws.recv())
+        check("Endpunkt laesst sich eintragen",
+              res.get("type") == "push_ok" and res.get("set") is True)
+
+        await alice_ws.send(json.dumps(
+            {"type": "push_endpoint", "endpoint": "https://evil.example.com/upX"}))
+        res = json.loads(await alice_ws.recv())
+        check("Fremder Endpunkt wird ueber die Verbindung abgelehnt",
+              res.get("type") == "error")
+
+        await alice_ws.send(json.dumps({"type": "push_endpoint", "endpoint": ""}))
+        res = json.loads(await alice_ws.recv())
+        check("Endpunkt laesst sich wieder loeschen",
+              res.get("type") == "push_ok" and res.get("set") is False)
+
         await alice_ws.close()
         await bob_ws3.close()
 

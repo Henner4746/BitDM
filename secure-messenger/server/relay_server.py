@@ -36,9 +36,13 @@ import base64
 import hashlib
 import json
 import os
+import re
 import secrets
 import sqlite3
 import time
+import urllib.parse
+
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -207,6 +211,19 @@ def init_db(path: Path) -> sqlite3.Connection:
         conn.execute(
             "ALTER TABLE identities ADD COLUMN registration_id INTEGER NOT NULL DEFAULT 0"
         )
+    if "push_endpoint" not in vorhanden:
+        # Wohin angestossen wird, wenn der Empfaenger nicht verbunden ist.
+        #
+        # WAS HIER STEHT: eine UnifiedPush-Adresse, die der Verteiler auf dem
+        # Telefon vergeben hat. Kein Google-Token, keine Geraetekennung — ein
+        # Zufallsname auf einem Server, den der Nutzer selbst gewaehlt hat.
+        #
+        # WAS DAS TROTZDEM IST: eine dauerhafte Kennung neben der Adresse. Wer
+        # diese Datenbank in die Hand bekaeme, koennte damit anstossen und so
+        # pruefen, ob ein bestimmtes Geraet gerade erreichbar ist. Deshalb ist
+        # Push abschaltbar, und beim Abschalten wird die Zeile geleert statt
+        # bloss ignoriert.
+        conn.execute("ALTER TABLE identities ADD COLUMN push_endpoint TEXT")
 
     conn.commit()
     return conn
@@ -519,6 +536,58 @@ def get_prekey(user_id: str, request: Request):
 
 # ------------------------------------------------------------------ WebSocket
 
+# ═══════════════════════════════════════════════════════════════ Anstossen
+#
+# WAS DABEI RAUSGEHT: ein LEERER POST. Kein Absender, kein Inhalt, keine
+# Anzahl. Der Push-Server erfaehrt nur, dass fuer dieses Thema etwas anliegt —
+# die Nachricht selbst holt die App danach hier ab, verschluesselt wie immer.
+#
+# Ein Absender im Anstoss waere der schlimmste denkbare Fehler: er stuende
+# unverschluesselt auf dem Sperrbildschirm und im Protokoll jedes Servers
+# dazwischen.
+
+PUSH_TIMEOUT = 8.0
+
+# Nur eigene Push-Server. Ein Endpunkt, den ein Client frei waehlen darf,
+# machte diesen Relay zu einem Werkzeug, mit dem sich beliebige fremde Server
+# anschreiben lassen — jemand traegt eine fremde Adresse ein und laesst den
+# Relay fuer sich klopfen.
+PUSH_ERLAUBTE_HOSTS = {"push.bitdm.net"}
+
+
+def push_endpunkt_gueltig(url: str) -> bool:
+    """Ob dieser Anstoss-Endpunkt angenommen wird."""
+    if not isinstance(url, str) or len(url) > 512:
+        return False
+    try:
+        teile = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    if teile.scheme != "https":
+        return False
+    if teile.hostname not in PUSH_ERLAUBTE_HOSTS:
+        return False
+    # UnifiedPush-Themen heissen "up" + Zufallszeichen. Alles andere waere
+    # kein Anstoss-Endpunkt, sondern irgendein Pfad auf dem Push-Server.
+    return re.fullmatch(r"/up[A-Za-z0-9_-]+", teile.path) is not None
+
+
+async def stosse_an(user_id: str) -> None:
+    row = db.execute(
+        "SELECT push_endpoint FROM identities WHERE user_id=?", (user_id,)
+    ).fetchone()
+    if row is None or not row[0]:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=PUSH_TIMEOUT) as client:
+            await client.post(row[0], content=b"")
+    except Exception:
+        # Ein Anstoss, der nicht ankommt, ist kein Fehler des Absenders. Die
+        # Nachricht liegt in der Warteschlange und wird beim naechsten Start
+        # der App zugestellt — Push beschleunigt nur.
+        pass
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -589,6 +658,36 @@ async def ws_endpoint(ws: WebSocket):
     try:
         while True:
             data = await ws.receive_json()
+
+            # ── Anstoss-Endpunkt eintragen oder loeschen ──────────────────
+            #
+            # UEBER DIE BESTEHENDE VERBINDUNG, nicht ueber einen eigenen
+            # HTTP-Pfad. Hier ist schon nachgewiesen, wem diese Adresse
+            # gehoert — ein eigener Pfad muesste denselben Nachweis noch
+            # einmal fuehren, und jede zweite Umsetzung desselben Nachweises
+            # ist eine Gelegenheit, ihn falsch zu machen.
+            if data.get("type") == "push_endpoint":
+                endpunkt = data.get("endpoint")
+                if endpunkt in (None, ""):
+                    with db:
+                        db.execute(
+                            "UPDATE identities SET push_endpoint=NULL WHERE user_id=?",
+                            (user_id,),
+                        )
+                    await ws.send_json({"type": "push_ok", "set": False})
+                elif push_endpunkt_gueltig(endpunkt):
+                    with db:
+                        db.execute(
+                            "UPDATE identities SET push_endpoint=? WHERE user_id=?",
+                            (endpunkt, user_id),
+                        )
+                    await ws.send_json({"type": "push_ok", "set": True})
+                else:
+                    await ws.send_json(
+                        {"type": "error", "reason": "Anstoss-Endpunkt ungueltig"}
+                    )
+                continue
+
             if data.get("type") != "message":
                 continue
 
@@ -647,6 +746,12 @@ async def ws_endpoint(ws: WebSocket):
                     (to, user_id, ciphertext, time.time()),
                 )
             await ws.send_json({"type": "ack", "to": to, **ref})
+
+            # Den Empfaenger anstossen, falls er das eingeschaltet hat.
+            #
+            # NICHT ABWARTEN: der Absender hat sein ack schon. Wenn der
+            # Push-Server hakt, darf das seine Verbindung nicht aufhalten.
+            asyncio.create_task(stosse_an(to))
 
     except (WebSocketDisconnect, json.JSONDecodeError, RuntimeError):
         pass
