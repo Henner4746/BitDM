@@ -25,6 +25,8 @@ import websockets
 from xeddsa.bindings import (ed25519_priv_sign, priv_force_sign,
                              priv_to_curve25519_pub)
 
+from signature_vectors import DART_SIGNATURES, MESSAGE
+
 BASE = "http://127.0.0.1:8099"
 WS = "ws://127.0.0.1:8099/ws"
 
@@ -40,7 +42,22 @@ def encode_id(public_key_bytes: bytes) -> str:
 
 
 def sign(priv: bytes, msg: bytes) -> bytes:
-    """XEdDSA — so signiert auch libsignals Curve.calculateSignature."""
+    """XEdDSA nach Spezifikation, mit erzwungenem Vorzeichenbit 0.
+
+    ACHTUNG — das deckt NICHT den ganzen Server ab.
+    libxeddsa erzwingt beim Signieren ein Vorzeichenbit von 0. libsignal, also
+    der echte Client, behaelt dagegen das natuerliche Vorzeichen und legt es in
+    das oberste Bit der Signatur. Signaturen aus diesem Test haben deshalb immer
+    Bit 0 — die andere Haelfte des Wertebereichs bleibt ungeprueft.
+
+    Genau daran ist die urspruengliche Fassung gescheitert: sie signierte mit
+    demselben falschen Vorzeichenbit, mit dem der Server prueffte. Test und
+    Implementierung teilten die Annahme, waren in sich stimmig und beide falsch —
+    15/15 gruen, waehrend echte Clients zur Haelfte abgewiesen worden waeren.
+
+    Die Luecke schliesst test_signature_vectors() weiter unten mit echten
+    Signaturen aus dem Dart-Client.
+    """
     return ed25519_priv_sign(priv_force_sign(priv, False), msg)
 
 
@@ -125,6 +142,27 @@ async def main():
 
     async with httpx.AsyncClient(timeout=10) as http:
         alice, bob = make_user(), make_user()
+
+        # ------------------------------- Signaturpruefung gegen echte Clients
+        # Der wichtigste Test der Datei. Er benutzt Signaturen, die der echte
+        # Dart-Client erzeugt hat — die Haelfte davon mit gesetztem
+        # Vorzeichenbit. Genau die wurden vom Server frueher abgelehnt.
+        from relay_server import verify_signature
+        angenommen = sum(
+            1 for pk, sig in DART_SIGNATURES
+            if verify_signature(base64.b64decode(pk), MESSAGE, base64.b64decode(sig))
+        )
+        check("Echte libsignal-Signaturen werden akzeptiert",
+              angenommen == len(DART_SIGNATURES))
+        mit_bit = sum(1 for _, sig in DART_SIGNATURES
+                      if base64.b64decode(sig)[63] & 0x80)
+        check("Vektoren decken beide Vorzeichenbits ab",
+              0 < mit_bit < len(DART_SIGNATURES))
+        # Manipulation muss weiterhin scheitern
+        pk0, sig0 = DART_SIGNATURES[0]
+        kaputt = bytearray(base64.b64decode(sig0)); kaputt[0] ^= 1
+        check("Veraenderte Signatur wird abgelehnt",
+              not verify_signature(base64.b64decode(pk0), MESSAGE, bytes(kaputt)))
 
         # ---------------------------------------------------- Grundfunktionen
         check("Adresse ist 56 Zeichen", len(alice["user_id"]) == 56)

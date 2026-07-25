@@ -124,15 +124,34 @@ def b64e(b: bytes) -> str:
 def verify_signature(identity_key: bytes, message: bytes, signature: bytes) -> bool:
     """Prueft eine XEdDSA-Signatur gegen den Curve25519-Identitaetsschluessel.
 
-    XEdDSA normalisiert das Vorzeichenbit auf 0; deshalb wird der Montgomery-
-    Public-Key mit set_sign_bit=False nach Edwards umgerechnet und dann regulaer
-    als Ed25519 geprueft. Genau das macht libsignals Curve.verifySignature.
+    ACHTUNG, hier lag ein schwerer Fehler:
+    Frueher wurde der Montgomery-Key fest mit set_sign_bit=False umgerechnet.
+    Das ist falsch. Der Edwards-Punkt A zu einem Curve25519-Schluessel hat ein
+    Vorzeichenbit (die x-Paritaet), das je Identitaet praktisch zufaellig ist.
+    libsignal legt es beim Signieren in das oberste Bit der Signatur:
+
+        signature[63] |= publicKey[31] & 0x80      (ecc/ed25519.dart:87)
+
+    und holt es beim Pruefen von dort wieder heraus:
+
+        A_ed[31]     |= signature[63] & 0x80       (ecc/ed25519.dart:110)
+        signature[63] &= 0x7F                      (ecc/ed25519.dart:111)
+
+    Mit fest gesetztem False wurden rund die HAELFTE aller gueltigen Signaturen
+    abgelehnt — gemessen 19 von 40. Der Fehler haette sich als sporadisch
+    fehlschlagende Anmeldung geaeussert, abhaengig davon, welchen Schluessel ein
+    Nutzer zufaellig gezogen hat. Genau die Sorte Fehler, die man in Produktion
+    monatelang jagt.
     """
     if len(identity_key) != 32 or len(signature) != 64:
         return False
     try:
-        ed_pub = curve25519_pub_to_ed25519_pub(identity_key, False)
-        return ed25519_verify(signature, ed_pub, message)
+        # Vorzeichenbit aus der Signatur holen ...
+        sign_bit = bool(signature[63] & 0x80)
+        # ... und aus der Signatur entfernen, bevor sie geprueft wird.
+        clean_sig = signature[:63] + bytes([signature[63] & 0x7F])
+        ed_pub = curve25519_pub_to_ed25519_pub(identity_key, sign_bit)
+        return ed25519_verify(clean_sig, ed_pub, message)
     except Exception:
         return False
 
