@@ -41,7 +41,17 @@ enum PayloadKind {
   contactAccept(3),
   contactDecline(4),
   deliveryReceipt(5),
-  readReceipt(6);
+  readReceipt(6),
+
+  /// Ein Anhang. Im Text steht die Anleitung (lib/core/anhang/rezept.dart) —
+  /// wo die Stuecke liegen und womit sie aufgehen.
+  ///
+  /// DIE BYTES SELBST GEHEN HIER NICHT DURCH. Der Relay laesst 64 KiB
+  /// Chiffretext durch, und selbst wenn er mehr liesse, gehoerte eine
+  /// 3-GB-Datei nicht in eine SQLite-Warteschlange. Was hier reist, ist eine
+  /// Anleitung von ein paar Kilobyte — mit den Schluesseln darin, die der
+  /// Lagerplatz deshalb nie zu sehen bekommt.
+  anhang(7);
 
   const PayloadKind(this.code);
   final int code;
@@ -112,6 +122,22 @@ class Payload {
   factory Payload.control(PayloadKind kind, String messageId, DateTime sentAt,
           {List<String> refs = const []}) =>
       Payload(kind: kind, messageId: messageId, sentAt: sentAt, refs: refs);
+
+  /// Ein Anhang: im Text steht die Anleitung, nicht die Datei.
+  ///
+  /// Sie ist laenger als eine gewoehnliche Nachricht — bei 256 Stuecken gut
+  /// 33 KB. Der Relay laesst 64 KiB durch; darueber wuerde er den Umschlag
+  /// abweisen, und zwar NACHDEM die ganze Datei schon im Lager liegt. Die
+  /// Stueckzahl ist deshalb in rezept.dart begrenzt, nicht hier.
+  factory Payload.anhang(String messageId, String rezept, DateTime sentAt,
+          {Duration? lebensdauer}) =>
+      Payload(
+        kind: PayloadKind.anhang,
+        messageId: messageId,
+        sentAt: sentAt,
+        text: rezept,
+        ttlSeconds: lebensdauer?.inSeconds,
+      );
 
   /// Auf welche Vielfachen aufgefuellt wird.
   ///

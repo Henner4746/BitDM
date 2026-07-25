@@ -139,6 +139,16 @@ dependencies:
   # Selbstwiderspruch. Doto und Chivo Mono liegen jetzt unter assets/fonts/.
   # Nebeneffekt: http und crypto waren nur ueber google_fonts transitiv
   # eingebunden und sind damit ebenfalls verschwunden.
+  #
+  # webcrypto wurde am 25.07.2026 PROBEWEISE aufgenommen und wieder entfernt.
+  # Es bindet BoringSSL an und waere fuer AES-GCM um ein Vielfaches schneller
+  # als die reine Dart-Umsetzung (gemessen: 12 MB/s). Aber `flutter test`
+  # braucht dafuer `pub run webcrypto:setup`, und das braucht cmake — auf
+  # dieser Maschine nicht vorhanden. Eine Abhaengigkeit aufzunehmen, deren
+  # Nutzen sich hier nicht messen laesst und die dafuer die Testbarkeit
+  # kostet, ist der falsche Tausch. Siehe lib/core/anhang/stueck_krypto.dart:
+  # die Verschluesselung sitzt hinter einer schmalen Schnittstelle und laesst
+  # sich austauschen, wenn eine Messung auf echten Geraeten es rechtfertigt.
 
 dev_dependencies:
   flutter_test:

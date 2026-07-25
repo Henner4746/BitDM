@@ -137,18 +137,63 @@ aus entscheidet die Mobilfunkstrecke, nicht der Server.
 erst vollständig in den Arbeitsspeicher und bricht bei 1 GB mit „out of
 memory" ab; `curl -T` strömt. Derselbe Fehler wartet auf der App-Seite.
 
-## Offen für die App-Seite (Aufgabe 19)
+## Die App-Seite
 
-**Ein Upload ist nicht fortsetzbar.** Bricht er bei 80 % ab, fängt er von vorn
-an — `PUT` ist ganz oder gar nicht. Bei 3 GB auf Mobilfunk ist das keine
-theoretische Sorge.
+`app/lib/core/anhang/` — gebaut und geprüft, aber **noch nicht an den Chat
+angeschlossen** (siehe unten).
 
-Der Ausweg ist, die Datei in der App in **Stücke von 32–64 MB** zu zerlegen,
-jedes als eigener Block mit eigener Kennung und eigenem Schlüssel. Dann kostet
-ein Abbruch ein Stück statt der ganzen Datei, mehrere Stücke können
-gleichzeitig laufen, und das Fortsetzen fällt nebenbei ab. Der Relay stellt
-schon heute so viele Marken aus, wie gefragt werden — 3 GB in 64-MB-Stücken
-sind 48 Anfragen über eine bestehende Verbindung.
+| Datei | Wofür |
+|---|---|
+| `rezept.dart` | Die Anleitung: wo die Stücke liegen, womit sie aufgehen |
+| `stueck_krypto.dart` | Ein Stück ver-/entschlüsseln (AES-256-GCM) |
+| `lager_client.dart` | PUT/GET/DELETE, strömend, mit Bereichs-Anfragen |
+| `anhang_versand.dart` | Zerlegen, verschlüsseln, Marken holen, ablegen |
+| `anhang_empfang.dart` | Holen, entschlüsseln, zusammensetzen, prüfen |
+
+**Stückgröße 16 MiB.** Nach unten begrenzt, weil die Anleitung in einen
+64-KiB-Umschlag passen muss; nach oben, weil ein Stück beim Verschlüsseln im
+Arbeitsspeicher liegt und ein Abbruch verlorene Übertragung ist. Bei 16 MiB
+braucht die größte erlaubte Datei 192 Stücke — das passt in die 256, die eine
+Anleitung fassen darf, und kostet rund 23 KB.
+
+**Je Stück ein eigener Zufallsschlüssel.** Nicht aus Übervorsicht: AES-GCM ist
+*gebrochen*, sobald ein Schlüssel zweimal mit demselben Nonce benutzt wird —
+der Schlüssel lässt sich dann aus zwei solchen Blöcken herausrechnen. Bei einem
+Schlüssel für die ganze Datei müsste ein Zähler über alle Stücke sauber geführt
+werden, über Abbrüche und Wiederaufnahmen hinweg. Bei einem Schlüssel je Stück
+gibt es nichts zu zählen. Preis: 44 Zeichen je Stück in der Anleitung.
+
+**Die Stücknummer steckt im beglaubigten Zusatz.** Fälschen kann das Lager
+nichts. Aber es könnte *vertauschen*: unter der Kennung von Stück 3 die Bytes
+von Stück 5 ausliefern. Jedes Stück für sich würde sauber entschlüsseln, und
+die zusammengesetzte Datei wäre still falsch. Mit Nummer und Gesamtzahl im AAD
+geht ein vertauschtes Stück gar nicht mehr auf.
+
+**Die Adressen kommen nicht vom Relay.** Er schickt fertige URLs mit; sie
+werden ignoriert. Der Client kennt die Kennung — er hat sie selbst gewürfelt —
+und seinen Lagerplatz aus der eigenen Einstellung. Sonst könnte ein
+übernommener Relay die Uploads auf einen fremden Rechner umlenken.
+
+**Verschlüsseln und Hochladen laufen ineinander.** Die reine
+Dart-Umsetzung von AES-GCM schafft ~12 MB/s (gemessen: 8 MiB in 662 ms).
+Nacheinander wäre die Gesamtzeit die *Summe*; verschränkt ist sie das
+*Maximum* — und über jede Mobilfunkstrecke ist das Senden ohnehin langsamer.
+`webcrypto` (BoringSSL) wäre schneller, wurde probeweise aufgenommen und wieder
+entfernt: `flutter test` braucht dafür `pub run webcrypto:setup` und damit
+cmake. Die Verschlüsselung sitzt hinter einer schmalen Schnittstelle und lässt
+sich tauschen, wenn eine Messung auf echten Geräten es rechtfertigt.
+
+### Was noch fehlt
+
+Der Weg ist vollständig, aber der Chat weiß noch nichts davon:
+
+- **Verlauf**: ein empfangener Anhang landet nirgends. `real_messenger_core.dart`
+  kennt `PayloadKind.anhang` und tut nichts damit — ausdrücklich aufgeführt und
+  nicht über einen `default`-Fall abgeräumt, damit der Analyzer die Stelle
+  meldet.
+- **Oberfläche**: Datei auswählen, Fortschritt, empfangene Datei öffnen.
+- **Android**: Dateiauswahl über SAF, und der Vordergrunddienst muss den
+  Versand am Leben halten, wenn die App in den Hintergrund geht.
 
 ## Betrieb
 

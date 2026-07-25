@@ -325,6 +325,16 @@ class RealMessengerCore implements MessengerCore {
       case PayloadKind.text:
       case PayloadKind.contactRequest:
         _legeEingangAb(roh.from, payload);
+      case PayloadKind.anhang:
+        // NOCH NICHT ANGESCHLOSSEN. Der Weg dahinter ist gebaut und geprueft
+        // (lib/core/anhang/), aber die Verbindung zum Verlauf und zur
+        // Oberflaeche fehlt — solange landet ein Anhang nicht im Chat.
+        //
+        // Ausdruecklich aufgefuehrt und nicht ueber einen default-Fall
+        // abgeraeumt: so hat der Analyzer diese Stelle gemeldet, als die Art
+        // dazukam. Ein default haette sie stillschweigend verschluckt, und
+        // eingehende Anhaenge waeren spurlos verschwunden.
+        break;
       case PayloadKind.contactAccept:
         _bestaetigeKontakt(roh.from);
       case PayloadKind.contactDecline:

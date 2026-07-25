@@ -64,6 +64,27 @@ class RelayProtocolError extends RelayEvent {
 
 /// Die Verbindung ist weg. Ob und wann neu verbunden wird, entscheidet die
 /// Schicht darueber.
+/// Die Erlaubnis des Relays, ein Stueck im Zwischenlager abzulegen.
+///
+/// Der Relay schickt auch fertige Adressen mit. Sie stehen hier BEWUSST
+/// NICHT: der Client kennt die Kennung — er hat sie selbst gewuerfelt — und
+/// seinen Lagerplatz aus der eigenen Einstellung. Adressen vom Server zu
+/// uebernehmen hiesse, ihm die Wahl zu lassen, wohin die Bloecke gehen.
+/// Siehe lib/core/anhang/lager_client.dart.
+class BlobMarke {
+  const BlobMarke({
+    required this.kennung,
+    required this.groesse,
+    required this.ablauf,
+    required this.marke,
+  });
+
+  final String kennung;
+  final int groesse;
+  final int ablauf;
+  final String marke;
+}
+
 class RelayDisconnected extends RelayEvent {
   final int? closeCode;
   const RelayDisconnected(this.closeCode);
@@ -86,6 +107,15 @@ class RelayClient {
 
   final _events = StreamController<RelayEvent>.broadcast();
   final _wartendeAcks = <String, Completer<void>>{};
+
+  /// Wartende Marken-Anfragen, nach Kennung.
+  ///
+  /// Eine eigene Ablage neben [_wartendeAcks], weil der Relay Marken ueber
+  /// die KENNUNG zuordnet und nicht ueber die laufende Nummer der Sendung.
+  /// Beides in eine Ablage zu werfen hiesse, zwei Namensraeume zu mischen —
+  /// und eine Kennung, die zufaellig wie eine Sendungsnummer aussieht, waere
+  /// ein Fehler, den niemand je fände.
+  final _wartendeMarken = <String, Completer<BlobMarke>>{};
   final _zufall = Random();
 
   WebSocket? _ws;
@@ -238,8 +268,31 @@ class RelayClient {
       case 'ack':
         _loeseAckAus(m['id'], null);
 
+      case 'blob_marke_ok':
+        final k = m['kennung'];
+        final c = k is String ? _wartendeMarken.remove(k) : null;
+        if (c != null && !c.isCompleted) {
+          c.complete(BlobMarke(
+            kennung: k! as String,
+            groesse: m['groesse']! as int,
+            ablauf: m['ablauf']! as int,
+            marke: m['marke']! as String,
+          ));
+        }
+
       case 'error':
         final grund = m['reason'] as String? ?? 'unbekannter Fehler';
+        // Eine Absage kann zu einer Marken-Anfrage gehoeren — der Relay
+        // spiegelt dann die Kennung zurueck. Zuerst dort nachsehen: sonst
+        // landet "Tagesmenge erschoepft" als allgemeine Meldung, und der
+        // Versand wartet bis zur Zeitgrenze auf eine Antwort, die schon da
+        // war.
+        final k = m['kennung'];
+        final marke = k is String ? _wartendeMarken.remove(k) : null;
+        if (marke != null) {
+          if (!marke.isCompleted) marke.completeError(RelayException(grund));
+          return;
+        }
         _loeseAckAus(m['id'], grund);
 
       case 'push_ok':
@@ -275,6 +328,13 @@ class RelayClient {
       if (!c.isCompleted) c.completeError(RelayException(grund));
     }
     _wartendeAcks.clear();
+    // Auch die wartenden Marken. Ohne diese Zeile haengt ein Versand nach
+    // einem Verbindungsabbruch bis zur Zeitgrenze — und zwar mitten in einer
+    // Datei, an der schon lange gearbeitet wird.
+    for (final c in _wartendeMarken.values) {
+      if (!c.isCompleted) c.completeError(RelayException(grund));
+    }
+    _wartendeMarken.clear();
   }
 
   // ════════════════════════════════════════════════════════════════ Senden
@@ -310,6 +370,51 @@ class RelayClient {
       throw const RelayException('keine Bestaetigung vom Server');
     }
   }
+
+  // ══════════════════════════════════ Erlaubnis fuer das Zwischenlager
+
+  /// Holt die Erlaubnis, ein Stueck von [groesse] Byte unter [kennung]
+  /// abzulegen.
+  ///
+  /// DIE KENNUNG WAEHLT DER CLIENT, der Relay unterschreibt sie blind. Er
+  /// koennte sie genauso gut wuerfeln — dann wuesste er aber, welche Datei im
+  /// Lager zu welcher Adresse gehoert. So weiss er es nicht, und das ist
+  /// umsonst zu haben.
+  ///
+  /// [groesse] ist die Groesse IM LAGER, also mit dem Beglaubigungsanhang der
+  /// Verschluesselung. Die Marke gilt fuer genau diese Zahl; eine andere
+  /// weist das Lager ab.
+  ///
+  /// UEBER DIE BESTEHENDE VERBINDUNG, aus demselben Grund wie beim
+  /// Anstoss-Endpunkt: hier ist schon nachgewiesen, wem diese Adresse gehoert.
+  Future<BlobMarke> holeMarke(String kennung, int groesse) async {
+    final ws = _ws;
+    if (ws == null) throw const RelayException('nicht verbunden');
+    if (!_kennungMuster.hasMatch(kennung)) {
+      // Selbst pruefen, statt es dem Server zu ueberlassen: seine Absage auf
+      // eine unsinnige Kennung traegt die Kennung nicht zurueck, und dann
+      // wartet hier jemand bis zur Zeitgrenze auf eine Antwort, die es nie
+      // geben wird.
+      throw const RelayException('Kennung ungueltig');
+    }
+
+    final warte = Completer<BlobMarke>();
+    _wartendeMarken[kennung] = warte;
+    ws.add(jsonEncode({
+      'type': 'blob_marke',
+      'kennung': kennung,
+      'groesse': groesse,
+    }));
+
+    try {
+      return await warte.future.timeout(ackTimeout);
+    } on TimeoutException {
+      _wartendeMarken.remove(kennung);
+      throw const RelayException('keine Erlaubnis vom Server');
+    }
+  }
+
+  static final _kennungMuster = RegExp(r'^[a-z2-7]{52}$');
 
   /// Hinterlegt beim Relay, wohin angestossen werden soll, wenn diese Adresse
   /// nicht verbunden ist. Null loescht den Eintrag.
