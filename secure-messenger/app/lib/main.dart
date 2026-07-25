@@ -10,6 +10,7 @@ import 'core/app_lock.dart';
 import 'core/benachrichtigungen.dart';
 import 'data.dart';
 import 'painters.dart';
+import 'fido_probe_screen.dart';
 import 'qr_scan_screen.dart';
 
 /// Wohin sich die App verbindet.
@@ -261,7 +262,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// der jemand sein Telefom aus der Hand gibt.
   Future<void> methodAct(String key) async {
     // Fingerabdruck/Geraete-PIN ist der einzige Faktor, der schon wirkt.
-    if (key != "bio") {
+    if (key == 'hw') {
+      // Bei einem Hardware-Stick zuerst herausfinden, ob er ueberhaupt kann,
+      // was noetig waere. Das steht in keiner Produktbeschreibung.
+      await _pruefeStick();
+      return;
+    }
+    if (key != 'bio') {
       setState(() => enroll = key);
       return;
     }
@@ -601,6 +608,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   // ---- SECURE ----
+  /// Oeffnet den Faehigkeitstest fuer einen Sicherheitsschluessel.
+  Future<void> _pruefeStick() async {
+    await Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => FidoProbeScreen(
+        titel: t('fidoProbe'),
+        anhalten: t('fidoHold'),
+        keinNfc: t('fidoNoNfc'),
+        schliessen: t('close'),
+      ),
+    ));
+  }
+
   Widget secureScreen() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),

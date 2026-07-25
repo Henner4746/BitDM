@@ -8,6 +8,19 @@
          jemand den Scan-Knopf drueckt, nie beim Start. -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
+    <!-- Fuer den Sicherheitsschluessel per NFC.
+         Das nfc_manager-Plugin deklariert sie NICHT selbst — ohne diese Zeile
+         schlaegt das Auslesen zur Laufzeit fehl, und zwar erst auf dem Geraet.
+         Nachgeprueft im Manifest des Plugins, nicht angenommen.
+         NFC ist eine "normale" Berechtigung: sie wird bei der Installation
+         erteilt und dem Nutzer nie als Abfrage gezeigt. -->
+    <uses-permission android:name="android.permission.NFC"/>
+
+    <!-- required=false, damit die App auch auf Telefonen ohne NFC-Chip
+         installierbar bleibt. Ohne das schliesst der Play Store sie dort aus. -->
+    <uses-feature android:name="android.hardware.nfc" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
     <!-- ══════════════════════════════════════════════════════════════════
          AUSDRUECKLICH ENTFERNT, was die Kamera-Bibliothek mitbringt.
 
