@@ -10,6 +10,8 @@
 //  Import this one file to get everything (models + errors are re-exported).
 // =====================================================================
 
+import 'dart:io';
+
 import 'models.dart';
 
 export 'models.dart';
@@ -151,6 +153,51 @@ abstract class MessengerCore {
   /// Broadcast stream of status changes for messages I sent
   /// (sending → sent → delivered → read, or → failed).
   Stream<MessageStatusUpdate> get messageStatusUpdates;
+
+  // ------------------------------------------------------------ Anhaenge
+  //
+  // Hinzugekommen 2026-07-25 (Vertrag v1.3). Der Weg dahinter steht in
+  // lib/core/anhang/ und in docs/ZWISCHENLAGER.md.
+  //
+  // WAS UEBER DEN RELAY GEHT, ist nur die Anleitung: wo die Stuecke liegen und
+  // womit sie aufgehen. Die Bytes selbst laufen ueber dateien.bitdm.net und
+  // sind dort verschluesselt — der Schluessel kommt dort nie vorbei.
+
+  /// Schickt [datei] an [contactId].
+  ///
+  /// Kehrt erst zurueck, wenn ALLES oben ist und die Anleitung verschickt
+  /// wurde — anders als [sendMessage]. Der Grund ist die Dauer: bei drei
+  /// Gigabyte laeuft das minutenlang, und der Aufrufer braucht ein Ende, an
+  /// dem er weiss, dass es geklappt hat. Der Fortschritt kommt waehrenddessen
+  /// ueber [anhangFortschritt].
+  ///
+  /// Wirft `UnknownContactException`, `AnhangZuGross`, `LagerVoll`,
+  /// `RelayException` (etwa "Tagesmenge erschoepft"), `NotInitializedException`.
+  Future<Message> sendeAnhang(String contactId, File datei, {String? name});
+
+  /// Holt einen empfangenen Anhang ins Dateisystem.
+  ///
+  /// AUSDRUECKLICH UND NICHT VON SELBST. Ein Anhang kann drei Gigabyte gross
+  /// sein; ihn ungefragt zu holen, waere ein Griff in fremdes Datenvolumen.
+  /// Die Oberflaeche zeigt Name und Groesse und fragt.
+  ///
+  /// Rueckgabe: der Eintrag im neuen Zustand. Bei Erfolg
+  /// [AnhangZustand.da] mit gesetztem Pfad.
+  ///
+  /// Wirft `UnknownContactException`, `AnhangKaputt`, `LagerLeer`.
+  Future<AnhangEintrag> holeAnhang(String contactId, String messageId);
+
+  /// Die Anhaenge einer Unterhaltung, nach Nachrichtenkennung.
+  ///
+  /// In einem Rutsch statt je Nachricht: eine Unterhaltung mit fuenfzig
+  /// Anhaengen ergaebe sonst fuenfzig Abfragen beim Zeichnen einer Liste.
+  Future<Map<String, AnhangEintrag>> getAnhaenge(String contactId);
+
+  /// Fortschritt beim Schicken und Holen. Meldet sich mehrmals je Sekunde.
+  Stream<AnhangFortschritt> get anhangFortschritt;
+
+  /// Zustandswechsel eines Anhangs (angekuendigt → laedt → da / gescheitert).
+  Stream<AnhangEintrag> get anhangAenderungen;
 
   /// Tell the core the user has opened/viewed [contactId]'s messages, so it can
   /// send a read receipt to the peer (if read receipts are enabled). No-op

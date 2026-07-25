@@ -74,7 +74,7 @@ class EncryptedDatabase {
   Database get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 3;
+  static const int schemaVersion = 4;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -241,6 +241,8 @@ class EncryptedDatabase {
             _schemaV2(db);
           case 3:
             _schemaV3(db);
+          case 4:
+            _schemaV4(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -349,6 +351,39 @@ class EncryptedDatabase {
     db.execute(
         'CREATE INDEX idx_messages_verfall ON messages(expires_at) '
         'WHERE expires_at IS NOT NULL');
+  }
+
+  /// Anhaenge.
+  ///
+  /// EIGENE TABELLE UND NICHT ZWEI SPALTEN AN messages. Der Grund ist die
+  /// Anleitung: sie ist bei einer grossen Datei rund 23 KB und wird beim
+  /// Anzeigen einer Unterhaltung nie gebraucht. Laege sie in body, muesste
+  /// jede Liste sie mitschleppen und beim Zeichnen ueberspringen. In body
+  /// steht deshalb der ANGEZEIGTE NAME, und die Anleitung wird erst geholt,
+  /// wenn jemand tatsaechlich herunterlaedt.
+  ///
+  /// zustand und pfad sind ORTSGEBUNDEN — sie beschreiben, was auf DIESEM
+  /// Telefon vorliegt, und reisen nie mit. Auf einem wiederhergestellten
+  /// Geraet steht dort wieder "angekuendigt", und das ist richtig so: die
+  /// Datei liegt dort ja auch nicht.
+  static void _schemaV4(Database db) {
+    db.execute('''
+      CREATE TABLE anhaenge (
+        chat_id    TEXT NOT NULL,
+        sender_id  TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        groesse    INTEGER NOT NULL,
+        rezept     TEXT NOT NULL,
+        zustand    INTEGER NOT NULL,
+        pfad       TEXT,
+        PRIMARY KEY (chat_id, sender_id, message_id)
+      )
+    ''');
+    // Derselbe Schluessel wie der eindeutige Index auf messages. Eine reine
+    // message_id waere zu wenig: die Gegenstelle vergibt ihre Kennungen
+    // selbst und koennte eine belegen, die spaeter fuer eine eigene gebraucht
+    // wird.
   }
 
   static String? _metaLesen(Database db, String key) {

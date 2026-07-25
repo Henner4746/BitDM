@@ -26,6 +26,10 @@ import 'dart:typed_data';
 import 'package:cryptography/dart.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
+import 'anhang/anhang_empfang.dart';
+import 'anhang/anhang_versand.dart';
+import 'anhang/lager_client.dart';
+import 'anhang/rezept.dart';
 import 'crypto/address.dart';
 import 'crypto/bip39.dart';
 import 'crypto/key_derivation.dart';
@@ -47,13 +51,22 @@ class RealMessengerCore implements MessengerCore {
     required this.secretStore,
     required this.databasePath,
     required this.relayUri,
+    Uri? lagerUri,
     RelayClient Function(Uri, SignalIdentity)? relayFactory,
-  }) : _relayFactory = relayFactory ??
+  })  : lagerUri = lagerUri ?? lagerAdresse(relayUri),
+        _relayFactory = relayFactory ??
             ((uri, id) => RelayClient(baseUri: uri, identity: id));
 
   final SecretStore secretStore;
   final String databasePath;
   final Uri relayUri;
+
+  /// Wo die grossen Anhaenge liegen.
+  ///
+  /// Wird aus [relayUri] abgeleitet, wenn nichts dasteht — aber NIE aus dem,
+  /// was der Relay in seiner Antwort mitschickt. Sonst koennte ein
+  /// uebernommener Relay die Uploads auf einen fremden Rechner umlenken.
+  final Uri lagerUri;
   final RelayClient Function(Uri, SignalIdentity) _relayFactory;
 
   /// Wie viele One-Time-Prekeys vorgehalten werden.
@@ -80,7 +93,11 @@ class RealMessengerCore implements MessengerCore {
   final _incoming = StreamController<Message>.broadcast();
   final _status = StreamController<MessageStatusUpdate>.broadcast();
   final _contacts = StreamController<ContactEvent>.broadcast();
+  final _anhangStand = StreamController<AnhangFortschritt>.broadcast();
+  final _anhangWechsel = StreamController<AnhangEintrag>.broadcast();
   final _zufall = Random.secure();
+
+  LagerClient? _lagerClient;
 
   // ══════════════════════════════════════════════════════════════ Identitaet
 
@@ -326,15 +343,7 @@ class RealMessengerCore implements MessengerCore {
       case PayloadKind.contactRequest:
         _legeEingangAb(roh.from, payload);
       case PayloadKind.anhang:
-        // NOCH NICHT ANGESCHLOSSEN. Der Weg dahinter ist gebaut und geprueft
-        // (lib/core/anhang/), aber die Verbindung zum Verlauf und zur
-        // Oberflaeche fehlt — solange landet ein Anhang nicht im Chat.
-        //
-        // Ausdruecklich aufgefuehrt und nicht ueber einen default-Fall
-        // abgeraeumt: so hat der Analyzer diese Stelle gemeldet, als die Art
-        // dazukam. Ein default haette sie stillschweigend verschluckt, und
-        // eingehende Anhaenge waeren spurlos verschwunden.
-        break;
+        _legeAnhangAb(roh.from, payload);
       case PayloadKind.contactAccept:
         _bestaetigeKontakt(roh.from);
       case PayloadKind.contactDecline:
@@ -420,6 +429,76 @@ class RealMessengerCore implements MessengerCore {
     // Doppelt zugestellte Nachrichten nicht noch einmal melden.
     if (neu) {
       _incoming.add(nachricht);
+      unawaited(_sendeQuittung(von, p.messageId));
+    }
+  }
+
+  /// Ein angekuendigter Anhang.
+  ///
+  /// GEHOLT WIRD HIER NICHTS. Die Datei kann drei Gigabyte gross sein; sie
+  /// ungefragt zu holen, waere ein Griff in fremdes Datenvolumen — und bei
+  /// jemandem, der noch gar kein Kontakt ist, waere es schlimmer als das. In
+  /// den Verlauf kommt der Name, die Groesse und die Anleitung; das Holen
+  /// stoesst die Oberflaeche an ([holeAnhang]).
+  void _legeAnhangAb(String von, Payload p) {
+    final chats = _chats!;
+    final store = _store!;
+
+    final Rezept rezept;
+    try {
+      rezept = Rezept.ausText(p.text);
+    } on RezeptFormatException {
+      // Eine unlesbare Anleitung ist kein Grund abzustuerzen und auch keiner,
+      // dem Nutzer etwas anzuzeigen: er kann nichts damit anfangen. Der
+      // Ratchet-Fortschritt muss trotzdem festgeschrieben werden.
+      chats.speichereNurSitzung(store);
+      return;
+    }
+
+    final bekannt = chats.kontakt(von);
+    final neuerKontakt = bekannt == null
+        ? Contact(
+            id: von,
+            addedAt: DateTime.now().toUtc(),
+            state: ContactState.incomingPending)
+        : null;
+
+    // DER NAME KOMMT VON DRAUSSEN und wird gesaeubert, BEVOR er gespeichert
+    // wird — nicht erst beim Anlegen der Datei. Sonst stuende er ungeprueft in
+    // der Datenbank und jede kuenftige Stelle, die ihn benutzt, muesste selbst
+    // daran denken.
+    final name = AnhangEmpfang.sichererName(rezept.name);
+
+    final nachricht = Message(
+      id: p.messageId,
+      chatId: von,
+      senderId: von,
+      text: name,
+      kind: MessageKind.anhang,
+      isMine: false,
+      timestamp: p.sentAt,
+      status: MessageStatus.delivered,
+    );
+    final eintrag = AnhangEintrag(
+      messageId: p.messageId,
+      chatId: von,
+      senderId: von,
+      name: name,
+      groesse: rezept.gesamtGroesse,
+      zustand: AnhangZustand.angekuendigt,
+    );
+
+    final ttl = p.ttlSeconds == null ? null : Duration(seconds: p.ttlSeconds!);
+    final neu = neuerKontakt == null
+        ? chats.speichereEmpfangen(nachricht, store,
+            lebensdauer: ttl, anhang: eintrag, rezept: p.text)
+        : chats.speichereEmpfangenMitKontakt(nachricht, neuerKontakt, store,
+            lebensdauer: ttl, anhang: eintrag, rezept: p.text);
+
+    if (neuerKontakt != null && neu) _meldeAnfrage(von);
+    if (neu) {
+      _incoming.add(nachricht);
+      _anhangWechsel.add(eintrag);
       unawaited(_sendeQuittung(von, p.messageId));
     }
   }
@@ -536,7 +615,11 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<void> removeContact(String contactId) async {
     _fordereKontakt(contactId);
-    _chats!.entferneKontakt(contactId);
+    final weg = _chats!.entferneKontakt(contactId);
+    // Die Anhaenge dieser Unterhaltung mit. Sonst laege der Verlauf zwar nicht
+    // mehr da, die Dateien aber schon — bei einem entfernten Kontakt das
+    // Gegenteil dessen, was jemand damit bezweckt.
+    await _loescheDateien(weg.dateien);
     // Die Sitzung mit abraeumen: bliebe sie stehen, liessen sich Nachrichten
     // dieser Gegenstelle weiterhin entschluesseln.
     await _store!.deleteAllSessions(contactId);
@@ -607,6 +690,160 @@ class RealMessengerCore implements MessengerCore {
   @override
   Stream<MessageStatusUpdate> get messageStatusUpdates => _status.stream;
 
+  // ══════════════════════════════════════════════════════════════ Anhaenge
+
+  @override
+  Stream<AnhangFortschritt> get anhangFortschritt => _anhangStand.stream;
+
+  @override
+  Stream<AnhangEintrag> get anhangAenderungen => _anhangWechsel.stream;
+
+  @override
+  Future<Map<String, AnhangEintrag>> getAnhaenge(String contactId) async {
+    _fordereKontakt(contactId);
+    return _chats!.anhaenge(contactId);
+  }
+
+  @override
+  Future<Message> sendeAnhang(String contactId, File datei,
+      {String? name}) async {
+    _fordereKontakt(contactId);
+    final relay = _relay;
+    if (relay == null || !relay.isConnected) {
+      throw const RelayException('nicht verbunden');
+    }
+
+    final id = _neueId();
+    final angezeigt =
+        AnhangEmpfang.sichererName(name ?? datei.uri.pathSegments.last);
+    final groesse = await datei.length();
+
+    // ERST in den Verlauf, DANN hochladen. Bei drei Gigabyte laeuft das
+    // minutenlang; ohne Eintrag saehe der Nutzer waehrenddessen eine leere
+    // Unterhaltung und wuesste nicht, ob ueberhaupt etwas passiert.
+    //
+    // Der Anhang steht dabei sofort auf "da" mit dem Pfad der QUELLDATEI: sie
+    // liegt ja wirklich hier. Was noch laeuft, ist das Verschicken, und das
+    // steht im Status der Nachricht — nicht zweimal an zwei Stellen.
+    final nachricht = Message(
+      id: id,
+      chatId: contactId,
+      senderId: myId,
+      text: angezeigt,
+      kind: MessageKind.anhang,
+      isMine: true,
+      timestamp: DateTime.now().toUtc(),
+      status: MessageStatus.sending,
+    );
+    final eintrag = AnhangEintrag(
+      messageId: id,
+      chatId: contactId,
+      senderId: myId,
+      name: angezeigt,
+      groesse: groesse,
+      zustand: AnhangZustand.da,
+      pfad: datei.path,
+    );
+
+    final versand = AnhangVersand(relay: relay, lager: _lager());
+    final Rezept rezept;
+    try {
+      rezept = await versand.schicke(datei, name: angezeigt,
+          fortschritt: (s) => _anhangStand.add(AnhangFortschritt(
+                messageId: id,
+                chatId: contactId,
+                fertigeBytes: s.fertigeBytes,
+                gesamtBytes: s.gesamtBytes,
+              )));
+    } catch (_) {
+      // NICHTS IN DEN VERLAUF, wenn das Hochladen scheitert. Eine Nachricht
+      // "Datei" ohne Datei dahinter waere beim Empfaenger nicht einzuloesen —
+      // und hier eine, die aussieht, als waere sie unterwegs.
+      rethrow;
+    }
+
+    _chats!.speichereEigene(nachricht,
+        lebensdauer: _prefs.messageLifetime,
+        anhang: eintrag,
+        rezept: rezept.alsText());
+
+    unawaited(_versucheZuSenden(
+        contactId,
+        Payload.anhang(id, rezept.alsText(), nachricht.timestamp,
+            lebensdauer: _prefs.messageLifetime),
+        eigeneNachricht: id));
+
+    return nachricht;
+  }
+
+  @override
+  Future<AnhangEintrag> holeAnhang(String contactId, String messageId) async {
+    _fordereKontakt(contactId);
+    final chats = _chats!;
+    final eintrag = chats.anhang(contactId, contactId, messageId);
+    if (eintrag == null) {
+      throw StateError('kein Anhang zu $messageId');
+    }
+    if (eintrag.zustand == AnhangZustand.da) return eintrag;
+
+    final text = chats.rezeptText(contactId, contactId, messageId);
+    if (text == null) throw StateError('keine Anleitung zu $messageId');
+    final rezept = Rezept.ausText(text);
+
+    _setzeAnhang(eintrag, AnhangZustand.laedt);
+
+    // In den Anhangordner und NICHT in den allgemeinen Downloads-Ordner: was
+    // hier liegt, gehoert zu einer Unterhaltung und verschwindet mit ihr.
+    final ordner = Directory('${File(databasePath).parent.path}/anhaenge');
+    await ordner.create(recursive: true);
+    final ziel = File('${ordner.path}/${messageId}_${eintrag.name}');
+
+    try {
+      final fertig = await AnhangEmpfang(lager: _lager()).hole(
+        rezept,
+        ziel,
+        fortschritt: (s) => _anhangStand.add(AnhangFortschritt(
+              messageId: messageId,
+              chatId: contactId,
+              fertigeBytes: s.fertigeBytes,
+              gesamtBytes: s.gesamtBytes,
+            )),
+      );
+      return _setzeAnhang(eintrag, AnhangZustand.da, pfad: fertig.path);
+    } on LagerLeer {
+      // EIGENER ZUSTAND und nicht "gescheitert": nach vierzehn Tagen ist der
+      // Block weg, und wer ihn schon geholt hat, hat ihn selbst weggeworfen.
+      // "Noch einmal versuchen" waere hier eine Luege.
+      _setzeAnhang(eintrag, AnhangZustand.weg);
+      rethrow;
+    } catch (_) {
+      _setzeAnhang(eintrag, AnhangZustand.gescheitert);
+      rethrow;
+    }
+  }
+
+  AnhangEintrag _setzeAnhang(AnhangEintrag e, AnhangZustand z, {String? pfad}) {
+    _chats!.setzeAnhangZustand(e.chatId, e.senderId, e.messageId, z, pfad: pfad);
+    final neu = e.copyWith(zustand: z, pfad: pfad);
+    _anhangWechsel.add(neu);
+    return neu;
+  }
+
+  LagerClient _lager() => _lagerClient ??= LagerClient(basis: lagerUri);
+
+  /// relay.bitdm.net → dateien.bitdm.net, 127.0.0.1:8099 → 127.0.0.1:8099.
+  ///
+  /// Der zweite Fall ist der Testfall: dort laeuft beides auf demselben
+  /// Rechner. In der Freigabe steht der Name ausdruecklich in der
+  /// Einstellung — geraten wird nur, wenn nichts dasteht.
+  static Uri lagerAdresse(Uri relay) {
+    final host = relay.host;
+    if (host.startsWith('relay.')) {
+      return relay.replace(host: 'dateien.${host.substring(6)}');
+    }
+    return relay;
+  }
+
   // ══════════════════════════════════════════════════════════ Einstellungen
 
   @override
@@ -629,7 +866,29 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<int> purgeExpiredMessages() async {
     if (_chats == null) return 0;
-    return _chats!.loescheAbgelaufene();
+    final weg = _chats!.loescheAbgelaufene();
+    await _loescheDateien(weg.dateien);
+    return weg.nachrichten;
+  }
+
+  /// Loescht die lokalen Dateien verschwundener Anhaenge.
+  ///
+  /// OHNE DAS WAERE DIE VERFALLSFRIST EINE HALBWAHRHEIT: die Nachricht
+  /// verschwaende aus der Unterhaltung, und die zwei Gigabyte laegen weiter im
+  /// Speicher des Telefons. Wer glaubt, seine Nachrichten verschwinden,
+  /// schreibt Dinge, die er sonst nicht schriebe.
+  ///
+  /// Fehler werden verschluckt: die Zeile in der Datenbank ist schon weg, und
+  /// ein Datei-Fehler darf den Aufraeumlauf nicht anhalten.
+  static Future<void> _loescheDateien(List<String> pfade) async {
+    for (final p in pfade) {
+      try {
+        final f = File(p);
+        if (await f.exists()) await f.delete();
+      } catch (_) {
+        // absichtlich still
+      }
+    }
   }
 
   /// Wann die naechste Nachricht verfaellt — fuer einen Wecker statt Pollen.

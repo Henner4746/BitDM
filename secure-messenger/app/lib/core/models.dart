@@ -13,8 +13,102 @@ enum MessageStatus {
   failed, // permanently failed (encryption / network / no session)
 }
 
-/// v1 supports text only. Reserved for voice/image/file later.
-enum MessageKind { text }
+/// Was eine Nachricht ist.
+///
+/// Die Reihenfolge ist Teil des Datenbankformats — sie wird als Zahl
+/// gespeichert. Neues kommt HINTEN dazu, nie dazwischen.
+enum MessageKind {
+  text,
+
+  /// Ein Anhang. Im `text` steht der angezeigte Name, nicht die Anleitung —
+  /// die liegt in der Tabelle `anhaenge` und ist bei einer grossen Datei rund
+  /// 23 KB. Sie beim Anzeigen einer Unterhaltung mitzuschleppen waere Arbeit
+  /// fuer nichts.
+  anhang,
+}
+
+/// Was auf DIESEM Telefon von einem Anhang vorliegt.
+///
+/// Ortsgebunden: der Zustand reist nie mit. Auf einem wiederhergestellten
+/// Geraet steht wieder [angekuendigt], und das ist richtig — die Datei liegt
+/// dort ja auch nicht.
+enum AnhangZustand {
+  /// Die Anleitung ist da, geholt wurde noch nichts.
+  angekuendigt,
+
+  /// Wird gerade geholt.
+  laedt,
+
+  /// Liegt lokal, unter [AnhangEintrag.pfad].
+  da,
+
+  /// Ein Versuch ist gescheitert. Wiederholen kann helfen.
+  gescheitert,
+
+  /// Im Lager nicht mehr da — abgelaufen (14 Tage) oder schon weggeworfen.
+  ///
+  /// EIGENER ZUSTAND und nicht [gescheitert]: die Oberflaeche muss darauf
+  /// etwas anderes sagen. "Noch einmal versuchen" waere hier eine Luege.
+  weg,
+}
+
+/// Was die Oberflaeche ueber einen Anhang wissen muss, ohne die Anleitung zu
+/// lesen.
+class AnhangEintrag {
+  const AnhangEintrag({
+    required this.messageId,
+    required this.chatId,
+    required this.senderId,
+    required this.name,
+    required this.groesse,
+    required this.zustand,
+    this.pfad,
+  });
+
+  final String messageId;
+  final String chatId;
+  final String senderId;
+
+  /// Schon gesaeubert (siehe AnhangEmpfang.sichererName) — er kam von der
+  /// Gegenstelle.
+  final String name;
+
+  /// Groesse der Datei im Klartext.
+  final int groesse;
+
+  final AnhangZustand zustand;
+
+  /// Nur bei [AnhangZustand.da] gesetzt.
+  final String? pfad;
+
+  AnhangEintrag copyWith({AnhangZustand? zustand, String? pfad}) =>
+      AnhangEintrag(
+        messageId: messageId,
+        chatId: chatId,
+        senderId: senderId,
+        name: name,
+        groesse: groesse,
+        zustand: zustand ?? this.zustand,
+        pfad: pfad ?? this.pfad,
+      );
+}
+
+/// Fortschritt beim Holen oder Schicken eines Anhangs.
+class AnhangFortschritt {
+  const AnhangFortschritt({
+    required this.messageId,
+    required this.chatId,
+    required this.fertigeBytes,
+    required this.gesamtBytes,
+  });
+
+  final String messageId;
+  final String chatId;
+  final int fertigeBytes;
+  final int gesamtBytes;
+
+  double get anteil => gesamtBytes == 0 ? 0 : fertigeBytes / gesamtBytes;
+}
 
 /// State of the link to the relay/key server.
 enum ConnectionState { disconnected, connecting, online, error }

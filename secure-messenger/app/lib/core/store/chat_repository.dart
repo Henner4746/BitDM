@@ -21,6 +21,18 @@ import 'encrypted_database.dart';
 import 'signal_store.dart';
 import 'signal_store_repository.dart';
 
+/// Was beim Aufraeumen weggefallen ist.
+///
+/// [dateien] sind lokale Pfade, die der AUFRUFER loeschen muss. Diese Schicht
+/// fasst nur die Datenbank an: Dateien liegen woanders, das Loeschen ist
+/// asynchron, und ein fehlgeschlagenes Loeschen darf keine Transaktion
+/// zurueckrollen, die schon richtig war.
+class Aufgeraeumt {
+  const Aufgeraeumt(this.nachrichten, this.dateien);
+  final int nachrichten;
+  final List<String> dateien;
+}
+
 class ChatRepository {
   ChatRepository(this.db, this.signalRepo);
 
@@ -72,11 +84,19 @@ class ChatRepository {
   /// Die Sitzung wird mitgeloescht: bliebe sie stehen, koennte die Gegenstelle
   /// weiter Nachrichten schicken, die sich entschluesseln liessen, obwohl der
   /// Nutzer sie entfernt hat.
-  void entferneKontakt(String adresse) {
+  ///
+  /// Rueckgabe: die lokalen Dateien der Anhaenge. Der Aufrufer muss sie
+  /// loeschen — siehe [loescheAbgelaufene].
+  Aufgeraeumt entferneKontakt(String adresse) {
+    var dateien = <String>[];
     db.transaction((raw) {
+      dateien = _anhangDateien(
+          raw, 'SELECT pfad FROM anhaenge WHERE chat_id = ?', [adresse]);
+      raw.execute('DELETE FROM anhaenge WHERE chat_id = ?', [adresse]);
       raw.execute('DELETE FROM messages WHERE chat_id = ?', [adresse]);
       raw.execute('DELETE FROM contacts WHERE address = ?', [adresse]);
     });
+    return Aufgeraeumt(0, dateien);
   }
 
   static Contact _zuKontakt(Row r) => Contact(
@@ -117,9 +137,17 @@ class ChatRepository {
   }
 
   /// Legt eine eigene Nachricht an, noch bevor sie verschickt ist.
-  void speichereEigene(Message m, {Duration? lebensdauer}) {
-    db.transaction((raw) =>
-        _schreibeNachricht(raw, m, empfangen: false, lebensdauer: lebensdauer));
+  ///
+  /// [anhang] und [rezept] gehoeren zusammen und werden in DERSELBEN
+  /// Transaktion geschrieben wie die Nachricht. Auseinander waere die
+  /// Nachricht da und der Anhang unauffindbar — oder umgekehrt eine Anleitung
+  /// ohne Nachricht, die niemand je zu Gesicht bekommt.
+  void speichereEigene(Message m,
+      {Duration? lebensdauer, AnhangEintrag? anhang, String? rezept}) {
+    db.transaction((raw) {
+      _schreibeNachricht(raw, m, empfangen: false, lebensdauer: lebensdauer);
+      if (anhang != null) _schreibeAnhang(raw, anhang, rezept!);
+    });
   }
 
   /// Speichert eine empfangene Nachricht UND den Sitzungsfortschritt in
@@ -134,10 +162,17 @@ class ChatRepository {
   /// Rueckgabe: false, wenn die Nachricht schon vorlag (doppelt zugestellt).
   /// Der Sitzungsfortschritt wird trotzdem geschrieben.
   bool speichereEmpfangen(Message m, BitdmSignalStore store,
-      {Duration? lebensdauer}) {
+      {Duration? lebensdauer, AnhangEintrag? anhang, String? rezept}) {
     var neu = false;
     db.transaction((raw) {
       neu = _schreibeNachricht(raw, m, empfangen: true, lebensdauer: lebensdauer);
+      // Ohne `neu &&`: die Vorsicht gegen doppelt zugestellte Nachrichten
+      // sitzt im ON CONFLICT von [_schreibeAnhang] und gehoert dorthin — an
+      // die Ablage, wo sie fuer JEDEN Aufrufer gilt. Sie hier ein zweites Mal
+      // zu bauen, hiesse zwei Schutzwaelle fuer dieselbe Sache: eine
+      // Mutationsprobe kann dann keinen von beiden mehr sehen, weil der
+      // andere einspringt.
+      if (anhang != null) _schreibeAnhang(raw, anhang, rezept!);
       SignalStoreRepository.schreibeDelta(raw, store);
     });
     store.markClean();
@@ -150,16 +185,111 @@ class ChatRepository {
   /// Kontakt entsteht dabei und muss zusammen mit der Nachricht bestehen —
   /// sonst laege eine Nachricht ohne Unterhaltung in der Datenbank.
   bool speichereEmpfangenMitKontakt(Message m, Contact c,
-      BitdmSignalStore store, {Duration? lebensdauer}) {
+      BitdmSignalStore store,
+      {Duration? lebensdauer, AnhangEintrag? anhang, String? rezept}) {
     var neu = false;
     db.transaction((raw) {
       _schreibeKontakt(raw, c);
       neu = _schreibeNachricht(raw, m, empfangen: true, lebensdauer: lebensdauer);
+      if (anhang != null) _schreibeAnhang(raw, anhang, rezept!);
       SignalStoreRepository.schreibeDelta(raw, store);
     });
     store.markClean();
     return neu;
   }
+
+  // ═══════════════════════════════════════════════════════════════ Anhaenge
+
+  /// Alle Anhaenge einer Unterhaltung, nach Nachrichtenkennung.
+  ///
+  /// In EINER Abfrage und nicht je Nachricht: eine Unterhaltung mit fuenfzig
+  /// Anhaengen ergaebe sonst fuenfzig Abfragen beim Zeichnen einer einzigen
+  /// Liste.
+  Map<String, AnhangEintrag> anhaenge(String chatId) {
+    final zeilen =
+        db.raw.select('SELECT * FROM anhaenge WHERE chat_id = ?', [chatId]);
+    return {
+      for (final r in zeilen) r['message_id'] as String: _zuAnhang(r),
+    };
+  }
+
+  AnhangEintrag? anhang(String chatId, String senderId, String messageId) {
+    final r = db.raw.select(
+        'SELECT * FROM anhaenge WHERE chat_id=? AND sender_id=? AND message_id=?',
+        [chatId, senderId, messageId]);
+    return r.isEmpty ? null : _zuAnhang(r.first);
+  }
+
+  /// Die Anleitung — erst hier, nicht schon beim Anzeigen der Liste.
+  ///
+  /// Bei einer grossen Datei sind das rund 23 KB, und gebraucht werden sie
+  /// genau einmal: wenn jemand herunterlaedt.
+  String? rezeptText(String chatId, String senderId, String messageId) {
+    final r = db.raw.select(
+        'SELECT rezept FROM anhaenge WHERE chat_id=? AND sender_id=? AND message_id=?',
+        [chatId, senderId, messageId]);
+    return r.isEmpty ? null : r.first['rezept'] as String;
+  }
+
+  void setzeAnhangZustand(
+    String chatId,
+    String senderId,
+    String messageId,
+    AnhangZustand zustand, {
+    String? pfad,
+  }) {
+    db.transaction((raw) => raw.execute(
+        'UPDATE anhaenge SET zustand=?, pfad=COALESCE(?, pfad) '
+        'WHERE chat_id=? AND sender_id=? AND message_id=?',
+        [zustand.index, pfad, chatId, senderId, messageId]));
+  }
+
+  /// Setzt alle "laedt gerade" auf "gescheitert" zurueck.
+  ///
+  /// BEIM START AUFZURUFEN. Wird die App waehrend eines Downloads
+  /// weggewischt, bleibt der Zustand sonst fuer immer auf "laedt", und die
+  /// Oberflaeche zeigt einen Fortschritt, hinter dem nichts mehr laeuft.
+  int raeumeHaengendeAnhaengeAuf() {
+    var betroffen = 0;
+    db.transaction((raw) {
+      raw.execute('UPDATE anhaenge SET zustand=? WHERE zustand=?',
+          [AnhangZustand.gescheitert.index, AnhangZustand.laedt.index]);
+      betroffen = raw.updatedRows;
+    });
+    return betroffen;
+  }
+
+  static void _schreibeAnhang(Database raw, AnhangEintrag a, String rezept) {
+    raw.execute(
+      'INSERT INTO anhaenge '
+      '(chat_id, sender_id, message_id, name, groesse, rezept, zustand, pfad) '
+      'VALUES (?,?,?,?,?,?,?,?) '
+      // Bei einer doppelt zugestellten Nachricht darf der oertliche Zustand
+      // NICHT zurueckfallen — sonst boete die Oberflaeche an, eine Datei noch
+      // einmal zu holen, die schon dasteht.
+      'ON CONFLICT(chat_id, sender_id, message_id) DO NOTHING',
+      [
+        a.chatId,
+        a.senderId,
+        a.messageId,
+        a.name,
+        a.groesse,
+        rezept,
+        a.zustand.index,
+        a.pfad,
+      ],
+    );
+  }
+
+  static AnhangEintrag _zuAnhang(Row r) => AnhangEintrag(
+        messageId: r['message_id'] as String,
+        chatId: r['chat_id'] as String,
+        senderId: r['sender_id'] as String,
+        name: r['name'] as String,
+        groesse: r['groesse'] as int,
+        zustand: AnhangZustand.values[r['zustand'] as int],
+        pfad: r['pfad'] as String?,
+      );
 
   /// Legt einen Kontakt an und schreibt den Sitzungsfortschritt zusammen.
   ///
@@ -213,19 +343,50 @@ class ChatRepository {
     return raw.updatedRows > 0;
   }
 
-  /// Loescht alles, dessen Zeit abgelaufen ist. Rueckgabe: Anzahl.
+  /// Loescht alles, dessen Zeit abgelaufen ist.
   ///
   /// Billig, wenn nichts zu tun ist — der Index auf expires_at deckt nur die
   /// Zeilen ab, die ueberhaupt einen Verfall haben.
-  int loescheAbgelaufene() {
+  ///
+  /// GIBT DIE DATEIEN ZURUECK, statt sie zu loeschen. Diese Schicht fasst nur
+  /// die Datenbank an; Dateien liegen woanders und werden asynchron
+  /// weggeraeumt. Der Aufrufer MUSS das tun — eine verschwundene Nachricht,
+  /// deren Anhang weiter im Speicher des Telefons liegt, ist genau die Sorte
+  /// gebrochene Zusage, wegen der es die Verfallsfrist ueberhaupt gibt.
+  Aufgeraeumt loescheAbgelaufene() {
     var weg = 0;
+    var dateien = <String>[];
     db.transaction((raw) {
-      raw.execute('DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?',
-          [DateTime.now().toUtc().millisecondsSinceEpoch]);
+      final jetzt = DateTime.now().toUtc().millisecondsSinceEpoch;
+      // Erst die Anhaenge einsammeln, DANN die Nachrichten loeschen — danach
+      // liesse sich nicht mehr feststellen, welche es waren.
+      dateien = _anhangDateien(
+          raw,
+          'SELECT a.pfad FROM anhaenge a JOIN messages m '
+          '  ON a.chat_id=m.chat_id AND a.sender_id=m.sender_id '
+          ' AND a.message_id=m.id '
+          'WHERE m.expires_at IS NOT NULL AND m.expires_at <= ?',
+          [jetzt]);
+      raw.execute(
+          'DELETE FROM anhaenge WHERE (chat_id, sender_id, message_id) IN ('
+          '  SELECT chat_id, sender_id, id FROM messages '
+          '  WHERE expires_at IS NOT NULL AND expires_at <= ?)',
+          [jetzt]);
+      raw.execute(
+          'DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?',
+          [jetzt]);
       weg = raw.updatedRows;
     });
-    return weg;
+    return Aufgeraeumt(weg, dateien);
   }
+
+  static List<String> _anhangDateien(
+          Database raw, String abfrage, List<Object?> werte) =>
+      raw
+          .select(abfrage, werte)
+          .map((r) => r['pfad'] as String?)
+          .whereType<String>()
+          .toList();
 
   /// Wann die naechste Nachricht ablaeuft — damit der Aufrufer einen Wecker
   /// stellen kann, statt im Sekundentakt nachzusehen.

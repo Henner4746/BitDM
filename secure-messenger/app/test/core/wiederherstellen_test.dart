@@ -98,11 +98,19 @@ void main() {
       // Der schwierigste Fall: jedes Wort steht in der Liste, zusammen ergeben
       // sie trotzdem nichts. Ein anderer Text als bei einem Tippfehler — sonst
       // sucht der Nutzer an der falschen Stelle.
+      //
+      // GESUCHT STATT GERATEN. Das letzte Wort traegt bei zwoelf Woertern
+      // sieben Entropie- und vier Pruefsummenbits: EIN SECHZEHNTEL aller
+      // Ersatzwoerter ergibt wieder eine gueltige Phrase. Ein fest gewaehltes
+      // Ersatzwort laesst diesen Test also in etwa jedem sechzehnten Lauf
+      // durchfallen — genau so ist er am 25.07.2026 im Gesamtlauf gekippt,
+      // waehrend er einzeln bestand.
       final woerter = Bip39.generate();
-      // Das letzte Wort traegt die Pruefsumme. Ein anderes gueltiges Wort
-      // dorthin, und sie stimmt fast sicher nicht mehr.
-      final ersatz = bip39EnglishWordlist
-          .firstWhere((w) => w != woerter.last);
+      final ersatz = bip39EnglishWordlist.firstWhere((w) {
+        if (w == woerter.last) return false;
+        final probe = [...woerter]..[woerter.length - 1] = w;
+        return !Bip39.validate(probe);
+      });
       woerter[woerter.length - 1] = ersatz;
 
       for (final w in woerter) {
@@ -112,6 +120,18 @@ void main() {
       expect(Bip39.validate(woerter), isFalse,
           reason: 'das letzte Wort traegt die Pruefsumme — ein anderes dort '
               'muss auffallen');
+    });
+
+    test('und die Pruefsumme hat genau die Staerke, die sie haben soll', () {
+      // Die Zahl aus dem Test darueber, nachgemessen statt behauptet: von
+      // 2048 moeglichen letzten Woertern muessen genau 128 durchgehen
+      // (2048/16). Weicht das ab, ist die Pruefsumme nicht vier Bit breit —
+      // und dann stimmt die Begruendung oben nicht mehr.
+      final woerter = Bip39.generate();
+      final gueltige = bip39EnglishWordlist
+          .where((w) => Bip39.validate([...woerter]..[11] = w))
+          .length;
+      expect(gueltige, 2048 ~/ 16);
     });
   });
 

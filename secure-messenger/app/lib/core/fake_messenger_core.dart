@@ -8,6 +8,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'messenger_core.dart'; // re-exports models.dart + errors.dart
 
@@ -31,6 +32,11 @@ class FakeMessengerCore implements MessengerCore {
   final _status = StreamController<MessageStatusUpdate>.broadcast();
   final _connCtl = StreamController<ConnectionState>.broadcast();
   final _contactCtl = StreamController<ContactEvent>.broadcast();
+  final _anhangStandCtl = StreamController<AnhangFortschritt>.broadcast();
+  final _anhangWechselCtl = StreamController<AnhangEintrag>.broadcast();
+
+  /// chatId -> messageId -> Eintrag
+  final _anhaenge = <String, Map<String, AnhangEintrag>>{};
 
   DateTime get _now => DateTime.now().toUtc();
   String _nextId() => 'm${_seq++}-${_now.microsecondsSinceEpoch}';
@@ -235,6 +241,99 @@ class FakeMessengerCore implements MessengerCore {
     return msg;
   }
 
+  // ──────────────────────────────────────────────────────────── Anhaenge
+  //
+  // Der Entwurfskern legt hier NICHTS an und laedt NICHTS hoch — es gibt
+  // weder Netz noch Lager. Was er nachbildet, ist das ZEITVERHALTEN: dass
+  // Fortschritt in Schritten kommt und ein Zustandswechsel gemeldet wird.
+  // Genau daran haengt die Oberflaeche.
+
+  @override
+  Stream<AnhangFortschritt> get anhangFortschritt => _anhangStandCtl.stream;
+
+  @override
+  Stream<AnhangEintrag> get anhangAenderungen => _anhangWechselCtl.stream;
+
+  @override
+  Future<Map<String, AnhangEintrag>> getAnhaenge(String contactId) async {
+    if (!_init) throw const NotInitializedException();
+    return Map.unmodifiable(_anhaenge[contactId] ?? const {});
+  }
+
+  @override
+  Future<Message> sendeAnhang(String contactId, File datei,
+      {String? name}) async {
+    if (!_init) throw const NotInitializedException();
+    if (!_contacts.containsKey(contactId)) {
+      throw UnknownContactException(contactId);
+    }
+    final groesse = await datei.length();
+    final id = _nextId();
+    final angezeigt = name ?? datei.uri.pathSegments.last;
+
+    // In Schritten melden, nicht in einem Sprung. Ein Fortschrittsbalken, der
+    // von 0 auf 100 springt, sieht in der Entwicklung richtig aus und auf dem
+    // Geraet kaputt.
+    for (var i = 1; i <= 5; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      if (_anhangStandCtl.isClosed) break;
+      _anhangStandCtl.add(AnhangFortschritt(
+          messageId: id,
+          chatId: contactId,
+          fertigeBytes: groesse * i ~/ 5,
+          gesamtBytes: groesse));
+    }
+
+    final msg = Message(
+        id: id,
+        chatId: contactId,
+        senderId: _myId,
+        text: angezeigt,
+        kind: MessageKind.anhang,
+        isMine: true,
+        timestamp: _now,
+        status: MessageStatus.sending);
+    _msgs.putIfAbsent(contactId, () => []).add(msg);
+    _anhaenge.putIfAbsent(contactId, () => {})[id] = AnhangEintrag(
+        messageId: id,
+        chatId: contactId,
+        senderId: _myId,
+        name: angezeigt,
+        groesse: groesse,
+        zustand: AnhangZustand.da,
+        pfad: datei.path);
+    Timer(const Duration(milliseconds: 250),
+        () => _emitStatus(contactId, id, MessageStatus.sent));
+    return msg;
+  }
+
+  @override
+  Future<AnhangEintrag> holeAnhang(String contactId, String messageId) async {
+    if (!_init) throw const NotInitializedException();
+    final e = _anhaenge[contactId]?[messageId];
+    if (e == null) throw StateError('kein Anhang zu $messageId');
+    if (e.zustand == AnhangZustand.da) return e;
+
+    _setzeAnhang(e.copyWith(zustand: AnhangZustand.laedt));
+    for (var i = 1; i <= 5; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      if (_anhangStandCtl.isClosed) break;
+      _anhangStandCtl.add(AnhangFortschritt(
+          messageId: messageId,
+          chatId: contactId,
+          fertigeBytes: e.groesse * i ~/ 5,
+          gesamtBytes: e.groesse));
+    }
+    return _setzeAnhang(
+        e.copyWith(zustand: AnhangZustand.da, pfad: '/erfunden/${e.name}'));
+  }
+
+  AnhangEintrag _setzeAnhang(AnhangEintrag e) {
+    _anhaenge.putIfAbsent(e.chatId, () => {})[e.messageId] = e;
+    if (!_anhangWechselCtl.isClosed) _anhangWechselCtl.add(e);
+    return e;
+  }
+
   void _emitStatus(String chatId, String messageId, MessageStatus s) {
     if (_status.isClosed) return;
     final list = _msgs[chatId];
@@ -329,5 +428,7 @@ class FakeMessengerCore implements MessengerCore {
     await _status.close();
     await _connCtl.close();
     await _contactCtl.close();
+    await _anhangStandCtl.close();
+    await _anhangWechselCtl.close();
   }
 }

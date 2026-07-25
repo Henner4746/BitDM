@@ -19,7 +19,11 @@ class Relay {
   /// Startet den Relay. Gibt null zurueck, wenn Python oder die
   /// Abhaengigkeiten fehlen — der Aufrufer soll das laut sagen, statt
   /// stillschweigend nichts zu pruefen.
-  static Future<Relay?> starten() async {
+  ///
+  /// [blobGeheimnis] setzt BITDM_BLOB_SECRET. Ohne das lehnt der Relay jede
+  /// Marken-Anfrage mit "Zwischenlager nicht eingerichtet" ab — richtig so,
+  /// aber fuer einen Anhang-Test muss es dastehen.
+  static Future<Relay?> starten({String? blobGeheimnis}) async {
     final serverDir = Directory('../server').absolute.path.replaceAll('\\', '/');
     if (!Directory(serverDir).existsSync()) return null;
 
@@ -37,7 +41,10 @@ class Relay {
           '--port', '$port',
           '--log-level', 'warning',
         ],
-        environment: {'BITDM_DB': '${tmp.path}/relay.db'},
+        environment: {
+          'BITDM_DB': '${tmp.path}/relay.db',
+          if (blobGeheimnis != null) 'BITDM_BLOB_SECRET': blobGeheimnis,
+        },
       );
     } on ProcessException {
       tmp.deleteSync(recursive: true);

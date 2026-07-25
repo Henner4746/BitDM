@@ -171,8 +171,14 @@ class AnhangVersand {
             marke: marke.marke,
           ),
           jetzt.geheim,
+          // GEDECKELT auf die Klargroesse. Hochgeladen wird das Stueck MIT
+          // seinem 16-Byte-Beglaubigungsanhang; gemeint ist aber die Datei,
+          // die der Nutzer sieht. Ohne den Deckel zaehlt der Balken bei 25
+          // Stuecken 400 Byte ueber das Ziel hinaus und steht am Ende bei
+          // 100,004 Prozent.
           fortschritt: (imStueck) => fortschritt?.call(VersandStand(
-                fertigeBytes: fertigeBytes + imStueck,
+                fertigeBytes:
+                    fertigeBytes + min(imStueck, jetzt.stueck.klarGroesse),
                 gesamtBytes: gesamt,
                 stueckNr: i + 1,
                 stueckZahl: zahl,

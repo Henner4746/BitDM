@@ -85,8 +85,12 @@ class AnhangEmpfang {
         final geheim = await _holeMitFortsetzen(
           s,
           i,
+          // Gedeckelt auf die Klargroesse, aus demselben Grund wie beim
+          // Versand: geholt wird das Stueck mit seinem
+          // Beglaubigungsanhang, gemeint ist die Datei.
           (imStueck) => fortschritt?.call(EmpfangsStand(
-                fertigeBytes: fertigeBytes + imStueck,
+                fertigeBytes:
+                    fertigeBytes + (imStueck > s.klarGroesse ? s.klarGroesse : imStueck),
                 gesamtBytes: rezept.gesamtGroesse,
                 stueckNr: i + 1,
                 stueckZahl: rezept.stuecke.length,
