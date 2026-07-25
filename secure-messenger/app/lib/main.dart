@@ -1792,11 +1792,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
-  Widget sheetCard({required List<Widget> children}) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(color: p.surf, borderRadius: const BorderRadius.vertical(top: Radius.circular(14)), border: Border.all(color: p.line)),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: children),
+  /// Ein Blatt, das von unten hereinkommt.
+  ///
+  /// SCROLLBAR UND IN DER HOEHE BEGRENZT, seit dem 25.07.2026: die Anleitung
+  /// zum Anstoss-Verteiler ist laenger als der Bildschirm. Vorher lief sie
+  /// unten heraus — der Schliessen-Knopf lag ausserhalb, und weil die Karte
+  /// den ganzen Bildschirm fuellte, gab es auch daneben nichts mehr zum
+  /// Antippen. Das Blatt liess sich schlicht nicht mehr schliessen.
+  ///
+  /// 85 Prozent, damit oben ein Streifen frei bleibt: dort tippt man hin, um
+  /// abzubrechen, und ohne ihn faende man diesen Weg nicht.
+  Widget sheetCard({required List<Widget> children}) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(color: p.surf, borderRadius: const BorderRadius.vertical(top: Radius.circular(14)), border: Border.all(color: p.line)),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+                22, 22, 22, 22 + MediaQuery.of(context).padding.bottom),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: children),
+          ),
+        ),
       );
 
   Widget encSheet() {
