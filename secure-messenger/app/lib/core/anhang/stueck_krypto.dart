@@ -1,20 +1,31 @@
 // stueck_krypto.dart — ein Stueck ver- und entschluesseln.
 //
-// Bewusst eine eigene, sehr schmale Datei. Der Grund steht in pubspec.yaml:
-// die reine Dart-Umsetzung von AES-GCM schafft rund 12 MB/s (gemessen am
-// 25.07.2026, 8 MiB in 662 ms auf dem Entwicklungsrechner). Das reicht fuer
-// jede Mobilfunkstrecke — die ist langsamer —, und ueber schnelles WLAN wird
-// es zur Bremse.
+// Bewusst eine eigene, sehr schmale Datei — weil hier eine Zahl haengt, die
+// sich aendern koennte.
 //
-// Solange das so bleibt, ist die Antwort NICHT eine schnellere Bibliothek,
-// sondern die Reihenfolge: waehrend Stueck N hochlaedt, wird N+1
-// verschluesselt (siehe anhang_versand.dart). Dann zaehlt der langsamere der
-// beiden Wege, nicht die Summe.
+// GEMESSEN AUF DEM ECHTEN GERAET (integration_test/anhang_tempo_test.dart,
+// Galaxy S25 Ultra, Android 16, 25.07.2026):
 //
-// Sollte eine Messung auf echten Geraeten das widerlegen, wird HIER getauscht
-// — eine Klasse mit zwei Methoden. Der Rest des Anhang-Wegs merkt nichts
-// davon, und die Testfaelle in stueck_krypto_test.dart gelten unveraendert
-// weiter, weil sie Eigenschaften pruefen und keine Bibliothek.
+//     verschluesseln  8,0 MB/s      entschluesseln  5,3 MB/s
+//
+// Auf dem Entwicklungsrechner waren es 12 MB/s. Das Telefon ist also
+// LANGSAMER, nicht schneller — und Entschluesseln noch einmal deutlich
+// langsamer als Verschluesseln. Wer die Entscheidung nur auf der
+// Desktop-Zahl aufgebaut haette, haette sich um ein Drittel vertan.
+//
+// Was das bedeutet:
+//   * Ueber Mobilfunk ist es egal: die Leitung ist langsamer als 8 MB/s, und
+//     Verschluesseln laeuft parallel zum Uebertragen (anhang_versand.dart).
+//   * Ueber schnelles WLAN ist es die Bremse.
+//   * Drei Gigabyte kosten 6,4 Minuten reine Rechenzeit beim Senden und rund
+//     zehn beim Empfangen.
+//
+// DESHALB IST DAS HIER EINE SCHNITTSTELLE UND KEINE FUNKTION. Wird eines
+// Tages eine native Umsetzung eingebunden (webcrypto/BoringSSL, oder ein
+// Kotlin-Kanal auf javax.crypto), wird genau diese Klasse getauscht. Der Rest
+// des Anhang-Wegs merkt nichts davon, und die Testfaelle in
+// stueck_krypto_test.dart gelten unveraendert weiter — sie pruefen
+// Eigenschaften und keine Bibliothek.
 
 import 'dart:typed_data';
 

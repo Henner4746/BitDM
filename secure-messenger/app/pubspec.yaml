@@ -142,16 +142,45 @@ dependencies:
   #
   # webcrypto wurde am 25.07.2026 PROBEWEISE aufgenommen und wieder entfernt.
   # Es bindet BoringSSL an und waere fuer AES-GCM um ein Vielfaches schneller
-  # als die reine Dart-Umsetzung (gemessen: 12 MB/s). Aber `flutter test`
-  # braucht dafuer `pub run webcrypto:setup`, und das braucht cmake — auf
-  # dieser Maschine nicht vorhanden. Eine Abhaengigkeit aufzunehmen, deren
-  # Nutzen sich hier nicht messen laesst und die dafuer die Testbarkeit
-  # kostet, ist der falsche Tausch. Siehe lib/core/anhang/stueck_krypto.dart:
-  # die Verschluesselung sitzt hinter einer schmalen Schnittstelle und laesst
-  # sich austauschen, wenn eine Messung auf echten Geraeten es rechtfertigt.
+  # als die reine Dart-Umsetzung. `flutter test` braucht dafuer
+  # `pub run webcrypto:setup`, und das braucht cmake.
+  #
+  # KORREKTUR VOM SELBEN ABEND: cmake IST da, es liegt im Android-SDK
+  # (Sdk/cmake/3.22.1) und war nur nicht im Pfad. Der erste Grund fuer die
+  # Entscheidung war also falsch. Ob der Rest der Werkzeugkette fuer einen
+  # Bau auf dem Entwicklungsrechner steht (C-Uebersetzer), ist ungeprueft.
+  #
+  # WAS DIE ENTSCHEIDUNG JETZT TRAEGT, ist eine Messung auf dem ECHTEN Geraet
+  # statt auf dem Desktop (integration_test/anhang_tempo_test.dart, Galaxy
+  # S25 Ultra, Android 16):
+  #
+  #     verschluesseln  8,0 MB/s   entschluesseln  5,3 MB/s
+  #
+  # Also SCHLECHTER als die 12 MB/s vom Entwicklungsrechner, und Entschluesseln
+  # noch einmal deutlich langsamer. Fuer den Regelfall — Anhaenge ueber
+  # Mobilfunk — reicht es weiterhin: die Leitung ist langsamer, und
+  # Verschluesseln laeuft parallel zum Uebertragen. Ueber schnelles WLAN ist es
+  # die Bremse, und drei Gigabyte kosten allein 6,4 Minuten Rechenzeit.
+  #
+  # Das ist ein offener Punkt und kein erledigter. Siehe
+  # lib/core/anhang/stueck_krypto.dart: die Verschluesselung sitzt hinter einer
+  # schmalen Schnittstelle und laesst sich austauschen, ohne dass der Rest des
+  # Anhang-Wegs etwas merkt.
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+
+  # Tests, die auf dem ECHTEN Geraet laufen statt auf dem
+  # Entwicklungsrechner. Kommt aus dem Flutter-SDK, ist also keine neue
+  # Abhaengigkeit aus dem Netz.
+  #
+  #   flutter test integration_test/... -d <geraet>
+  #
+  # Gebraucht wird das dort, wo die Antwort vom Geraet abhaengt und nicht vom
+  # Rechner: Geschwindigkeit der Verschluesselung, Schluesselspeicher,
+  # Biometrie.
+  integration_test:
     sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
