@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -5,7 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'app_state.dart';
 import 'core/messenger_core.dart';
 import 'core/real_messenger_core.dart';
-import 'core/secret_store.dart';
+import 'core/app_lock.dart';
 import 'data.dart';
 import 'painters.dart';
 import 'qr_scan_screen.dart';
@@ -30,13 +31,18 @@ Future<void> main() async {
   // oder in den Dateimanager wandert.
   final verzeichnis = await getApplicationSupportDirectory();
 
+  // Der Tresor ist umstellbar: ohne Sperre liegt die Entropie im
+  // Schluesselspeicher, mit Sperre gibt der gesicherte Bereich sie erst nach
+  // Fingerabdruck oder Geraete-PIN heraus.
+  final tresor = LockableSecretStore();
+
   final core = RealMessengerCore(
-    secretStore: DeviceSecretStore(),
+    secretStore: tresor,
     databasePath: '${verzeichnis.path}/bitdm.db',
     relayUri: Uri.parse(relayBasis),
   );
 
-  runApp(BitApp(state: AppState(core)));
+  runApp(BitApp(state: AppState(core, sperre: tresor)));
 }
 
 class BitApp extends StatelessWidget {
@@ -238,8 +244,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// Einrichtungs-Animation und danach stand ein Haken da — die App
   /// behauptete eine Sperre, die es nicht gab. Genau die Sorte Zusage, wegen
   /// der jemand sein Telefom aus der Hand gibt.
-  void methodAct(String key) {
-    setState(() => enroll = key);
+  Future<void> methodAct(String key) async {
+    // Fingerabdruck/Geraete-PIN ist der einzige Faktor, der schon wirkt.
+    if (key != "bio") {
+      setState(() => enroll = key);
+      return;
+    }
+    final an = st.sperrmodus == LockMode.geraet;
+    try {
+      await st.setzeSperre(an ? LockMode.aus : LockMode.geraet);
+    } on LockUnavailableException {
+      if (mounted) setState(() => enroll = "keineSperre");
+    } on LockedException {
+      // Anmeldung abgebrochen — es bleibt, wie es war.
+    }
   }
 
   /// Die eigene Adresse, wie der Entwurf sie zeigt: Vierergruppen mit
@@ -379,20 +397,32 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ],
         ),
       ),
-      floatingActionButton: (sheet || panic || enroll != null)
-          ? null
-          : FloatingActionButton.small(
-              backgroundColor: p.surf,
-              foregroundColor: p.accLight,
-              shape: const CircleBorder(),
-              onPressed: showDevJump,
-              child: const Text('≡', style: TextStyle(fontSize: 20, height: 1)),
-            ),
+      // Der Sprungknopf war ein Entwicklerwerkzeug aus der Entwurfsphase: er
+      // liess zwischen allen Bildschirmen springen, unabhaengig davon, ob der
+      // Weg dorthin sinnvoll war. In einer ausgelieferten App ist er zweierlei
+      // Fehler — er liegt ueber dem Inhalt, und er umgeht den Ablauf.
+      //
+      // kDebugMode wird beim Bauen einer Release-Fassung zu einer Konstanten
+      // false, der ganze Zweig faellt also aus dem Programm heraus. Beim
+      // Entwickeln bleibt er.
+      floatingActionButton:
+          (!kDebugMode || sheet || panic || enroll != null)
+              ? null
+              : FloatingActionButton.small(
+                  backgroundColor: p.surf,
+                  foregroundColor: p.accLight,
+                  shape: const CircleBorder(),
+                  onPressed: showDevJump,
+                  child: const Text('≡', style: TextStyle(fontSize: 20, height: 1)),
+                ),
     );
   }
 
   Widget buildScreen() {
     if (!st.bereit) return const SizedBox.shrink();
+    // Die Sperre kommt VOR allem anderen. Es gibt eine Identitaet, der
+    // gesicherte Bereich des Geraets ruecke sie nur noch nicht heraus.
+    if (st.gesperrt) return gesperrtScreen();
     switch (screen) {
       case 'creating': return arbeitetScreen();
       case 'phrase': return phraseScreen();
@@ -459,6 +489,31 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           Expanded(child: Text(s, style: mono(size: 12, color: p.dim))),
         ]),
       );
+
+  /// Wartet auf die Anmeldung des Geraets.
+  ///
+  /// Die App fragt Fingerabdruck oder PIN NICHT selbst ab und bekommt sie nie
+  /// zu sehen. Sie versucht nur, die Entropie zu lesen — und der gesicherte
+  /// Bereich zeigt die Abfrage. Schlaegt sie fehl, bleibt der Schluessel dort,
+  /// wo er ist.
+  Widget gesperrtScreen() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          h2(t("locked")),
+          const SizedBox(height: 8),
+          Text(t("lockedSub"),
+              style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
+          const SizedBox(height: 22),
+          outlineBtn(t("unlock"), () => st.entsperren(),
+              padding: const EdgeInsets.all(13)),
+        ],
+      ),
+    );
+  }
 
   // ---- WIRD ANGELEGT ----
   Widget arbeitetScreen() => Center(
@@ -552,7 +607,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Widget methodRow(String key, {bool statusMode = true}) {
-    final on = auth[key]!;
+    // Nur "bio" hat einen echten Zustand. Die anderen drei sind aus, und das
+    // Antippen erklaert warum, statt eine Einrichtung vorzutaeuschen.
+    final on = key == "bio" && st.sperrmodus == LockMode.geraet;
     final mark = on ? '✓' : '·';
     final right = statusMode ? (on ? t('on2') : t('offMethod')) : (on ? t('remove') : t('add'));
     return GestureDetector(
@@ -722,8 +779,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       Expanded(
         child: ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
           for (final k in st.offeneAnfragen) pendingCard(k),
+          // Ausgehende Anfragen erscheinen ebenfalls. Vorher waren sie
+          // unsichtbar: wer jemanden hinzugefuegt hatte, sah danach eine leere
+          // Liste und musste annehmen, es habe nicht funktioniert.
+          for (final k in st.eigeneAnfragen) wartendeAnfrage(k),
           for (final id in contacts) contactRow(id),
-          if (contacts.isEmpty && st.offeneAnfragen.isEmpty)
+          if (contacts.isEmpty && st.offeneAnfragen.isEmpty && st.eigeneAnfragen.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(22, 24, 22, 16),
               child: Text(t('noChats'), style: mono(size: 12, color: p.dim, height: 1.6)),
@@ -733,6 +794,33 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       ),
     ]);
   }
+
+  /// Eine Anfrage, die WIR gestellt haben und die noch offen ist.
+  ///
+  /// Bewusst nicht antippbar: es gibt noch keine Sitzung, und ein Chat, in dem
+  /// man nicht schreiben kann, waere verwirrender als gar keiner.
+  Widget wartendeAnfrage(Contact k) => Container(
+        color: Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
+        child: Row(children: [
+          Opacity(opacity: 0.45, child: Identicon(k.id, 40, avp, 8)),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(shortId(adresseFormatiert(k.id)),
+                  style: doto(size: 15, weight: FontWeight.w600, color: p.muted, spacing: 0.8, height: 1.1)),
+              const SizedBox(height: 3),
+              Text(t('waitingForAccept'), maxLines: 1, overflow: TextOverflow.ellipsis, style: mono(size: 12, color: p.dim)),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(4), border: Border.all(color: p.line)),
+            child: Text(t('pending').toUpperCase(), style: mono(size: 10, color: p.dim, spacing: 1.2)),
+          ),
+        ]),
+      );
 
   Widget pendingCard(Contact k) => Container(
         margin: const EdgeInsets.fromLTRB(17, 8, 17, 11),
@@ -1204,6 +1292,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// Zusage, wegen der jemand sein Telefon aus der Hand gibt.
   Widget enrollModal() {
     final en = enroll!;
+    if (en == 'keineSperre') {
+      return scrim(
+        onTapOutside: () => setState(() => enroll = null),
+        sheetCard(children: [
+          const SizedBox(height: 8),
+          h2(t('lockNoScreenLock'), size: 18),
+          const SizedBox(height: 11),
+          Text(t('lockNoScreenLockBody'), style: mono(size: 12.5, color: p.muted, height: 1.6)),
+          const SizedBox(height: 14),
+          outlineBtn(t('close'), () => setState(() => enroll = null), padding: const EdgeInsets.all(11)),
+        ]),
+      );
+    }
     final title = en == "bio"
         ? t("enrollBio")
         : en == "passkey"

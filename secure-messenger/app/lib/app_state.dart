@@ -15,11 +15,15 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import 'core/app_lock.dart';
 import 'core/fenster.dart';
 import 'core/messenger_core.dart';
 
 class AppState extends ChangeNotifier {
-  AppState(this.core);
+  AppState(this.core, {this.sperre});
+
+  /// Null in Tests — dort gibt es keinen Schluesselspeicher des Geraets.
+  final LockableSecretStore? sperre;
 
   final MessengerCore core;
 
@@ -45,13 +49,62 @@ class AppState extends ChangeNotifier {
   /// Was zuletzt schiefging, in einer Form, die man anzeigen kann.
   String? letzterFehler;
 
+  /// Ob die App gerade auf eine Anmeldung wartet.
+  ///
+  /// Nicht dasselbe wie "noch nicht geladen": hier gibt es eine Identitaet,
+  /// der gesicherte Bereich des Geraets ruecke sie nur noch nicht heraus.
+  bool gesperrt = false;
+
+  LockMode sperrmodus = LockMode.aus;
+
   final _abos = <StreamSubscription<Object?>>[];
   final _zufall = Random();
 
   Future<void> boot() async {
-    hatIdentitaet = await core.initialize();
+    sperrmodus = await sperre?.modus() ?? LockMode.aus;
+    try {
+      hatIdentitaet = await core.initialize();
+      gesperrt = false;
+    } on LockedException {
+      // Es GIBT eine Identitaet, der gesicherte Bereich gibt sie nur nicht
+      // heraus. Das ist kein Fehler, sondern der Zweck der Sperre.
+      hatIdentitaet = true;
+      gesperrt = true;
+      bereit = true;
+      notifyListeners();
+      return;
+    }
     if (hatIdentitaet) await _nachIdentitaet();
     bereit = true;
+    notifyListeners();
+  }
+
+  /// Zweiter Anlauf nach einer abgebrochenen Anmeldung.
+  ///
+  /// Der Schluesselspeicher zeigt die Abfrage des Geraets erneut — die App
+  /// selbst hat keinen Zugriff auf Fingerabdruck oder PIN und will ihn auch
+  /// nicht.
+  Future<bool> entsperren() async {
+    try {
+      hatIdentitaet = await core.initialize();
+      gesperrt = false;
+      if (hatIdentitaet) await _nachIdentitaet();
+      notifyListeners();
+      return true;
+    } on LockedException {
+      gesperrt = true;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Schaltet die Sperre um. Wirft [LockUnavailableException], wenn das Geraet
+  /// keine Bildschirmsperre hat, und [LockedException] bei Abbruch.
+  Future<void> setzeSperre(LockMode neu) async {
+    final s = sperre;
+    if (s == null) throw const LockUnavailableException('nicht verfuegbar');
+    await s.setzeModus(neu);
+    sperrmodus = neu;
     notifyListeners();
   }
 
