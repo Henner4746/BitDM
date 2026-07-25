@@ -25,6 +25,7 @@ import websockets
 from xeddsa.bindings import (ed25519_priv_sign, priv_force_sign,
                              priv_to_curve25519_pub)
 
+from relay_server import PreKeyBundle
 from signature_vectors import DART_SIGNATURES, MESSAGE
 
 BASE = "http://127.0.0.1:8099"
@@ -62,19 +63,18 @@ def sign(priv: bytes, msg: bytes) -> bytes:
 
 
 def canonical_bytes(bundle: dict) -> bytes:
-    """Muss exakt PreKeyBundle.canonical_bytes() im Server entsprechen."""
-    payload = {
-        "user_id": bundle["user_id"],
-        "identity_key": bundle["identity_key"],
-        "signed_prekey_id": bundle["signed_prekey_id"],
-        "signed_prekey": bundle["signed_prekey"],
-        "signed_prekey_sig": bundle["signed_prekey_sig"],
-        "one_time_prekeys": sorted(
-            ([k["key_id"], k["public_key"]] for k in bundle["one_time_prekeys"]),
-            key=lambda x: x[0],
-        ),
-    }
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    """Nutzt die Funktion des Servers selbst statt einer Nachbildung.
+
+    Hier stand frueher eine zweite Umsetzung derselben Serialisierung. Das ist
+    genau die Sorte Kopie, die irgendwann auseinanderlaeuft: wer im Server ein
+    Feld ergaenzt und die Kopie vergisst, bekommt einen Test, der gruen bleibt,
+    waehrend echte Clients abgewiesen werden.
+
+    Der Dart-Client MUSS eine eigene Umsetzung haben — andere Sprache. Genau
+    deshalb prueft app/test/net/relay_protocol_test.dart ihn gegen erzeugte
+    Vergleichswerte aus diesem Server.
+    """
+    return PreKeyBundle(**bundle).canonical_bytes()
 
 
 def make_user(n_otk: int = 5):
@@ -83,6 +83,7 @@ def make_user(n_otk: int = 5):
     bundle = {
         "user_id": encode_id(pub),
         "identity_key": b64(pub),
+        "registration_id": 4711,
         "signed_prekey_id": 1,
         "signed_prekey": b64(os.urandom(32)),        # Platzhalter (echt: libsignal)
         "signed_prekey_sig": b64(os.urandom(64)),

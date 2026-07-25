@@ -164,6 +164,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS identities (
     user_id           TEXT PRIMARY KEY,
     identity_key      BLOB NOT NULL,
+    registration_id   INTEGER NOT NULL DEFAULT 0,
     signed_prekey_id  INTEGER NOT NULL,
     signed_prekey     BLOB NOT NULL,
     signed_prekey_sig BLOB NOT NULL,
@@ -197,6 +198,16 @@ def init_db(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+
+    # Nachtraeglich hinzugekommene Spalten. `CREATE TABLE IF NOT EXISTS` laesst
+    # eine bestehende Tabelle unangetastet — ohne diese Zeilen liefe ein
+    # bereits laufender Relay nach dem Update in "no such column".
+    vorhanden = {row[1] for row in conn.execute("PRAGMA table_info(identities)")}
+    if "registration_id" not in vorhanden:
+        conn.execute(
+            "ALTER TABLE identities ADD COLUMN registration_id INTEGER NOT NULL DEFAULT 0"
+        )
+
     conn.commit()
     return conn
 
@@ -287,6 +298,16 @@ class OneTimePreKey(BaseModel):
 class PreKeyBundle(BaseModel):
     user_id: str
     identity_key: str                     # base64, Curve25519
+
+    # Bezeichnet das GERAET, nicht die Identitaet.
+    #
+    # Bei BitDM ist das die einzige Moeglichkeit zu bemerken, dass eine
+    # Gegenstelle neu aufgesetzt wurde: der Identitaetsschluessel bleibt
+    # derselbe, weil er aus der Seed-Phrase kommt, und die Adresse damit auch.
+    # Wechselt die Nummer, sitzt am anderen Ende ein anderes Geraet — der
+    # Client kann darauf hinweisen, statt es stillschweigend hinzunehmen.
+    registration_id: int = 0
+
     signed_prekey_id: int
     signed_prekey: str                    # base64
     signed_prekey_sig: str                # base64
@@ -298,10 +319,16 @@ class PreKeyBundle(BaseModel):
         Der Besitznachweis signiert Nonce UND Bundle-Inhalt. Wuerde nur das
         Nonce signiert, koennte ein Angreifer eine abgefangene gueltige
         Signatur mit einem eigenen Bundle kombinieren.
+
+        registration_id gehoert mit hinein: sonst koennte ein Angreifer ein
+        abgefangenes Bundle mit veraenderter Nummer erneut einreichen und beim
+        Gegenueber den Eindruck eines Geraetewechsels erzeugen — oder einen
+        echten Wechsel verbergen.
         """
         payload = {
             "user_id": self.user_id,
             "identity_key": self.identity_key,
+            "registration_id": self.registration_id,
             "signed_prekey_id": self.signed_prekey_id,
             "signed_prekey": self.signed_prekey,
             "signed_prekey_sig": self.signed_prekey_sig,
@@ -414,16 +441,18 @@ def register(req: RegisterRequest, request: Request):
     try:
         with db:
             db.execute(
-                "INSERT INTO identities (user_id, identity_key, signed_prekey_id,"
-                " signed_prekey, signed_prekey_sig, updated_at)"
-                " VALUES (?,?,?,?,?,?)"
+                "INSERT INTO identities (user_id, identity_key, registration_id,"
+                " signed_prekey_id, signed_prekey, signed_prekey_sig, updated_at)"
+                " VALUES (?,?,?,?,?,?,?)"
                 " ON CONFLICT(user_id) DO UPDATE SET identity_key=excluded.identity_key,"
+                " registration_id=excluded.registration_id,"
                 " signed_prekey_id=excluded.signed_prekey_id,"
                 " signed_prekey=excluded.signed_prekey,"
                 " signed_prekey_sig=excluded.signed_prekey_sig,"
                 " updated_at=excluded.updated_at",
-                (bundle.user_id, identity_key, bundle.signed_prekey_id,
-                 b64d(bundle.signed_prekey), b64d(bundle.signed_prekey_sig), time.time()),
+                (bundle.user_id, identity_key, bundle.registration_id,
+                 bundle.signed_prekey_id, b64d(bundle.signed_prekey),
+                 b64d(bundle.signed_prekey_sig), time.time()),
             )
             db.execute("DELETE FROM one_time_prekeys WHERE user_id=?", (bundle.user_id,))
             db.executemany(
@@ -454,8 +483,8 @@ def get_prekey(user_id: str, request: Request):
         raise HTTPException(429, "zu viele Anfragen")
 
     row = db.execute(
-        "SELECT identity_key, signed_prekey_id, signed_prekey, signed_prekey_sig"
-        " FROM identities WHERE user_id=?", (user_id,)
+        "SELECT identity_key, signed_prekey_id, signed_prekey, signed_prekey_sig,"
+        " registration_id FROM identities WHERE user_id=?", (user_id,)
     ).fetchone()
     if row is None:
         raise HTTPException(404, "unbekannte Adresse")
@@ -478,6 +507,7 @@ def get_prekey(user_id: str, request: Request):
     return {
         "user_id": user_id,
         "identity_key": b64e(row[0]),
+        "registration_id": row[4],
         "signed_prekey_id": row[1],
         "signed_prekey": b64e(row[2]),
         "signed_prekey_sig": b64e(row[3]),
@@ -564,19 +594,32 @@ async def ws_endpoint(ws: WebSocket):
 
             to = data.get("to", "")
             raw_ct = data.get("ciphertext", "")
+
+            # Optionale Kennung des Clients, die in Bestaetigung und Fehler
+            # zurueckgespiegelt wird.
+            #
+            # Ohne sie traegt die Bestaetigung nur die Zieladresse — und ein
+            # Client, der zwei Nachrichten an denselben Kontakt geschickt hat,
+            # kann nicht sagen, welche davon angekommen ist. Genau das braucht
+            # er aber, um nach einem Verbindungsabbruch die richtige Nachricht
+            # zu wiederholen. Der Server merkt sich nichts davon; er reicht die
+            # Kennung nur zurueck. Weggelassen werden darf sie weiterhin.
+            msg_id = data.get("id")
+            ref = {"id": msg_id} if isinstance(msg_id, str) else {}
+
             try:
                 ciphertext = b64d(raw_ct)
             except Exception:
-                await ws.send_json({"type": "error", "reason": "ciphertext ungueltig"})
+                await ws.send_json({"type": "error", "reason": "ciphertext ungueltig", **ref})
                 continue
 
             if not ciphertext or len(ciphertext) > MAX_CIPHERTEXT_BYTES:
-                await ws.send_json({"type": "error", "reason": "ciphertext zu gross"})
+                await ws.send_json({"type": "error", "reason": "ciphertext zu gross", **ref})
                 continue
             try:
                 decode_id(to)
             except ValueError:
-                await ws.send_json({"type": "error", "reason": "Zieladresse ungueltig"})
+                await ws.send_json({"type": "error", "reason": "Zieladresse ungueltig", **ref})
                 continue
 
             target = connections.get(to)
@@ -587,7 +630,7 @@ async def ws_endpoint(ws: WebSocket):
                     "ciphertext": raw_ct,
                     "ts": time.time(),
                 })
-                await ws.send_json({"type": "ack", "to": to})
+                await ws.send_json({"type": "ack", "to": to, **ref})
                 continue
 
             # Empfaenger offline -> puffern, aber gedeckelt.
@@ -595,7 +638,7 @@ async def ws_endpoint(ws: WebSocket):
                 "SELECT COUNT(*) FROM queue WHERE recipient=?", (to,)
             ).fetchone()[0]
             if queued >= QUEUE_MAX_PER_USER:
-                await ws.send_json({"type": "error", "reason": "Warteschlange voll", "to": to})
+                await ws.send_json({"type": "error", "reason": "Warteschlange voll", "to": to, **ref})
                 continue
 
             with db:
@@ -603,7 +646,7 @@ async def ws_endpoint(ws: WebSocket):
                     "INSERT INTO queue (recipient, sender, ciphertext, ts) VALUES (?,?,?,?)",
                     (to, user_id, ciphertext, time.time()),
                 )
-            await ws.send_json({"type": "ack", "to": to})
+            await ws.send_json({"type": "ack", "to": to, **ref})
 
     except (WebSocketDisconnect, json.JSONDecodeError, RuntimeError):
         pass
