@@ -17,6 +17,7 @@ import 'core/lock/key_vault.dart';
 import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
+import 'core/empfang.dart';
 import 'data.dart';
 import 'painters.dart';
 import 'fido_probe_screen.dart';
@@ -64,8 +65,7 @@ Future<void> main() async {
   // kommt — dann ist klar, wofuer.
   await Benachrichtigungen.instanz.starte();
 
-  runApp(BitApp(
-      state: AppState(
+  final zustand = AppState(
     core,
     tresor: tresor,
     stickZugang: (weg) => stickOeffner(weg)(),
@@ -77,7 +77,9 @@ Future<void> main() async {
           : GeraeteArt.biometrie,
       verzeichnis: verzeichnis.path,
     ),
-  )));
+  )..empfangsDienst = EmpfangsDienst();
+
+  runApp(BitApp(state: zustand));
 }
 
 class BitApp extends StatelessWidget {
@@ -181,6 +183,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// kennt die Sprache nicht und soll sie auch nicht kennen.
   void _setzeMeldetexte() {
     st.einNeuText = t('notifOne');
+    st.empfangTitelText = t('bgNotifTitle');
+    st.empfangLaeuftText = t('bgNotifText');
     st.mehrereNeuText = (n) => t('notifMany').replaceFirst('{n}', '');
   }
 
@@ -413,6 +417,28 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       if (mounted) setState(() => laeuftZeile = null);
     }
   }
+
+  /// Stellt um, wie oft im Hintergrund nach Nachrichten gesehen wird.
+  Future<void> _setzeEmpfangsTakt(int minuten) async {
+    try {
+      await st.setzeEmpfangsTakt(EmpfangsTakt.vonMinuten(minuten));
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = '$e');
+    }
+  }
+
+  /// Was die gewaehlte Einstellung praktisch bedeutet.
+  ///
+  /// Steht als Fliesstext unter der Auswahl, weil die Unterschiede nicht
+  /// selbsterklaerend sind: "alle 15 Minuten" klingt haeufiger als es sich
+  /// anfuehlt, und "staendig" klingt teurer als es ist.
+  String _empfangErklaerung() => switch (st.empfangsTakt) {
+        EmpfangsTakt.aus => t('bgOffNote'),
+        EmpfangsTakt.staendig => t('bgLiveNote'),
+        EmpfangsTakt.viertelstunde => t('bg15Note'),
+        EmpfangsTakt.stunde => t('bg60Note'),
+        EmpfangsTakt.vierStunden => t('bg240Note'),
+      };
 
   /// Stellt um, wann die App sich von selbst wieder abschliesst.
   Future<void> _setzeSperrfrist(int sekunden) async {
@@ -1541,6 +1567,34 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 ),
               ])),
         ],
+
+        const SizedBox(height: 22),
+        label6(t('receiving')),
+        settingCard(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          settingHead(t('bgReceive'), t('bgReceiveSub')),
+          const SizedBox(height: 8),
+          segmented(
+            const ['0', '-1', '15', '60', '240'],
+            [t('bgOff'), t('bgLive'), t('bg15'), t('bg60'), t('bg240')],
+            '${st.empfangsTakt.minuten}',
+            (v) => _setzeEmpfangsTakt(int.parse(v)),
+          ),
+          const SizedBox(height: 10),
+          Text(_empfangErklaerung(),
+              style: mono(size: 11, color: p.dim, height: 1.55)),
+
+          // DER WIDERSPRUCH, DEN DER NUTZER KENNEN MUSS: eine Sperre, die
+          // sofort zugeht, macht Hintergrundempfang unmoeglich. Nicht aus
+          // Bequemlichkeit — der Relay verlangt eine Unterschrift mit dem
+          // Identitaetsschluessel, und der liegt hinter der Sperre.
+          if (st.empfangsTakt.an && !st.empfangMoeglich) ...[
+            const SizedBox(height: 10),
+            _hinweisKasten(t('bgConflict')),
+          ],
+        ])),
+
         const SizedBox(height: 22),
         label6(t('security')),
         toggleRow(t("screenshot"), t("screenshotSub"), st.einstellungen.blockScreenshots,

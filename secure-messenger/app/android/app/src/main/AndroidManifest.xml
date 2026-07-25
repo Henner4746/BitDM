@@ -45,6 +45,19 @@
          aus. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false"/>
 
+    <!-- Der Vordergrunddienst, der den Prozess am Leben haelt, wenn im
+         Hintergrund empfangen werden soll.
+
+         AB ANDROID 14 reicht die allgemeine Berechtigung nicht mehr: jeder
+         Dienst muss einen TYP nennen, und fuer jeden Typ gibt es eine eigene
+         Berechtigung. Ohne die zweite Zeile stuerzt die App beim Starten des
+         Dienstes ab — und zwar erst auf Android 14, nicht darunter.
+
+         Der Nutzer entscheidet, ob es den Dienst ueberhaupt gibt: ab Werk ist
+         der Hintergrundempfang AUS. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+
     <!-- ══════════════════════════════════════════════════════════════════
          AUSDRUECKLICH ENTFERNT, was die Kamera-Bibliothek mitbringt.
 
@@ -107,6 +120,17 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Haelt den Prozess am Leben, solange im Hintergrund empfangen
+             werden soll. Der Dienst empfaengt NICHT selbst — das macht
+             derselbe Dart-Code wie im Vordergrund. Siehe EmpfangsDienst.kt.
+
+             dataSync als Typ: BitDM gleicht Nachrichten ab. "shortService"
+             waere auf drei Minuten begrenzt, "connectedDevice" meint
+             gekoppelte Geraete. -->
+        <service
+            android:name=".EmpfangsDienst"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

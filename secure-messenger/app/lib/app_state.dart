@@ -17,6 +17,7 @@ import 'package:flutter/foundation.dart';
 
 import 'core/app_lock.dart';
 import 'core/benachrichtigungen.dart';
+import 'core/empfang.dart';
 import 'core/fenster.dart';
 import 'core/fido/client_pin.dart';
 import 'core/fido/ctap.dart';
@@ -148,6 +149,7 @@ class AppState extends ChangeNotifier {
     try {
       final v = await tresor?.faecher();
       faktoren = v?.slots ?? const [];
+      empfangsTakt = EmpfangsTakt.vonMinuten(v?.empfangsTaktMinuten ?? 0);
       _nieSperren = (v?.sperrfristSekunden ?? 0) < 0;
       sperrfrist = _nieSperren ? Duration.zero : (v?.sperrfrist ?? Duration.zero);
     } catch (e) {
@@ -383,6 +385,7 @@ class AppState extends ChangeNotifier {
     if (_imVordergrund == sichtbar) return;
     _imVordergrund = sichtbar;
     if (sichtbar) {
+      unawaited(_beendeHintergrundempfang());
       if (_sollWiederSperren()) {
         unawaited(sperreWieder());
         return;
@@ -396,7 +399,88 @@ class AppState extends ChangeNotifier {
       _weggelegtUm = DateTime.now();
       _wiederverbindung?.cancel();
       _wiederverbindung = null;
+      unawaited(_starteHintergrundempfang());
     }
+  }
+
+  // ═══════════════════════════════════════════════════ Empfang im Hintergrund
+
+  /// Der Vordergrunddienst. Null in Tests.
+  EmpfangsDienst? empfangsDienst;
+
+  /// Wie oft im Hintergrund nachgesehen wird.
+  ///
+  /// Steht in der Fachdatei neben der Sperrfrist und NICHT in den
+  /// Einstellungen: die liegen in der verschluesselten Datenbank, und die ist
+  /// beim Sperren zu.
+  EmpfangsTakt empfangsTakt = EmpfangsTakt.aus;
+
+  /// Texte fuer die dauerhafte Benachrichtigung. Der Kern kennt keine Sprache.
+  String empfangTitelText = 'BitDM';
+  String empfangLaeuftText = 'Empfangsbereit';
+
+  Timer? _empfangsTimer;
+
+  /// Ob der Hintergrundempfang gerade ueberhaupt etwas ausrichten KANN.
+  ///
+  /// Bei eingeschalteter Sperre und abgelaufener Frist ist die Entropie weg —
+  /// und ohne sie gibt es keinen Identitaetsschluessel, ohne den der Relay
+  /// nicht einmal die Frage beantwortet, ob etwas anliegt.
+  bool get empfangMoeglich =>
+      empfangsTakt.an && hatIdentitaet && !gesperrt && !_sperrtGleich;
+
+  /// Ob die App beim naechsten Weglegen sofort zusperrt.
+  bool get _sperrtGleich =>
+      faktoren.isNotEmpty && !_nieSperren && sperrfrist == Duration.zero;
+
+  Future<void> setzeEmpfangsTakt(EmpfangsTakt takt) async {
+    final t = tresor;
+    if (t != null) await t.setzeEmpfangsTakt(takt.minuten);
+    empfangsTakt = takt;
+    if (!takt.an) await _beendeHintergrundempfang();
+    notifyListeners();
+  }
+
+  Future<void> _starteHintergrundempfang() async {
+    if (!empfangMoeglich) return;
+    final dienst = empfangsDienst;
+    if (dienst == null) return;
+
+    await dienst.starte(titel: empfangTitelText, text: empfangLaeuftText);
+
+    if (empfangsTakt.dauerhaft) {
+      // Die bestehende Verbindung bleibt einfach offen. Der Kern verbindet
+      // von sich aus nach, wenn sie abreisst — dieselbe Logik wie im
+      // Vordergrund, statt einer zweiten daneben.
+      if (verbindung != ConnectionState.online) {
+        unawaited(core.connect());
+      }
+      return;
+    }
+
+    // Im Takt: verbinden, abholen, wieder trennen. Eine offene Verbindung
+    // kostet dauerhaft Funk; ein kurzer Griff alle 15 Minuten deutlich
+    // weniger.
+    await core.disconnect();
+    _empfangsTimer?.cancel();
+    _empfangsTimer = Timer.periodic(empfangsTakt.abstand, (_) async {
+      if (!empfangMoeglich) {
+        await _beendeHintergrundempfang();
+        return;
+      }
+      await core.connect();
+      // Kurz offen lassen, damit der Relay seine Warteschlange leeren kann.
+      // Er schickt alles Wartende gleich nach der Anmeldung.
+      await Future<void>.delayed(const Duration(seconds: 20));
+      if (!_imVordergrund) await core.disconnect();
+    });
+  }
+
+  Future<void> _beendeHintergrundempfang() async {
+    _empfangsTimer?.cancel();
+    _empfangsTimer = null;
+    final dienst = empfangsDienst;
+    if (dienst != null && dienst.laeuft) await dienst.stoppe();
   }
 
   // ═══════════════════════════════════════════════════════ Von selbst zusperren

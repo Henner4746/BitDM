@@ -258,10 +258,18 @@ class KeyVault {
   /// gefragt werden, und nicht manchmal.
   final int sperrfristSekunden;
 
+  /// Wie oft im Hintergrund nach Nachrichten gesehen wird. 0 heisst gar
+  /// nicht, -1 heisst dauerhaft verbunden.
+  ///
+  /// Steht hier aus demselben Grund wie die Sperrfrist: die Einstellungen
+  /// liegen in der verschluesselten Datenbank, und die ist beim Sperren zu.
+  final int empfangsTaktMinuten;
+
   const KeyVault({
     this.version = currentVersion,
     required this.slots,
     this.sperrfristSekunden = 0,
+    this.empfangsTaktMinuten = 0,
   });
 
   bool get isEmpty => slots.isEmpty;
@@ -271,7 +279,15 @@ class KeyVault {
   KeyVault mitSperrfrist(int sekunden) => KeyVault(
         version: version,
         slots: slots,
-        sperrfristSekunden: sekunden < 0 ? 0 : sekunden,
+        sperrfristSekunden: sekunden,
+        empfangsTaktMinuten: empfangsTaktMinuten,
+      );
+
+  KeyVault mitEmpfangsTakt(int minuten) => KeyVault(
+        version: version,
+        slots: slots,
+        sperrfristSekunden: sperrfristSekunden,
+        empfangsTaktMinuten: minuten,
       );
 
   KeySlot? slotById(String id) {
@@ -287,6 +303,7 @@ class KeyVault {
   String toJsonString() => const JsonEncoder.withIndent('  ').convert({
         'version': version,
         'lockDelaySeconds': sperrfristSekunden,
+        'backgroundPollMinutes': empfangsTaktMinuten,
         'slots': slots.map((s) => s.toJson()).toList(),
       });
 
@@ -311,7 +328,9 @@ class KeyVault {
     final frist = roh['lockDelaySeconds'];
     return KeyVault(
       version: version,
-      sperrfristSekunden: frist is int && frist >= 0 ? frist : 0,
+      sperrfristSekunden: frist is int ? frist : 0,
+      empfangsTaktMinuten:
+          roh['backgroundPollMinutes'] is int ? roh['backgroundPollMinutes'] as int : 0,
       slots: slots
           .map((e) => KeySlot.fromJson((e as Map).cast<String, Object?>()))
           .toList(),
@@ -394,6 +413,7 @@ class KeyVault {
       KeyVault(
           version: version,
           sperrfristSekunden: sperrfristSekunden,
+          empfangsTaktMinuten: empfangsTaktMinuten,
           slots: [...slots, slot]);
 
   /// Entfernt ein Fach.
@@ -412,6 +432,7 @@ class KeyVault {
     return KeyVault(
       version: version,
       sperrfristSekunden: sperrfristSekunden,
+      empfangsTaktMinuten: empfangsTaktMinuten,
       slots: slots.where((s) => s.id != id).toList(),
     );
   }

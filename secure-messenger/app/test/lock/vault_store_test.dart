@@ -246,8 +246,25 @@ void main() {
       await tresor.entferne(slot.id, faktor: finger());
 
       expect(basis.inhalt, entropie(), reason: 'sonst ist die Identitaet weg');
-      expect(vaultDateiIn(verzeichnis.path).existsSync(), isFalse);
       expect(await tresor.hatFaecher(), isFalse);
+    });
+
+    test('die Datei bleibt liegen — die Einstellungen stehen darin', () async {
+      // In der Fachdatei steht mehr als Faecher: Sperrfrist und
+      // Empfangstakt. Sie beim Entfernen des letzten Faktors mitzuloeschen
+      // hiesse, dem Nutzer still zwei Einstellungen zurueckzusetzen, weil er
+      // etwas ganz anderes getan hat.
+      await tresor.fuegeHinzu(finger());
+      await tresor.setzeEmpfangsTakt(60);
+      final slot = (await tresor.faecher())!.slots.single;
+
+      await tresor.entferne(slot.id, faktor: finger());
+
+      expect(vaultDateiIn(verzeichnis.path).existsSync(), isTrue);
+      final danach = KeyVault.fromJsonString(
+          vaultDateiIn(verzeichnis.path).readAsStringSync());
+      expect(danach.slots, isEmpty);
+      expect(danach.empfangsTaktMinuten, 60);
     });
 
     test('der Fachschluessel im gesicherten Bereich wird mit aufgeraeumt',

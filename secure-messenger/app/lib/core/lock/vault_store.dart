@@ -62,13 +62,18 @@ class VaultSecretStore implements SecretStore {
   bool _geladen = false;
 
   /// Liest die Fachdatei, einmal je Sitzung.
+  ///
+  /// Gibt sie AUCH DANN zurueck, wenn kein einziges Fach darin steht. Sie
+  /// enthaelt naemlich mehr als Faecher: die Sperrfrist und den Empfangstakt.
+  /// Eine leere Datei als "keine Datei" zu behandeln hiesse, diese
+  /// Einstellungen zu verlieren, sobald der letzte Faktor entfernt wird — und
+  /// zwar still. Ob es eine SPERRE gibt, sagt [hatFaecher].
   Future<KeyVault?> faecher() async {
     if (_geladen) return _faecher;
     _geladen = true;
     if (!datei.existsSync()) return _faecher = null;
     try {
-      final v = KeyVault.fromJsonString(await datei.readAsString());
-      return _faecher = v.isEmpty ? null : v;
+      return _faecher = KeyVault.fromJsonString(await datei.readAsString());
     } on VaultFormatException {
       rethrow;
     } catch (e) {
@@ -77,7 +82,10 @@ class VaultSecretStore implements SecretStore {
   }
 
   /// Ob die App ueberhaupt gesperrt ist.
-  Future<bool> hatFaecher() async => (await faecher()) != null;
+  ///
+  /// Nicht dasselbe wie "es gibt eine Fachdatei": die kann auch nur
+  /// Einstellungen enthalten.
+  Future<bool> hatFaecher() async => (await faecher())?.isEmpty == false;
 
   /// Ob gerade offen. Nach einem Neustart wieder false.
   bool get istOffen => _offen != null;
@@ -85,7 +93,7 @@ class VaultSecretStore implements SecretStore {
   @override
   Future<Uint8List?> read() async {
     final v = await faecher();
-    if (v == null) return basis.read();
+    if (v == null || v.isEmpty) return basis.read();
     final o = _offen;
     if (o == null) throw const LockedException();
     return o;
@@ -97,7 +105,7 @@ class VaultSecretStore implements SecretStore {
       throw ArgumentError('Entropie muss 16 Bytes haben, hat ${entropy.length}');
     }
     final v = await faecher();
-    if (v != null) {
+    if (v != null && !v.isEmpty) {
       // Neue Entropie bei bestehenden Faechern hiesse: JEDES Fach neu
       // versiegeln, also jeden Faktor vorlegen. Das passiert im Ablauf der App
       // nie — eine Identitaet entsteht genau einmal, vor der ersten Sperre.
@@ -128,7 +136,9 @@ class VaultSecretStore implements SecretStore {
   /// sichtbar, bei einem Passwort nicht. Siehe hardware_key_factor.dart.
   Future<Uint8List> entsperreMit(UnlockFactor faktor, {String? slotId}) async {
     final v = await faecher();
-    if (v == null) throw StateError('Es gibt keine Faecher zu oeffnen');
+    if (v == null || v.isEmpty) {
+      throw StateError('Es gibt keine Faecher zu oeffnen');
+    }
 
     final passende = slotId != null
         ? [v.slotById(slotId)].whereType<KeySlot>().toList()
@@ -176,7 +186,7 @@ class VaultSecretStore implements SecretStore {
     await _schreibe(neu);
     _offen = entropie;
 
-    if (alt == null) {
+    if (alt == null || alt.isEmpty) {
       // Der Punkt ohne Rueckweg — ab jetzt gibt es die Entropie nur noch im
       // Fach. Nach dem Schreiben, damit ein Absturz dazwischen sie nicht
       // vernichtet.
@@ -192,7 +202,7 @@ class VaultSecretStore implements SecretStore {
   /// sonst waere die Sperre mit einem Fingertipp abzuschalten.
   Future<void> entferne(String slotId, {UnlockFactor? faktor}) async {
     final v = await faecher();
-    if (v == null) throw StateError('Es gibt keine Faecher');
+    if (v == null || v.isEmpty) throw StateError('Es gibt keine Faecher');
     final slot = v.slotById(slotId);
     if (slot == null) throw ArgumentError('kein Fach mit der Kennung $slotId');
 
@@ -202,14 +212,19 @@ class VaultSecretStore implements SecretStore {
     }
 
     if (v.slots.length == 1) {
-      // ERST zurueckschreiben, dann die Fachdatei entfernen.
+      // ERST zurueckschreiben, dann das Fach entfernen. Andersherum waere die
+      // Entropie bei einem Absturz dazwischen weg.
       await basis.write(entropie);
-      try {
-        if (datei.existsSync()) datei.deleteSync();
-      } catch (e) {
-        throw StorageException('Fachdatei nicht loeschbar (${e.runtimeType})');
-      }
-      _faecher = null;
+      // Die Datei bleibt LIEGEN, nur ohne Faecher: darin stehen auch die
+      // Sperrfrist und der Empfangstakt. Sie mitzuloeschen hiesse, dem Nutzer
+      // still zwei Einstellungen zurueckzusetzen, weil er einen Faktor
+      // entfernt hat.
+      await _schreibe(KeyVault(
+        version: v.version,
+        slots: const [],
+        sperrfristSekunden: v.sperrfristSekunden,
+        empfangsTaktMinuten: v.empfangsTaktMinuten,
+      ));
     } else {
       await _schreibe(v.ohneSlot(slotId));
     }
@@ -231,6 +246,21 @@ class VaultSecretStore implements SecretStore {
     if (v == null) throw StateError('Es gibt keine Faecher');
     if (!istOffen) throw const LockedException();
     await _schreibe(v.mitSperrfrist(sekunden));
+  }
+
+  /// Wie oft im Hintergrund nach Nachrichten gesehen wird.
+  ///
+  /// Liegt aus demselben Grund hier wie die Sperrfrist: die Einstellungen
+  /// stehen in der verschluesselten Datenbank, und die ist beim Sperren zu.
+  /// Ohne Faecher ist die Datei leer — dann gibt es auch keine Sperre, und der
+  /// Takt wird beim ersten Faktor mitgeschrieben.
+  Future<void> setzeEmpfangsTakt(int minuten) async {
+    final v = await faecher();
+    if (v == null) {
+      await _schreibe(const KeyVault(slots: []).mitEmpfangsTakt(minuten));
+      return;
+    }
+    await _schreibe(v.mitEmpfangsTakt(minuten));
   }
 
   /// Benennt ein Fach um. Aendert nichts an seinem Inhalt.

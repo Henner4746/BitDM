@@ -60,6 +60,25 @@ class MainActivity : FlutterFragmentActivity() {
             flutterEngine.dartExecutor.binaryMessenger, SchluesselfachKanal.KANAL)
             .setMethodCallHandler(SchluesselfachKanal(this))
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EmpfangsDienst.KANAL)
+            .setMethodCallHandler { aufruf, ergebnis ->
+                when (aufruf.method) {
+                    "starte" -> {
+                        EmpfangsDienst.starte(
+                            applicationContext,
+                            aufruf.argument<String>("titel") ?: "BitDM",
+                            aufruf.argument<String>("text") ?: "",
+                        )
+                        ergebnis.success(true)
+                    }
+                    "stoppe" -> {
+                        EmpfangsDienst.stoppe(applicationContext)
+                        ergebnis.success(true)
+                    }
+                    else -> ergebnis.notImplemented()
+                }
+            }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, kanal)
             .setMethodCallHandler { aufruf, ergebnis ->
                 when (aufruf.method) {
