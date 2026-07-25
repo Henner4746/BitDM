@@ -853,7 +853,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       _ => false,
     };
     final mark = on ? '✓' : '·';
-    final right = statusMode ? (on ? t('on2') : t('offMethod')) : (on ? t('remove') : t('add'));
+    // Bei "passkey" und "totp" stand hier "EINRICHTEN" — fuer etwas, das sich
+    // nicht einrichten laesst. Genau die Sorte Zusage, wegen der jemand sein
+    // Telefon aus der Hand gibt. Jetzt steht dort, was das Antippen wirklich
+    // bringt: eine Erklaerung.
+    final echt = key == 'bio' || key == 'hw';
+    final right = !echt
+        ? t('whyNot')
+        : statusMode
+            ? (on ? t('on2') : t('offMethod'))
+            : (on ? t('remove') : t('add'));
     return GestureDetector(
       onTap: () => methodAct(key),
       child: Container(
