@@ -409,6 +409,9 @@ class ChatRepository {
       messageLifetime:
           (dauer == null || dauer <= 0) ? null : Duration(seconds: dauer),
       blockScreenshots: lies('block_screenshots') != '0',
+      // Ab Werk AUS. Ein Messenger, der beim ersten Start nichts zustellt,
+      // waere kaputt und nicht vorsichtig.
+      nurNahbereich: lies('nur_nahbereich') == '1',
     );
   }
 
@@ -421,6 +424,7 @@ class ChatRepository {
       setze('read_receipts', p.readReceipts ? '1' : '0');
       setze('lifetime_seconds', '${p.messageLifetime?.inSeconds ?? 0}');
       setze('block_screenshots', p.blockScreenshots ? '1' : '0');
+      setze('nur_nahbereich', p.nurNahbereich ? '1' : '0');
     });
   }
 

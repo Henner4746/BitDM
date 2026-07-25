@@ -105,9 +105,24 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
 
-        // Noetig fuer flutter_local_notifications: es benutzt java.time, und
-        // das gibt es erst ab Android 8. Bei minSdk 24 muss der Compiler die
-        // Aufrufe umschreiben.
+        // MUSS STEHEN BLEIBEN, obwohl es seit minSdk 28 nichts mehr TUT.
+        //
+        // Der urspruengliche Grund ist weg: java.time gibt es ab Android 8
+        // nativ, und flutter_local_notifications benutzt genau vier Klassen
+        // daraus. Bei minSdk 28 schreibt der Compiler also nichts mehr um.
+        //
+        // Trotzdem darf die Zeile NICHT weg, und der Grund hat mit minSdk
+        // nichts zu tun: flutter_local_notifications setzt in seinem eigenen
+        // build.gradle coreLibraryDesugaringEnabled true, und AGP schreibt das
+        // in die AAR-Metadaten des Pakets. CheckAarMetadataWorkAction prueft
+        // beim Bauen, ob die App es AUCH gesetzt hat, und bricht sonst ab mit
+        // "requires core library desugaring to be enabled". In der Bedingung
+        // steht kein minSdk.
+        //
+        // Wer also nur diesen Kommentar liest und die Zeile fuer erledigt
+        // haelt, bricht den Bau — mit einer Meldung, die niemand mit minSdk in
+        // Verbindung bringt. Sie faellt erst weg, wenn
+        // flutter_local_notifications wegfaellt.
         //
         // Reine Uebersetzungshilfe des Android-Werkzeugkastens, kein Dienst
         // und keine Verbindung nach draussen — der Google-freie Anspruch
@@ -120,7 +135,26 @@ android {
         applicationId = "com.bitdm.bitdm"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // ANDROID 9 (API 28), NICHT Flutters Standard 24.
+        //
+        // Angehoben am 26.07.2026, und zwar wegen der App-Sperre. Was damit
+        // fuer JEDE Installation gilt statt nur fuer die meisten:
+        //
+        //   ab 26  Vordergrunddienst und Benachrichtigungskanaele ohne
+        //          Versionsweiche (startForegroundService, NotificationChannel)
+        //   ab 28  setUnlockedDeviceRequired: der Fachschluessel ist NUR bei
+        //          entsperrtem Geraet benutzbar. Das ist der Grund fuer 28
+        //          statt 26 — bei einer App, deren ganzer Sinn dieser
+        //          Schluessel ist, war das die letzte Zusicherung, die noch
+        //          von der Android-Fassung abhing.
+        //
+        // WAS AUCH BEI 28 NOCH ABHAENGT und deshalb weiter abgefragt wird:
+        // setUserAuthenticationParameters und DEVICE_CREDENTIAL allein gibt es
+        // erst ab 30, FLAG_MUTABLE ab 31. Diese Weichen bleiben stehen.
+        //
+        // Kein Plugin steht dem im Weg — der hoechste Wert unter allen
+        // eingebundenen ist 24.
+        minSdk = 28
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

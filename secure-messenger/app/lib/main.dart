@@ -19,7 +19,6 @@ import 'core/lock/key_vault.dart';
 import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
-import 'core/dateien.dart';
 import 'bewegung.dart';
 import 'masse.dart';
 import 'core/crypto/wordlist_english.dart';
@@ -1777,6 +1776,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final hints = <String>[];
     if (st.einstellungen.blockScreenshots) hints.add(t("hintShot"));
     hints.add(t("hintEnc"));
+    // ZUERST in der Zeile, weil es das Wichtigste ist: was hier geschrieben
+    // wird, geht gerade nirgendwo hin. Wer das nicht sieht, haelt eine
+    // liegengebliebene Nachricht fuer zugestellt.
+    if (st.einstellungen.nurNahbereich) hints.insert(0, t("nearOnlyWaiting"));
     if (st.einstellungen.messageLifetime != null) {
       hints.add(t("hintEph") + ephLabel());
     }
@@ -1918,20 +1921,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// begrenzte Zahl. Nach ein paar abgebrochenen Versuchen ginge gar nichts
   /// mehr, und niemand wuesste warum.
   Future<void> anhangWaehlen(String cid) async {
-    final gewaehlt = await Dateien.waehlen();
+    final gewaehlt = await st.dateien.waehlen();
     if (gewaehlt == null) return;
     try {
       await st.anhangSenden(cid, gewaehlt.datei,
           name: gewaehlt.name, groesse: gewaehlt.groesse);
     } finally {
-      await Dateien.gibFrei(gewaehlt.zettel);
+      await st.dateien.gibFrei(gewaehlt.zettel);
     }
   }
 
   Future<void> oeffneAnhang(AnhangEintrag a) async {
     final pfad = a.pfad;
     if (pfad == null) return;
-    final ging = await Dateien.oeffne(pfad, name: a.name);
+    final ging = await st.dateien.oeffne(pfad, name: a.name);
     if (!ging && mounted) {
       // Keine App auf dem Geraet kann diese Art Datei oeffnen. Das ist keine
       // Panne, sondern eine Auskunft — und sie gehoert dorthin, wo der Nutzer
@@ -1956,6 +1959,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (f == 'anhangNetz' || f == 'anhangFehler') return t('attachNet');
     if (f == 'anhangLaeuft') return t('attachBusy');
     if (f == 'anhangKeineApp') return t('attachNoApp');
+    if (f == 'nurNahbereich') return t('nearOnlyNoAttach');
     if (f.startsWith('anhangZuGross:')) return t('attachTooBig');
     return null;
   }
@@ -2346,6 +2350,37 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         toggleRow(t("readReceipts"), t("readReceiptsSub"), st.einstellungen.readReceipts,
             () => st.setzeEinstellungen(st.einstellungen.copyWith(
                 readReceipts: !st.einstellungen.readReceipts))),
+        const SizedBox(height: 3),
+
+        // NUR IN DER NAEHE.
+        //
+        // Der Schalter steht hier bei der Sicherheit und nicht bei der
+        // Verbindung, weil das der Grund ist, aus dem man ihn umlegt: er
+        // sorgt dafuer, dass die App KEINEN Server anspricht. Was er heute
+        // noch NICHT kann — Nachrichten ueber die Naehe zustellen —, steht
+        // ausdruecklich darunter, sobald er an ist. Ein Schalter, der
+        // stillschweigend nichts zustellt, waere schlimmer als keiner.
+        toggleRow(t("nearOnly"), t("nearOnlySub"), st.einstellungen.nurNahbereich,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(
+                nurNahbereich: !st.einstellungen.nurNahbereich))),
+        if (st.einstellungen.nurNahbereich) ...[
+          const SizedBox(height: 3),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(Masse.innen),
+            decoration: BoxDecoration(
+                color: p.tint,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: p.tintLine)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(t('nearOnlyNow').toUpperCase(),
+                  style: mono(size: 10, weight: FontWeight.w600, color: p.tintInk, spacing: 1.1)),
+              const SizedBox(height: Masse.eng),
+              Text(t('nearOnlyWarn'),
+                  style: mono(size: 11.5, color: p.tintInk, height: 1.55)),
+            ]),
+          ),
+        ],
         const SizedBox(height: 3),
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('selfDestruct'), t('selfDestructSub')),

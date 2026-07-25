@@ -246,6 +246,20 @@ const Map<String, Map<String, String>> strings = {
     'attachNote': 'Files travel encrypted, in pieces, and are deleted after 14 days.',
     'attachNoApp': 'No app on this device can open that kind of file.',
 
+    // ---- Nur in der Naehe ----
+    // Der Text sagt zuerst, was der Schalter WIRKLICH tut (kein Server), und
+    // erst dann, was er noch nicht kann. Umgekehrt haette niemand den Grund
+    // verstanden, aus dem man ihn umlegt.
+    'nearOnly': 'Nearby only',
+    'nearOnlySub': 'BitDM contacts no server at all — not even to connect.',
+    'nearOnlyNow': 'What that means right now',
+    'nearOnlyWarn': 'Nothing leaves this phone. Messages you write stay put and go '
+        'out the moment you switch this off again. '
+        'Delivery over Bluetooth is NOT built yet, so nothing arrives at the other '
+        'end either. Attachments are impossible — they need the storage server.',
+    'nearOnlyNoAttach': 'Not while “nearby only” is on — an attachment needs the storage server.',
+    'nearOnlyWaiting': 'Nearby only · messages are waiting',
+
     'hintShot': 'Screenshot protection on', 'hintEnc': 'End-to-end encrypted', 'hintEph': 'Messages delete after ',
   },
   'de': {
@@ -394,6 +408,18 @@ const Map<String, Map<String, String>> strings = {
     'attachBusy': 'Eine Datei nach der anderen — warte, bis die aktuelle durch ist.',
     'attachNote': 'Dateien reisen verschlüsselt, in Stücken, und werden nach 14 Tagen gelöscht.',
     'attachNoApp': 'Keine App auf diesem Gerät kann diese Art Datei öffnen.',
+
+    // ---- Nur in der Naehe ----
+    'nearOnly': 'Nur in der Nähe',
+    'nearOnlySub': 'BitDM spricht überhaupt keinen Server an — auch nicht zum Verbinden.',
+    'nearOnlyNow': 'Was das gerade heißt',
+    'nearOnlyWarn': 'Nichts verlässt dieses Telefon. Was du schreibst, bleibt liegen '
+        'und geht raus, sobald du das hier wieder ausschaltest. '
+        'Die Zustellung über Bluetooth ist NOCH NICHT gebaut — es kommt also auch '
+        'beim Gegenüber nichts an. Anhänge gehen gar nicht, die brauchen den '
+        'Speicherserver.',
+    'nearOnlyNoAttach': 'Nicht solange „nur in der Nähe“ an ist — ein Anhang braucht den Speicherserver.',
+    'nearOnlyWaiting': 'Nur in der Nähe · Nachrichten warten',
 
     'hintShot': 'Screenshot-Schutz aktiv', 'hintEnc': 'Ende-zu-Ende verschlüsselt', 'hintEph': 'Nachrichten löschen sich nach ',
   },

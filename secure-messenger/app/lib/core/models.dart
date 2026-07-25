@@ -228,10 +228,28 @@ class AppPreferences {
   /// Ask Android to keep this app out of screenshots and the recents preview.
   final bool blockScreenshots;
 
+  /// Nur ueber die Naehe. KEIN Server, auch nicht zum Verbinden.
+  ///
+  /// Was dieser Schalter WIRKLICH TUT, und das ist der ganze Punkt: die App
+  /// baut gar keine Verbindung zum Relay auf. Kein Anmelden, kein Abholen,
+  /// kein Anstoss-Endpunkt, kein Zwischenlager. Auf der Leitung ist nichts
+  /// zu sehen, weil nichts gesendet wird.
+  ///
+  /// WAS ER (NOCH) NICHT TUT: Nachrichten ueber die Naehe zustellen. Dieser
+  /// Weg — BLE finden, Wi-Fi Direct uebertragen — ist noch nicht gebaut
+  /// (siehe docs/NAHBEREICH.md). Solange bleiben Nachrichten LIEGEN, und die
+  /// Oberflaeche sagt das auch. Ein Schalter, der still nichts zustellt,
+  /// waere schlimmer als keiner.
+  ///
+  /// Ausdruecklich KEIN Flugmodus-Ersatz: andere Apps sind davon unberuehrt.
+  /// Dieser Schalter spricht nur fuer BitDM.
+  final bool nurNahbereich;
+
   const AppPreferences({
     this.readReceipts = true,
     this.messageLifetime,
     this.blockScreenshots = true,
+    this.nurNahbereich = false,
   });
 
   AppPreferences copyWith({
@@ -239,12 +257,14 @@ class AppPreferences {
     Duration? messageLifetime,
     bool loescheLebensdauer = false,
     bool? blockScreenshots,
+    bool? nurNahbereich,
   }) =>
       AppPreferences(
         readReceipts: readReceipts ?? this.readReceipts,
         messageLifetime:
             loescheLebensdauer ? null : (messageLifetime ?? this.messageLifetime),
         blockScreenshots: blockScreenshots ?? this.blockScreenshots,
+        nurNahbereich: nurNahbereich ?? this.nurNahbereich,
       );
 }
 

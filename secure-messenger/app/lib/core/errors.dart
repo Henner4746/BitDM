@@ -59,3 +59,15 @@ class StorageException extends MessengerException {
 class CryptoException extends MessengerException {
   const CryptoException(super.message, [super.cause]);
 }
+
+/// Der Nutzer hat "nur in der Naehe" eingeschaltet, und diese Sache braucht
+/// einen Server.
+///
+/// EIGENE AUSNAHME und kein RelayException: die Oberflaeche muss darauf etwas
+/// anderes sagen. "Keine Verbindung — versuch es noch einmal" waere hier
+/// falsch; es liegt nicht am Netz, sondern an einer Entscheidung, die der
+/// Nutzer selbst getroffen hat und selbst zuruecknehmen kann.
+class NurNahbereichException extends MessengerException {
+  const NurNahbereichException()
+      : super('nur in der Naehe: dafuer braeuchte es einen Server');
+}

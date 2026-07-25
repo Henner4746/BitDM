@@ -60,6 +60,45 @@ class GewaehlteDatei {
   File get datei => File(pfad);
 }
 
+/// Woher eine Datei kommt und wohin eine geht.
+///
+/// EINE SCHNITTSTELLE UND KEINE STATISCHE KLASSE, damit sich das Ganze
+/// austauschen laesst. Der Grund ist das Testen ohne Menschen:
+///
+/// Der Auswahldialog gehoert ANDROID, nicht BitDM. Ihn in einem Testlauf per
+/// uiautomator nachzuklicken hiesse, gegen eine fremde Oberflaeche zu testen,
+/// die sich mit jeder Android-Fassung und jedem Hersteller aendert — und
+/// wenn sie sich aendert, wird der Test rot, ohne dass an BitDM etwas kaputt
+/// ist. Das ist die schlechteste Sorte Test: einer, der aus dem falschen
+/// Grund ausschlaegt.
+///
+/// Was BitDM gehoert, faengt DAHINTER an: bei "der Nutzer hat eine Datei mit
+/// diesem Pfad, diesem Namen und dieser Groesse gewaehlt". Genau das laesst
+/// sich hier einsetzen, und dann laeuft der ganze Anhang-Weg auf einem
+/// Emulator durch, ohne dass jemand tippt.
+///
+/// Der Dialog selbst wird EINMAL von Hand geprueft, nicht bei jedem Lauf.
+abstract class DateiWahl {
+  const DateiWahl();
+
+  Future<GewaehlteDatei?> waehlen();
+  Future<void> gibFrei(String zettel);
+  Future<bool> oeffne(String pfad, {String? name});
+}
+
+/// Die echte, ueber den Kanal in DateiKanal.kt.
+class SystemDateiWahl extends DateiWahl {
+  const SystemDateiWahl();
+
+  @override
+  Future<GewaehlteDatei?> waehlen() => Dateien.waehlen();
+  @override
+  Future<void> gibFrei(String zettel) => Dateien.gibFrei(zettel);
+  @override
+  Future<bool> oeffne(String pfad, {String? name}) =>
+      Dateien.oeffne(pfad, name: name);
+}
+
 class Dateien {
   static const _kanal = MethodChannel('bitdm/dateien');
 

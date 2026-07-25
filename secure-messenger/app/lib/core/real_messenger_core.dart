@@ -228,6 +228,23 @@ class RealMessengerCore implements MessengerCore {
   Future<void> connect() async {
     final store = _store;
     if (store == null) throw const NotInitializedException();
+
+    // NUR IN DER NAEHE: hier ist Schluss, und zwar VOR dem ersten Byte.
+    //
+    // Nicht "verbinden und dann nichts senden" — dann staende die Adresse
+    // schon in der Verbindungsliste des Relays, und beim Anmelden waere eine
+    // Signatur ueber die Leitung gegangen. Der Schalter verspricht, dass
+    // NICHTS an einen Server geht; das laesst sich nur einhalten, indem man
+    // gar nicht erst anfaengt.
+    //
+    // Die Verbindung bleibt auf "getrennt" und nicht auf "Fehler": es ist
+    // kein Fehler, sondern eine Entscheidung des Nutzers.
+    if (_prefs.nurNahbereich) {
+      await _raeumeVerbindungAb();
+      _setzeVerbindung(ConnectionState.disconnected);
+      return;
+    }
+
     if (_conn == ConnectionState.online ||
         _conn == ConnectionState.connecting) {
       return;
@@ -708,6 +725,16 @@ class RealMessengerCore implements MessengerCore {
   Future<Message> sendeAnhang(String contactId, File datei,
       {String? name, int? groesse}) async {
     _fordereKontakt(contactId);
+
+    // EIN ANHANG BRAUCHT DEN SERVER, und zwar zweimal: der Relay stellt die
+    // Marke aus, das Lager nimmt die Stuecke. Beides faellt weg, wenn nur
+    // ueber die Naehe gehen soll. Das ist kein Netzfehler, sondern eine Folge
+    // der Einstellung — und die Oberflaeche muss etwas anderes dazu sagen als
+    // "versuch es noch einmal".
+    if (_prefs.nurNahbereich) {
+      throw const NurNahbereichException();
+    }
+
     final relay = _relay;
     if (relay == null || !relay.isConnected) {
       throw const RelayException('nicht verbunden');
@@ -856,12 +883,23 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<void> setPreferences(AppPreferences prefs) async {
     if (_chats == null) throw const NotInitializedException();
+    final vorher = _prefs.nurNahbereich;
     _prefs = prefs;
     _chats!.speichereEinstellungen(prefs);
     // Eine geaenderte Lebensdauer wirkt NUR auf Neues. Bestehende Nachrichten
     // behalten ihren Verfall — sonst wuerde Ausschalten Geglaubt-Geloeschtes
     // wieder auftauchen lassen und Einschalten stillschweigend Verlauf
     // vernichten.
+
+    // SOFORT, NICHT BEIM NAECHSTEN START. Wer den Schalter umlegt, erwartet,
+    // dass ab jetzt nichts mehr rausgeht — nicht ab dem naechsten Mal, wenn
+    // er die App oeffnet. Eine offene Verbindung stehen zu lassen waere genau
+    // die Sorte Halbwahrheit, gegen die dieser Schalter gebaut ist.
+    if (prefs.nurNahbereich && !vorher) {
+      await disconnect();
+    } else if (!prefs.nurNahbereich && vorher) {
+      await connect();
+    }
   }
 
   @override

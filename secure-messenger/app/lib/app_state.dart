@@ -21,6 +21,7 @@ import 'core/anhang/anhang_versand.dart';
 import 'core/anhang/lager_client.dart';
 import 'core/app_lock.dart';
 import 'core/benachrichtigungen.dart';
+import 'core/dateien.dart';
 import 'core/empfang.dart';
 import 'core/fenster.dart';
 import 'core/fido/client_pin.dart';
@@ -37,7 +38,17 @@ import 'core/push.dart';
 import 'core/messenger_core.dart';
 
 class AppState extends ChangeNotifier {
-  AppState(this.core, {this.tresor, this.stickZugang, this.ablagen});
+  AppState(this.core,
+      {this.tresor,
+      this.stickZugang,
+      this.ablagen,
+      this.dateien = const SystemDateiWahl()});
+
+  /// Woher eine Datei kommt und wohin eine geht.
+  ///
+  /// Hereinreichbar, damit der Anhang-Weg OHNE Menschen pruefbar ist: der
+  /// Auswahldialog gehoert Android, nicht BitDM. Siehe core/dateien.dart.
+  final DateiWahl dateien;
 
   /// Woher der gesicherte Bereich des Geraets kommt, je Faktorart.
   ///
@@ -684,6 +695,11 @@ class AppState extends ChangeNotifier {
 
   void _planeWiederverbindung() {
     if (!_imVordergrund || _wiederverbindung != null) return;
+    // Kein Wiederverbinden gegen den Willen des Nutzers. Ohne diese Zeile
+    // versuchte der Zeitgeber im Hintergrund weiter, sich zu verbinden — der
+    // Kern lehnte jedes Mal ab, aber es waere ein Wecker, der alle paar
+    // Sekunden gegen eine verschlossene Tuer laeuft.
+    if (einstellungen.nurNahbereich) return;
 
     // Verdoppeln mit Zufallsanteil. Der Zufall ist nicht Zierrat: ohne ihn
     // kaemen nach einem Ausfall des Relays alle Clients gleichzeitig zurueck
@@ -940,6 +956,7 @@ class AppState extends ChangeNotifier {
   /// technisch, und im Fall des Lagers traegt sie eine Kennung — also etwas,
   /// das in keiner Bildschirmaufnahme stehen soll.
   static String _anhangFehler(Object e) {
+    if (e is NurNahbereichException) return 'nurNahbereich';
     final t = e.toString();
     if (t.contains('Tagesmenge')) return 'tagesmenge';
     if (e is AnhangKaputt) return 'anhangKaputt';

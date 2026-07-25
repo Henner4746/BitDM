@@ -113,6 +113,35 @@ class SchluesselfachKanal(private val activity: FragmentActivity) :
         val manager = BiometricManager.from(activity)
         val erlaubt = authenticatoren(art)
         val stand = manager.canAuthenticate(erlaubt)
+
+        // EINE ZUSAGE, DIE UNTER ANDROID 11 NICHT EINZUHALTEN WAERE.
+        //
+        // Gefunden am 26.07.2026 beim Nachrechnen der minSdk-Anhebung. Auf
+        // 28 und 29 meldet canAuthenticate() fuer die Geraetesperre
+        // BIOMETRIC_SUCCESS, sobald Fingerabdruck UND Bildschirmsperre
+        // eingerichtet sind — denn dort muss BIOMETRIC_STRONG mit abgefragt
+        // werden, DEVICE_CREDENTIAL allein gibt es erst ab 30.
+        //
+        // Der Schluessel selbst wird auf 28/29 aber mit
+        // setUserAuthenticationValidityDurationSeconds(-1) angelegt, und ein
+        // solcher Schluessel laesst sich dort AUSSCHLIESSLICH mit Biometrie
+        // entsperren, nie mit der PIN. Die App boete also eine Anmeldeart an,
+        // die zusagt zu funktionieren und dann wirft.
+        //
+        // Lieber hier ehrlich nein sagen als spaeter unerklaerlich scheitern.
+        if (art == ART_GERAETESPERRE &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.R &&
+            stand == BiometricManager.BIOMETRIC_SUCCESS
+        ) {
+            return mapOf(
+                "ok" to false,
+                "code" to BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED,
+                "grund" to "Erst ab Android 11. Davor laesst sich ein Fach, " +
+                    "das bei jeder Benutzung nachfragt, nur mit dem " +
+                    "Fingerabdruck oeffnen — nicht mit der PIN.",
+            )
+        }
+
         return mapOf(
             "ok" to (stand == BiometricManager.BIOMETRIC_SUCCESS),
             "code" to stand,
@@ -196,9 +225,11 @@ class SchluesselfachKanal(private val activity: FragmentActivity) :
             bauer.setInvalidatedByBiometricEnrollment(true)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            bauer.setUnlockedDeviceRequired(true)
-        }
+        // OHNE ABFRAGE, seit minSdk 28 (siehe build.gradle.kts). Das war der
+        // Grund fuer die Anhebung von 24: der Fachschluessel ist nur bei
+        // ENTSPERRTEM Geraet benutzbar, und diese Zusicherung gilt jetzt fuer
+        // jede Installation statt fuer die meisten.
+        bauer.setUnlockedDeviceRequired(true)
 
         val erzeuger = KeyGenerator.getInstance(
             KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
