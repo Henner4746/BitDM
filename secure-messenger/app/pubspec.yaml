@@ -33,6 +33,19 @@ environment:
 # Warum nicht SQLCipher: package:sqlite3 unterstuetzt zwar `source: sqlcipher`,
 # aber der Autor raet fuer neue Projekte zu sqlite3mc. sqlite3mc kann bestehende
 # SQLCipher-Dateien lesen, umgekehrt nicht — die Wahl haelt also mehr offen.
+#
+# OFFEN FUER F-DROID: In dieser Form LAEDT der Hook beim Bauen eine fertige
+# libsqlite3mc.so von den GitHub-Releases von package:sqlite3 herunter, statt
+# sie zu uebersetzen. Der Reproduzierbarkeit schadet das nicht — die Datei wird
+# gegen einen SHA-256-Wert geprueft, der in der gepinnten Paketfassung steht,
+# und bei Abweichung bricht der Bau ab. Aber es ist eine Bibliothek, die BitDM
+# nicht selbst gebaut hat, und F-Droid baut grundsaetzlich aus Quelltext.
+#
+# Ausweg, wenn es soweit ist: die Amalgamation von SQLite3MultipleCiphers
+# (eine einzelne .c-Datei) ins Repo legen und hier auf
+#   source: source
+#   path: third_party/sqlite3mc_amalgamation.c
+# umstellen. Das aendert an keiner Zeile Dart-Code etwas.
 hooks:
   user_defines:
     sqlite3:
