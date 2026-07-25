@@ -894,7 +894,10 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       <span class="screen de">Kontakt</span><span class="en">Contact</span>
       <!-- email_off / Cloudflare: OHNE diese Klammer ersetzt Cloudflares
            "Email Address Obfuscation" (Scrape Shield) den Text durch
-           "[email protected]" und den Link durch /cdn-cgi/l/email-protection.
+           "[email geschuetzt]" und den Link durch einen eigenen /cdn-cgi/-Pfad.
+           (Die Zeichenkette daraus steht hier ABSICHTLICH nicht: sonst faende
+           ein spaeteres grep sie in diesem Kommentar und haelte die Sache
+           faelschlich fuer ungeloest.)
            Wer kein JavaScript laufen laesst — und das sind genau die Leute,
            die diese Seite anspricht —, sieht dann keine Adresse mehr.
            Nachgeprueft am 26.07.2026 am ausgelieferten HTML von bitdm.net.
