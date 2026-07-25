@@ -1,0 +1,254 @@
+// vault_store.dart — die Entropie, verteilt auf Schluesselfaecher.
+//
+// WAS SICH GEGENUEBER app_lock.dart AENDERT
+// Bisher lag die Entropie direkt im Schluesselspeicher des Geraets, entweder
+// mit oder ohne Anmeldezwang. Das traegt genau einen Faktor. Sobald ein
+// zweiter dazukommt, geht es nicht mehr: die Entropie laege an zwei Stellen,
+// und die schwaechere entscheidet. Ein Hardware-Stick waere wertlos, wenn
+// dieselbe Entropie daneben ohne ihn zu haben ist.
+//
+// Hier liegt sie deshalb NUR verschluesselt, in je einem Fach pro Faktor. Kein
+// Fach oeffnet ein anderes, und es gibt kein Hauptpasswort. Wer keinen Faktor
+// hat, hat kein Geheimnis, sondern Rauschen.
+//
+// DER UEBERGANG IST DIE HEIKLE STELLE
+// Solange es kein Fach gibt, bleibt alles wie bisher — die Entropie liegt im
+// Schluesselspeicher, die App oeffnet ohne Rueckfrage. Erst mit dem ERSTEN
+// Fach wandert sie dorthin und wird aus dem Schluesselspeicher entfernt. Mit
+// dem LETZTEN Fach wandert sie zurueck. Beide Wege sind so gebaut, dass ein
+// Absturz mittendrin die Entropie nicht verliert: erst schreiben, dann
+// loeschen. Ein Rest an der alten Stelle ist reparabel, ein fehlender nicht.
+//
+// WARUM read() SPERRT STATT ZU FRAGEN
+// Ein Schluesselspeicher kann keine Oberflaeche zeigen — er weiss nicht, ob
+// gerade ein Stick anliegt oder welche PIN der Nutzer eingeben will. Deshalb
+// wirft [read] eine [LockedException], solange nicht entsperrt wurde, und die
+// Oberflaeche entscheidet, mit welchem Faktor sie es versucht. Genau diesen
+// Ablauf gibt es schon: die App kennt den Zustand "es gibt eine Identitaet,
+// sie ist nur nicht zu haben".
+
+import 'dart:io';
+import 'dart:typed_data';
+
+import '../app_lock.dart';
+import '../errors.dart';
+import '../secret_store.dart';
+import 'key_vault.dart';
+import 'keystore_factor.dart';
+import 'unlock_factor.dart';
+
+class VaultSecretStore implements SecretStore {
+  VaultSecretStore({
+    required this.datei,
+    required this.basis,
+    required this.jetzt,
+  });
+
+  /// Die Fachdatei. Liegt UNVERSCHLUESSELT neben der Datenbank — sie muss
+  /// lesbar sein, bevor irgendetwas aufgeschlossen ist. Geheim ist nur die
+  /// Nutzlast in den Faechern.
+  final File datei;
+
+  /// Wo die Entropie liegt, solange es kein einziges Fach gibt.
+  final SecretStore basis;
+
+  /// Injizierbar, damit Tests keine echte Uhr brauchen.
+  final int Function() jetzt;
+
+  KeyVault? _faecher;
+  Uint8List? _offen;
+
+  /// Ob die Faecher schon eingelesen wurden.
+  bool _geladen = false;
+
+  /// Liest die Fachdatei, einmal je Sitzung.
+  Future<KeyVault?> faecher() async {
+    if (_geladen) return _faecher;
+    _geladen = true;
+    if (!datei.existsSync()) return _faecher = null;
+    try {
+      final v = KeyVault.fromJsonString(await datei.readAsString());
+      return _faecher = v.isEmpty ? null : v;
+    } on VaultFormatException {
+      rethrow;
+    } catch (e) {
+      throw VaultFormatException('Fachdatei nicht lesbar (${e.runtimeType})');
+    }
+  }
+
+  /// Ob die App ueberhaupt gesperrt ist.
+  Future<bool> hatFaecher() async => (await faecher()) != null;
+
+  /// Ob gerade offen. Nach einem Neustart wieder false.
+  bool get istOffen => _offen != null;
+
+  @override
+  Future<Uint8List?> read() async {
+    final v = await faecher();
+    if (v == null) return basis.read();
+    final o = _offen;
+    if (o == null) throw const LockedException();
+    return o;
+  }
+
+  @override
+  Future<void> write(Uint8List entropy) async {
+    if (entropy.length != 16) {
+      throw ArgumentError('Entropie muss 16 Bytes haben, hat ${entropy.length}');
+    }
+    final v = await faecher();
+    if (v != null) {
+      // Neue Entropie bei bestehenden Faechern hiesse: JEDES Fach neu
+      // versiegeln, also jeden Faktor vorlegen. Das passiert im Ablauf der App
+      // nie — eine Identitaet entsteht genau einmal, vor der ersten Sperre.
+      // Lieber ein klarer Fehler als ein Tresor, in dem die Haelfte der
+      // Faecher auf eine alte Identitaet zeigt.
+      throw StateError('Es gibt bereits Faecher — erst alle Faktoren '
+          'entfernen, dann eine neue Identitaet anlegen');
+    }
+    await basis.write(entropy);
+  }
+
+  @override
+  Future<void> delete() async {
+    _offen = null;
+    // ERST die Faecher, dann die Basis: bei einem Abbruch dazwischen bleibt
+    // eine unlesbare Fachdatei zurueck, keine lesbare Entropie.
+    try {
+      if (datei.existsSync()) datei.deleteSync();
+    } catch (_) {}
+    _faecher = null;
+    _geladen = true;
+    await basis.delete();
+  }
+
+  /// Oeffnet den Tresor mit einem Faktor.
+  ///
+  /// Wirft weiter, was der Faktor wirft — bei einem Stick sind die Gruende
+  /// sichtbar, bei einem Passwort nicht. Siehe hardware_key_factor.dart.
+  Future<Uint8List> entsperreMit(UnlockFactor faktor, {String? slotId}) async {
+    final v = await faecher();
+    if (v == null) throw StateError('Es gibt keine Faecher zu oeffnen');
+
+    final passende = slotId != null
+        ? [v.slotById(slotId)].whereType<KeySlot>().toList()
+        : v.slotsOf(faktor.kind);
+    if (passende.isEmpty) {
+      throw const UnlockFailedException();
+    }
+
+    // Mehrere Faecher derselben Sorte kommen vor: zwei Sticks, oder ein Stick
+    // und ein Ersatzstick. Der Reihe nach probieren, statt den Nutzer waehlen
+    // zu lassen, welchen er gerade in der Hand haelt.
+    Object? letzter;
+    for (final slot in passende) {
+      try {
+        final entropie = await faktor.unlock(slot);
+        if (entropie.length != 16) {
+          throw const StorageException(
+              'Das Fach enthielt etwas anderes als eine Identitaet');
+        }
+        _offen = entropie;
+        return entropie;
+      } catch (e) {
+        letzter = e;
+      }
+    }
+    throw letzter ?? const UnlockFailedException();
+  }
+
+  /// Schliesst wieder ab, ohne etwas zu loeschen. Fuer die Bildschirmsperre.
+  void sperre() => _offen = null;
+
+  /// Nimmt einen Faktor auf.
+  ///
+  /// Beim ERSTEN Faktor wandert die Entropie aus dem Schluesselspeicher in das
+  /// Fach und wird dort entfernt. Ab da ist die App gesperrt.
+  Future<KeySlot> fuegeHinzu(UnlockFactor faktor) async {
+    final entropie = _offen ?? await basis.read();
+    if (entropie == null) {
+      throw StateError('Ohne Identitaet gibt es nichts zu verschliessen');
+    }
+
+    final slot = await faktor.createSlot(entropie, createdAt: jetzt());
+    final alt = await faecher();
+    final neu = (alt ?? const KeyVault(slots: [])).mitSlot(slot);
+    await _schreibe(neu);
+    _offen = entropie;
+
+    if (alt == null) {
+      // Der Punkt ohne Rueckweg — ab jetzt gibt es die Entropie nur noch im
+      // Fach. Nach dem Schreiben, damit ein Absturz dazwischen sie nicht
+      // vernichtet.
+      await basis.delete();
+    }
+    return slot;
+  }
+
+  /// Entfernt einen Faktor.
+  ///
+  /// Beim LETZTEN wandert die Entropie zurueck in den Schluesselspeicher — die
+  /// App ist dann wieder ungesperrt. Das verlangt, dass der Tresor offen ist:
+  /// sonst waere die Sperre mit einem Fingertipp abzuschalten.
+  Future<void> entferne(String slotId, {UnlockFactor? faktor}) async {
+    final v = await faecher();
+    if (v == null) throw StateError('Es gibt keine Faecher');
+    final slot = v.slotById(slotId);
+    if (slot == null) throw ArgumentError('kein Fach mit der Kennung $slotId');
+
+    final entropie = _offen;
+    if (entropie == null) {
+      throw const LockedException();
+    }
+
+    if (v.slots.length == 1) {
+      // ERST zurueckschreiben, dann die Fachdatei entfernen.
+      await basis.write(entropie);
+      try {
+        if (datei.existsSync()) datei.deleteSync();
+      } catch (e) {
+        throw StorageException('Fachdatei nicht loeschbar (${e.runtimeType})');
+      }
+      _faecher = null;
+    } else {
+      await _schreibe(v.ohneSlot(slotId));
+    }
+
+    if (faktor is KeystoreFactor) await faktor.entferne(slotId);
+  }
+
+  /// Benennt ein Fach um. Aendert nichts an seinem Inhalt.
+  Future<void> benenneUm(String slotId, String label) async {
+    final v = await faecher();
+    if (v == null) throw StateError('Es gibt keine Faecher');
+    final slot = v.slotById(slotId);
+    if (slot == null) throw ArgumentError('kein Fach mit der Kennung $slotId');
+    await _schreibe(KeyVault(
+      version: v.version,
+      slots: v.slots.map((s) => s.id == slotId ? s.mitLabel(label) : s).toList(),
+    ));
+  }
+
+  Future<void> _schreibe(KeyVault v) async {
+    // Ueber eine Nebendatei und dann umbenennen: ein Absturz mitten im
+    // Schreiben liesse sonst eine halbe Datei zurueck — und damit einen
+    // Tresor, den niemand mehr oeffnet.
+    final neben = File('${datei.path}.neu');
+    await neben.writeAsString(v.toJsonString(), flush: true);
+    await neben.rename(datei.path);
+    _faecher = v;
+    _geladen = true;
+  }
+
+  /// Zum Ablegen in Protokollen — ohne irgendetwas Geheimes.
+  @override
+  String toString() =>
+      'VaultSecretStore(${_faecher?.slots.length ?? 0} Faecher, '
+      '${_offen == null ? "zu" : "offen"})';
+}
+
+/// Der Name der Fachdatei neben der Datenbank.
+const String vaultDateiname = 'bitdm-faecher.json';
+
+File vaultDateiIn(String verzeichnis) =>
+    File('$verzeichnis${Platform.pathSeparator}$vaultDateiname');
