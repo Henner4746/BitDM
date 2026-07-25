@@ -42,6 +42,10 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, UsbHidKanal.KANAL)
+            .setMethodCallHandler(UsbHidKanal(applicationContext))
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, kanal)
             .setMethodCallHandler { aufruf, ergebnis ->
                 when (aufruf.method) {

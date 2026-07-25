@@ -1,11 +1,11 @@
-// fido_probe_screen.dart — was kann dieser Stick?
+﻿// fido_probe_screen.dart â€” was kann dieser Stick?
 //
 // Ob ein bestimmter Sicherheitsschluessel die Rechenfunktion hmac-secret
 // beherrscht, steht in keiner Produktbeschreibung verlaesslich. Die Erweiterung
 // ist in CTAP2 optional, und Hersteller werben nicht damit.
 //
 // Statt zu raten fragt dieser Bildschirm den Stick selbst. Er schickt genau
-// einen Befehl — authenticatorGetInfo —, der nichts anlegt, nichts aendert und
+// einen Befehl â€” authenticatorGetInfo â€”, der nichts anlegt, nichts aendert und
 // keine PIN verlangt. Danach steht fest, ob sich die App-Sperre auf diesen
 // Stick bauen laesst.
 
@@ -15,7 +15,10 @@ import 'package:flutter/material.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 import 'package:nfc_manager/nfc_manager_android.dart';
 
+import 'core/fido/ctap.dart';
+import 'core/fido/ctap_hid.dart';
 import 'core/fido/ctap_nfc.dart';
+import 'core/fido/usb_hid_geraet.dart';
 
 class FidoProbeScreen extends StatefulWidget {
   const FidoProbeScreen({
@@ -63,18 +66,44 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
       final iso = IsoDepAndroid.from(tag);
       if (iso == null) {
         throw const FormatException(
-            'Das ist kein Sicherheitsschluessel — die Karte spricht kein ISO-DEP.');
+            'Das ist kein Sicherheitsschluessel â€” die Karte spricht kein ISO-DEP.');
       }
 
-      final ctap = CtapNfc((Uint8List apdu) => iso.transceive(apdu));
-      await ctap.waehleAnwendung();
-      final info = await ctap.holeInfo();
+      final transport = CtapNfcTransport((Uint8List apdu) => iso.transceive(apdu));
+      await transport.verbinde();
+      final info = await Ctap2(transport).holeInfo();
 
       if (mounted) setState(() { _info = info; _fehler = null; });
     } catch (e) {
       if (mounted) setState(() { _fehler = '$e'; _info = null; });
     } finally {
       await NfcManager.instance.stopSession();
+      if (mounted) setState(() => _laeuft = false);
+    }
+  }
+
+  /// Denselben Test ueber ein eingestecktes Kabel.
+  ///
+  /// USB spricht CTAPHID statt ISO-7816 â€” voellig andere Verpackung, derselbe
+  /// Inhalt. Genau dafuer sitzt die Protokolllogik in ctap.dart und nicht in
+  /// den Transporten.
+  Future<void> _ueberUsb() async {
+    setState(() { _fehler = null; _info = null; _laeuft = true; });
+    try {
+      final sticks = await UsbHidGeraet.liste();
+      if (sticks.isEmpty) {
+        throw const FormatException(
+            'Kein Sicherheitsschluessel eingesteckt. Bei USB-C direkt anstecken — ueber einen Adapter erkennt Android ihn oft nicht.');
+      }
+      final geraet = await UsbHidGeraet.oeffne(name: sticks.first.name);
+      final transport = CtapHidTransport(geraet);
+      await transport.verbinde();
+      final info = await Ctap2(transport).holeInfo();
+      await transport.trenne();
+      if (mounted) setState(() { _info = info; _fehler = null; });
+    } catch (e) {
+      if (mounted) setState(() { _fehler = ''; _info = null; });
+    } finally {
       if (mounted) setState(() => _laeuft = false);
     }
   }
@@ -102,6 +131,20 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
             ),
 
             const SizedBox(height: 12),
+            GestureDetector(
+              onTap: _laeuft ? null : _ueberUsb,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: const Text('STATTDESSEN PER KABEL',
+                    style: TextStyle(color: Colors.white70, fontSize: 12, letterSpacing: 1.2)),
+              ),
+            ),
+            const SizedBox(height: 8),
             GestureDetector(
               onTap: () => Navigator.of(context).pop(),
               child: Container(
@@ -150,7 +193,7 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
         );
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Die Antwort auf die eine Frage, um die es geht — ganz oben.
+      // Die Antwort auf die eine Frage, um die es geht â€” ganz oben.
       Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),

@@ -7,6 +7,7 @@
 
 import 'dart:typed_data';
 
+import 'package:bitdm/core/fido/ctap.dart';
 import 'package:bitdm/core/fido/ctap_nfc.dart';
 import 'package:cbor/simple.dart' as cbor;
 import 'package:flutter_test/flutter_test.dart';
@@ -42,19 +43,19 @@ void main() {
   group('Anwendung waehlen', () {
     test('schickt SELECT mit der FIDO-Kennung', () async {
       final stick = FakeStick([b([0x90, 0x00])]);
-      await CtapNfc(stick.sende).waehleAnwendung();
+      await CtapNfcTransport(stick.sende).verbinde();
 
       final apdu = stick.gesendet.single;
       expect(apdu.sublist(0, 4), [0x00, 0xA4, 0x04, 0x00]);
       expect(apdu[4], 8, reason: 'die Kennung ist acht Bytes lang');
-      expect(apdu.sublist(5, 13), CtapNfc.fidoAid);
+      expect(apdu.sublist(5, 13), CtapNfcTransport.fidoAid);
     });
 
     test('meldet ein Statuswort, das nicht 9000 ist', () async {
       // 6A82 = "Anwendung nicht gefunden". Kommt, wenn man ein Telefon oder
       // eine Bezahlkarte statt eines Sticks anhaelt.
       final stick = FakeStick([b([0x6A, 0x82])]);
-      expect(() => CtapNfc(stick.sende).waehleAnwendung(),
+      expect(() => CtapNfcTransport(stick.sende).verbinde(),
           throwsA(isA<FormatException>()));
     });
   });
@@ -64,7 +65,7 @@ void main() {
       final stick = FakeStick([
         getInfoAntwort(erweiterungen: ['credProtect', 'hmac-secret'])
       ]);
-      final info = await CtapNfc(stick.sende).holeInfo();
+      final info = await Ctap2(CtapNfcTransport(stick.sende)).holeInfo();
 
       expect(info.versionen, ['FIDO_2_0', 'FIDO_2_1']);
       expect(info.erweiterungen, contains('hmac-secret'));
@@ -77,13 +78,13 @@ void main() {
       // Der Fall, den es zu erkennen gilt: ein Stick, der zwar anmelden kann,
       // aber nichts berechnet. Er darf nicht als tauglich durchgehen.
       final stick = FakeStick([getInfoAntwort(erweiterungen: ['credProtect'])]);
-      final info = await CtapNfc(stick.sende).holeInfo();
+      final info = await Ctap2(CtapNfcTransport(stick.sende)).holeInfo();
       expect(info.kannHmacSecret, isFalse);
     });
 
     test('schickt den Befehl 0x04 im richtigen Rahmen', () async {
       final stick = FakeStick([getInfoAntwort(erweiterungen: [])]);
-      await CtapNfc(stick.sende).holeInfo();
+      await Ctap2(CtapNfcTransport(stick.sende)).holeInfo();
 
       final apdu = stick.gesendet.single;
       expect(apdu.sublist(0, 4), [0x80, 0x10, 0x00, 0x00],
@@ -109,7 +110,7 @@ void main() {
         b([...nutzlast.sublist(schnitt), 0x90, 0x00]),
       ]);
 
-      final info = await CtapNfc(stick.sende).holeInfo();
+      final info = await Ctap2(CtapNfcTransport(stick.sende)).holeInfo();
       expect(info.kannHmacSecret, isTrue);
       expect(stick.gesendet, hasLength(2));
       expect(stick.gesendet[1].sublist(0, 4), [0x00, 0xC0, 0x00, 0x00],
@@ -127,7 +128,7 @@ void main() {
       }.entries) {
         final stick = FakeStick([b([fall.key, 0x90, 0x00])]);
         try {
-          await CtapNfc(stick.sende).holeInfo();
+          await Ctap2(CtapNfcTransport(stick.sende)).holeInfo();
           fail('haette werfen muessen bei 0x${fall.key.toRadixString(16)}');
         } on CtapException catch (e) {
           expect(e.status, fall.key);
@@ -138,7 +139,7 @@ void main() {
 
     test('eine leere Antwort wird nicht als Erfolg gedeutet', () async {
       final stick = FakeStick([b([0x90, 0x00])]);
-      expect(() => CtapNfc(stick.sende).holeInfo(),
+      expect(() => Ctap2(CtapNfcTransport(stick.sende)).holeInfo(),
           throwsA(isA<CtapException>()));
     });
   });
