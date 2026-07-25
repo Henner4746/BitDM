@@ -195,14 +195,21 @@ void main() {
       // Zustand, den der Nutzer nicht von einem funktionierenden unterscheiden
       // kann — und der erst auffaellt, wenn tagelang keine Nachricht kommt.
       st.push = VerweigernderVerteiler(PushHindernis.keinVerteiler);
+      final vorher = st.empfangsTakt;
 
       await expectLater(st.setzeEmpfangsTakt(EmpfangsTakt.push),
           throwsA(isA<PushException>()));
 
-      expect(st.empfangsTakt, EmpfangsTakt.aus,
+      // Geprueft wird, dass die Einstellung sich NICHT bewegt hat — nicht,
+      // dass sie auf einem bestimmten Wert steht. Der Werkswert war einmal
+      // "aus" und ist jetzt 15 Minuten; die Eigenschaft dahinter ist beide
+      // Male dieselbe.
+      expect(st.empfangsTakt, vorher,
           reason: 'die Einstellung darf erst gespeichert werden, wenn das '
               'Anmelden geklappt hat');
-      expect((await tresor.faecher())?.empfangsTaktMinuten ?? 0, 0,
+      expect(st.empfangsTakt, isNot(EmpfangsTakt.push));
+      expect((await tresor.faecher())?.empfangsTaktMinuten,
+          isNot(EmpfangsTakt.push.minuten),
           reason: 'auch in der Datei darf nichts stehen — sonst kaeme die App '
               'nach einem Neustart mit "Anstoss" hoch, ohne dass etwas laeuft');
     });

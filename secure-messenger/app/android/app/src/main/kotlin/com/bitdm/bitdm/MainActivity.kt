@@ -1,5 +1,6 @@
 package com.bitdm.bitdm
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -93,6 +94,31 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                         ergebnis.success(true)
                     }
+                    // Reicht Text an den Teilen-Dialog des Systems weiter.
+                    //
+                    // Der Knopf "Teilen" bei der eigenen Adresse hatte bis zum
+                    // 25.07.2026 ein leeres onTap — er sah aus wie ein Knopf,
+                    // liess sich druecken und tat nichts.
+                    //
+                    // Ueber den Systemdialog und NICHT ueber ein Paket: es
+                    // geht um einen einzigen Intent, und die Adresse ist
+                    // ohnehin oeffentlich. Eine Abhaengigkeit dafuer waere
+                    // mehr Angriffsflaeche als Nutzen.
+                    "teile" -> {
+                        val text = aufruf.argument<String>("text")
+                        if (text.isNullOrEmpty()) {
+                            ergebnis.success(false)
+                        } else {
+                            val absicht = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                            }
+                            startActivity(Intent.createChooser(
+                                absicht, aufruf.argument<String>("titel")))
+                            ergebnis.success(true)
+                        }
+                    }
+
                     // Oeffnet eine andere App, wenn sie da ist.
                     //
                     // Fuer die Anleitung zum Anstoss-Verteiler: "ntfy oeffnen"

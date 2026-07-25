@@ -106,16 +106,43 @@ void main() {
   });
 
   group('Ab Werk', () {
-    test('ist der Hintergrundempfang AUS', () {
-      // Ein Dienst mit dauerhafter Benachrichtigung, den niemand bestellt hat,
-      // waere eine Zumutung. Wer ihn will, schaltet ihn ein.
-      expect(st.empfangsTakt, EmpfangsTakt.aus);
+    test('sind es 15 Minuten', () {
+      // GEAENDERT AM 25.07.2026. Vorher stand es auf "aus", mit der
+      // Begruendung, ein Dienst mit dauerhafter Benachrichtigung, den niemand
+      // bestellt hat, sei eine Zumutung. Die Ueberlegung war einseitig: wer
+      // einen Messenger installiert, will Nachrichten bekommen. Keine zu
+      // bekommen, bis man eine Einstellung findet, von der man nichts weiss,
+      // ist die groessere Zumutung — und sieht aus wie eine kaputte App.
+      //
+      // 15 und nicht "staendig": es soll von selbst gehen, aber nicht von
+      // selbst am meisten kosten.
+      expect(st.empfangsTakt, EmpfangsTakt.viertelstunde);
     });
 
-    test('laeuft beim Weglegen kein Dienst', () async {
+    test('laeuft beim Weglegen ein Dienst', () async {
       st.vordergrund(false);
       await Future<void>.delayed(Duration.zero);
-      expect(dienst.gestartet, 0);
+      expect(dienst.gestartet, 1);
+    });
+
+    test('wer ihn abschaltet, behaelt das auch nach einem Neustart', () async {
+      // Die Werkseinstellung darf eine bewusste Entscheidung nicht
+      // ueberschreiben. Wer "aus" waehlt, schreibt eine 0 in die Fachdatei —
+      // und die bleibt eine 0.
+      await st.setzeEmpfangsTakt(EmpfangsTakt.aus);
+
+      final frisch = AppState(
+        FakeMessengerCore()..simulateExistingIdentity = true,
+        tresor: VaultSecretStore(
+            datei: vaultDateiIn(verzeichnis.path),
+            basis: FakeBasis(),
+            jetzt: () => 2000),
+        ablagen: (_) => ablage,
+      )..empfangsDienst = FakeDienst();
+      await frisch.boot();
+
+      expect(frisch.empfangsTakt, EmpfangsTakt.aus);
+      frisch.dispose();
     });
   });
 

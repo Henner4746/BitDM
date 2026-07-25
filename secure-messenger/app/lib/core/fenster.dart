@@ -44,6 +44,17 @@ class FremdeApp {
   /// Das Paket der ntfy-App.
   static const String ntfy = 'io.heckel.ntfy';
 
+  /// Reicht Text an den Teilen-Dialog des Systems weiter.
+  static Future<bool> teile(String text, {String? titel}) async {
+    try {
+      return await _kanal.invokeMethod<bool>(
+              'teile', {'text': text, 'titel': titel}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Oeffnet eine App. Gibt false zurueck, wenn sie nicht da ist — dass eine
   /// fremde App fehlt, ist kein Fehler, sondern eine Antwort.
   static Future<bool> oeffne(String paket) async {

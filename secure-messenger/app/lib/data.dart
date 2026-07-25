@@ -149,7 +149,9 @@ const Map<String, Map<String, String>> strings = {
     'fidoHold': 'Hold your security key against the back of the phone. Only one command is sent: a question about what the key can do. Nothing is created, nothing is changed, no PIN is asked for.',
     'fidoNoNfc': 'NFC is off or not available. Turn it on in the Android settings.',
     'myId': 'My ID', 'myIdSub': 'Share it so someone can add you.', 'share': 'Share', 'copy': 'Copy', 'copied': 'Copied',
+    'myIdEmpty': 'No identity yet. Create one on the start screen, or restore an existing one from your 12 words — then your ID appears here.',
     'idNote': 'The ID holds no private key. Details under Settings › Security.',
+    'shareFailed': 'No app to share with was found.',
     'addTitle': 'Add contact', 'idLabel': 'BitDM ID', 'paste': 'Paste', 'scan': 'Scan QR', 'sendReq': 'Send request',
     'pending': 'Pending', 'reqSentNote': 'Request sent. The chat opens once the other side confirms.',
 
@@ -282,7 +284,9 @@ const Map<String, Map<String, String>> strings = {
     'fidoHold': 'Halte deinen Sicherheitsschluessel an die Rueckseite des Telefons. Es geht genau ein Befehl raus: die Frage, was der Stick kann. Es wird nichts angelegt, nichts geaendert und keine PIN verlangt.',
     'fidoNoNfc': 'NFC ist aus oder nicht verfuegbar. In den Android-Einstellungen einschalten.',
     'myId': 'Meine ID', 'myIdSub': 'Teile sie, damit dich jemand hinzufügen kann.', 'share': 'Teilen', 'copy': 'Kopieren', 'copied': 'Kopiert',
+    'myIdEmpty': 'Noch keine Identität. Leg auf dem Startbildschirm eine an oder hol eine bestehende aus deinen 12 Wörtern zurück — dann steht deine ID hier.',
     'idNote': 'Die ID enthält keinen privaten Schlüssel. Details unter Einstellungen › Sicherheit.',
+    'shareFailed': 'Es wurde keine App zum Teilen gefunden.',
     'addTitle': 'Kontakt hinzufügen', 'idLabel': 'BitDM-ID', 'paste': 'Einfügen', 'scan': 'QR scannen', 'sendReq': 'Anfrage senden',
     'pending': 'Ausstehend', 'reqSentNote': 'Anfrage gesendet. Der Chat öffnet sich, sobald die Gegenseite bestätigt.',
 

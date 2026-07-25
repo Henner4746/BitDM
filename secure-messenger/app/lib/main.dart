@@ -20,6 +20,7 @@ import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
 import 'bewegung.dart';
+import 'masse.dart';
 import 'core/crypto/wordlist_english.dart';
 import 'core/crypto/address.dart';
 import 'core/empfang.dart';
@@ -723,7 +724,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
-  Widget iconBtn(String glyph, VoidCallback onTap, {Color? color, double fontSize = 15}) => GestureDetector(
+  /// Ein kleiner runder Knopf. SICHTBAR 30 dp, ANTIPPBAR 48.
+  ///
+  /// Die beiden Masse gehoeren nicht zusammen: 30 dp sieht richtig aus, 48 dp
+  /// trifft man. Wer den Knopf auf 48 aufblaest, damit er sich treffen laesst,
+  /// bekommt eine Oberflaeche aus lauter Klotzen; wer ihn bei 30 laesst, wird
+  /// danebengetippt — nicht von ungeschickten Leuten, sondern von allen, nur
+  /// unterschiedlich oft.
+  Widget iconBtn(String glyph, VoidCallback onTap, {Color? color, double fontSize = 15}) =>
+      Masse.trefferflaeche(
         onTap: onTap,
         child: Container(
           width: 30, height: 30, alignment: Alignment.center,
@@ -1461,6 +1470,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   // ---- MY ID ----
   Widget idScreen() {
+    // OHNE IDENTITAET GIBT ES NICHTS ZU ZEIGEN. Vorher stand hier ein QR-Code
+    // aus einer leeren Zeichenkette und darunter leere Kaestchen — eine Seite,
+    // die aussah, als waere sie kaputt. Erreichbar ist dieser Zustand ueber
+    // die Reiter, bevor eine Identitaet angelegt wurde.
+    if (st.meineAdresse.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+            Masse.rand, Masse.block, Masse.rand, Masse.rand),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          h2(t('myId')),
+          const SizedBox(height: Masse.block),
+          _hinweisKasten(t('myIdEmpty'), warnend: false),
+        ]),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1489,7 +1514,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         Row(children: [
           Expanded(child: outlineBtn(copied ? t('copied') : t('copy'), copyId, padding: const EdgeInsets.all(11))),
           const SizedBox(width: 8),
-          Expanded(child: outlineBtn(t('share'), () {}, accent: false, padding: const EdgeInsets.all(11), weight: FontWeight.w400)),
+          Expanded(child: outlineBtn(t('share'), () async {
+            // Geteilt wird die Adresse MIT Strichen — genau das, was der
+            // Empfaenger dann in sein Eingabefeld einfuegt und dort auch als
+            // Beispiel stehen sieht.
+            final ok = await FremdeApp.teile(
+                adresseFormatiert(st.meineAdresse),
+                titel: t('share'));
+            if (!ok && mounted) setState(() => lockFehler = t('shareFailed'));
+          }, accent: false, padding: const EdgeInsets.all(11), weight: FontWeight.w400)),
         ]),
         const SizedBox(height: 16),
         Text(t('idNote'), style: mono(size: 11, color: p.dim, height: 1.5)),
@@ -1567,7 +1600,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
-  Widget smallBtn(String labelTxt, VoidCallback onTap) => GestureDetector(
+  Widget smallBtn(String labelTxt, VoidCallback onTap) => Masse.trefferflaeche(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
@@ -1994,7 +2027,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           // Identitaetsschluessel, und der liegt hinter der Sperre.
           if (st.empfangsTakt.an && !st.empfangMoeglich) ...[
             const SizedBox(height: 10),
-            _hinweisKasten(t('bgConflict')),
+            _hinweisKasten(t('bgConflict'), warnend: false),
           ],
         ])),
 
@@ -2306,16 +2339,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
-  /// Ein Hinweis- oder Fehlerkasten im Stil der App.
-  Widget _hinweisKasten(String text) => Container(
+  /// Ein Kasten fuer etwas, das der Nutzer wissen muss.
+  ///
+  /// ZWEI BEDEUTUNGEN, ZWEI AUSSEHEN. Bis zum 25.07.2026 sah beides gleich
+  /// aus: "dein Fingerabdruck wurde nicht erkannt" und "so richtest du ntfy
+  /// ein" hatten dieselbe Farbe. Wer eine Oberflaeche schnell ueberfliegt —
+  /// und das tut jeder — liest Farbe vor Text. Zwei Dinge in derselben Farbe
+  /// sind fuer ihn dasselbe Ding.
+  ///
+  /// Der Akzent bleibt dem vorbehalten, was schiefging oder Aufmerksamkeit
+  /// braucht. Ruhige Hinweise bekommen die gewoehnliche Umrandung — sie
+  /// stehen da, ohne zu rufen.
+  Widget _hinweisKasten(String text, {bool warnend = true}) => Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(11),
+        padding: const EdgeInsets.all(Masse.innen),
         decoration: BoxDecoration(
-            color: p.tint,
+            color: warnend ? p.tint : p.surf2,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: p.tintLine)),
-        child:
-            Text(text, style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+            border: Border.all(color: warnend ? p.tintLine : p.line)),
+        child: Text(text,
+            style: mono(
+                size: 11.5,
+                color: warnend ? p.tintInk : p.muted,
+                height: 1.5)),
       );
 
   /// Eine nummerierte Zeile in einer Anleitung.
@@ -2352,7 +2398,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   /// Ein kleiner Knopf innerhalb einer Anleitung.
-  Widget _kleinerKnopf(String text, VoidCallback tun) => GestureDetector(
+  Widget _kleinerKnopf(String text, VoidCallback tun) => Masse.trefferflaeche(
         onTap: tun,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
@@ -2444,7 +2490,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         _schritt(3, t('pushStep3'), t('pushStep3Sub')),
         _schritt(4, t('pushStep4'), t('pushStep4Sub')),
 
-        _hinweisKasten(t('pushOrderWarning')),
+        _hinweisKasten(t('pushOrderWarning'), warnend: false),
         const SizedBox(height: 14),
 
         outlineBtn(t('close'), () => setState(() => enroll = null),

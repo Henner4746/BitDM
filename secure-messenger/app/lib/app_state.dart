@@ -150,7 +150,10 @@ class AppState extends ChangeNotifier {
     try {
       final v = await tresor?.faecher();
       faktoren = v?.slots ?? const [];
-      empfangsTakt = EmpfangsTakt.vonMinuten(v?.empfangsTaktMinuten ?? 0);
+      // Ohne Fachdatei gilt die Werkseinstellung: alle 15 Minuten. Wer sie
+      // ausschaltet, schreibt eine Datei mit 0 — die bleibt dann auch 0.
+      empfangsTakt = EmpfangsTakt.vonMinuten(
+          v?.empfangsTaktMinuten ?? KeyVault.empfangsTaktAbWerk);
       _nieSperren = (v?.sperrfristSekunden ?? 0) < 0;
       sperrfrist = _nieSperren ? Duration.zero : (v?.sperrfrist ?? Duration.zero);
     } catch (e) {

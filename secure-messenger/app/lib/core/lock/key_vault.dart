@@ -259,17 +259,30 @@ class KeyVault {
   final int sperrfristSekunden;
 
   /// Wie oft im Hintergrund nach Nachrichten gesehen wird. 0 heisst gar
-  /// nicht, -1 heisst dauerhaft verbunden.
+  /// nicht, -1 heisst dauerhaft verbunden, -2 heisst angestossen werden.
   ///
   /// Steht hier aus demselben Grund wie die Sperrfrist: die Einstellungen
   /// liegen in der verschluesselten Datenbank, und die ist beim Sperren zu.
   final int empfangsTaktMinuten;
 
+  /// AB WERK: alle 15 Minuten.
+  ///
+  /// Stand bis zum 25.07.2026 auf "aus", mit der Begruendung, ein Dienst mit
+  /// dauerhafter Benachrichtigung, den niemand bestellt hat, sei eine
+  /// Zumutung. Die Ueberlegung war einseitig: wer einen Messenger
+  /// installiert, will Nachrichten bekommen. Keine zu bekommen, bis man eine
+  /// Einstellung findet, von der man nichts weiss, ist die groessere
+  /// Zumutung — und sieht aus wie eine kaputte App.
+  ///
+  /// 15 Minuten und nicht "staendig": es soll von selbst funktionieren, aber
+  /// nicht von selbst am meisten kosten.
+  static const int empfangsTaktAbWerk = 15;
+
   const KeyVault({
     this.version = currentVersion,
     required this.slots,
     this.sperrfristSekunden = 0,
-    this.empfangsTaktMinuten = 0,
+    this.empfangsTaktMinuten = empfangsTaktAbWerk,
   });
 
   bool get isEmpty => slots.isEmpty;
@@ -330,7 +343,9 @@ class KeyVault {
       version: version,
       sperrfristSekunden: frist is int ? frist : 0,
       empfangsTaktMinuten:
-          roh['backgroundPollMinutes'] is int ? roh['backgroundPollMinutes'] as int : 0,
+          roh['backgroundPollMinutes'] is int
+              ? roh['backgroundPollMinutes'] as int
+              : empfangsTaktAbWerk,
       slots: slots
           .map((e) => KeySlot.fromJson((e as Map).cast<String, Object?>()))
           .toList(),
