@@ -1,7 +1,7 @@
 # BitDM — Website
 
-Statische Seite für **`app.henrik.click`**. Zwei Dateien, keine Build-Schritte,
-keine Abhängigkeiten, keine Fremdanfragen zur Laufzeit.
+Statische Seite, **live unter https://app.henrik.click**. Zwei Dateien, keine
+Build-Schritte, keine Abhängigkeiten, keine Fremdanfragen zur Laufzeit.
 
 ```
 website/
@@ -32,11 +32,11 @@ beiden Seiten eine leere Liste — das ist nachprüfbar, nicht behauptet.
 | 2 | **Data-Safety-Formular** in der Play Console ausfüllen, **passend zu dieser Seite** | Play prüft auf Widersprüche zwischen Formular und Datenschutzerklärung. |
 | 3 | Play-Link setzen, sobald verfügbar | In `index.html` die Bedienleiste, Slot „Google Play" |
 | 4 | APK + SHA-256-Fingerabdruck eintragen | Slot „Direkter Download". Erst wenn mit dem echten Release-Schlüssel signiert. |
-| 5 | Serverprotokoll ohne IP-Adressen führen | Die Datenschutzerklärung sagt zu, dass unser Server **keine Besucher-IPs** sieht. Das muss die nginx-Konfiguration auch einhalten. |
+| 5 | ~~Serverprotokoll ohne IP-Adressen~~ | ✅ **erledigt** — Format `bitdm_noip`, im Betrieb verifiziert: null IP-Treffer im Protokoll. |
 
-Punkt 5 ist kein Detail: Eine Zusage in der Datenschutzerklärung, die der Server
-nicht einhält, ist eine falsche Angabe gegenüber Google **und** gegenüber den
-Nutzern.
+Eine Zusage in der Datenschutzerklärung, die der Server nicht einhält, wäre eine
+falsche Angabe gegenüber Google **und** gegenüber den Nutzern. Punkt 5 ist
+deshalb bereits umgesetzt und nachgewiesen; die Punkte 1 bis 4 stehen noch aus.
 
 ## Cloudflare
 
@@ -65,55 +65,93 @@ die korrekte Meldung für „Ursprung noch nicht eingerichtet".
 
 ## Deployment auf dem VPS
 
-Dateien nach `/var/www/app.henrik.click/` legen, dann als nginx-vHost:
+**Ist bereits ausgerollt.** Die Seite läuft unter https://app.henrik.click.
+Dieser Abschnitt hält fest, wie — und wo es Fallstricke gab.
+
+### Quelle: git statt Dateikopie
+
+Der Server holt sich den Stand selbst über einen **schreibgeschützten
+Deploy-Key**:
+
+```bash
+git -C /opt/bitdm pull
+```
+
+Mehr ist ein Update nicht. Der private Schlüssel liegt unter
+`/root/.ssh/bitdm_deploy` und hat den Server nie verlassen; auf GitHub ist nur
+der öffentliche Teil als *read-only* Deploy-Key eingetragen. nginx liefert
+direkt aus dem Arbeitsverzeichnis (`root /opt/bitdm/secure-messenger/website`),
+es gibt also keine zweite Kopie, die veralten könnte.
+
+### Zwei Fallstricke, die Zeit gekostet haben
+
+**1. `add_header` im `location`-Block löscht die Elternebene.**
+Ein `add_header Cache-Control` in `location ~* \.html$` hat sämtliche
+Sicherheitsheader der Serverebene entfernt — CSP, X-Frame-Options und den Rest,
+und zwar ausgerechnet für die HTML-Seiten. Von außen sah man davon nichts außer
+fehlenden Headern. Deshalb steht in den Location-Blöcken jetzt nur `expires`,
+das Cache-Control ohne diesen Nebeneffekt setzt.
+
+**2. `http2 on;` gibt es erst ab nginx 1.25.**
+Auf dem Server läuft 1.18, dort heißt es `listen 443 ssl http2;`. Der
+Konfigurationstest schlägt sonst fehl — nginx läuft dabei mit der alten
+Konfiguration weiter, die anderen vHosts sind also nicht betroffen.
+
+### Aktive Konfiguration
+
+`/etc/nginx/sites-available/app.henrik.click`:
 
 ```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name app.henrik.click;
+
+    location /.well-known/acme-challenge/ { root /var/www/acme; }
+    location / { return 301 https://$host$request_uri; }
+}
+
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name app.henrik.click;
 
-    root /var/www/app.henrik.click;
+    root /opt/bitdm/secure-messenger/website;
     index index.html;
 
-    # Zusage der Datenschutzerklaerung: unser Server sieht keine Besucher-IPs.
-    # Hinter dem Cloudflare-Proxy waere $remote_addr ohnehin nur eine
-    # Cloudflare-Adresse; wir protokollieren sie erst gar nicht mit.
-    # CF-Connecting-IP wird bewusst NICHT wiederhergestellt.
-    access_log /var/log/nginx/app.henrik.click.log noip;
+    ssl_certificate     /etc/letsencrypt/live/app.henrik.click/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.henrik.click/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    add_header X-Content-Type-Options    "nosniff"          always;
-    add_header X-Frame-Options           "DENY"             always;
-    add_header Referrer-Policy           "no-referrer"      always;
-    add_header Permissions-Policy        "interest-cohort=(), geolocation=(), microphone=(), camera=()" always;
-    # Die Seite laedt ausschliesslich eigene Ressourcen — das laesst sich hart zusagen.
-    add_header Content-Security-Policy   "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
+    access_log /var/log/nginx/app.henrik.click.log bitdm_noip;
 
-    location ~* \.(ttf)$   { expires 1y;  add_header Cache-Control "public, immutable"; }
-    location ~* \.(html)$  { expires 10m; add_header Cache-Control "public"; }
-}
+    add_header X-Frame-Options        "DENY"        always;
+    add_header X-Content-Type-Options "nosniff"     always;
+    add_header Referrer-Policy        "no-referrer" always;
+    add_header Permissions-Policy     "geolocation=(), microphone=(), camera=(), interest-cohort=()" always;
+    add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
 
-server {
-    listen 80; listen [::]:80;
-    server_name app.henrik.click;
-    return 301 https://$host$request_uri;
+    location / { try_files $uri $uri/ =404; }
+    # KEIN add_header hier — siehe Fallstrick 1.
+    location ~* \.ttf$  { expires 1y; }
+    location ~* \.html$ { expires 10m; }
+    location ~ /\.      { deny all; }
 }
 ```
 
-Dazu in den `http`-Block (z. B. `/etc/nginx/conf.d/noip-log.conf`):
+`/etc/nginx/conf.d/bitdm-noip-log.conf`:
 
 ```nginx
-log_format noip '[$time_local] "$request" $status $body_bytes_sent';
+log_format bitdm_noip '[$time_local] "$request" $status $body_bytes_sent';
 ```
 
 Kein `$remote_addr`, kein `$http_x_forwarded_for`, kein `CF-Connecting-IP`. Was
 nicht protokolliert wird, kann weder erbeutet noch herausverlangt werden.
+Aufbewahrung 7 Tage über `/etc/logrotate.d/app.henrik.click`, passend zur Zusage
+in der Datenschutzerklärung.
 
-Logrotation auf **7 Tage** stellen, passend zur Zusage.
-
-Zertifikat wie die übrigen vHosts über Let's Encrypt. Cloudflare steht auf
-„Full (strict)" und verlangt am Ursprung ein gültiges Zertifikat — der
-`certbot`-Lauf muss also **vor** dem ersten erfolgreichen Aufruf durch sein.
+Zertifikat von Let's Encrypt, Erneuerung über den vorhandenen `certbot.timer`.
 
 ## Prüfen nach dem Deployment
 
