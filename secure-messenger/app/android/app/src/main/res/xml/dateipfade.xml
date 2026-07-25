@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Welche Ordner der FileProvider herausgeben darf.
+
+    NUR DER ANHANGORDNER. Im selben files-Bereich liegt die verschluesselte
+    Datenbank — dort stehen Kontakte, Verlauf und die Signal-Sitzungen. Ein
+    <root-path> oder ein leeres path="" wuerde den ganzen privaten Bereich
+    freigebbar machen; das ist bei dieser App keine theoretische Sorge.
+
+    Der Pfad muss zu dem passen, den real_messenger_core.dart benutzt:
+    getApplicationSupportDirectory() ist auf Android context.getFilesDir(),
+    also /data/user/0/com.bitdm.bitdm/files — und der Anhangordner liegt
+    darunter. Waere es getApplicationDocumentsDirectory() gewesen, laege er
+    unter app_flutter/ und wuerde von KEINEM der Eintraege hier gedeckt; der
+    Provider wuerde dann mit "Failed to find configured root" werfen.
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="anhaenge" path="anhaenge/"/>
+</paths>

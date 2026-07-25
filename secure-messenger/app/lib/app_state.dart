@@ -11,10 +11,14 @@
 // Kern und wird dort geprueft.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import 'core/anhang/anhang_empfang.dart';
+import 'core/anhang/anhang_versand.dart';
+import 'core/anhang/lager_client.dart';
 import 'core/app_lock.dart';
 import 'core/benachrichtigungen.dart';
 import 'core/empfang.dart';
@@ -28,6 +32,7 @@ import 'core/lock/key_vault.dart';
 import 'core/lock/keystore_factor.dart';
 import 'core/lock/unlock_factor.dart';
 import 'core/lock/vault_store.dart';
+import 'core/net/relay_client.dart' show RelayException;
 import 'core/push.dart';
 import 'core/messenger_core.dart';
 
@@ -725,8 +730,30 @@ class AppState extends ChangeNotifier {
         unawaited(_ladeKontakteNeu());
       }))
       ..add(core.contactEvents.listen((_) => unawaited(_ladeKontakteNeu())))
-      ..add(core.messageStatusUpdates.listen(_uebernehmeStatus));
+      ..add(core.messageStatusUpdates.listen(_uebernehmeStatus))
+      ..add(core.anhangAenderungen.listen((a) {
+        anhaenge.putIfAbsent(a.chatId, () => {})[a.messageId] = a;
+        // Ist er da, ist der Fortschritt erledigt und soll weg — sonst
+        // stuende unter der fertigen Datei noch ein Balken.
+        if (a.zustand != AnhangZustand.laedt) fortschritt.remove(a.messageId);
+        notifyListeners();
+      }))
+      ..add(core.anhangFortschritt.listen((f) {
+        fortschritt[f.messageId] = f;
+        // OHNE DROSSEL waere das mehrmals je Sekunde ein kompletter Neubau
+        // des Bildschirms — bei einer 3-GB-Datei minutenlang. Gezeichnet wird
+        // hoechstens alle 100 ms; die Zahl selbst ist immer die aktuelle.
+        final jetzt = DateTime.now();
+        if (_letzterBalken == null ||
+            jetzt.difference(_letzterBalken!).inMilliseconds >= 100 ||
+            f.fertigeBytes >= f.gesamtBytes) {
+          _letzterBalken = jetzt;
+          notifyListeners();
+        }
+      }));
   }
+
+  DateTime? _letzterBalken;
 
   void _uebernehmeStatus(MessageStatusUpdate u) {
     final liste = verlaeufe[u.chatId];
@@ -824,8 +851,100 @@ class AppState extends ChangeNotifier {
 
   Future<void> unterhaltungOeffnen(String id) async {
     verlaeufe[id] = await core.getMessages(id);
+    // In EINEM Zug fuer die ganze Unterhaltung. Je Nachricht zu fragen hiesse
+    // bei fuenfzig Anhaengen fuenfzig Abfragen beim Zeichnen einer Liste.
+    anhaenge[id] = await core.getAnhaenge(id);
     notifyListeners();
     unawaited(core.markRead(id));
+  }
+
+  // ══════════════════════════════════════════════════════════════════ Anhaenge
+
+  /// chatId → messageId → Eintrag.
+  final Map<String, Map<String, AnhangEintrag>> anhaenge = {};
+
+  /// Was gerade laeuft, nach Nachrichtenkennung. Leer, sobald es fertig ist.
+  final Map<String, AnhangFortschritt> fortschritt = {};
+
+  AnhangEintrag? anhangZu(String chatId, String messageId) =>
+      anhaenge[chatId]?[messageId];
+
+  /// Schickt eine Datei.
+  ///
+  /// Laeuft bei drei Gigabyte minutenlang. Der Verlauf bekommt die Nachricht
+  /// erst, wenn alles oben ist — bis dahin traegt [fortschritt] den Stand
+  /// unter [schwebendeKennung].
+  Future<void> anhangSenden(String chatId, File datei,
+      {String? name, int? groesse}) async {
+    if (schwebendeKennung != null) {
+      // EINER NACH DEM ANDEREN. Zwei gleichzeitige Uploads teilen sich die
+      // Leitung, verdoppeln den Speicherbedarf und machen den Fortschritt
+      // unlesbar. Der Nutzer merkt davon nur, dass der Knopf wartet.
+      letzterFehler = 'anhangLaeuft';
+      notifyListeners();
+      return;
+    }
+    schwebendeKennung = '${DateTime.now().microsecondsSinceEpoch}';
+    schwebenderName = name ?? datei.uri.pathSegments.last;
+    schwebenderChat = chatId;
+    notifyListeners();
+    try {
+      final m = await core.sendeAnhang(chatId, datei,
+          name: name, groesse: groesse);
+      verlaeufe.putIfAbsent(chatId, () => []).add(m);
+      anhaenge[chatId] = await core.getAnhaenge(chatId);
+    } on AnhangZuGross catch (e) {
+      letzterFehler = 'anhangZuGross:${e.groesse}:${e.grenze}';
+    } on LagerVoll {
+      letzterFehler = 'lagerVoll';
+    } catch (e) {
+      letzterFehler = _anhangFehler(e);
+    } finally {
+      fortschritt.remove(schwebendeKennung);
+      schwebendeKennung = null;
+      schwebenderName = null;
+      schwebenderChat = null;
+      notifyListeners();
+    }
+  }
+
+  /// Holt einen angekuendigten Anhang.
+  Future<void> anhangHolen(String chatId, String messageId) async {
+    try {
+      await core.holeAnhang(chatId, messageId);
+    } on LagerLeer {
+      // Kein Fehler zum Anzeigen: der Zustand steht jetzt auf "weg", und die
+      // Blase sagt es selbst. Eine zweite Meldung darueber waere Laerm.
+    } catch (e) {
+      letzterFehler = _anhangFehler(e);
+    } finally {
+      anhaenge[chatId] = await core.getAnhaenge(chatId);
+      notifyListeners();
+    }
+  }
+
+  /// Waehrend eines Versands: die Ersatzkennung, unter der der Fortschritt
+  /// laeuft, bevor es die Nachricht gibt.
+  ///
+  /// Die Nachricht entsteht erst, wenn ALLES oben ist — bei drei Gigabyte also
+  /// nach Minuten. Ohne diese drei Felder saehe der Nutzer waehrenddessen eine
+  /// unveraenderte Unterhaltung und wuesste nicht, ob ueberhaupt etwas
+  /// passiert.
+  String? schwebendeKennung;
+  String? schwebenderName;
+  String? schwebenderChat;
+
+  /// Bringt einen Fehler in eine Form, die die Oberflaeche uebersetzen kann.
+  ///
+  /// Die Meldung der Ausnahme selbst NICHT durchreichen: sie ist auf Englisch,
+  /// technisch, und im Fall des Lagers traegt sie eine Kennung — also etwas,
+  /// das in keiner Bildschirmaufnahme stehen soll.
+  static String _anhangFehler(Object e) {
+    final t = e.toString();
+    if (t.contains('Tagesmenge')) return 'tagesmenge';
+    if (e is AnhangKaputt) return 'anhangKaputt';
+    if (e is LagerException || e is RelayException) return 'anhangNetz';
+    return 'anhangFehler';
   }
 
   Future<void> senden(String id, String text) async {
@@ -839,6 +958,16 @@ class AppState extends ChangeNotifier {
       letzterFehler = 'zuLang';
       notifyListeners();
     }
+  }
+
+  /// Setzt eine Meldung, die die Oberflaeche uebersetzen kann.
+  ///
+  /// Nimmt einen SCHLUESSEL und keinen fertigen Satz: die Sprache waehlt die
+  /// Oberflaeche, und ein hier zusammengebauter deutscher Text stuende auch
+  /// in der englischen Fassung.
+  void setzeFehler(String schluessel) {
+    letzterFehler = schluessel;
+    notifyListeners();
   }
 
   /// Vergisst die letzte Fehlermeldung.

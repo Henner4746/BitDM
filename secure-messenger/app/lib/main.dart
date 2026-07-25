@@ -19,6 +19,7 @@ import 'core/lock/key_vault.dart';
 import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
+import 'core/dateien.dart';
 import 'bewegung.dart';
 import 'masse.dart';
 import 'core/crypto/wordlist_english.dart';
@@ -1830,13 +1831,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 )
               else
                 msgBubble(cid, list[i], i),
+            // Ganz unten, weil es die neueste "Nachricht" ist — auch wenn es
+            // noch keine gibt.
+            if (st.schwebenderChat == cid) schwebenderAnhang(),
           ],
         ),
       ),
       // WAS NICHT RAUSGING, MUSS DASTEHEN. "zuLang" wurde bisher gesetzt und
       // nirgends gezeigt: die Nachricht verschwand aus dem Eingabefeld und kam
       // nie an, ohne dass irgendwo etwas stand.
-      if (st.letzterFehler == 'zuLang')
+      if (chatFehlerText() != null)
         Container(
           width: double.infinity,
           margin: const EdgeInsets.fromLTRB(17, 0, 17, 8),
@@ -1845,17 +1849,34 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               color: p.tint,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: p.tintLine)),
-          child: Text(t('tooLong'),
+          child: Text(chatFehlerText()!,
               style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
         ),
       Container(
         padding: const EdgeInsets.fromLTRB(17, 11, 17, 16),
         decoration: BoxDecoration(border: Border(top: BorderSide(color: p.lineSoft))),
         child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Container(
-            width: 36, height: 36, alignment: Alignment.center,
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
-            child: Text('+', style: TextStyle(color: p.muted, fontSize: 16, height: 1)),
+          // DIESER KNOPF WAR EIN BILD. Bis zum 26.07.2026 stand hier ein
+          // Container ohne GestureDetector: er sah aus wie ein Knopf, liess
+          // sich druecken und tat nichts. Jetzt haengt die Dateiauswahl daran.
+          //
+          // Waehrend ein Versand laeuft, ist er stumm — einer nach dem
+          // anderen. Dass er das ist, sieht man ihm an (p.dim statt p.muted),
+          // statt dass ein Tippen ins Leere geht.
+          Masse.trefferflaeche(
+            onTap: st.schwebendeKennung == null ? () => anhangWaehlen(cid) : null,
+            child: Container(
+              width: 36, height: 36, alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: st.schwebendeKennung == null ? p.line : p.lineSoft)),
+              child: Text('+',
+                  style: TextStyle(
+                      color: st.schwebendeKennung == null ? p.muted : p.dim,
+                      fontSize: 16,
+                      height: 1)),
+            ),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1890,6 +1911,55 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     ]);
   }
 
+  /// Datei aussuchen und schicken.
+  ///
+  /// Der Zugang wird IMMER freigegeben, auch wenn das Senden scheitert —
+  /// sonst bleibt eine Dateikennung offen, und davon hat ein Prozess nur eine
+  /// begrenzte Zahl. Nach ein paar abgebrochenen Versuchen ginge gar nichts
+  /// mehr, und niemand wuesste warum.
+  Future<void> anhangWaehlen(String cid) async {
+    final gewaehlt = await Dateien.waehlen();
+    if (gewaehlt == null) return;
+    try {
+      await st.anhangSenden(cid, gewaehlt.datei,
+          name: gewaehlt.name, groesse: gewaehlt.groesse);
+    } finally {
+      await Dateien.gibFrei(gewaehlt.zettel);
+    }
+  }
+
+  Future<void> oeffneAnhang(AnhangEintrag a) async {
+    final pfad = a.pfad;
+    if (pfad == null) return;
+    final ging = await Dateien.oeffne(pfad, name: a.name);
+    if (!ging && mounted) {
+      // Keine App auf dem Geraet kann diese Art Datei oeffnen. Das ist keine
+      // Panne, sondern eine Auskunft — und sie gehoert dorthin, wo der Nutzer
+      // gerade hinsieht.
+      st.setzeFehler('anhangKeineApp');
+    }
+  }
+
+  /// Was ueber der Eingabezeile steht, wenn etwas schiefging.
+  ///
+  /// AN EINER STELLE STATT AN FUENF. Vorher hing hier nur 'zuLang'; jede neue
+  /// Fehlerart haette eine weitere if-Zeile im Aufbau gebraucht, und die
+  /// erste, die jemand vergisst, verschwindet spurlos. Genau so war 'zuLang'
+  /// selbst einmal gesetzt und nirgends gezeigt.
+  String? chatFehlerText() {
+    final f = st.letzterFehler;
+    if (f == null) return null;
+    if (f == 'zuLang') return t('tooLong');
+    if (f == 'lagerVoll') return t('attachFull');
+    if (f == 'tagesmenge') return t('attachQuota');
+    if (f == 'anhangKaputt') return t('attachBroken');
+    if (f == 'anhangNetz' || f == 'anhangFehler') return t('attachNet');
+    if (f == 'anhangLaeuft') return t('attachBusy');
+    if (f == 'anhangKeineApp') return t('attachNoApp');
+    if (f.startsWith('anhangZuGross:')) return t('attachTooBig');
+    return null;
+  }
+
   Widget msgBubble(String cid, Message m, int i) {
     final me = m.isMine;
     final time = zeitVon(m.timestamp);
@@ -1913,7 +1983,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
             decoration: bub,
             child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
-              Align(alignment: Alignment.centerLeft, child: Text(m.text, style: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4))),
+              if (m.kind == MessageKind.anhang)
+                anhangInhalt(cid, m)
+              else
+                Align(alignment: Alignment.centerLeft, child: Text(m.text, style: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4))),
               const SizedBox(height: 3),
               Row(mainAxisSize: MainAxisSize.min, children: [
                 Text(time, style: mono(size: 9.5, color: p.dim)),
@@ -1938,6 +2011,239 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 ],
               ]),
             ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════ Anhaenge
+  //
+  // Eine Anhang-Blase zeigt IMMER dasselbe oben — Kaestchen, Name, Groesse —
+  // und darunter das, was gerade zu tun ist. Die Reihenfolge bleibt also
+  // gleich, waehrend sich der Zustand aendert; nur der untere Teil wechselt.
+  // Ein Aufbau, der bei jedem Zustand anders aussieht, laesst eine Liste
+  // unruhig wirken, obwohl sich nur eine Zeile bewegt hat.
+
+  /// Die Dateiendung in einem Kaestchen, hoechstens vier Zeichen.
+  ///
+  /// KEIN SYMBOLZEICHEN. Die App zeichnet ihre Symbole als Text (‹, +, ✓✓),
+  /// und Doto hat nicht jedes Zeichen — ein fehlendes waere ein leeres
+  /// Rechteck. Die Endung gibt es immer, sie ist in jeder Schrift vorhanden,
+  /// und sie sagt mehr als ein allgemeines Dateisymbol.
+  Widget endungsKaestchen(String name) {
+    final punkt = name.lastIndexOf('.');
+    var endung = punkt > 0 && punkt < name.length - 1
+        ? name.substring(punkt + 1).toUpperCase()
+        : '···';
+    if (endung.length > 4) endung = endung.substring(0, 4);
+    return Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: p.line),
+      ),
+      child: Text(endung,
+          maxLines: 1,
+          style: mono(
+              size: endung.length > 3 ? 7.5 : 9,
+              color: p.muted,
+              spacing: 0.5)),
+    );
+  }
+
+  /// Aus Bytes eine Zahl, die man vorlesen kann.
+  ///
+  /// Tausenderschritte und nicht 1024er: die Zahl steht neben einem
+  /// Dateinamen, nicht in einem Speichermonitor, und "1,2 GB" ist das, was
+  /// auch auf der Rechnung des Mobilfunkanbieters steht.
+  static String groesseText(int bytes) {
+    if (bytes < 1000) return '$bytes B';
+    if (bytes < 1000 * 1000) return '${(bytes / 1000).toStringAsFixed(0)} KB';
+    if (bytes < 1000 * 1000 * 1000) {
+      return '${(bytes / 1000000).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1000000000).toStringAsFixed(2)} GB';
+  }
+
+  /// Ein Balken. Duenn, ohne Rahmen, ohne Rundung an den Enden — er soll den
+  /// Blick nicht auf sich ziehen, sondern nur sagen, dass es vorangeht.
+  Widget fortschrittsBalken(double anteil) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 3,
+            decoration: BoxDecoration(
+                color: p.line, borderRadius: BorderRadius.circular(2)),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: anteil.clamp(0.0, 1.0),
+              child: Container(
+                decoration: BoxDecoration(
+                    color: p.accent, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text('${(anteil * 100).clamp(0, 100).toStringAsFixed(0)} %',
+              style: mono(size: 9.5, color: p.dim)),
+        ],
+      );
+
+  /// Der Knopf unter einer Anhang-Blase. Schmaler als outlineBtn, damit er in
+  /// eine Blase passt, ohne sie zu sprengen.
+  Widget anhangKnopf(String text, VoidCallback? tun, {bool betont = false}) =>
+      Masse.trefferflaeche(
+        onTap: tun,
+        child: Container(
+          height: 30,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: betont ? p.accent : p.line),
+          ),
+          child: Text(text.toUpperCase(),
+              style: mono(
+                  size: 10,
+                  weight: FontWeight.w600,
+                  color: tun == null ? p.dim : p.ink,
+                  spacing: 1.1)),
+        ),
+      );
+
+  /// Der Kopf jeder Anhang-Blase: Kaestchen, Name, Groesse.
+  Widget anhangKopf(String name, int groesse, {String? statt}) => Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          endungsKaestchen(name),
+          const SizedBox(width: Masse.nah),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Der Name kommt von der Gegenstelle. Er ist beim Speichern
+                // schon gesaeubert worden; hier wird er nur noch gekuerzt,
+                // damit ein 200 Zeichen langer Name die Blase nicht sprengt.
+                Text(name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: mono(size: 12, color: p.ink, height: 1.35)),
+                const SizedBox(height: 2),
+                Text(statt ?? groesseText(groesse),
+                    style: mono(size: 9.5, color: p.dim)),
+              ],
+            ),
+          ),
+        ],
+      );
+
+  Widget anhangInhalt(String cid, Message m) {
+    final a = st.anhangZu(cid, m.id);
+    if (a == null) {
+      // Die Nachricht sagt "Anhang", der Eintrag fehlt. Sollte es nicht
+      // geben — beides wird in derselben Transaktion geschrieben. Falls doch,
+      // lieber der Name als eine leere Blase.
+      return Align(
+          alignment: Alignment.centerLeft,
+          child: anhangKopf(m.text, 0, statt: '—'));
+    }
+
+    final f = st.fortschritt[m.id];
+    final laeuft = a.zustand == AnhangZustand.laedt ||
+        (m.isMine && m.status == MessageStatus.sending);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          anhangKopf(a.name, a.groesse),
+          if (laeuft) ...[
+            const SizedBox(height: Masse.innen),
+            SizedBox(width: 200, child: fortschrittsBalken(f?.anteil ?? 0)),
+          ] else ...[
+            const SizedBox(height: Masse.nah),
+            switch (a.zustand) {
+              // Beim eigenen Anhang liegt die Datei ohnehin hier. Ein Knopf
+              // "holen" waere Unsinn, ein Knopf "oeffnen" ist es nicht.
+              AnhangZustand.da => Row(mainAxisSize: MainAxisSize.min, children: [
+                  anhangKnopf(t('attachOpen'), () => oeffneAnhang(a)),
+                  const SizedBox(width: Masse.nah),
+                  Flexible(
+                      child: Text(t('attachHere'),
+                          style: mono(size: 9.5, color: p.dim))),
+                ]),
+              AnhangZustand.angekuendigt => anhangKnopf(
+                  t('attachGet'), () => st.anhangHolen(cid, m.id),
+                  betont: true),
+              AnhangZustand.gescheitert => anhangKnopf(
+                  t('attachAgain'), () => st.anhangHolen(cid, m.id)),
+              // KEIN KNOPF. Nach vierzehn Tagen ist der Block weg, und wer
+              // ihn geholt hat, hat ihn selbst weggeworfen. "Nochmal
+              // versuchen" waere hier eine Luege — deshalb steht stattdessen
+              // da, warum.
+              AnhangZustand.weg => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(t('attachGone'),
+                        style: mono(size: 10.5, color: p.muted)),
+                    const SizedBox(height: 3),
+                    SizedBox(
+                      width: 200,
+                      child: Text(t('attachGoneWhy'),
+                          style: mono(size: 9.5, color: p.dim, height: 1.45)),
+                    ),
+                  ],
+                ),
+              AnhangZustand.laedt => const SizedBox.shrink(),
+            },
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Die Blase, die es noch nicht gibt.
+  ///
+  /// Ein Versand entsteht erst als Nachricht, wenn ALLES oben ist — bei drei
+  /// Gigabyte also nach Minuten. Bis dahin stuende die Unterhaltung
+  /// unveraendert da, und niemand wuesste, ob etwas passiert.
+  Widget schwebenderAnhang() {
+    final f = st.fortschritt[st.schwebendeKennung];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+        Flexible(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 252),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            decoration: BoxDecoration(
+              color: p.tint,
+              borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(8),
+                  topRight: Radius.circular(8),
+                  bottomLeft: Radius.circular(8),
+                  bottomRight: Radius.circular(2)),
+              border: Border.all(color: p.tintLine),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                anhangKopf(st.schwebenderName ?? '…',
+                    f?.gesamtBytes ?? 0,
+                    statt: f == null ? t('attachSend') : null),
+                const SizedBox(height: Masse.innen),
+                SizedBox(width: 200, child: fortschrittsBalken(f?.anteil ?? 0)),
+              ],
+            ),
           ),
         ),
       ]),

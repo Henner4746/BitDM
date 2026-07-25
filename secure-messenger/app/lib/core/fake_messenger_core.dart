@@ -262,12 +262,12 @@ class FakeMessengerCore implements MessengerCore {
 
   @override
   Future<Message> sendeAnhang(String contactId, File datei,
-      {String? name}) async {
+      {String? name, int? groesse}) async {
     if (!_init) throw const NotInitializedException();
     if (!_contacts.containsKey(contactId)) {
       throw UnknownContactException(contactId);
     }
-    final groesse = await datei.length();
+    final gr = groesse ?? await datei.length();
     final id = _nextId();
     final angezeigt = name ?? datei.uri.pathSegments.last;
 
@@ -280,8 +280,8 @@ class FakeMessengerCore implements MessengerCore {
       _anhangStandCtl.add(AnhangFortschritt(
           messageId: id,
           chatId: contactId,
-          fertigeBytes: groesse * i ~/ 5,
-          gesamtBytes: groesse));
+          fertigeBytes: gr * i ~/ 5,
+          gesamtBytes: gr));
     }
 
     final msg = Message(
@@ -299,7 +299,7 @@ class FakeMessengerCore implements MessengerCore {
         chatId: contactId,
         senderId: _myId,
         name: angezeigt,
-        groesse: groesse,
+        groesse: gr,
         zustand: AnhangZustand.da,
         pfad: datei.path);
     Timer(const Duration(milliseconds: 250),

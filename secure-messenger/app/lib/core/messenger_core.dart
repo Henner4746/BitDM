@@ -173,7 +173,11 @@ abstract class MessengerCore {
   ///
   /// Wirft `UnknownContactException`, `AnhangZuGross`, `LagerVoll`,
   /// `RelayException` (etwa "Tagesmenge erschoepft"), `NotInitializedException`.
-  Future<Message> sendeAnhang(String contactId, File datei, {String? name});
+  /// [name] und [groesse] werden hereingereicht, wenn der Pfad sie nicht
+  /// hergibt. Der Dateiwaehler liefert /proc/self/fd/<nr>; dort waere der
+  /// geratene Name "7".
+  Future<Message> sendeAnhang(String contactId, File datei,
+      {String? name, int? groesse});
 
   /// Holt einen empfangenen Anhang ins Dateisystem.
   ///

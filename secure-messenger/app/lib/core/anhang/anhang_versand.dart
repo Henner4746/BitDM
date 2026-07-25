@@ -106,9 +106,15 @@ class AnhangVersand {
   Future<Rezept> schicke(
     File datei, {
     String? name,
+    int? groesse,
     void Function(VersandStand)? fortschritt,
   }) async {
-    final gesamt = await datei.length();
+    // HEREINREICHBAR, weil der Pfad nicht immer einer ist. Der Dateiwaehler
+    // liefert /proc/self/fd/<nr> — einen Zeiger des Kerns auf eine offene
+    // Datei. Dort nach der Laenge zu fragen, hiesse sich auf die Semantik
+    // eines Sonderdateisystems zu verlassen; der Anbieter hat die Zahl
+    // ohnehin schon genannt.
+    final gesamt = groesse ?? await datei.length();
     if (gesamt <= 0) {
       throw const AnhangZuGross(0, hoechstGroesse);
     }

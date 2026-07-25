@@ -118,7 +118,7 @@
          ist. -->
 
     <application
-        android:label="BitDM"
+        android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
@@ -162,6 +162,33 @@
             android:name=".EmpfangsDienst"
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
+
+        <!-- Damit eine empfangene Datei sich in einer anderen App oeffnen
+             laesst.
+
+             Anhaenge liegen im privaten Bereich von BitDM; ohne diesen
+             Provider kann keine andere App sie sehen — was richtig ist.
+             Der Provider gibt genau eine Datei frei, genau fuer einen Aufruf,
+             und nur solange die Ziel-App damit beschaeftigt ist.
+
+             exported="false" ist PFLICHT und kein Vorschlag: der Zugriff
+             entsteht ausschliesslich ueber die je Aufruf erteilte
+             URI-Freigabe (FLAG_GRANT_READ_URI_PERMISSION), nicht ueber eine
+             offene Komponente. grantUriPermissions="true" ist genau das, was
+             diese Einzelfreigabe ueberhaupt erst moeglich macht.
+
+             KEINE zusaetzliche Abhaengigkeit: androidx.core.content.FileProvider
+             ist ueber die Flutter-Einbettung und androidx.biometric ohnehin
+             schon im Programm. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.dateien"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/dateipfade"/>
+        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

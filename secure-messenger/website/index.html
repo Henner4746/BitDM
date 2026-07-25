@@ -27,7 +27,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BitDM — Verschlüsselt schreiben, ohne Konto</title>
-<meta name="description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer und ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll, quelloffen unter GPL-3.0.">
+<meta name="description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer und ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll (libsignal): X3DH über Curve25519, Double Ratchet, AES-256-GCM für Anhänge. Quelloffen unter GPL-3.0.">
 <meta name="theme-color" content="#0b0c12">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
@@ -370,6 +370,11 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       keinen falschen Schlüssel unterschieben.</strong> Er müsste dafür die
       Adresse ändern, und die hast du bereits.
     </p>
+    <p class="de">
+      Verschlüsselt wird mit <strong>libsignal</strong> — derselben Bibliothek,
+      die Signal benutzt. Was genau darin steckt, steht weiter unten Zeile für
+      Zeile.
+    </p>
     <p class="en">
       Most messengers ask for your phone number first. BitDM asks for nothing at
       all. On first launch the app generates a key pair. The address above is
@@ -379,6 +384,10 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       That has a consequence which is easy to miss: <strong>a server cannot slip
       you the wrong key.</strong> It would have to change the address, and you
       already have that.
+    </p>
+    <p class="en">
+      The encryption is <strong>libsignal</strong> — the same library Signal
+      uses. What exactly is inside it is spelled out line by line further down.
     </p>
   </section>
 
@@ -507,7 +516,8 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       <li class="no"><span class="what de">Inhalt der Nachricht</span><span class="what en">Message content</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
       <li class="no"><span class="what de">Anzeigename deiner Kontakte</span><span class="what en">Your contacts' display names</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
       <li class="yes"><span class="what de">Absender- und Empfängeradresse</span><span class="what en">Sender and recipient address</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
-      <li class="yes"><span class="what de">Zeitpunkt und Größe</span><span class="what en">Time and size</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
+      <li class="yes"><span class="what de">Zeitpunkt und ungefähre Größe</span><span class="what en">Time and rough size</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
+      <li class="no"><span class="what de">Die genaue Länge einer Nachricht</span><span class="what en">The exact length of a message</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
       <li class="yes"><span class="what de">Wer gerade verbunden ist</span><span class="what en">Who is currently connected</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
     </ul>
   </section>
@@ -597,6 +607,169 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     </div>
   </section>
 
+  <!-- ═══════════ Verfahren ═══════════
+       Bis zum 26.07.2026 stand auf dieser Seite kein einziger Algorithmenname
+       ausser X3DH, Double Ratchet und BIP39. Wer nachpruefen wollte, WOMIT
+       verschluesselt wird, fand nur DASS. Nach dem eigenen Massstab weiter
+       unten — "ein Sicherheitsversprechen, das niemand nachpruefen kann, ist
+       wertlos" — war das die groesste Luecke der Seite.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Verfahren</span>
+      <span class="screen screen-lit en">Module — primitives</span>
+      <h2>
+        <span class="de">Womit genau</span>
+        <span class="en">With what, exactly</span>
+      </h2>
+      <p class="de">Die Kryptographie stammt aus <strong>libsignal</strong>, der
+        Bibliothek hinter Signal — nicht aus einer eigenen Umsetzung. Das ist die
+        wichtigste Zeile dieser Tabelle: die riskanten Teile sind die, die schon
+        andere geprüft haben.</p>
+      <p class="en">The cryptography comes from <strong>libsignal</strong>, the
+        library behind Signal — not from a home-grown implementation. That is the
+        most important line in this table: the risky parts are the ones others have
+        already reviewed.</p>
+    </div>
+
+    <dl class="plate">
+      <div class="plate-row">
+        <dt><span class="de">Sitzungsaufbau</span><span class="en">Session setup</span></dt>
+        <dd><span class="de">X3DH über Curve25519. Funktioniert auch, wenn das Gegenüber offline ist.</span>
+            <span class="en">X3DH over Curve25519. Works even while the other side is offline.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Laufendes Gespräch</span><span class="en">Ongoing conversation</span></dt>
+        <dd><span class="de">Double Ratchet. Jede Nachricht bekommt einen eigenen Schlüssel.</span>
+            <span class="en">Double Ratchet. Every message gets its own key.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Die Nachricht selbst</span><span class="en">The message itself</span></dt>
+        <dd><span class="de">AES-256-CBC, beglaubigt mit HMAC-SHA256 — Signals eigene Konstruktion.</span>
+            <span class="en">AES-256-CBC, authenticated with HMAC-SHA256 — Signal's own construction.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Unterschriften</span><span class="en">Signatures</span></dt>
+        <dd><span class="de">XEdDSA: Ed25519-Signaturen mit demselben Curve25519-Schlüssel, der auch die Adresse ist.</span>
+            <span class="en">XEdDSA: Ed25519 signatures using the same Curve25519 key that is also the address.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Länge verschleiern</span><span class="en">Length hiding</span></dt>
+        <dd><span class="de">Jede Nachricht wird auf ein Vielfaches von 256 Byte aufgefüllt. Ein „ja“ und ein „nein“ sehen auf der Leitung gleich aus, und ein kurzer Satz wie ein langer.</span>
+            <span class="en">Every message is padded to a multiple of 256 bytes. A “yes” and a “no” look identical on the wire, and so do a short sentence and a long one.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Aus den zwölf Wörtern</span><span class="en">From the twelve words</span></dt>
+        <dd><span class="de">BIP39 (PBKDF2-HMAC-SHA512, 2048 Runden) ergibt einen Seed; HKDF-SHA256 zieht daraus getrennte Schlüssel für Identität und Datenbank. Die Wörter sind das Original, nicht eine Abschrift des Schlüssels.</span>
+            <span class="en">BIP39 (PBKDF2-HMAC-SHA512, 2048 rounds) yields a seed; HKDF-SHA256 derives separate keys for identity and database from it. The words are the original, not a transcript of the key.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Die Adresse</span><span class="en">The address</span></dt>
+        <dd><span class="de">32 Byte öffentlicher Schlüssel plus 3 Byte SHA-256-Prüfsumme, in Base32 — zusammen 56 Zeichen. Sie <em>ist</em> der Schlüssel und keine Nummer, die auf ihn zeigt.</span>
+            <span class="en">32 bytes of public key plus 3 bytes of SHA-256 checksum, in Base32 — 56 characters in all. It <em>is</em> the key, not a number pointing at one.</span></dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ═══════════ Geraetespeicher ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Gerätespeicher</span>
+      <span class="screen screen-lit en">Module — device storage</span>
+      <h2>
+        <span class="de">Wenn das Telefon in fremde Hände fällt</span>
+        <span class="en">If the phone falls into the wrong hands</span>
+      </h2>
+      <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Weg. Was auf dem Gerät
+        liegt, ist eine zweite Frage — und sie wird oft gar nicht gestellt.</p>
+      <p class="en">End-to-end encryption protects the path. What sits on the device
+        is a second question — and one that often goes unasked.</p>
+    </div>
+
+    <dl class="plate">
+      <div class="plate-row">
+        <dt><span class="de">Die Datenbank</span><span class="en">The database</span></dt>
+        <dd><span class="de">Als <em>ganze Datei</em> mit ChaCha20-Poly1305 verschlüsselt (SQLite3MultipleCiphers). Wer sie in die Hand bekommt, sieht nicht einmal, wie viele Kontakte es gibt.</span>
+            <span class="en">Encrypted as a <em>whole file</em> with ChaCha20-Poly1305 (SQLite3MultipleCiphers). Whoever obtains it cannot even tell how many contacts there are.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">App-Sperre</span><span class="en">App lock</span></dt>
+        <dd><span class="de">AES-256-GCM. Beim App-Passwort entsteht der Schlüssel über Argon2id mit 19 MiB Speicher und 2 Durchgängen — die Empfehlung des OWASP. Raten kostet damit Speicher und Zeit, nicht nur Rechenschritte.</span>
+            <span class="en">AES-256-GCM. With the app password the key comes from Argon2id using 19 MiB of memory and 2 passes — the OWASP recommendation. Guessing therefore costs memory and time, not just cycles.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Vier Wege hinein</span><span class="en">Four ways in</span></dt>
+        <dd><span class="de">Fingerabdruck, Gerätesperre, App-Passwort — oder ein Sicherheitsschlüssel per NFC oder Kabel (CTAP2 <code>hmac-secret</code>, etwa YubiKey). Ohne den Stick geht die App dann nicht auf, auch nicht mit dem richtigen Passwort.</span>
+            <span class="en">Fingerprint, device lock, app password — or a security key over NFC or cable (CTAP2 <code>hmac-secret</code>, e.g. YubiKey). Without the key the app stays shut, correct password or not.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Alles löschen</span><span class="en">Wipe</span></dt>
+        <dd><span class="de">Der Schlüssel der Datenbank stammt aus den zwölf Wörtern. Sind sie gelöscht, ist die Datei dauerhaft unlesbar — auch für uns, auch wenn die Bytes im Flash-Speicher überleben.</span>
+            <span class="en">The database key comes from the twelve words. Delete them and the file is permanently unreadable — to us as well, even if the bytes survive in flash.</span></dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ═══════════ Anhaenge ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Anhänge</span>
+      <span class="screen screen-lit en">Module — attachments</span>
+      <h2>
+        <span class="de">Große Dateien, ohne großen Server</span>
+        <span class="en">Large files, without a large server</span>
+      </h2>
+      <p class="de">Bis zu 3 GB je Datei. Sie geht nicht durch den Relay — der ist für
+        kurze Nachrichten gebaut. Sie liegt verschlüsselt in einem eigenen
+        Zwischenlager, in Stücken, und verschwindet nach 14 Tagen von selbst.</p>
+      <p class="en">Up to 3 GB per file. It does not pass through the relay — that one
+        is built for short messages. It rests encrypted in a separate holding store,
+        in pieces, and disappears by itself after 14 days.</p>
+    </div>
+
+    <div class="path">
+      <div class="step">
+        <span class="screen de">Schritt 1</span><span class="screen en">Step 1</span>
+        <h3><span class="de">In Stücke teilen</span><span class="en">Split into pieces</span></h3>
+        <p class="de">16 MiB je Stück. Reißt die Verbindung ab — auf Mobilfunk bei drei
+          Gigabyte der Normalfall —, kostet das ein Stück und nicht die ganze Datei.</p>
+        <p class="en">16 MiB each. If the connection drops — the normal case for three
+          gigabytes over mobile — it costs one piece, not the whole file.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
+        <h3><span class="de">Je Stück ein Schlüssel</span><span class="en">One key per piece</span></h3>
+        <p class="de">AES-256-GCM, und jedes Stück bekommt einen eigenen Zufallsschlüssel.
+          Nicht aus Übervorsicht: mit <em>einem</em> Schlüssel für die ganze Datei müsste
+          ein Zähler über alle Stücke sauber geführt werden, und ein Fehler dabei bricht
+          GCM vollständig.</p>
+        <p class="en">AES-256-GCM, and every piece gets its own random key. Not out of
+          excess caution: with <em>one</em> key for the whole file a counter would have to
+          be tracked across all pieces, and a single slip there breaks GCM completely.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
+        <h3><span class="de">Die Nummer mitbeglaubigen</span><span class="en">Authenticate the number</span></h3>
+        <p class="de">Fälschen kann der Speicher nichts. Vertauschen schon — unter der
+          Kennung von Stück 3 die Bytes von Stück 5. Deshalb steckt die Stücknummer im
+          beglaubigten Zusatz; ein vertauschtes Stück geht dann gar nicht mehr auf.</p>
+        <p class="en">The store cannot forge anything. It could swap, though — serving
+          piece 5's bytes under piece 3's identifier. So the piece number sits in the
+          authenticated data; a swapped piece then fails to open at all.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 4</span><span class="screen en">Step 4</span>
+        <h3><span class="de">Schlüssel gehen anders</span><span class="en">Keys travel elsewhere</span></h3>
+        <p class="de">Die Anleitung — wo die Stücke liegen und womit sie aufgehen — reist
+          als gewöhnliche Nachricht durch die Signal-Sitzung. Der Speicher bekommt die
+          Schlüssel also nie zu sehen; er kennt Größe und Zeitpunkt, mehr nicht.</p>
+        <p class="en">The recipe — where the pieces are and what opens them — travels as an
+          ordinary message through the Signal session. The store therefore never sees the
+          keys; it knows size and timing, nothing else.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- ═══════════ Grenzen ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
@@ -624,8 +797,8 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       </div>
       <div class="plate-row">
         <dt><span class="de">Umfang</span><span class="en">Scope</span></dt>
-        <dd><span class="de">Einzelchats, nur Text. Keine Gruppen, keine Bilder, keine Anrufe.</span>
-            <span class="en">One-to-one chats, text only. No groups, no images, no calls.</span></dd>
+        <dd><span class="de">Einzelchats mit Text und Anhängen bis 3 GB. Keine Gruppen, keine Anrufe.</span>
+            <span class="en">One-to-one chats with text and attachments up to 3 GB. No groups, no calls.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
@@ -680,6 +853,16 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
         <span class="num">0</span>
         <p class="de">Anfragen an Dritte. Die App lädt weder Schriften noch Zählpixel nach. Diese Seite auch nicht.</p>
         <p class="en">Third-party requests. The app loads neither fonts nor trackers, and neither does this page.</p>
+      </div>
+      <div class="fact">
+        <span class="num">256</span>
+        <p class="de">Byte je Block, auf den jede Nachricht aufgefüllt wird. Deshalb sieht ein „ja“ auf der Leitung aus wie ein Absatz.</p>
+        <p class="en">Bytes per block every message is padded to. That is why a “yes” looks like a paragraph on the wire.</p>
+      </div>
+      <div class="fact">
+        <span class="num">3 GB</span>
+        <p class="de">Größte Datei je Anhang — in 16-MiB-Stücken, jedes mit eigenem Schlüssel.</p>
+        <p class="en">Largest file per attachment — in 16 MiB pieces, each with its own key.</p>
       </div>
     </div>
   </section>

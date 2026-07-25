@@ -37,6 +37,31 @@ class MainActivity : FlutterFragmentActivity() {
 
     private val kanal = "bitdm/fenster"
 
+    private var dateiKanal: DateiKanal? = null
+
+    /**
+     * Die Antwort des Dateiwaehlers.
+     *
+     * Ueber onActivityResult und NICHT ueber registerForActivityResult: das
+     * muesste vor onStart angemeldet werden, und der Aufruf kommt spaeter —
+     * naemlich dann, wenn jemand auf das Pluszeichen tippt.
+     */
+    @Deprecated("onActivityResult ist abgeloest, passt hier aber zum Ablauf")
+    override fun onActivityResult(anfrage: Int, ergebnis: Int, daten: Intent?) {
+        super.onActivityResult(anfrage, ergebnis, daten)
+        if (anfrage == DateiKanal.ANFRAGE_WAEHLEN) {
+            dateiKanal?.antwort(ergebnis, daten)
+        }
+    }
+
+    override fun onDestroy() {
+        // Offene Dateikennungen schliessen. Davon hat ein Prozess nur eine
+        // begrenzte Zahl, und ein abgebrochener Versand hinterlaesst sonst
+        // eine.
+        dateiKanal?.raeumeAuf()
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // VOR dem ersten Zeichnen setzen, nicht erst wenn Dart hochgefahren
         // ist. Sonst waere das allererste Bild — und damit die Vorschau in der
@@ -60,6 +85,13 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger, SchluesselfachKanal.KANAL)
             .setMethodCallHandler(SchluesselfachKanal(this))
+
+        // Auch dieser bekommt die Activity: startActivityForResult gibt es
+        // auf dem Application-Context nicht, und ein Auswahldialog ohne
+        // Activity waere keiner.
+        dateiKanal = DateiKanal(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DateiKanal.KANAL)
+            .setMethodCallHandler(dateiKanal)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EmpfangsDienst.KANAL)
             .setMethodCallHandler { aufruf, ergebnis ->

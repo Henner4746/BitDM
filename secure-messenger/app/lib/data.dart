@@ -229,6 +229,23 @@ const Map<String, Map<String, String>> strings = {
     'navChats': 'Chats', 'navId': 'My ID', 'navSet': 'Settings',
     'voice': 'Voice message', 'newContact': 'New contact',
 
+    // ---- Anhaenge ----
+    // "Holen" statt "Herunterladen": eine Datei kann drei Gigabyte gross sein,
+    // und der Nutzer entscheidet ausdruecklich. Das Wort soll klingen wie eine
+    // Entscheidung, nicht wie ein Automatismus.
+    'attach': 'Attach file', 'attachSend': 'Sending', 'attachGet': 'Get file',
+    'attachAgain': 'Try again', 'attachOpen': 'Open', 'attachGone': 'No longer stored',
+    'attachGoneWhy': 'Attachments are kept for 14 days, and vanish once fetched.',
+    'attachHere': 'On this device',
+    'attachTooBig': 'That file is too large. BitDM carries up to 3 GB.',
+    'attachFull': 'The storage is full right now. Try again later.',
+    'attachQuota': "Today's limit is used up. Attachments are capped at 10 GB per day.",
+    'attachBroken': "That file did not come through intact. Ask the sender to send it again.",
+    'attachNet': 'That did not go through. Check the connection and try again.',
+    'attachBusy': 'One file at a time — wait for the current one.',
+    'attachNote': 'Files travel encrypted, in pieces, and are deleted after 14 days.',
+    'attachNoApp': 'No app on this device can open that kind of file.',
+
     'hintShot': 'Screenshot protection on', 'hintEnc': 'End-to-end encrypted', 'hintEph': 'Messages delete after ',
   },
   'de': {
@@ -363,6 +380,20 @@ const Map<String, Map<String, String>> strings = {
     'dark': 'Dunkel', 'light': 'Hell', 'off': 'Aus', 'h1': '1 Std.', 'h24': '24 Std.', 'd7': '7 Tage', 'on': 'An',
     'navChats': 'Chats', 'navId': 'Meine ID', 'navSet': 'Einstellungen',
     'voice': 'Sprachnachricht', 'newContact': 'Neuer Kontakt',
+
+    // ---- Anhaenge ----
+    'attach': 'Datei anhängen', 'attachSend': 'Wird geschickt', 'attachGet': 'Datei holen',
+    'attachAgain': 'Nochmal versuchen', 'attachOpen': 'Öffnen', 'attachGone': 'Nicht mehr da',
+    'attachGoneWhy': 'Anhänge liegen 14 Tage und verschwinden, sobald sie geholt wurden.',
+    'attachHere': 'Auf diesem Gerät',
+    'attachTooBig': 'Diese Datei ist zu groß. BitDM trägt bis zu 3 GB.',
+    'attachFull': 'Der Speicher ist gerade voll. Versuch es später noch einmal.',
+    'attachQuota': 'Das Tagespensum ist aufgebraucht. Anhänge sind auf 10 GB pro Tag begrenzt.',
+    'attachBroken': 'Diese Datei ist nicht heil angekommen. Bitte die Gegenstelle, sie noch einmal zu schicken.',
+    'attachNet': 'Das ging nicht durch. Prüf die Verbindung und versuch es noch einmal.',
+    'attachBusy': 'Eine Datei nach der anderen — warte, bis die aktuelle durch ist.',
+    'attachNote': 'Dateien reisen verschlüsselt, in Stücken, und werden nach 14 Tagen gelöscht.',
+    'attachNoApp': 'Keine App auf diesem Gerät kann diese Art Datei öffnen.',
 
     'hintShot': 'Screenshot-Schutz aktiv', 'hintEnc': 'Ende-zu-Ende verschlüsselt', 'hintEph': 'Nachrichten löschen sich nach ',
   },

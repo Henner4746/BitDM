@@ -145,9 +145,9 @@ footer a{color:var(--muted)}
     <h1><span class="de">Datenschutz &amp; Impressum</span><span class="en">Privacy &amp; imprint</span></h1>
     <p class="stamp">
       <span class="de">Gilt für die App <strong>BitDM</strong> (<code>com.bitdm.bitdm</code>)
-        und für diese Website. Stand: 25. Juli 2026.</span>
+        und für diese Website. Stand: 26. Juli 2026.</span>
       <span class="en">Applies to the <strong>BitDM</strong> app
-        (<code>com.bitdm.bitdm</code>) and to this website. Last updated: 25 July 2026.</span>
+        (<code>com.bitdm.bitdm</code>) and to this website. Last updated: 26 July 2026.</span>
     </p>
   </header>
 
@@ -201,18 +201,29 @@ footer a{color:var(--muted)}
   <section>
     <h2><span class="de">Was die App auf dem Gerät speichert</span><span class="en">What the app stores on the device</span></h2>
     <ul class="de">
-      <li>Deinen <strong>privaten Schlüssel</strong> und die daraus abgeleitete
-        Wiederherstellungsphrase, geschützt durch den Android-Schlüsselspeicher.</li>
-      <li>Deine <strong>Kontakte und Nachrichten</strong> in einer verschlüsselten
-        Datenbank auf dem Gerät.</li>
+      <li>Die <strong>zwölf Wörter</strong> — genauer: die Zufallszahl dahinter.
+        Aus ihr entsteht der private Schlüssel, nicht umgekehrt. Sie liegt im
+        Schlüsselspeicher des Geräts oder, wenn eine App-Sperre eingerichtet ist,
+        in einem mit AES-256-GCM verschlossenen Fach.</li>
+      <li>Deine <strong>Kontakte und Nachrichten</strong> in einer Datenbank, die
+        als <em>ganze Datei</em> mit ChaCha20-Poly1305 verschlüsselt ist
+        (SQLite3MultipleCiphers). Ihr Schlüssel stammt ebenfalls aus den zwölf
+        Wörtern.</li>
       <li>Den <strong>Sitzungszustand</strong> der Verschlüsselung.</li>
+      <li><strong>Empfangene Anhänge</strong>, entschlüsselt, im privaten Bereich
+        der App. Sie verschwinden mit der Nachricht, zu der sie gehören.</li>
     </ul>
     <ul class="en">
-      <li>Your <strong>private key</strong> and the recovery phrase derived from
-        it, protected by the Android keystore.</li>
-      <li>Your <strong>contacts and messages</strong> in an encrypted database on
-        the device.</li>
+      <li>The <strong>twelve words</strong> — more precisely, the random number
+        behind them. The private key is derived from it, not the other way round.
+        It sits in the device keystore or, once an app lock is set up, in a
+        compartment closed with AES-256-GCM.</li>
+      <li>Your <strong>contacts and messages</strong> in a database encrypted as a
+        <em>whole file</em> with ChaCha20-Poly1305 (SQLite3MultipleCiphers). Its key
+        also comes from the twelve words.</li>
       <li>The <strong>session state</strong> of the encryption.</li>
+      <li><strong>Received attachments</strong>, decrypted, in the app's private
+        area. They vanish along with the message they belong to.</li>
     </ul>
     <p class="de">Nichts davon verlässt das Gerät. Das automatische Android-Backup
       ist für BitDM <strong>abgeschaltet</strong>, damit dieser Bestand nicht in
@@ -239,8 +250,8 @@ footer a{color:var(--muted)}
       </div>
       <div class="plate-row">
         <dt><span class="de">Zeit &amp; Größe</span><span class="en">Time &amp; size</span></dt>
-        <dd><span class="de">Zeitpunkt der Zustellung und Länge des verschlüsselten Pakets.</span>
-            <span class="en">Time of delivery and length of the encrypted packet.</span></dd>
+        <dd><span class="de">Zeitpunkt der Zustellung und Länge des verschlüsselten Pakets. Die ist auf Vielfache von 256 Byte aufgerundet — die genaue Länge einer Nachricht sieht er also nicht.</span>
+            <span class="en">Time of delivery and length of the encrypted packet. That length is rounded up to multiples of 256 bytes — so it does not see the exact length of a message.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Schlüsselpakete</span><span class="en">Key bundles</span></dt>
@@ -251,6 +262,11 @@ footer a{color:var(--muted)}
         <dt><span class="de">Zwischenspeicher</span><span class="en">Queue</span></dt>
         <dd><span class="de">Unzugestellte verschlüsselte Nachrichten, höchstens 14 Tage. Zugestellte werden sofort gelöscht.</span>
             <span class="en">Undelivered encrypted messages, at most 14 days. Delivered ones are removed immediately.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Anhangstücke</span><span class="en">Attachment pieces</span></dt>
+        <dd><span class="de">Anhänge gehen <strong>nicht</strong> über den Relay, sondern liegen auf einem eigenen Rechner (dateien.bitdm.net) — verschlüsselt, in Stücken von 16 MiB, ohne Dateinamen und ohne Angabe, zu wem sie gehören. Der Schlüssel kommt dort nie vorbei. Höchstens 14 Tage; abgeholte Stücke werden sofort weggeworfen.</span>
+            <span class="en">Attachments do <strong>not</strong> go through the relay; they rest on a separate machine (dateien.bitdm.net) — encrypted, in 16 MiB pieces, without file names and without any indication of whom they belong to. The key never passes through there. At most 14 days; fetched pieces are discarded immediately.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Verbindungsdaten</span><span class="en">Connection logs</span></dt>

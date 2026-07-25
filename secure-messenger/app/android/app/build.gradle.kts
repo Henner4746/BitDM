@@ -147,6 +147,28 @@ android {
             // als eine scheinbar fertige Release-APK mit dem oeffentlich
             // bekannten Debug-Schluessel, die niemandem auffaellt.
         }
+
+        // DER TESTBAU BEKOMMT EINE EIGENE PAKETKENNUNG.
+        //
+        // Ohne diese Zeile heissen beide com.bitdm.bitdm. Da sie mit
+        // verschiedenen Schluesseln unterschrieben sind, laesst sich der
+        // Testbau nicht ueber die echte App installieren — Android verlangt
+        // dann eine Deinstallation, und die nimmt die zwoelf Woerter mit.
+        // Eine funktionierende Identitaet auf einem echten Telefon dafuer zu
+        // opfern, dass man kurz etwas ausprobieren will, ist ein schlechter
+        // Tausch, den man genau einmal macht.
+        //
+        // Mit dem Zusatz stehen beide nebeneinander auf dem Bildschirm. Der
+        // Testbau bekommt einen eigenen Namen, damit klar ist, welcher welcher
+        // ist, und eigene Daten: eigene Datenbank, eigene Identitaet, eigene
+        // Anmeldung beim Anstoss-Verteiler.
+        debug {
+            applicationIdSuffix = ".dev"
+            // Der Name steht in src/debug/res/values/strings.xml und nicht als
+            // resValue: das braeuchte buildFeatures.resValues, das AGP 8 aus
+            // gutem Grund abgeschaltet hat. Ein eigener Ressourcenordner je
+            // Bauart ist ohnehin der vorgesehene Weg.
+        }
     }
 }
 

@@ -706,7 +706,7 @@ class RealMessengerCore implements MessengerCore {
 
   @override
   Future<Message> sendeAnhang(String contactId, File datei,
-      {String? name}) async {
+      {String? name, int? groesse}) async {
     _fordereKontakt(contactId);
     final relay = _relay;
     if (relay == null || !relay.isConnected) {
@@ -716,7 +716,7 @@ class RealMessengerCore implements MessengerCore {
     final id = _neueId();
     final angezeigt =
         AnhangEmpfang.sichererName(name ?? datei.uri.pathSegments.last);
-    final groesse = await datei.length();
+    final wirklicheGroesse = groesse ?? await datei.length();
 
     // ERST in den Verlauf, DANN hochladen. Bei drei Gigabyte laeuft das
     // minutenlang; ohne Eintrag saehe der Nutzer waehrenddessen eine leere
@@ -740,7 +740,7 @@ class RealMessengerCore implements MessengerCore {
       chatId: contactId,
       senderId: myId,
       name: angezeigt,
-      groesse: groesse,
+      groesse: wirklicheGroesse,
       zustand: AnhangZustand.da,
       pfad: datei.path,
     );
@@ -748,7 +748,8 @@ class RealMessengerCore implements MessengerCore {
     final versand = AnhangVersand(relay: relay, lager: _lager());
     final Rezept rezept;
     try {
-      rezept = await versand.schicke(datei, name: angezeigt,
+      rezept = await versand.schicke(datei,
+          name: angezeigt, groesse: wirklicheGroesse,
           fortschritt: (s) => _anhangStand.add(AnhangFortschritt(
                 messageId: id,
                 chatId: contactId,

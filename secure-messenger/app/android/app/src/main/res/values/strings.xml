@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Der Name der App. Steht hier und nicht im Manifest, damit der Testbau
+        ihn ueberschreiben kann (siehe build.gradle.kts, buildTypes.debug):
+        dort heisst er "BitDM (Test)", damit auf dem Bildschirm klar ist,
+        welches Symbol welches ist.
+    -->
+    <string name="app_name">BitDM</string>
+</resources>
