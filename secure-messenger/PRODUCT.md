@@ -29,7 +29,7 @@ ohne Telefonnummer und ohne Username.
 
 Der unmittelbare Anlass ist funktional, nicht werblich: Die Seite wird für das
 **Google-Play-Console-Konto** gebraucht. Als Entwickler-Website ist bereits
-`app.henrik.click` hinterlegt.
+`bitdm.net` hinterlegt.
 
 Erfolg heißt: (1) die Play-Anforderungen sind erfüllt, (2) ein technisch
 kundiger Besucher versteht in unter einer Minute, was BitDM anders macht und
@@ -48,7 +48,7 @@ Ratchet für Forward Secrecy), quelloffen unter GPL-3.0.
 
 ## Operating Context
 
-- Zieladresse: **`app.henrik.click`** (bereits in der Play Console hinterlegt).
+- Zieladresse: **`bitdm.net`** (bereits in der Play Console hinterlegt).
 - Gehostet auf dem vorhandenen VPS hinter nginx, wie die übrigen vHosts.
 - Besucher kommen überwiegend über einen Link — aus der Play-Console-Prüfung,
   von GitHub oder aus einer Empfehlung. Kein Suchmaschinen-Traffic zu erwarten.
@@ -79,8 +79,10 @@ Ratchet für Forward Secrecy), quelloffen unter GPL-3.0.
 
 **Offen, nicht erfunden:**
 - Zieladresse für das E-Mail-Formular (Backend noch nicht festgelegt).
-- Eine mit dem echten Release-Schlüssel signierte APK existiert noch nicht;
-  der Download kann erst live gehen, wenn sie samt Fingerabdruck bereitsteht.
+- Eine mit dem echten Release-Schlüssel signierte APK existiert inzwischen
+  (Zertifikat CN=Henrik Reuber, SHA-256 e325b01c…). Der Download bleibt aber
+  bewusst geschlossen: die App kann noch keine Nachricht senden. Erst wenn sie
+  funktioniert, geht die Datei samt Fingerabdruck online.
 
 ## Brand Commitments
 

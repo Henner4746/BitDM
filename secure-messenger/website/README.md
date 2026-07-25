@@ -1,6 +1,6 @@
 # BitDM — Website
 
-Statische Seite, **live unter https://app.henrik.click**. Zwei Dateien, keine
+Statische Seite, **live unter https://bitdm.net**. Zwei Dateien, keine
 Build-Schritte, keine Abhängigkeiten, keine Fremdanfragen zur Laufzeit.
 
 ```
@@ -40,7 +40,7 @@ deshalb bereits umgesetzt und nachgewiesen; die Punkte 1 bis 4 stehen noch aus.
 
 ## Cloudflare
 
-`app.henrik.click` läuft über den Cloudflare-Proxy (orange Wolke). Das hat drei
+`bitdm.net` läuft über den Cloudflare-Proxy (orange Wolke). Das hat drei
 Folgen, die man kennen muss:
 
 1. **Cloudflare sieht jeden Besucher** — IP, Zeitpunkt, aufgerufene Seite. Das
@@ -65,7 +65,7 @@ die korrekte Meldung für „Ursprung noch nicht eingerichtet".
 
 ## Deployment auf dem VPS
 
-**Ist bereits ausgerollt.** Die Seite läuft unter https://app.henrik.click.
+**Ist bereits ausgerollt.** Die Seite läuft unter https://bitdm.net.
 Dieser Abschnitt hält fest, wie — und wo es Fallstricke gab.
 
 ### Quelle: git statt Dateikopie
@@ -99,13 +99,13 @@ Konfiguration weiter, die anderen vHosts sind also nicht betroffen.
 
 ### Aktive Konfiguration
 
-`/etc/nginx/sites-available/app.henrik.click`:
+`/etc/nginx/sites-available/bitdm.net`:
 
 ```nginx
 server {
     listen 80;
     listen [::]:80;
-    server_name app.henrik.click;
+    server_name bitdm.net;
 
     location /.well-known/acme-challenge/ { root /var/www/acme; }
     location / { return 301 https://$host$request_uri; }
@@ -114,17 +114,17 @@ server {
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name app.henrik.click;
+    server_name bitdm.net;
 
     root /opt/bitdm/secure-messenger/website;
     index index.html;
 
-    ssl_certificate     /etc/letsencrypt/live/app.henrik.click/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/app.henrik.click/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/bitdm.net/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/bitdm.net/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    access_log /var/log/nginx/app.henrik.click.log bitdm_noip;
+    access_log /var/log/nginx/bitdm.net.log bitdm_noip;
 
     add_header X-Frame-Options        "DENY"        always;
     add_header X-Content-Type-Options "nosniff"     always;
@@ -148,7 +148,7 @@ log_format bitdm_noip '[$time_local] "$request" $status $body_bytes_sent';
 
 Kein `$remote_addr`, kein `$http_x_forwarded_for`, kein `CF-Connecting-IP`. Was
 nicht protokolliert wird, kann weder erbeutet noch herausverlangt werden.
-Aufbewahrung 7 Tage über `/etc/logrotate.d/app.henrik.click`, passend zur Zusage
+Aufbewahrung 7 Tage über `/etc/logrotate.d/bitdm.net`, passend zur Zusage
 in der Datenschutzerklärung.
 
 Zertifikat von Let's Encrypt, Erneuerung über den vorhandenen `certbot.timer`.
@@ -156,7 +156,7 @@ Zertifikat von Let's Encrypt, Erneuerung über den vorhandenen `certbot.timer`.
 ## Prüfen nach dem Deployment
 
 ```bash
-curl -sI https://app.henrik.click | head -20
+curl -sI https://bitdm.net | head -20
 ```
 
 Erwartet: `200`, die Sicherheitsheader, und **keine** Weiterleitung auf eine
