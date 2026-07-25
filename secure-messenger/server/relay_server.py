@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -81,6 +82,74 @@ OTK_REFILL_PER_SEC = float(os.getenv("BITDM_OTK_REFILL", 0.1))   # 6 pro Minute
 
 # Ab wann der Client aufgefordert wird, One-Time-Prekeys nachzuliefern.
 OTK_LOW_WATERMARK = int(os.getenv("BITDM_OTK_LOW", 20))
+
+
+# --------------------------------------------------------------------------- #
+#  Das Zwischenlager  (dateien.bitdm.net, siehe blob_server.py)
+# --------------------------------------------------------------------------- #
+#
+# Grosse Anhaenge gehen nicht durch diesen Server. Er stellt nur die Erlaubnis
+# aus, sie woanders abzulegen — er weiss ja schon, wem eine Adresse gehoert,
+# weil er es beim Verbinden geprueft hat. Das Lager muesste denselben Nachweis
+# sonst ein zweites Mal fuehren.
+#
+# WAS DIESER SERVER DABEI NICHT SIEHT: den Inhalt (verschluesselt), den
+# Schluessel (reist als gewoehnliche Nachricht) und die Datei selbst (liegt auf
+# einem anderen Rechner). Er sieht: wer wann wie viele Bytes ablegen will.
+
+BLOB_BASIS = os.getenv("BITDM_BLOB_BASE", "https://dateien.bitdm.net")
+
+# Muss zu MAX_BYTES in blob_server.py passen. Steht hier trotzdem noch einmal:
+# eine Marke fuer mehr auszustellen, als das Lager annimmt, hiesse den Client
+# erst laden zu lassen und ihn dann abzuweisen.
+BLOB_MAX_BYTES = int(os.getenv("BITDM_BLOB_MAX", 3 * 1024**3))
+
+# Wie lange eine Marke gilt. Grosszuegig, und das ist vertretbar: sie gilt fuer
+# GENAU EINE Kennung und GENAU EINE Groesse, und eine schon belegte Kennung
+# weist das Lager ab. Eine kurze Frist wuerde dagegen jeden Upload treffen, der
+# ueber eine schlechte Mobilfunkstrecke laenger dauert — und das ist genau der
+# Fall, fuer den das Lager gebaut ist.
+BLOB_MARKE_TTL = int(os.getenv("BITDM_BLOB_MARKE_TTL", 12 * 3600))
+
+# Wie viel eine Adresse pro Tag ablegen darf.
+#
+# DAS IST DIE EIGENTLICHE VERTEIDIGUNG, nicht die Marke. Die Marke haelt
+# Fremde draussen — aber eine Adresse anzulegen kostet nichts als ein
+# Schluesselpaar. Ohne diese Grenze koennte sich jemand ein paar Adressen
+# machen und die Platte in einer Nacht fuellen.
+BLOB_TAGESMENGE = int(os.getenv("BITDM_BLOB_QUOTA", 10 * 1024**3))
+
+BLOB_KENNUNG_MUSTER = re.compile(r"^[a-z2-7]{52}$")
+
+
+def blob_geheimnis() -> bytes:
+    """Das mit dem Lager geteilte Geheimnis.
+
+    BEI JEDEM AUFRUF NEU GELESEN und nicht beim Start einmal. Wird es getauscht,
+    genuegt sonst ein Neustart auf einer der beiden Seiten, um alle Uploads
+    stillschweigend scheitern zu lassen — mit 403 beim Lager und ohne Hinweis
+    darauf, woran es liegt.
+    """
+    aus_umgebung = os.getenv("BITDM_BLOB_SECRET")
+    if aus_umgebung:
+        return aus_umgebung.encode()
+    return Path(
+        os.getenv("BITDM_BLOB_SECRET_FILE", "/etc/bitdm/blob.secret")
+    ).read_bytes().strip()
+
+
+def blob_marke(kennung: str, groesse: int, ablauf: int) -> str:
+    """Muss Zeichen fuer Zeichen zu marke_gueltig() in blob_server.py passen."""
+    nachricht = f"{kennung}|{groesse}|{ablauf}".encode()
+    return hmac.new(blob_geheimnis(), nachricht, hashlib.sha256).hexdigest()
+
+
+def blob_menge_heute(user_id: str) -> int:
+    seit = time.time() - 24 * 3600
+    return db.execute(
+        "SELECT COALESCE(SUM(groesse), 0) FROM blob_marken WHERE user_id=? AND ts > ?",
+        (user_id, seit),
+    ).fetchone()[0]
 
 
 # --------------------------------------------------------------------------- #
@@ -192,6 +261,23 @@ CREATE TABLE IF NOT EXISTS queue (
 );
 CREATE INDEX IF NOT EXISTS idx_queue_recipient ON queue(recipient);
 CREATE INDEX IF NOT EXISTS idx_queue_ts        ON queue(ts);
+
+-- Ausgestellte Marken fuer das Zwischenlager. NUR fuer die Tagesmenge da.
+--
+-- Die Kennung steht hier ABSICHTLICH NICHT drin. Sie waere die Verbindung
+-- zwischen einer Adresse und einer bestimmten Datei im Lager — und genau die
+-- soll dieser Server nicht haben. Fuer eine Mengenrechnung reicht, wie viel
+-- wann; wofuer, geht ihn nichts an.
+--
+-- Die Zeilen werden nach 24 Stunden weggeraeumt (purge_expired). Ein
+-- Protokoll, das laenger lebt, als es gebraucht wird, ist ein Protokoll.
+CREATE TABLE IF NOT EXISTS blob_marken (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    groesse INTEGER NOT NULL,
+    ts      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_blob_marken ON blob_marken(user_id, ts);
 """
 
 db: sqlite3.Connection
@@ -234,6 +320,10 @@ def purge_expired() -> int:
     cutoff = time.time() - QUEUE_TTL_SECONDS
     with db:
         cur = db.execute("DELETE FROM queue WHERE ts < ?", (cutoff,))
+        # Marken-Zeilen aelter als die Tagesfrist zaehlen fuer nichts mehr.
+        # Sie stehenzulassen hiesse, ein Protokoll darueber zu fuehren, wer
+        # wann wie viel abgelegt hat — ohne dass es noch einem Zweck diente.
+        db.execute("DELETE FROM blob_marken WHERE ts < ?", (time.time() - 24 * 3600,))
     return cur.rowcount
 
 
@@ -686,6 +776,78 @@ async def ws_endpoint(ws: WebSocket):
                     await ws.send_json(
                         {"type": "error", "reason": "Anstoss-Endpunkt ungueltig"}
                     )
+                continue
+
+            # ── Erlaubnis zum Ablegen im Zwischenlager ────────────────────
+            #
+            # DIE KENNUNG SUCHT SICH DER CLIENT AUS, dieser Server
+            # unterschreibt sie blind. Er koennte sie genauso gut selbst
+            # wuerfeln — dann wuesste er aber, welche Datei im Lager zu
+            # welcher Adresse gehoert. So weiss er es nicht, und das ist
+            # umsonst zu haben.
+            #
+            # Dass der Client sie waehlt, kostet nichts: eine schon belegte
+            # Kennung weist das Lager mit 409 ab, und 32 Byte Zufall zu
+            # erraten ist keine Angriffsflaeche.
+            if data.get("type") == "blob_marke":
+                kennung = data.get("kennung", "")
+                groesse = data.get("groesse")
+                marken_ref = {"kennung": kennung} if isinstance(kennung, str) else {}
+
+                if not isinstance(kennung, str) or not BLOB_KENNUNG_MUSTER.match(kennung):
+                    await ws.send_json({"type": "error", "reason": "Kennung ungueltig"})
+                    continue
+                if not isinstance(groesse, int) or isinstance(groesse, bool) \
+                        or not 0 < groesse <= BLOB_MAX_BYTES:
+                    await ws.send_json(
+                        {"type": "error", "reason": "Groesse ungueltig", **marken_ref}
+                    )
+                    continue
+
+                # Die Tagesmenge. Sie wird beim AUSSTELLEN gezaehlt, nicht beim
+                # Hochladen — dieser Server erfaehrt nie, ob wirklich
+                # hochgeladen wurde. Wer sich Marken holt und sie verfallen
+                # laesst, verbraucht damit sein eigenes Kontingent; das ist die
+                # richtige Richtung fuer den Irrtum.
+                verbraucht = blob_menge_heute(user_id)
+                if verbraucht + groesse > BLOB_TAGESMENGE:
+                    await ws.send_json({
+                        "type": "error",
+                        "reason": "Tagesmenge erschoepft",
+                        "frei": max(0, BLOB_TAGESMENGE - verbraucht),
+                        **marken_ref,
+                    })
+                    continue
+
+                ablauf = int(time.time()) + BLOB_MARKE_TTL
+                try:
+                    marke = blob_marke(kennung, groesse, ablauf)
+                except OSError:
+                    # Das Geheimnis fehlt oder ist nicht lesbar. NICHT so tun,
+                    # als laege es am Client: sonst sucht jemand tagelang in
+                    # der App nach einem Fehler, der auf dem Server sitzt.
+                    await ws.send_json({
+                        "type": "error",
+                        "reason": "Zwischenlager nicht eingerichtet",
+                        **marken_ref,
+                    })
+                    continue
+
+                with db:
+                    db.execute(
+                        "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+                        (user_id, groesse, time.time()),
+                    )
+                await ws.send_json({
+                    "type": "blob_marke_ok",
+                    "kennung": kennung,
+                    "groesse": groesse,
+                    "ablauf": ablauf,
+                    "marke": marke,
+                    "ablegen": f"{BLOB_BASIS}/ablegen/{kennung}",
+                    "holen": f"{BLOB_BASIS}/blob/{kennung}",
+                    "wegwerfen": f"{BLOB_BASIS}/wegwerfen/{kennung}",
+                })
                 continue
 
             if data.get("type") != "message":

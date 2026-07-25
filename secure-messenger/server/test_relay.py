@@ -19,6 +19,7 @@ import base64
 import hashlib
 import json
 import os
+import time
 
 import httpx
 import websockets
@@ -334,6 +335,110 @@ async def main():
         res = json.loads(await alice_ws.recv())
         check("Endpunkt laesst sich wieder loeschen",
               res.get("type") == "push_ok" and res.get("set") is False)
+
+        # ------------------------------------- Marken fuer das Zwischenlager
+        #
+        # Der Server legt hier keine Datei ab und sieht auch keine. Er stellt
+        # eine Erlaubnis aus, weil er als einziger schon weiss, wem diese
+        # Adresse gehoert. Geprueft wird deshalb genau zweierlei: dass die
+        # Unterschrift zu der passt, die blob_server.py erwartet, und dass die
+        # Grenzen nicht vom Client bestimmt werden.
+        import hmac as _hmac
+        from relay_server import (BLOB_MAX_BYTES, BLOB_TAGESMENGE,
+                                  blob_geheimnis)
+
+        def kennung():
+            return base64.b32encode(os.urandom(32)).decode().rstrip("=").lower()
+
+        k = kennung()
+        await alice_ws.send(json.dumps(
+            {"type": "blob_marke", "kennung": k, "groesse": 1024}))
+        res = await expect(alice_ws, "blob_marke_ok")
+        check("Marke wird ausgestellt", res.get("kennung") == k)
+
+        # DIE ENTSCHEIDENDE ZEILE. Hier rechnen zwei Programme dieselbe
+        # Unterschrift aus, die auf zwei verschiedenen Rechnern laufen. Weicht
+        # das Format um ein Zeichen ab, laeuft alles andere weiter und nur die
+        # Uploads scheitern — mit 403, ohne dass irgendwo steht, warum.
+        try:
+            erwartet = _hmac.new(
+                blob_geheimnis(),
+                f"{k}|1024|{res['ablauf']}".encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            check("Unterschrift passt zu der, die das Lager prueft",
+                  _hmac.compare_digest(erwartet, res.get("marke", "")))
+        except OSError:
+            check("Unterschrift passt zu der, die das Lager prueft (kein "
+                  "Geheimnis auf dieser Maschine, uebersprungen)", True)
+
+        check("Die Marke gilt nur begrenzt",
+              0 < res["ablauf"] - time.time() <= 24 * 3600)
+        check("Die Adressen zeigen auf das Lager, nicht auf den Relay",
+              res.get("ablegen", "").endswith(f"/ablegen/{k}")
+              and res.get("holen", "").endswith(f"/blob/{k}"))
+
+        await alice_ws.send(json.dumps(
+            {"type": "blob_marke", "kennung": "zu-kurz", "groesse": 1024}))
+        res = await expect(alice_ws, "error")
+        check("Unsinnige Kennung wird abgelehnt", "Kennung" in res.get("reason", ""))
+
+        # Ohne diese Pruefung koennte sich ein Client eine Marke fuer eine
+        # Groesse holen, die das Lager gar nicht annimmt — und merkte es erst
+        # nach dem Hochladen.
+        await alice_ws.send(json.dumps(
+            {"type": "blob_marke", "kennung": kennung(),
+             "groesse": BLOB_MAX_BYTES + 1}))
+        res = await expect(alice_ws, "error")
+        check("Zu grosse Datei wird abgelehnt", "Groesse" in res.get("reason", ""))
+
+        for schlecht in (0, -1, "1024", 1.5, True, None):
+            await alice_ws.send(json.dumps(
+                {"type": "blob_marke", "kennung": kennung(), "groesse": schlecht}))
+            res = await expect(alice_ws, "error")
+            check(f"Groesse {schlecht!r} wird abgelehnt",
+                  "Groesse" in res.get("reason", ""))
+
+        # Die Tagesmenge. Sie ist die eigentliche Verteidigung — eine Adresse
+        # anzulegen kostet nichts, also muss die Grenze an der Menge haengen
+        # und nicht an der Identitaet.
+        #
+        # Ausgeschoepft wird sie in Brocken von je BLOB_MAX_BYTES. Ein einziger
+        # Antrag ueber die ganze Tagesmenge waere GROESSER als eine einzelne
+        # Datei sein darf und flaege schon an der Groessenpruefung raus — der
+        # Test haette dann bestanden, ohne die Menge je zu beruehren.
+        # Geschrieben wird dabei nichts: es sind Marken, keine Dateien.
+        verbraucht = 1024
+        marken = 0
+        while verbraucht + BLOB_MAX_BYTES <= BLOB_TAGESMENGE:
+            await alice_ws.send(json.dumps(
+                {"type": "blob_marke", "kennung": kennung(),
+                 "groesse": BLOB_MAX_BYTES}))
+            res = await expect(alice_ws, "blob_marke_ok", timeout=5)
+            if res.get("groesse") != BLOB_MAX_BYTES:
+                break
+            verbraucht += BLOB_MAX_BYTES
+            marken += 1
+        check("Bis zur Tagesmenge geht es",
+              marken > 0 and verbraucht + BLOB_MAX_BYTES > BLOB_TAGESMENGE)
+
+        await alice_ws.send(json.dumps(
+            {"type": "blob_marke", "kennung": kennung(),
+             "groesse": BLOB_MAX_BYTES}))
+        res = await expect(alice_ws, "error")
+        check("Darueber ist Schluss", "Tagesmenge" in res.get("reason", ""))
+        check("Und es steht dabei, wie viel noch frei ist", "frei" in res)
+
+        # Die Grenze gilt JE ADRESSE. Waere sie global, brauchte ein Angreifer
+        # nur sein eigenes Kontingent zu verbrauchen, um alle anderen
+        # auszusperren — aus einer Mengengrenze waere eine Abschaltung
+        # geworden.
+        bob_ws4 = await connect_authed(bob)
+        await bob_ws4.send(json.dumps(
+            {"type": "blob_marke", "kennung": kennung(), "groesse": 4096}))
+        res = await expect(bob_ws4, "blob_marke_ok")
+        check("Die Grenze trifft nur die eine Adresse", res.get("groesse") == 4096)
+        await bob_ws4.close()
 
         await alice_ws.close()
         await bob_ws3.close()
