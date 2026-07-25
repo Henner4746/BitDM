@@ -71,6 +71,24 @@
          zu bringen. -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
+    <!-- Ab Android 11 sieht eine App die anderen nicht mehr, ohne zu sagen,
+         WELCHE sie sucht. Ohne diesen Block scheitern die Knoepfe in der
+         Anleitung zum Anstoss-Verteiler stumm: "ntfy oeffnen" faende die App
+         nicht, und ein Link in den App-Laden liesse sich nicht oeffnen.
+
+         BEWUSST NICHT QUERY_ALL_PACKAGES. Diese Berechtigung zeigt die
+         gesamte Liste installierter Apps — bei Google ist sie
+         genehmigungspflichtig, und fuer eine App, die Metadaten vermeidet,
+         waere sie ein Selbstwiderspruch. Hier steht nur, was wirklich
+         gebraucht wird: ntfy beim Namen, und Browser. -->
+    <queries>
+        <package android:name="io.heckel.ntfy"/>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+    </queries>
+
     <!-- ══════════════════════════════════════════════════════════════════
          AUSDRUECKLICH ENTFERNT, was die Kamera-Bibliothek mitbringt.
 

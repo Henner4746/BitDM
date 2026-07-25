@@ -445,7 +445,11 @@ class AppState extends ChangeNotifier {
   bool get _sperrtGleich =>
       faktoren.isNotEmpty && !_nieSperren && sperrfrist == Duration.zero;
 
-  /// Die Anbindung an den Verteiler auf dem Telefon. Null in Tests.
+  /// Die Anbindung an den Verteiler auf dem Telefon.
+  ///
+  /// Ersetzbar, weil der Verteiler eine ANDERE App auf demselben Telefon ist —
+  /// nachbauen laesst er sich nicht, und ohne Ersatz bliebe der Fall
+  /// "Verteiler weigert sich" ungeprueft. Genau der ist der haeufigste.
   PushAnbindung? push;
 
   /// Der zuletzt vom Verteiler genannte Endpunkt.
@@ -453,19 +457,26 @@ class AppState extends ChangeNotifier {
 
   Future<void> setzeEmpfangsTakt(EmpfangsTakt takt) async {
     final vorher = empfangsTakt;
+
+    // ERST DAS, WAS FEHLSCHLAGEN KANN. Waere die Einstellung schon
+    // gespeichert, wenn sich der Verteiler weigert, stuende in der App
+    // "Anstoss" — und es liefe nichts. Ein Zustand, den der Nutzer nicht von
+    // einem echten unterscheiden kann und der erst auffaellt, wenn tagelang
+    // keine Nachricht kommt.
+    if (takt.angestossen && !vorher.angestossen) {
+      await _startePush();
+    }
+
     final t = tresor;
     if (t != null) await t.setzeEmpfangsTakt(takt.minuten);
     empfangsTakt = takt;
     if (!takt.an) await _beendeHintergrundempfang();
 
-    // BEIM WECHSEL AUFRAEUMEN, und zwar in dieser Reihenfolge: erst abmelden,
-    // dann anmelden. Andersherum koennte der Verteiler den frischen Endpunkt
-    // gleich wieder wegwerfen.
+    // Beim Wegwechseln erst danach abmelden: waere es davor, und das
+    // Speichern schluege fehl, waere der Verteiler weg und die Einstellung
+    // stuende weiter auf Anstoss.
     if (vorher.angestossen && !takt.angestossen) {
       await _beendePush();
-    }
-    if (takt.angestossen && !vorher.angestossen) {
-      await _startePush();
     }
     notifyListeners();
   }

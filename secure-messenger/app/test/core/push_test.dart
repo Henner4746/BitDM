@@ -162,4 +162,113 @@ void main() {
       expect(EmpfangsTakt.vonMinuten(-2), EmpfangsTakt.push);
     });
   });
+
+  group('Wenn der Verteiler nicht mitmacht', () {
+    late Directory verzeichnis;
+    late VaultSecretStore tresor;
+    late AppState st;
+
+    setUp(() async {
+      verzeichnis = Directory.systemTemp.createTempSync('bitdm-push2');
+      tresor = VaultSecretStore(
+          datei: vaultDateiIn(verzeichnis.path),
+          basis: FakeBasis(),
+          jetzt: () => 1000);
+      st = AppState(
+        FakeMessengerCore()..simulateExistingIdentity = true,
+        tresor: tresor,
+        ablagen: (_) => FakeAblage(),
+      );
+      await st.boot();
+    });
+
+    tearDown(() {
+      st.dispose();
+      try {
+        verzeichnis.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    test('DER WICHTIGSTE FALL: keiner installiert — die Stufe bleibt AUS',
+        () async {
+      // WENN DAS FEHLT, steht in der App "Anstoss" und es laeuft nichts. Ein
+      // Zustand, den der Nutzer nicht von einem funktionierenden unterscheiden
+      // kann — und der erst auffaellt, wenn tagelang keine Nachricht kommt.
+      st.push = VerweigernderVerteiler(PushHindernis.keinVerteiler);
+
+      await expectLater(st.setzeEmpfangsTakt(EmpfangsTakt.push),
+          throwsA(isA<PushException>()));
+
+      expect(st.empfangsTakt, EmpfangsTakt.aus,
+          reason: 'die Einstellung darf erst gespeichert werden, wenn das '
+              'Anmelden geklappt hat');
+      expect((await tresor.faecher())?.empfangsTaktMinuten ?? 0, 0,
+          reason: 'auch in der Datei darf nichts stehen — sonst kaeme die App '
+              'nach einem Neustart mit "Anstoss" hoch, ohne dass etwas laeuft');
+    });
+
+    test('ein bereiter Verteiler wird angemeldet und die Stufe gespeichert',
+        () async {
+      final v = BereiterVerteiler();
+      st.push = v;
+
+      await st.setzeEmpfangsTakt(EmpfangsTakt.push);
+
+      expect(v.anmeldungen, 1);
+      expect(st.empfangsTakt, EmpfangsTakt.push);
+      expect((await tresor.faecher())?.empfangsTaktMinuten, -2);
+    });
+
+    test('beim Wegwechseln wird abgemeldet und der Endpunkt geloescht',
+        () async {
+      final v = BereiterVerteiler();
+      st.push = v;
+      await st.setzeEmpfangsTakt(EmpfangsTakt.push);
+      await st.nimmPushEndpunkt('https://push.bitdm.net/upAbc');
+
+      await st.setzeEmpfangsTakt(EmpfangsTakt.aus);
+
+      expect(v.abmeldungen, 1);
+      expect(st.pushEndpunkt, isNull,
+          reason: 'ein Endpunkt, an den niemand mehr horcht, laesst den Relay '
+              'ins Leere klopfen');
+    });
+  });
+}
+
+/// Ein Verteiler, der sich weigert — der haeufigste Fall: keiner installiert.
+class VerweigernderVerteiler extends PushAnbindung {
+  VerweigernderVerteiler(this.grund)
+      : super(beiEndpunkt: (_) {}, beiAnstoss: () {}, beiAbmeldung: () {});
+
+  final PushHindernis grund;
+  int abmeldungen = 0;
+
+  @override
+  Future<void> starte() async {}
+
+  @override
+  Future<void> melde({String? verteilerName}) async =>
+      throw PushException(grund);
+
+  @override
+  Future<void> melde_ab() async => abmeldungen++;
+}
+
+/// Einer, der mitmacht.
+class BereiterVerteiler extends PushAnbindung {
+  BereiterVerteiler()
+      : super(beiEndpunkt: (_) {}, beiAnstoss: () {}, beiAbmeldung: () {});
+
+  int anmeldungen = 0;
+  int abmeldungen = 0;
+
+  @override
+  Future<void> starte() async {}
+
+  @override
+  Future<void> melde({String? verteilerName}) async => anmeldungen++;
+
+  @override
+  Future<void> melde_ab() async => abmeldungen++;
 }

@@ -62,6 +62,11 @@ class PushException implements Exception {
 }
 
 /// Die Anbindung an den Verteiler auf dem Telefon.
+///
+/// Die Methoden sind ueberschreibbar, damit Tests den Verteiler ersetzen
+/// koennen. Er ist eine andere App auf demselben Telefon — nachbauen laesst er
+/// sich nicht, und ohne Ersatz bliebe der haeufigste Fall ungeprueft: dass
+/// gar keiner da ist.
 class PushAnbindung {
   PushAnbindung({
     required this.beiEndpunkt,

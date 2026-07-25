@@ -20,7 +20,9 @@ import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
 import 'core/benachrichtigungen.dart';
 import 'core/empfang.dart';
+import 'core/fenster.dart';
 import 'core/push.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'data.dart';
 import 'painters.dart';
 import 'fido_probe_screen.dart';
@@ -435,8 +437,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   /// Stellt um, wie oft im Hintergrund nach Nachrichten gesehen wird.
   Future<void> _setzeEmpfangsTakt(int minuten) async {
+    setState(() => lockFehler = null);
     try {
       await st.setzeEmpfangsTakt(EmpfangsTakt.vonMinuten(minuten));
+    } on PushException catch (e) {
+      // KEIN VERTEILER: statt einer Fehlermeldung die Anleitung. Der Nutzer
+      // hat nichts falsch gemacht — ihm fehlt eine App, und er kann nicht
+      // wissen welche.
+      if (!mounted) return;
+      if (e.grund == PushHindernis.keinVerteiler) {
+        // Zurueckstellen: eine Stufe, die nicht laeuft, darf nicht als
+        // ausgewaehlt dastehen.
+        await st.setzeEmpfangsTakt(EmpfangsTakt.aus);
+        if (mounted) setState(() => enroll = 'pushHilfe');
+      } else {
+        setState(() => lockFehler = t('pushFailed'));
+      }
     } catch (e) {
       if (mounted) setState(() => lockFehler = '$e');
     }
@@ -1601,6 +1617,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           Text(_empfangErklaerung(),
               style: mono(size: 11, color: p.dim, height: 1.55)),
 
+          // Die Anleitung bleibt erreichbar, auch wenn Push schon laeuft:
+          // ntfy kann nach einer Neuinstallation wieder auf seinem eigenen
+          // Server stehen, und dann geht es ohne erkennbaren Grund nicht mehr.
+          if (st.empfangsTakt.angestossen) ...[
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () => setState(() => enroll = 'pushHilfe'),
+              child: Text(t('pushGuideLink').toUpperCase(),
+                  style: mono(
+                      size: 10,
+                      weight: FontWeight.w600,
+                      color: p.accLight,
+                      spacing: 1.2)),
+            ),
+          ],
+
           // DER WIDERSPRUCH, DEN DER NUTZER KENNEN MUSS: eine Sperre, die
           // sofort zugeht, macht Hintergrundempfang unmoeglich. Nicht aus
           // Bequemlichkeit — der Relay verlangt eine Unterschrift mit dem
@@ -1860,6 +1892,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     }
     if (en == 'hw') return stickModal();
     if (en == 'pw') return passwortModal();
+    if (en == 'pushHilfe') return pushHilfeModal();
 
     // Alles andere ist ein Fehler im Programm, kein Zustand des Nutzers.
     // Frueher standen hier Passkey und Zwei-Faktor-Code; die Zeilen sind weg.
@@ -1902,6 +1935,141 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         child:
             Text(text, style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
       );
+
+  /// Eine nummerierte Zeile in einer Anleitung.
+  Widget _schritt(int nummer, String titel, String text,
+      {List<Widget> knoepfe = const []}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+              color: p.tint,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: p.tintLine)),
+          child: Text('$nummer',
+              style: mono(size: 10.5, weight: FontWeight.w600, color: p.tintInk)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(titel, style: TextStyle(fontSize: 13.5, color: p.ink)),
+            const SizedBox(height: 3),
+            Text(text, style: mono(size: 11.5, color: p.muted, height: 1.5)),
+            if (knoepfe.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(spacing: 6, runSpacing: 6, children: knoepfe),
+            ],
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  /// Ein kleiner Knopf innerhalb einer Anleitung.
+  Widget _kleinerKnopf(String text, VoidCallback tun) => GestureDetector(
+        onTap: tun,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          decoration: BoxDecoration(
+              color: p.surf,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: p.line)),
+          child: Text(text.toUpperCase(),
+              style: mono(
+                  size: 10,
+                  weight: FontWeight.w500,
+                  color: p.accLight,
+                  spacing: 1.1)),
+        ),
+      );
+
+  Future<void> _oeffneLink(String url) async {
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = '$e');
+    }
+  }
+
+  /// Die Anleitung fuer den Anstoss-Verteiler.
+  ///
+  /// WARUM DAS EINE EIGENE SEITE BRAUCHT: der Nutzer muss in einer ANDEREN App
+  /// eine Einstellung finden, und zwar VOR dem Einschalten hier. Wer das in
+  /// einen Satz packt, schickt ihn suchen. Die Menuepunkte stehen deshalb
+  /// woertlich da, in der Reihenfolge, in der sie vorkommen.
+  ///
+  /// DIE REIHENFOLGE IST NICHT KOSMETISCH: ntfy baut die Anstoss-Adresse beim
+  /// Anmelden aus dem eingestellten Standardserver. Wer erst hier einschaltet,
+  /// bekommt eine Adresse auf ntfy.sh — und BitDM lehnt sie ab, weil der Relay
+  /// nur den eigenen Push-Server annimmt.
+  Widget pushHilfeModal() {
+    return scrim(
+      onTapOutside: () => setState(() => enroll = null),
+      sheetCard(children: [
+        Center(
+            child: Container(
+                width: 36,
+                height: 3,
+                decoration: BoxDecoration(
+                    color: p.line, borderRadius: BorderRadius.circular(99)))),
+        const SizedBox(height: 11),
+        h2(t('pushGuideTitle'), size: 20),
+        const SizedBox(height: 8),
+        Text(t('pushGuideIntro'),
+            style: mono(size: 12, color: p.muted, height: 1.55)),
+        const SizedBox(height: 16),
+
+        _schritt(1, t('pushStep1'), t('pushStep1Sub'), knoepfe: [
+          _kleinerKnopf('F-Droid',
+              () => _oeffneLink('https://f-droid.org/packages/io.heckel.ntfy/')),
+          _kleinerKnopf('Play Store',
+              () => _oeffneLink('https://play.google.com/store/apps/details?id=io.heckel.ntfy')),
+        ]),
+
+        _schritt(2, t('pushStep2'), t('pushStep2Sub'), knoepfe: [
+          _kleinerKnopf(t('copy'), () {
+            Clipboard.setData(const ClipboardData(text: pushBasis));
+            setState(() => copied = true);
+            Future.delayed(const Duration(milliseconds: 1400), () {
+              if (mounted) setState(() => copied = false);
+            });
+          }),
+          _kleinerKnopf(t('pushOpenNtfy'), () async {
+            final da = await FremdeApp.oeffne(FremdeApp.ntfy);
+            if (!da && mounted) {
+              setState(() => lockFehler = t('pushNoNtfy'));
+            }
+          }),
+        ]),
+
+        // Die Adresse zum Abtippen, falls das Kopieren nicht ankommt.
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+          margin: const EdgeInsets.only(left: 32, bottom: 14),
+          decoration: BoxDecoration(
+              color: p.surf2,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: p.line)),
+          child: Text(copied ? t('copied') : pushBasis,
+              style: mono(size: 12, color: copied ? p.accLight : p.ink)),
+        ),
+
+        _schritt(3, t('pushStep3'), t('pushStep3Sub')),
+        _schritt(4, t('pushStep4'), t('pushStep4Sub')),
+
+        _hinweisKasten(t('pushOrderWarning')),
+        const SizedBox(height: 14),
+
+        outlineBtn(t('close'), () => setState(() => enroll = null),
+            padding: const EdgeInsets.all(11)),
+      ]),
+    );
+  }
 
   /// Das App-Passwort wird eingerichtet.
   ///

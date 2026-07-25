@@ -33,3 +33,25 @@ class Fenster {
     }
   }
 }
+
+/// Andere Apps oeffnen — fuer die Anleitung zum Anstoss-Verteiler.
+///
+/// "ntfy oeffnen" als Knopf statt als Satz. Ein Link in den App-Laden hilft
+/// nicht, wenn die App schon installiert ist, und genau dann braucht man sie.
+class FremdeApp {
+  static const _kanal = MethodChannel('bitdm/fenster');
+
+  /// Das Paket der ntfy-App.
+  static const String ntfy = 'io.heckel.ntfy';
+
+  /// Oeffnet eine App. Gibt false zurueck, wenn sie nicht da ist — dass eine
+  /// fremde App fehlt, ist kein Fehler, sondern eine Antwort.
+  static Future<bool> oeffne(String paket) async {
+    try {
+      return await _kanal.invokeMethod<bool>('oeffneApp', {'paket': paket}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+}

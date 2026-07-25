@@ -93,6 +93,27 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                         ergebnis.success(true)
                     }
+                    // Oeffnet eine andere App, wenn sie da ist.
+                    //
+                    // Fuer die Anleitung zum Anstoss-Verteiler: "ntfy oeffnen"
+                    // als Knopf statt als Satz. Ein Link in den App-Laden
+                    // hilft nicht, wenn die App schon installiert ist — und
+                    // genau dann braucht man sie.
+                    //
+                    // Gibt false zurueck, statt zu werfen: dass eine fremde
+                    // App fehlt, ist kein Fehler, sondern eine Antwort.
+                    "oeffneApp" -> {
+                        val paket = aufruf.argument<String>("paket")
+                        val absicht = paket?.let {
+                            packageManager.getLaunchIntentForPackage(it)
+                        }
+                        if (absicht == null) {
+                            ergebnis.success(false)
+                        } else {
+                            startActivity(absicht)
+                            ergebnis.success(true)
+                        }
+                    }
                     else -> ergebnis.notImplemented()
                 }
             }
