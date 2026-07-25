@@ -100,12 +100,17 @@ dependencies:
   # ablOesen, ohne dass der Kern etwas davon merkt.
   flutter_secure_storage: 10.3.1
 
+  # Wo die verschluesselte Datenbank liegen darf. Vom Flutter-Team selbst
+  # (flutter.dev, verifiziert). Braucht es, weil der Pfad je Plattform anders
+  # ist und nur das System ihn kennt.
+  path_provider: 2.1.6
+
   # google_fonts wurde bewusst ENTFERNT: es laedt Schriften zur Laufzeit von
   # fonts.gstatic.com nach und verraet Google damit bei jedem Kaltstart IP und
   # Zeitstempel. In einer App ohne Telefonnummer und ohne Username ist das ein
   # Selbstwiderspruch. Doto und Chivo Mono liegen jetzt unter assets/fonts/.
-  # Nebeneffekt: http, crypto und path_provider waren nur ueber google_fonts
-  # transitiv eingebunden und sind damit ebenfalls verschwunden.
+  # Nebeneffekt: http und crypto waren nur ueber google_fonts transitiv
+  # eingebunden und sind damit ebenfalls verschwunden.
 
 dev_dependencies:
   flutter_test:

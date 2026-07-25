@@ -1,24 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'app_state.dart';
+import 'core/messenger_core.dart';
+import 'core/real_messenger_core.dart';
+import 'core/secret_store.dart';
 import 'data.dart';
 import 'painters.dart';
 
-void main() => runApp(const BitApp());
+/// Wohin sich die App verbindet.
+///
+/// Ueberschreibbar beim Bauen:
+///   flutter build apk --dart-define=BITDM_RELAY=https://relay.example.org
+///
+/// Der Relay darf NIE hinter einem Proxy wie Cloudflare stehen — der saehe
+/// sonst zu jeder Verbindung, wer wann mit wem spricht. Genau die Angabe, die
+/// diese App vermeiden soll.
+const String relayBasis = String.fromEnvironment(
+  'BITDM_RELAY',
+  defaultValue: 'https://relay.bitdm.net',
+);
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Ein Verzeichnis, das dem Betriebssystem gehoert und nicht in Sicherungen
+  // oder in den Dateimanager wandert.
+  final verzeichnis = await getApplicationSupportDirectory();
+
+  final core = RealMessengerCore(
+    secretStore: DeviceSecretStore(),
+    databasePath: '${verzeichnis.path}/bitdm.db',
+    relayUri: Uri.parse(relayBasis),
+  );
+
+  runApp(BitApp(state: AppState(core)));
+}
 
 class BitApp extends StatelessWidget {
-  const BitApp({super.key});
+  const BitApp({super.key, required this.state});
+
+  final AppState state;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'BitDM',
       debugShowCheckedModeBanner: false,
-      home: const Home(),
+      home: Home(state: state),
     );
   }
 }
 
 class Home extends StatefulWidget {
-  const Home({super.key});
+  const Home({super.key, required this.state});
+
+  final AppState state;
+
   @override
   State<Home> createState() => _HomeState();
 }
@@ -26,14 +65,28 @@ class Home extends StatefulWidget {
 class _HomeState extends State<Home> {
   String screen = 'onboard';
   String? chat;
-  bool reqSent = false, sheet = false, panic = false, wiped = false, copied = false, pending = true;
-  List<String> contacts = [c1, c2];
-  Map<String, List<String>> msgs = {
-    c1: ['m1:0:14:02', 'm2:1:14:03', 'v:0:14:04', 'm3:0:14:05'],
-    c2: ['m4:0:Tue', 'm5:1:Tue'],
-    c3: [],
-  };
-  Map<String, String> extra = {};
+  bool reqSent = false, sheet = false, panic = false, wiped = false, copied = false;
+
+  AppState get st => widget.state;
+
+  /// Adressen der Unterhaltungen, die in der Liste erscheinen.
+  List<String> get contacts => st.aktiveKontakte.map((c) => c.id).toList();
+
+  @override
+  void initState() {
+    super.initState();
+    st.addListener(_aktualisiere);
+    st.boot().then((_) {
+      if (!mounted) return;
+      // Wer schon eine Identitaet hat, sieht das Onboarding nicht wieder.
+      setState(() => screen = st.hatIdentitaet ? 'chats' : 'onboard');
+    });
+  }
+
+  void _aktualisiere() {
+    if (mounted) setState(() {});
+  }
+
   String lang = 'en', mode = 'dark';
   Map<String, bool> auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
   String? enroll;
@@ -49,6 +102,7 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    st.removeListener(_aktualisiere);
     draftCtl.dispose();
     addCtl.dispose();
     codeCtl.dispose();
@@ -78,7 +132,19 @@ class _HomeState extends State<Home> {
       _font('Chivo Mono', size, weight, color, spacing, height);
 
   // ---- helpers ----
-  String textOf(String code) => extra[code] ?? t(code);
+  /// Uhrzeit einer Nachricht, bei aelteren zusaetzlich der Tag.
+  String zeitVon(DateTime utc) {
+    final l = utc.toLocal();
+    final heute = DateTime.now();
+    final hm = '${l.hour.toString().padLeft(2, '0')}:'
+        '${l.minute.toString().padLeft(2, '0')}';
+    if (l.year == heute.year && l.month == heute.month && l.day == heute.day) {
+      return hm;
+    }
+    return '${l.day.toString().padLeft(2, '0')}.'
+        '${l.month.toString().padLeft(2, '0')}. $hm';
+  }
+
   String ephLabel() {
     final e = settings['eph'];
     return e == 'off' ? t('off') : e == '1h' ? t('h1') : e == '7d' ? t('d7') : t('h24');
@@ -92,22 +158,24 @@ class _HomeState extends State<Home> {
   // ---- actions ----
   void go(String s) => setState(() { screen = s; sheet = false; panic = false; });
 
-  void doCreate() => setState(() { screen = 'secure'; wiped = false; });
+  /// Legt eine echte Identitaet an und zeigt danach die zwoelf Woerter.
+  ///
+  /// Der Entwurf sprang von hier direkt zu den Anmeldeverfahren. Das ging
+  /// nicht: die Phrase ist der EINZIGE Weg zurueck, wenn das Telefon weg ist,
+  /// und wer sie nie zu sehen bekommt, verliert seine Identitaet beim ersten
+  /// kaputten Bildschirm. Deshalb liegt jetzt ein Schritt dazwischen.
+  Future<void> doCreate() async {
+    setState(() { screen = 'creating'; wiped = false; });
+    await st.identitaetAnlegen();
+    if (!mounted) return;
+    setState(() => screen = 'phrase');
+  }
 
-  void send() {
+  Future<void> send() async {
     final d = draftCtl.text.trim();
     if (d.isEmpty || chat == null) return;
-    final time = nowHm();
-    final key = 'x${extra.length}';
-    extra[key] = d;
-    final cur = chat!;
-    msgs[cur] = [...(msgs[cur] ?? []), '$key:1:$time'];
     draftCtl.clear();
-    setState(() {});
-    Future.delayed(const Duration(milliseconds: 1100), () {
-      if (chat != cur || !mounted) return;
-      setState(() { msgs[cur] = [...(msgs[cur] ?? []), 'reply:0:$time']; });
-    });
+    await st.senden(chat!, d);
   }
 
   void startEnroll(String key) {
@@ -136,39 +204,46 @@ class _HomeState extends State<Home> {
     setState(() { auth['totp'] = true; enroll = null; codeCtl.clear(); });
   }
 
+  /// Die eigene Adresse, wie der Entwurf sie zeigt: Vierergruppen mit
+  /// Bindestrichen. Solange noch keine Identitaet da ist, bleibt es leer.
+  String get meineAdresseAnzeige =>
+      st.meineAdresse.isEmpty ? '' : adresseFormatiert(st.meineAdresse);
+
   void copyId() {
-    Clipboard.setData(const ClipboardData(text: myId));
+    if (st.meineAdresse.isEmpty) return;
+    // In die Zwischenablage geht die ROHE Adresse ohne Bindestriche — die
+    // Gegenstelle fuegt sie irgendwo ein, und dort soll sie ohne Nacharbeit
+    // funktionieren.
+    Clipboard.setData(ClipboardData(text: st.meineAdresse));
     setState(() => copied = true);
     Future.delayed(const Duration(milliseconds: 1400), () { if (mounted) setState(() => copied = false); });
   }
 
-  void sendReq() => setState(() { reqSent = true; if (addCtl.text.isEmpty) addCtl.text = c3; });
-
-  void simAccept() {
-    final id = (addCtl.text.isNotEmpty ? addCtl.text : c3).replaceAll(RegExp(r'\s'), '');
-    setState(() {
-      if (!contacts.contains(id)) contacts = [id, ...contacts];
-      msgs.putIfAbsent(id, () => []);
-      reqSent = false; screen = 'chat'; chat = id;
-    });
+  Future<void> sendReq() async {
+    final eingabe = addCtl.text.replaceAll(RegExp(r'[\s\-]'), '');
+    if (eingabe.isEmpty) return;
+    final ok = await st.kontaktHinzufuegen(eingabe);
+    if (!mounted) return;
+    setState(() => reqSent = ok);
   }
 
-  void acceptReq() => setState(() {
-        msgs.putIfAbsent(c3, () => []);
-        pending = false; contacts = [c3, ...contacts]; screen = 'chat'; chat = c3;
-      });
+  Future<void> acceptReq(String id) async {
+    await st.anfrageAnnehmen(id);
+    if (!mounted) return;
+    await st.unterhaltungOeffnen(id);
+    if (!mounted) return;
+    setState(() { screen = 'chat'; chat = id; });
+  }
+
+  Future<void> oeffneChat(String id) async {
+    setState(() { screen = 'chat'; chat = id; sheet = false; });
+    await st.unterhaltungOeffnen(id);
+  }
 
   void doWipe() => setState(() {
         final l = lang, m = mode;
-        screen = 'onboard'; chat = null; reqSent = false; sheet = false; panic = false;
-        wiped = true; copied = false; pending = false;
-        contacts = [c1, c2];
-        msgs = {
-          c1: ['m1:0:14:02', 'm2:1:14:03', 'v:0:14:04', 'm3:0:14:05'],
-          c2: ['m4:0:Tue', 'm5:1:Tue'],
-          c3: [],
-        };
-        extra = {};
+        screen = 'chats'; chat = null; reqSent = false; sheet = false; panic = false;
+        wiped = true; copied = false;
         auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
         enroll = null;
         settings = {'shot': true, 'rec': false, 'eph': '24h'};
@@ -247,7 +322,10 @@ class _HomeState extends State<Home> {
   }
 
   Widget buildScreen() {
+    if (!st.bereit) return const SizedBox.shrink();
     switch (screen) {
+      case 'creating': return arbeitetScreen();
+      case 'phrase': return phraseScreen();
       case 'secure': return secureScreen();
       case 'id': return idScreen();
       case 'add': return addScreen();
@@ -311,6 +389,75 @@ class _HomeState extends State<Home> {
           Expanded(child: Text(s, style: mono(size: 12, color: p.dim))),
         ]),
       );
+
+  // ---- WIRD ANGELEGT ----
+  Widget arbeitetScreen() => Center(
+        child: Text(t('creating').toUpperCase(),
+            style: mono(size: 12, color: p.dim, spacing: 1.8)),
+      );
+
+  // ---- WIEDERHERSTELLUNGSPHRASE ----
+  //
+  // Diesen Bildschirm gab es im Entwurf nicht. Er ist trotzdem nicht optional:
+  // die zwoelf Woerter sind der einzige Weg zurueck, wenn das Telefon
+  // verloren, kaputt oder geloescht ist. Es gibt keinen Server, bei dem man
+  // sich ausweisen und die Identitaet zurueckholen koennte — wer sie nicht
+  // notiert hat, ist weg.
+  //
+  // Gestaltet mit denselben Bausteinen wie der Rest, damit sich nichts
+  // Fremdes anfuehlt.
+  Widget phraseScreen() {
+    final woerter = st.frischePhrase ?? const <String>[];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        h2(t('phraseTitle')),
+        const SizedBox(height: 6),
+        Text(t('phraseSub'),
+            style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
+        const SizedBox(height: 16),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Wrap(spacing: 6, runSpacing: 6, children: [
+              for (var i = 0; i < woerter.length; i++)
+                SizedBox(
+                  width: (MediaQuery.of(context).size.width - 44 - 6) / 2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+                    decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(4)),
+                    child: Row(children: [
+                      SizedBox(
+                        width: 20,
+                        child: Text('${i + 1}', style: mono(size: 10, color: p.dim)),
+                      ),
+                      Expanded(
+                        child: Text(woerter[i],
+                            style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
+                      ),
+                    ]),
+                  ),
+                ),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: p.tint,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: p.tintLine),
+          ),
+          child: Text(t('phraseWarn'), style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+        ),
+        const SizedBox(height: 12),
+        outlineBtn(t('phraseDone'), () {
+          st.phraseBestaetigt();
+          go('secure');
+        }, padding: const EdgeInsets.all(13)),
+      ]),
+    );
+  }
 
   // ---- SECURE ----
   Widget secureScreen() {
@@ -379,11 +526,11 @@ class _HomeState extends State<Home> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(color: p.surf, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
-          child: QrView(myId, p.ink, p.surf),
+          child: QrView(st.meineAdresse, p.ink, p.surf),
         ),
         const SizedBox(height: 16),
         Wrap(spacing: 6, runSpacing: 6, children: [
-          for (final blk in myId.split('-'))
+          for (final blk in meineAdresseAnzeige.split('-'))
             SizedBox(
               width: (MediaQuery.of(context).size.width - 44 - 6) / 2,
               child: Container(
@@ -431,7 +578,12 @@ class _HomeState extends State<Home> {
         ),
         const SizedBox(height: 8),
         Row(children: [
-          smallBtn(t('paste'), () => setState(() => addCtl.text = c3)),
+          smallBtn(t('paste'), () async {
+            final d = await Clipboard.getData(Clipboard.kTextPlain);
+            final txt = d?.text?.trim();
+            if (txt == null || txt.isEmpty || !mounted) return;
+            setState(() => addCtl.text = txt);
+          }),
           const SizedBox(width: 8),
           smallBtn(t('scan'), () {}),
         ]),
@@ -450,21 +602,19 @@ class _HomeState extends State<Home> {
                   child: Text(t('pending').toUpperCase(), style: mono(size: 10, weight: FontWeight.w500, color: p.tintInk, spacing: 1.2)),
                 ),
                 const SizedBox(width: 8),
-                Text(addCtl.text.isNotEmpty ? shortId(addCtl.text.replaceAll(RegExp(r'\s'), '')) : shortId(c3),
+                Text(
+                    shortId(adresseFormatiert(
+                        addCtl.text.replaceAll(RegExp(r'[\s\-]'), ''))),
                     style: doto(size: 13, weight: FontWeight.w600, color: p.muted, spacing: 0.8)),
               ]),
               const SizedBox(height: 6),
               Text(t('reqSentNote'), style: mono(size: 12, color: p.muted, height: 1.4)),
             ]),
           ),
-          const SizedBox(height: 8),
-          GestureDetector(
-            onTap: simAccept,
-            child: RichText(text: TextSpan(style: mono(size: 11, color: p.dim), children: [
-              TextSpan(text: '${t('demo')} '),
-              TextSpan(text: t('simAccept'), style: mono(size: 11, color: p.accLight)),
-            ])),
-          ),
+        ],
+        if (st.letzterFehler == 'adresseUngueltig') ...[
+          const SizedBox(height: 12),
+          Text(t('badAddress'), style: mono(size: 11.5, color: p.accLight, height: 1.5)),
         ],
         const Spacer(),
         Text(t('addFoot'), style: mono(size: 11, color: p.dim, height: 1.5)),
@@ -501,26 +651,31 @@ class _HomeState extends State<Home> {
       Container(height: 1, color: p.lineSoft),
       Expanded(
         child: ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
-          if (pending) pendingCard(),
+          for (final k in st.offeneAnfragen) pendingCard(k),
           for (final id in contacts) contactRow(id),
+          if (contacts.isEmpty && st.offeneAnfragen.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 24, 22, 16),
+              child: Text(t('noChats'), style: mono(size: 12, color: p.dim, height: 1.6)),
+            ),
           Padding(padding: const EdgeInsets.fromLTRB(22, 16, 22, 16), child: Text(t('noNames'), style: mono(size: 11, color: p.dim, height: 1.5))),
         ]),
       ),
     ]);
   }
 
-  Widget pendingCard() => Container(
+  Widget pendingCard(Contact k) => Container(
         margin: const EdgeInsets.fromLTRB(17, 8, 17, 11),
         padding: const EdgeInsets.all(11),
         decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(shortId(c3), style: doto(size: 13, weight: FontWeight.w600, color: p.tintInk, spacing: 0.8)),
+          Text(shortId(adresseFormatiert(k.id)), style: doto(size: 13, weight: FontWeight.w600, color: p.tintInk, spacing: 0.8)),
           const SizedBox(height: 6),
           Text(t('wantsChat'), style: mono(size: 11.5, color: p.muted)),
           const SizedBox(height: 8),
           Row(children: [
             GestureDetector(
-              onTap: acceptReq,
+              onTap: () => acceptReq(k.id),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
                 decoration: BoxDecoration(borderRadius: BorderRadius.circular(4), border: Border.all(color: p.accent)),
@@ -529,7 +684,7 @@ class _HomeState extends State<Home> {
             ),
             const SizedBox(width: 8),
             GestureDetector(
-              onTap: () => setState(() => pending = false),
+              onTap: () => st.anfrageAblehnen(k.id),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
                 decoration: BoxDecoration(borderRadius: BorderRadius.circular(4), border: Border.all(color: p.line)),
@@ -541,19 +696,15 @@ class _HomeState extends State<Home> {
       );
 
   Widget contactRow(String id) {
-    final list = msgs[id] ?? [];
-    String last;
-    String time = '';
-    if (list.isNotEmpty) {
-      final parts = list.last.split(':');
-      last = parts[0] == 'v' ? '${t('voice')} · 0:14' : textOf(parts[0]);
-      time = parts.sublist(2).join(':');
-    } else {
-      last = t('newContact');
-    }
-    final unread = id == c1;
+    final list = st.verlaufVon(id);
+    final letzte = list.isEmpty ? null : list.last;
+    final last = letzte?.text ?? t('newContact');
+    final time = letzte == null ? '' : zeitVon(letzte.timestamp);
+    // Ungelesen: die letzte Nachricht kam von der Gegenstelle und diese
+    // Unterhaltung ist gerade nicht offen.
+    final unread = letzte != null && !letzte.isMine && chat != id;
     return GestureDetector(
-      onTap: () => setState(() { screen = 'chat'; chat = id; sheet = false; }),
+      onTap: () => oeffneChat(id),
       child: Container(
         color: Colors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
@@ -562,7 +713,7 @@ class _HomeState extends State<Home> {
           const SizedBox(width: 11),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(shortId(id), style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 0.8, height: 1.1)),
+              Text(shortId(adresseFormatiert(id)), style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 0.8, height: 1.1)),
               const SizedBox(height: 3),
               Text(last, maxLines: 1, overflow: TextOverflow.ellipsis, style: mono(size: 12, color: p.dim)),
             ]),
@@ -585,7 +736,7 @@ class _HomeState extends State<Home> {
     if (settings['shot'] == true) hints.add(t('hintShot'));
     hints.add(t('hintEnc'));
     if (settings['eph'] != 'off') hints.add(t('hintEph') + ephLabel());
-    final list = msgs[cid] ?? [];
+    final list = st.verlaufVon(cid);
     return Column(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(17, 8, 17, 8),
@@ -666,12 +817,13 @@ class _HomeState extends State<Home> {
     ]);
   }
 
-  Widget msgBubble(String cid, String raw, int i) {
-    final parts = raw.split(':');
-    final code = parts[0];
-    final me = parts[1] == '1';
-    final time = parts.sublist(2).join(':');
-    final isVoice = code == 'v';
+  Widget msgBubble(String cid, Message m, int i) {
+    final me = m.isMine;
+    final time = zeitVon(m.timestamp);
+    // Sprachnachrichten gibt es in Fassung 1 noch nicht — der Entwurf zeigte
+    // sie, der Kern kennt nur Text. Lieber nichts anzeigen, als etwas
+    // vorzutaeuschen — die Darstellung dafuer steht in der Versionsgeschichte
+    // und kommt zurueck, sobald es Sprachnachrichten wirklich gibt.
     final bub = BoxDecoration(
       color: me ? p.tint : p.surf,
       borderRadius: me
@@ -688,22 +840,30 @@ class _HomeState extends State<Home> {
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
             decoration: bub,
             child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
-              if (isVoice)
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    width: 24, height: 24, alignment: Alignment.center,
-                    decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: p.accent)),
-                    child: Text('▶', style: TextStyle(color: p.accLight, fontSize: 9)),
-                  ),
-                  const SizedBox(width: 8),
-                  WaveRow('$cid$i', p.accent),
-                  const SizedBox(width: 8),
-                  Text('0:14', style: mono(size: 10.5, color: p.dim)),
-                ])
-              else
-                Align(alignment: Alignment.centerLeft, child: Text(textOf(code), style: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4))),
+              Align(alignment: Alignment.centerLeft, child: Text(m.text, style: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4))),
               const SizedBox(height: 3),
-              Text(time, style: mono(size: 9.5, color: p.dim)),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(time, style: mono(size: 9.5, color: p.dim)),
+                if (me) ...[
+                  const SizedBox(width: 5),
+                  // Ein Haken je erreichter Stufe: abgeschickt, zugestellt,
+                  // gelesen. Solange sie noch beim Absender liegt, eine Uhr.
+                  Text(
+                    switch (m.status) {
+                      MessageStatus.sending => '◷',
+                      MessageStatus.sent => '✓',
+                      MessageStatus.delivered => '✓✓',
+                      MessageStatus.read => '✓✓',
+                      MessageStatus.failed => '!',
+                    },
+                    style: mono(
+                        size: 9.5,
+                        color: m.status == MessageStatus.read
+                            ? p.accLight
+                            : p.dim),
+                  ),
+                ],
+              ]),
             ]),
           ),
         ),
@@ -751,7 +911,7 @@ class _HomeState extends State<Home> {
           onTap: () => go('id'),
           child: settingCard(child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text(t('myIdQr'), style: TextStyle(fontSize: 13.5, color: p.ink)),
-            Text(shortId(myId), style: doto(size: 12.5, weight: FontWeight.w600, color: p.dim, spacing: 0.8)),
+            Text(shortId(meineAdresseAnzeige), style: doto(size: 12.5, weight: FontWeight.w600, color: p.dim, spacing: 0.8)),
           ])),
         ),
         const SizedBox(height: 3),
