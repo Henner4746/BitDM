@@ -40,8 +40,11 @@ html{-webkit-text-size-adjust:100%}
 body{margin:0; background:var(--ground); color:var(--body);
   font:400 16px/1.7 'Chivo Mono',ui-monospace,monospace; -webkit-font-smoothing:antialiased}
 
-[data-lang="de"] .en{display:none}
-[data-lang="en"] .de{display:none}
+/* !important: Sprachsichtbarkeit ist querschnittlich und darf von keiner
+   Bauteil-Regel ueberstimmt werden. Ohne das gewinnt `header.page .screen
+   {display:block}` bei gleicher Spezifitaet durch spaetere Position. */
+html[data-lang="de"] .en{display:none!important}
+html[data-lang="en"] .de{display:none!important}
 
 .screen{font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
   text-transform:uppercase; color:var(--muted)}

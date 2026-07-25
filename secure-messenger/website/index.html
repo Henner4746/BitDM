@@ -59,9 +59,14 @@ body{
   overflow-x:hidden;
 }
 
-/* ─── Zweisprachigkeit: ohne JavaScript bleibt Deutsch sichtbar ─── */
-[data-lang="de"] .en{display:none}
-[data-lang="en"] .de{display:none}
+/* ─── Zweisprachigkeit: ohne JavaScript bleibt Deutsch sichtbar ───
+   !important ist hier kein Notnagel, sondern richtig: Sprachsichtbarkeit ist
+   eine querschnittliche Regel und darf von keiner Bauteil-Regel ueberstimmt
+   werden. Ohne das gewinnt z.B. `.mod-head .screen{display:block}` bei
+   gleicher Spezifitaet durch spaetere Position — und beide Sprachen stehen
+   gleichzeitig auf der Seite. */
+html[data-lang="de"] .en{display:none!important}
+html[data-lang="en"] .de{display:none!important}
 
 /* ─── Eingebrannte Beschriftung ─── */
 .screen{
@@ -464,7 +469,10 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
           <span class="screen screen-lit de">Auf deinem Gerät</span>
           <span class="screen screen-lit en">On your device</span>
         </div>
-        <div class="pane-body plain">„Treffen wir uns um acht am üblichen Ort?"</div>
+        <div class="pane-body plain">
+          <span class="de">„Treffen wir uns um acht am üblichen Ort?"</span>
+          <span class="en">“Shall we meet at eight, the usual place?”</span>
+        </div>
       </div>
       <div class="pane">
         <div class="pane-head">
