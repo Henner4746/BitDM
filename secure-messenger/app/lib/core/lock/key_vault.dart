@@ -155,6 +155,18 @@ class KeySlot {
   /// Nur bei [UnlockFactorKind.passphrase] belegt.
   final Argon2Params? kdf;
 
+  /// Was der Faktor braucht, um sich wiederzufinden — und was dabei kein
+  /// Geheimnis ist.
+  ///
+  /// Bei einem Hardware-Stick ist das die Kennung des Zugangs, den er beim
+  /// Einrichten angelegt hat. Sie steht ohnehin auf dem Stick; hier liegt sie,
+  /// damit die App beim Entsperren sagen kann, WELCHEN Zugang sie meint.
+  ///
+  /// Wer sie in der Datei aendert, macht das Fach unbrauchbar — sie haengt in
+  /// den Zusatzdaten. Das ist gewollt: ein untergeschobener Zugang wuerde sonst
+  /// stillschweigend mitgenommen.
+  final Uint8List? handle;
+
   final Uint8List nonce;
   final Uint8List cipherText;
   final Uint8List mac;
@@ -168,6 +180,7 @@ class KeySlot {
     required this.cipherText,
     required this.mac,
     this.kdf,
+    this.handle,
   });
 
   /// Diese Angaben werden MITVERSCHLUESSELT, ohne selbst geheim zu sein.
@@ -175,8 +188,8 @@ class KeySlot {
   /// Wer sie in der Datei aendert — etwa die Ableitung eines Passwort-Fachs
   /// abschwaecht oder die Nutzlast eines Fachs in ein anderes kopiert — macht
   /// das Fach damit unlesbar, statt sich einen Vorteil zu verschaffen.
-  List<int> get aad => utf8.encode(
-      'bitdm-keyslot-v1|$id|${kind.id}|${kdf?.canonical ?? '-'}');
+  List<int> get aad => utf8.encode('bitdm-keyslot-v1|$id|${kind.id}|'
+      '${kdf?.canonical ?? '-'}|${handle == null ? '-' : base64.encode(handle!)}');
 
   KeySlot mitLabel(String neu) => KeySlot(
         id: id,
@@ -187,6 +200,7 @@ class KeySlot {
         cipherText: cipherText,
         mac: mac,
         kdf: kdf,
+        handle: handle,
       );
 
   Map<String, Object?> toJson() => {
@@ -195,6 +209,7 @@ class KeySlot {
         'label': label,
         'createdAt': createdAt,
         if (kdf != null) 'kdf': kdf!.toJson(),
+        if (handle != null) 'handle': base64.encode(handle!),
         'nonce': base64.encode(nonce),
         'cipherText': base64.encode(cipherText),
         'mac': base64.encode(mac),
@@ -206,6 +221,7 @@ class KeySlot {
       throw VaultFormatException('unbekannter Faktor: ${j['kind']}');
     }
     final kdfJson = j['kdf'];
+    final handle = j['handle'];
     return KeySlot(
       id: j['id']! as String,
       kind: kind,
@@ -214,6 +230,7 @@ class KeySlot {
       kdf: kdfJson == null
           ? null
           : Argon2Params.fromJson((kdfJson as Map).cast<String, Object?>()),
+      handle: handle == null ? null : base64.decode(handle as String),
       nonce: base64.decode(j['nonce']! as String),
       cipherText: base64.decode(j['cipherText']! as String),
       mac: base64.decode(j['mac']! as String),
@@ -286,6 +303,7 @@ class KeyVault {
     required UnlockFactorKind kind,
     required String label,
     Argon2Params? kdf,
+    Uint8List? handle,
     required int createdAt,
     String? id,
   }) async {
@@ -302,6 +320,7 @@ class KeyVault {
       label: label,
       createdAt: createdAt,
       kdf: kdf,
+      handle: handle,
       nonce: Uint8List(0),
       cipherText: Uint8List(0),
       mac: Uint8List(0),
@@ -319,6 +338,7 @@ class KeyVault {
       label: label,
       createdAt: createdAt,
       kdf: kdf,
+      handle: handle,
       nonce: Uint8List.fromList(box.nonce),
       cipherText: Uint8List.fromList(box.cipherText),
       mac: Uint8List.fromList(box.mac.bytes),

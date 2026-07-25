@@ -66,9 +66,12 @@ class HmacSecret {
   /// Der Nutzer muss den Stick dabei beruehren — der Stick verlangt das, nicht
   /// die App. Ohne diese Beruehrung koennte Schadsoftware im Hintergrund
   /// Zugaenge anlegen, solange der Stick nur steckt.
+  /// [pinToken] ist null, wenn auf dem Stick keine PIN gesetzt ist. Dann
+  /// entfallen die Felder 8 und 9; der Stick verlangt statt dessen nur die
+  /// Beruehrung. Ein Stick MIT PIN wuerde dieselbe Anfrage mit 0x27 ablehnen.
   Future<StickZugang> legeZugangAn({
     required PinProtocolV1 pin,
-    required Uint8List pinToken,
+    required Uint8List? pinToken,
   }) async {
     // clientDataHash ist normalerweise ein Hash ueber die Anfrage des Browsers.
     // Hier gibt es keinen Browser; er muss aber 32 Byte sein und wird
@@ -91,8 +94,10 @@ class HmacSecret {
       ],
       6: {'hmac-secret': true}, // die Erweiterung, um die es geht
       7: {'rk': true}, // der Stick speichert den Zugang selbst
-      8: await pin.pinUvAuthParam(pinToken, clientDataHash),
-      9: 1, // pinUvAuthProtocol
+      if (pinToken != null) ...{
+        8: await pin.pinUvAuthParam(pinToken, clientDataHash),
+        9: 1, // pinUvAuthProtocol
+      },
     };
 
     final antwort = await ctap.befehl(0x01, CtapCbor.kodiere(parameter));
@@ -118,7 +123,7 @@ class HmacSecret {
   Future<Uint8List> holeGeheimnis({
     required StickZugang zugang,
     required PinProtocolV1 pin,
-    required Uint8List pinToken,
+    required Uint8List? pinToken,
   }) async {
     final clientDataHash = Uint8List.fromList(
         const DartSha256().hashSync('bitdm-get-assertion-v1'.codeUnits).bytes);
@@ -140,8 +145,10 @@ class HmacSecret {
           3: salzBeglaubigt,
         },
       },
-      6: await pin.pinUvAuthParam(pinToken, clientDataHash),
-      7: 1,
+      if (pinToken != null) ...{
+        6: await pin.pinUvAuthParam(pinToken, clientDataHash),
+        7: 1,
+      },
     };
 
     final antwort = await ctap.befehl(0x02, CtapCbor.kodiere(parameter));
