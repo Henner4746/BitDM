@@ -217,6 +217,22 @@ class VaultSecretStore implements SecretStore {
     if (faktor is KeystoreFactor) await faktor.entferne(slotId);
   }
 
+  /// Wie lange die App im Hintergrund offen bleiben darf.
+  ///
+  /// Steht in der Fachdatei und nicht in den Einstellungen: die liegen in der
+  /// verschluesselten Datenbank, und die ist beim Sperren zu.
+  Future<Duration> sperrfrist() async =>
+      (await faecher())?.sperrfrist ?? Duration.zero;
+
+  /// Stellt die Frist um. Verlangt einen offenen Tresor — sonst koennte jemand
+  /// mit dem entsperrten Telefon die Sperre praktisch abschalten.
+  Future<void> setzeSperrfrist(int sekunden) async {
+    final v = await faecher();
+    if (v == null) throw StateError('Es gibt keine Faecher');
+    if (!istOffen) throw const LockedException();
+    await _schreibe(v.mitSperrfrist(sekunden));
+  }
+
   /// Benennt ein Fach um. Aendert nichts an seinem Inhalt.
   Future<void> benenneUm(String slotId, String label) async {
     final v = await faecher();
@@ -225,6 +241,7 @@ class VaultSecretStore implements SecretStore {
     if (slot == null) throw ArgumentError('kein Fach mit der Kennung $slotId');
     await _schreibe(KeyVault(
       version: v.version,
+      sperrfristSekunden: v.sperrfristSekunden,
       slots: v.slots.map((s) => s.id == slotId ? s.mitLabel(label) : s).toList(),
     ));
   }

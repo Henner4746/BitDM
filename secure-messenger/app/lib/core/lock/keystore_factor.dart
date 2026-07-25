@@ -44,17 +44,60 @@ class GeraeteAblage implements SchluesselAblage {
 
   final FlutterSecureStorage _speicher;
 
-  /// Mit Anmeldezwang: der gesicherte Bereich arbeitet erst nach Fingerabdruck,
-  /// Gesicht, PIN oder Muster.
+  // ═══════════════════════════════════════════════ WARUM DIE NAMENSRAEUME
+  //
+  // DER FEHLER, DEN SIE VERHINDERN, IST DER GEFAEHRLICHSTE IN DIESER DATEI:
+  // Ohne storageNamespace benutzen ALLE Ablagen denselben Schluessel im
+  // gesicherten Bereich, dieselbe Einstellungsdatei und denselben
+  // Schluesselspeicher — das Paket leitet alle drei Namen aus dem
+  // Namensraum ab, und ohne ihn kommt ueberall dasselbe heraus.
+  //
+  // Zusammen mit migrateOnAlgorithmChange heisst das: sobald die Ablage OHNE
+  // Anmeldezwang etwas anfasst, schreibt sie die Daten auf einen Schluessel
+  // um, der KEINE Anmeldung verlangt. Der Fingerabdruck ist damit still
+  // ausgehebelt — die App fragt nicht mehr, und es sieht aus, als haette sie
+  // nie gefragt. Genau so war es bis zum 25.07.2026.
+  //
+  // Der Namensraum der Ablage OHNE Anmeldung bleibt bewusst leer: dort liegt
+  // bei vorhandenen Installationen die Entropie, und ein neuer Name hiesse,
+  // dass sie nicht mehr gefunden wird.
+  static const String namensraumBiometrie = 'bitdm_bio_v1';
+  static const String namensraumGeraetePin = 'bitdm_pin_v1';
+
+  /// Fingerabdruck oder Gesicht — und NUR das.
+  ///
+  /// strongBiometricOnly schliesst die Geraete-PIN aus. Das ist der ganze
+  /// Punkt dieser Zeile: waere die PIN erlaubt, waere sie kein eigener Faktor
+  /// mehr, sondern derselbe mit zwei Namen.
   ///
   /// enforceBiometrics: true verlangt, dass das Geraet ueberhaupt gesichert
   /// ist. Auf einem Telefon ohne Sperrbildschirm schlaegt das Anlegen fehl —
   /// richtig so: eine Sperre, die jeder oeffnet, waere keine.
-  factory GeraeteAblage.mitAnmeldung() => GeraeteAblage(FlutterSecureStorage(
+  factory GeraeteAblage.biometrie() => GeraeteAblage(FlutterSecureStorage(
         aOptions: AndroidOptions.biometric(
           enforceBiometrics: true,
+          biometricType: AndroidBiometricType.strongBiometricOnly,
+          storageNamespace: namensraumBiometrie,
           migrateOnAlgorithmChange: true,
           migrateWithBackup: true,
+          biometricPromptTitle: 'BitDM entsperren',
+          biometricPromptSubtitle: 'Fingerabdruck oder Gesicht',
+        ),
+      ));
+
+  /// Die Sperre des Geraets: PIN, Muster oder Passwort.
+  ///
+  /// Der Rueckfall, wenn der Finger nass ist, verletzt oder nicht erkannt
+  /// wird — und auf Telefonen ohne Fingerabdrucksensor der einzige Weg.
+  factory GeraeteAblage.geraetePin() => GeraeteAblage(FlutterSecureStorage(
+        aOptions: AndroidOptions.biometric(
+          enforceBiometrics: true,
+          biometricType: AndroidBiometricType.biometricOrDeviceCredential,
+          storageNamespace: namensraumGeraetePin,
+          migrateOnAlgorithmChange: true,
+          migrateWithBackup: true,
+          biometricPromptTitle: 'BitDM entsperren',
+          biometricPromptSubtitle: 'Geraetesperre',
         ),
       ));
 
@@ -77,6 +120,22 @@ class KeystoreFactor implements UnlockFactor {
     this.kind = UnlockFactorKind.biometric,
     this.label = 'Geraetesperre',
   });
+
+  /// Der Fingerabdruck-Faktor, fertig verdrahtet.
+  factory KeystoreFactor.biometrie({String label = 'Fingerabdruck'}) =>
+      KeystoreFactor(
+        ablage: GeraeteAblage.biometrie(),
+        kind: UnlockFactorKind.biometric,
+        label: label,
+      );
+
+  /// Der Geraetesperren-Faktor, fertig verdrahtet.
+  factory KeystoreFactor.geraetePin({String label = 'Geraete-PIN'}) =>
+      KeystoreFactor(
+        ablage: GeraeteAblage.geraetePin(),
+        kind: UnlockFactorKind.deviceCredential,
+        label: label,
+      );
 
   final SchluesselAblage ablage;
 

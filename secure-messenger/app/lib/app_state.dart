@@ -29,22 +29,35 @@ import 'core/lock/vault_store.dart';
 import 'core/messenger_core.dart';
 
 class AppState extends ChangeNotifier {
-  AppState(this.core,
-      {this.tresor, this.stickZugang, SchluesselAblage? geraeteAblage})
-      // Kein initializing formal: nach aussen soll der Name ohne Unterstrich
-      // stehen, innen muss er vom Zwischenspeicher unterscheidbar bleiben.
-      // ignore: prefer_initializing_formals
-      : _geraeteAblage = geraeteAblage;
+  AppState(this.core, {this.tresor, this.stickZugang, this.ablagen});
 
-  /// Der gesicherte Bereich des Geraets.
+  /// Woher der gesicherte Bereich des Geraets kommt, je Faktorart.
   ///
-  /// Hereinreichbar, weil er sonst der EINZIGE Faktor waere, der ungeprueft
-  /// bleibt — und er ist der, auf den am Ende alle zurueckfallen. Erst beim
-  /// ersten Gebrauch gebaut: schon das Anlegen verlangt eine Bildschirmsperre.
-  final SchluesselAblage? _geraeteAblage;
-  SchluesselAblage? _gebaut;
-  SchluesselAblage get geraeteAblage =>
-      _geraeteAblage ?? (_gebaut ??= GeraeteAblage.mitAnmeldung());
+  /// Hereinreichbar, weil diese Faktoren sonst die EINZIGEN waeren, die
+  /// ungeprueft bleiben — und auf sie faellt am Ende alles zurueck.
+  ///
+  /// GETRENNT JE ART, und das ist nicht Ordnungsliebe: die beiden Ablagen
+  /// muessen verschiedene Namensraeume haben, sonst teilen sie sich den
+  /// Schluessel im gesicherten Bereich. Siehe keystore_factor.dart.
+  final SchluesselAblage Function(UnlockFactorKind)? ablagen;
+
+  final _ablagenSpeicher = <UnlockFactorKind, SchluesselAblage>{};
+
+  /// Erst beim Gebrauch gebaut: schon das Anlegen verlangt eine
+  /// Bildschirmsperre, und beim Start gibt es die vielleicht noch nicht.
+  SchluesselAblage ablageFuer(UnlockFactorKind art) =>
+      _ablagenSpeicher[art] ??= ablagen?.call(art) ??
+          (art == UnlockFactorKind.deviceCredential
+              ? GeraeteAblage.geraetePin()
+              : GeraeteAblage.biometrie());
+
+  KeystoreFactor _keystoreFaktor(UnlockFactorKind art) => KeystoreFactor(
+        ablage: ablageFuer(art),
+        kind: art,
+        label: art == UnlockFactorKind.deviceCredential
+            ? 'Geraetesperre'
+            : 'Fingerabdruck',
+      );
 
   /// Null in Tests — dort gibt es keinen Schluesselspeicher des Geraets.
   final VaultSecretStore? tresor;
@@ -116,7 +129,10 @@ class AppState extends ChangeNotifier {
 
   Future<void> _ladeFaktoren() async {
     try {
-      faktoren = (await tresor?.faecher())?.slots ?? const [];
+      final v = await tresor?.faecher();
+      faktoren = v?.slots ?? const [];
+      _nieSperren = (v?.sperrfristSekunden ?? 0) < 0;
+      sperrfrist = _nieSperren ? Duration.zero : (v?.sperrfrist ?? Duration.zero);
     } catch (e) {
       // Eine unlesbare Fachdatei darf die App nicht am Starten hindern — sonst
       // kaeme man nicht einmal mehr an den Knopf, mit dem sich alles loeschen
@@ -132,13 +148,25 @@ class AppState extends ChangeNotifier {
 
   // ═══════════════════════════════════════════════════════════════ Entsperren
 
-  /// Entsperrt mit dem Schluesselspeicher des Geraets — Fingerabdruck,
-  /// Gesicht, PIN oder Muster, je nachdem, was eingerichtet ist.
+  /// Entsperrt mit dem Fingerabdruck oder dem Gesicht.
   ///
   /// Die App fragt nichts davon selbst ab und bekommt es nie zu sehen. Sie
   /// versucht nur, den Fachschluessel zu lesen; die Abfrage zeigt das System.
-  Future<bool> entsperreMitGeraet() =>
-      _entsperreMit(KeystoreFactor(ablage: geraeteAblage));
+  Future<bool> entsperreMitBiometrie() =>
+      _entsperreMit(_keystoreFaktor(UnlockFactorKind.biometric));
+
+  /// Entsperrt mit der Sperre des Geraets — PIN, Muster oder Passwort.
+  Future<bool> entsperreMitGeraetePin() =>
+      _entsperreMit(_keystoreFaktor(UnlockFactorKind.deviceCredential));
+
+  /// Entsperrt mit dem App-Passwort.
+  ///
+  /// [geraeteGebunden] ist hier false: dieses Fach haengt an nichts als dem
+  /// Passwort. Wer die Fachdatei kopiert, kann in Ruhe auf eigener Hardware
+  /// probieren — deshalb verlangt der Faktor beim Anlegen ein starkes
+  /// Passwort und rechnet mit Argon2id.
+  Future<bool> entsperreMitPasswort(String passwort) => _entsperreMit(
+      PassphraseFactor(passwort, geraeteGebunden: false, label: 'Passwort'));
 
   /// Entsperrt mit einem Sicherheitsschluessel.
   ///
@@ -160,7 +188,12 @@ class AppState extends ChangeNotifier {
   Future<bool> _entsperreMit(UnlockFactor faktor) async {
     final t = tresor;
     if (t == null) throw const LockUnavailableException('nicht verfuegbar');
-    await t.entsperreMit(faktor);
+    _amFaktor = true;
+    try {
+      await t.entsperreMit(faktor);
+    } finally {
+      _amFaktor = false;
+    }
     return _nachDemOeffnen();
   }
 
@@ -191,14 +224,27 @@ class AppState extends ChangeNotifier {
 
   // ══════════════════════════════════════════════════════════ Faktoren pflegen
 
-  /// Nimmt den Schluesselspeicher des Geraets als Faktor auf.
+  /// Nimmt den Fingerabdruck als Faktor auf.
   ///
   /// Wirft [LockUnavailableException], wenn das Telefon gar keine
   /// Bildschirmsperre hat — dann gibt es nichts, woran sich etwas binden
   /// liesse.
-  Future<void> fuegeGeraetHinzu() async {
-    await _fuegeHinzu(KeystoreFactor(ablage: geraeteAblage));
-  }
+  Future<void> fuegeBiometrieHinzu() =>
+      _fuegeHinzu(_keystoreFaktor(UnlockFactorKind.biometric));
+
+  /// Nimmt die Sperre des Geraets als Faktor auf.
+  Future<void> fuegeGeraetePinHinzu() =>
+      _fuegeHinzu(_keystoreFaktor(UnlockFactorKind.deviceCredential));
+
+  /// Nimmt ein App-Passwort als Faktor auf.
+  ///
+  /// Wirft [WeakPassphraseException], wenn das Passwort zu wenig hergibt. Das
+  /// ist keine Schikane: dieses Fach haengt an nichts als dem Passwort, und
+  /// wer die Fachdatei kopiert, probiert auf eigener Hardware, so lange er
+  /// will. Argon2id verteuert jeden Versuch, aber gegen eine vierstellige PIN
+  /// reicht das nicht.
+  Future<void> fuegePasswortHinzu(String passwort) => _fuegeHinzu(
+      PassphraseFactor(passwort, geraeteGebunden: false, label: 'Passwort'));
 
   /// Nimmt einen Sicherheitsschluessel als Faktor auf.
   ///
@@ -218,9 +264,11 @@ class AppState extends ChangeNotifier {
   Future<void> _fuegeHinzu(UnlockFactor faktor) async {
     final t = tresor;
     if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    _amFaktor = true;
     try {
       await t.fuegeHinzu(faktor);
     } finally {
+      _amFaktor = false;
       // Auch nach einem Fehlschlag neu einlesen: beim Stick kann der Zugang
       // schon angelegt sein, wenn erst das Holen des Geheimnisses scheitert.
       await _ladeFaktoren();
@@ -238,10 +286,16 @@ class AppState extends ChangeNotifier {
     final t = tresor;
     if (t == null) throw const LockUnavailableException('nicht verfuegbar');
     final slot = faktoren.where((s) => s.id == slotId).firstOrNull;
+    // Beim Schluesselspeicher-Fach muss der Fachschluessel im gesicherten
+    // Bereich mit weg. Beim Stick und beim Passwort gibt es nichts
+    // aufzuraeumen: der Stick behaelt seinen Zugang, und das Passwort steht
+    // nirgends.
+    final art = slot?.kind;
     await t.entferne(
       slotId,
-      faktor: slot?.kind == UnlockFactorKind.biometric
-          ? KeystoreFactor(ablage: geraeteAblage)
+      faktor: (art == UnlockFactorKind.biometric ||
+              art == UnlockFactorKind.deviceCredential)
+          ? _keystoreFaktor(art!)
           : null,
     );
     await _ladeFaktoren();
@@ -335,23 +389,44 @@ class AppState extends ChangeNotifier {
 
   /// Wie lange die App zu bleiben darf, ohne wieder zu verriegeln.
   ///
-  /// SOFORT WAERE FALSCH. Wer seine Adresse in eine andere App kopiert, den
-  /// Sicherheitsschluessel per NFC bedient oder eine Benachrichtigung
-  /// wegwischt, ist zwei Sekunden weg — und muesste jedes Mal wieder den Stick
-  /// anlegen. Nach ein paar solchen Runden schaltet der Nutzer die Sperre ab,
-  /// und dann schuetzt sie gar nichts mehr.
+  /// STANDARD IST SOFORT. Wer eine Sperre einrichtet, will gefragt werden —
+  /// und nicht manchmal. Laenger geht auch, aber das muss man wollen und
+  /// einstellen; siehe [setzeSperrfrist].
   ///
-  /// GAR NICHT WAERE AUCH FALSCH: dann haelt die einmal geoeffnete App den
-  /// Schluessel im Speicher, bis Android sie abraeumt — womoeglich tagelang.
+  /// Die Zahl steht in der Fachdatei, nicht in den Einstellungen: die liegen
+  /// in der verschluesselten Datenbank, und die ist beim Sperren zu — die
+  /// Frist waere dann genau in dem Moment nicht lesbar, in dem sie gebraucht
+  /// wird.
+  Duration sperrfrist = Duration.zero;
+
+  /// Die Auswahl, die die Oberflaeche anbietet. -1 heisst: gar nicht sperren.
+  static const List<int> sperrfristAuswahl = [0, 60, 300, -1];
+
+  /// Ob gerade ein Faktor bedient wird.
   ///
-  /// Eine Minute ist der Kompromiss. Kurz genug, dass ein aus der Hand
-  /// gegebenes Telefon zu ist, lang genug fuer alles, was zum normalen
-  /// Gebrauch gehoert.
-  static const Duration sperrfrist = Duration(minutes: 1);
+  /// WICHTIG BEI "SOFORT": das Freigeben eines USB-Sticks zeigt Android als
+  /// eigenen Dialog, und die App geht dabei in den Hintergrund. Wuerde sie
+  /// dann zusperren, liesse sich ein Stick nie einrichten — man kaeme immer
+  /// nur bis zur Freigabe.
+  bool _amFaktor = false;
+
+  Future<void> setzeSperrfrist(int sekunden) async {
+    final t = tresor;
+    if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    await t.setzeSperrfrist(sekunden < 0 ? -1 : sekunden);
+    sperrfrist = sekunden < 0 ? Duration.zero : Duration(seconds: sekunden);
+    _nieSperren = sekunden < 0;
+    notifyListeners();
+  }
+
+  bool _nieSperren = false;
+
+  /// Die Frist als Zahl, wie die Oberflaeche sie anzeigt. -1 heisst nie.
+  int get sperrfristAlsZahl => _nieSperren ? -1 : sperrfrist.inSeconds;
 
   bool _sollWiederSperren() {
     if (faktoren.isEmpty) return false; // ohne Faktor gibt es nichts zu sperren
-    if (gesperrt) return false;
+    if (gesperrt || _nieSperren || _amFaktor) return false;
     final weg = _weggelegtUm;
     if (weg == null) return false;
     return DateTime.now().difference(weg) >= sperrfrist;

@@ -11,6 +11,7 @@ import 'core/fido/client_pin.dart';
 import 'core/fido/ctap.dart';
 import 'core/fido/stick_zugang.dart';
 import 'core/lock/hardware_key_factor.dart';
+import 'core/lock/unlock_factor.dart';
 import 'core/lock/key_vault.dart';
 import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
@@ -94,6 +95,36 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
+/// Die Zeilen im Zugriffs-Bildschirm, in dieser Reihenfolge.
+///
+/// Vier davon sind echt. Die letzten beiden richten nichts ein, sondern
+/// beantworten die Frage, die sich jeder stellt, der die Liste sieht.
+const List<String> zugriffsZeilen = [
+  'bio',
+  'devpin',
+  'hw',
+  'pw',
+  'passkey',
+  'totp',
+];
+
+/// Welche Faktorart hinter welcher Zeile steckt.
+///
+/// DIESE ZUORDNUNG WAR DER FEHLER, DER AM 25.07.2026 GEMELDET WURDE: vorher
+/// wurde alles ausser 'hw' auf die Biometrie abgebildet. Ein Druck auf
+/// "Passkey" fand damit das Fingerabdruck-Fach und ENTFERNTE es — mit einer
+/// Zeile, die davon nichts sagte.
+///
+/// Steht auf oberster Ebene, damit ein Test sie sehen kann. Eine Zuordnung,
+/// bei der zwei Zeilen auf dieselbe Art zeigen, ist genau der Fehler von
+/// damals — und ohne Test faellt er erst am Geraet auf.
+const Map<String, UnlockFactorKind> zeilenArt = {
+  'bio': UnlockFactorKind.biometric,
+  'devpin': UnlockFactorKind.deviceCredential,
+  'hw': UnlockFactorKind.hardwareKey,
+  'pw': UnlockFactorKind.passphrase,
+};
+
 class _HomeState extends State<Home> with WidgetsBindingObserver {
   String screen = 'onboard';
   String? chat;
@@ -172,6 +203,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   final addCtl = TextEditingController();
   final codeCtl = TextEditingController();
   final stickPinCtl = TextEditingController();
+  final pwCtl = TextEditingController();
+  final pwCtl2 = TextEditingController();
 
   Pal get p => mode == 'dark' ? palDark : palLight;
   List<Color> get avp => mode == 'dark' ? avPalDark : avPalLight;
@@ -185,6 +218,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     addCtl.dispose();
     codeCtl.dispose();
     stickPinCtl.dispose();
+    pwCtl.dispose();
+    pwCtl2.dispose();
     super.dispose();
   }
 
@@ -285,33 +320,59 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// Schluesselfach — die Entropie ist ohne den Faktor wirklich nicht mehr zu
   /// haben, auch nicht mit Root, auch nicht mit der Datei in der Hand.
   Future<void> methodAct(String key) async {
-    if (key == 'totp') {
-      // Der einzige, der nie kommt — und der Bildschirm sagt auch warum.
+    final art = zeilenArt[key];
+    if (art == null) {
+      // Nur noch 'totp' landet hier: der einzige, den es nie geben wird, und
+      // der Bildschirm sagt auch warum.
       setState(() => enroll = key);
       return;
     }
 
-    final art = key == 'hw'
-        ? UnlockFactorKind.hardwareKey
-        : UnlockFactorKind.biometric;
     final vorhanden = st.faktoren.where((s) => s.kind == art).toList();
-
     if (vorhanden.isNotEmpty) {
       await _entferneFaktor(vorhanden.first.id);
       return;
     }
-    if (key == 'hw') {
-      await _richteStickEin();
-      return;
+
+    switch (art) {
+      case UnlockFactorKind.hardwareKey:
+        await _richteStickEin();
+      case UnlockFactorKind.passphrase:
+        await _richtePasswortEin();
+      case UnlockFactorKind.biometric:
+        await _richteKeystoreEin(st.fuegeBiometrieHinzu);
+      case UnlockFactorKind.deviceCredential:
+        await _richteKeystoreEin(st.fuegeGeraetePinHinzu);
     }
+  }
+
+  Future<void> _richteKeystoreEin(Future<void> Function() anlegen) async {
+    setState(() => lockFehler = null);
     try {
-      await st.fuegeGeraetHinzu();
+      await anlegen();
     } on LockUnavailableException {
       if (mounted) setState(() => enroll = 'keineSperre');
     } on UnlockFailedException {
       // Anmeldung abgebrochen — es bleibt, wie es war.
     } catch (e) {
-      if (mounted) setState(() => lockFehler = '$e');
+      // Das Paket meldet ein fehlendes Merkmal als gewoehnlichen
+      // Plattformfehler. Der Text darin ist das Einzige, woran sich
+      // "kein Fingerabdruck hinterlegt" erkennen laesst.
+      final text = '$e';
+      if (mounted) {
+        setState(() => text.contains('BIOMETRIC_UNAVAILABLE')
+            ? enroll = 'keineSperre'
+            : lockFehler = text);
+      }
+    }
+  }
+
+  /// Stellt um, wann die App sich von selbst wieder abschliesst.
+  Future<void> _setzeSperrfrist(int sekunden) async {
+    try {
+      await st.setzeSperrfrist(sekunden);
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = '');
     }
   }
 
@@ -326,6 +387,42 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       // Das letzte Fach: dahinter steckt kein Fehler, sondern die Regel, dass
       // immer ein Weg hinein bleiben muss.
       if (mounted) setState(() => lockFehler = e.message);
+    } catch (e) {
+      if (mounted) setState(() => lockFehler = '$e');
+    }
+  }
+
+  /// Oeffnet das Blatt, auf dem ein App-Passwort eingerichtet wird.
+  Future<void> _richtePasswortEin() async {
+    pwCtl.clear();
+    pwCtl2.clear();
+    setState(() {
+      enroll = 'pw';
+      lockFehler = null;
+    });
+  }
+
+  /// Legt das Passwort-Fach an.
+  Future<void> _passwortAnlegen() async {
+    final pw = pwCtl.text;
+    if (pw != pwCtl2.text) {
+      setState(() => lockFehler = t('pwMismatch'));
+      return;
+    }
+    setState(() => lockFehler = null);
+    try {
+      await st.fuegePasswortHinzu(pw);
+      pwCtl.clear();
+      pwCtl2.clear();
+      if (mounted) setState(() => enroll = null);
+    } on WeakPassphraseException catch (e) {
+      // Die Zahl mitzugeben ist der Unterschied zwischen "zu schwach" und
+      // "zu schwach, und zwar um so viel".
+      if (mounted) {
+        setState(() => lockFehler = t('pwWeak')
+            .replaceFirst('{ist}', '${e.geschaetzteBits}')
+            .replaceFirst('{soll}', '${e.verlangteBits}'));
+      }
     } catch (e) {
       if (mounted) setState(() => lockFehler = '$e');
     }
@@ -618,15 +715,33 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// zu sehen — sie versucht nur, den Fachschluessel zu lesen, und die Abfrage
   /// zeigt das System.
   Widget gesperrtScreen() {
-    final hatGeraet = st.hatFaktor(UnlockFactorKind.biometric);
-    final hatStick = st.hatFaktor(UnlockFactorKind.hardwareKey);
+    final bio = st.hatFaktor(UnlockFactorKind.biometric);
+    final pin = st.hatFaktor(UnlockFactorKind.deviceCredential);
+    final stick = st.hatFaktor(UnlockFactorKind.hardwareKey);
+    final pw = st.hatFaktor(UnlockFactorKind.passphrase);
 
-    return Padding(
+    // Der erste Knopf traegt die Betonung. Welcher das ist, haengt davon ab,
+    // was eingerichtet ist — ein blasser einziger Knopf saehe aus, als waere
+    // er nicht gemeint.
+    var ersterHervorgehoben = true;
+    Widget knopf(String text, VoidCallback tun) {
+      final hervor = ersterHervorgehoben;
+      ersterHervorgehoben = false;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: outlineBtn(text, tun,
+            accent: hervor,
+            padding: const EdgeInsets.all(13),
+            weight: hervor ? FontWeight.w500 : FontWeight.w400),
+      );
+    }
+
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const SizedBox(height: 40),
           h2(t("locked")),
           const SizedBox(height: 8),
           Text(t("lockedSub"),
@@ -634,35 +749,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           const SizedBox(height: 22),
 
           if (lockFehler != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(11),
-              decoration: BoxDecoration(
-                  color: p.tint,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: p.tintLine)),
-              child: Text(lockFehler!,
-                  style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
-            ),
+            _hinweisKasten(lockFehler!),
             const SizedBox(height: 14),
           ],
 
-          if (hatGeraet)
-            outlineBtn(t("unlock"), _entsperreMitGeraet,
-                padding: const EdgeInsets.all(13)),
-          if (hatGeraet && hatStick) const SizedBox(height: 8),
-          if (hatStick) ...[
-            outlineBtn(t("unlockStick"), _entsperreMitStick,
-                accent: !hatGeraet, padding: const EdgeInsets.all(13),
-                weight: hatGeraet ? FontWeight.w400 : FontWeight.w500),
-            const SizedBox(height: 8),
+          if (bio) knopf(t('unlockBio'), _entsperreMitBiometrie),
+          if (pin) knopf(t('unlockDevPin'), _entsperreMitGeraetePin),
+          if (pw) knopf(t('unlockPw'), _fragePasswort),
+          if (stick) ...[
+            knopf(t('unlockStick'), _entsperreMitStick),
             Row(children: [
               Expanded(child: _wegKnopf(StickWeg.usb, t('stickUsb'))),
               const SizedBox(width: 8),
               Expanded(child: _wegKnopf(StickWeg.nfc, t('stickNfc'))),
             ]),
           ],
-          if (!hatGeraet && !hatStick)
+          if (!bio && !pin && !stick && !pw)
             // Kann nur passieren, wenn die Fachdatei kaputt ist. Ohne diesen
             // Hinweis stuende der Nutzer vor einem Bildschirm ohne Knopf.
             Text(t('lockedNoFactor'),
@@ -672,10 +774,34 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _entsperreMitGeraet() async {
+  Future<void> _entsperreMitBiometrie() =>
+      _versucheEntsperren(st.entsperreMitBiometrie);
+
+  Future<void> _entsperreMitGeraetePin() =>
+      _versucheEntsperren(st.entsperreMitGeraetePin);
+
+  /// Fragt das App-Passwort ab und versucht damit zu oeffnen.
+  Future<void> _fragePasswort() async {
+    pwCtl.clear();
+    final ok = await _frageGeheimnis(
+        titel: t('unlockPw'), ctl: pwCtl, hinweis: t('pwUnlockHint'));
+    if (ok != true || !mounted) return;
+    final eingabe = pwCtl.text;
+    pwCtl.clear();
+    await _versucheEntsperren(() => st.entsperreMitPasswort(eingabe));
+  }
+
+  Future<void> _versucheEntsperren(Future<bool> Function() tun) async {
     setState(() => lockFehler = null);
     try {
-      await st.entsperreMitGeraet();
+      final ok = await tun();
+      if (!ok && mounted) setState(() => lockFehler = t('unlockFailed'));
+    } on UnlockFailedException {
+      // ABSICHTLICH OHNE GRUND: falsches Passwort, abgebrochene Anmeldung und
+      // beschaedigtes Fach sollen von aussen gleich aussehen. Ein Fehler, der
+      // sie unterscheidet, ist ein Hinweis fuer jeden, der Passwoerter
+      // durchprobiert. Beim Stick ist es umgekehrt — siehe _stickMeldung.
+      if (mounted) setState(() => lockFehler = t('unlockFailed'));
     } catch (e) {
       if (mounted) setState(() => lockFehler = _stickMeldung(e));
     }
@@ -695,26 +821,28 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     }
   }
 
-  /// Fragt die PIN DES STICKS ab — nicht die des Telefons.
-  ///
-  /// Sie verlaesst das Telefon nie im Klartext: uebertragen werden die ersten
-  /// 16 Byte ihres SHA-256, und auch die nur verschluesselt.
-  Future<void> _fragePin() async {
-    stickPinCtl.clear();
-    final ok = await showDialog<bool>(
+  /// Fragt ein Geheimnis ab, ohne es irgendwo abzulegen.
+  Future<bool?> _frageGeheimnis({
+    required String titel,
+    required TextEditingController ctl,
+    required String hinweis,
+    bool nurZahlen = false,
+  }) {
+    return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: p.surf,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
             side: BorderSide(color: p.line)),
-        title: Text(t('stickPinLabel'), style: doto(size: 17, color: p.ink)),
+        title: Text(titel, style: doto(size: 17, color: p.ink)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(
-            controller: stickPinCtl,
+            controller: ctl,
             obscureText: true,
             autofocus: true,
-            keyboardType: TextInputType.number,
+            keyboardType: nurZahlen ? TextInputType.number : null,
+            onSubmitted: (_) => Navigator.of(ctx).pop(true),
             style: mono(size: 15, color: p.ink, spacing: 2),
             decoration: InputDecoration(
               hintText: '••••••',
@@ -722,8 +850,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             ),
           ),
           const SizedBox(height: 10),
-          Text(t('stickPinHint'),
-              style: mono(size: 11, color: p.dim, height: 1.5)),
+          Text(hinweis, style: mono(size: 11, color: p.dim, height: 1.5)),
         ]),
         actions: [
           TextButton(
@@ -736,6 +863,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  /// Fragt die PIN DES STICKS ab — nicht die des Telefons.
+  ///
+  /// Sie verlaesst das Telefon nie im Klartext: uebertragen werden die ersten
+  /// 16 Byte ihres SHA-256, und auch die nur verschluesselt.
+  Future<void> _fragePin() async {
+    stickPinCtl.clear();
+    final ok = await _frageGeheimnis(
+        titel: t('stickPinLabel'),
+        ctl: stickPinCtl,
+        hinweis: t('stickPinHint'),
+        nurZahlen: true);
     if (ok != true || !mounted) return;
     await _entsperreMitStick();
   }
@@ -830,7 +970,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         const SizedBox(height: 6),
         Text(t('secureSub'), style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
         const SizedBox(height: 16),
-        for (final k in ['bio', 'passkey', 'hw', 'totp']) ...[methodRow(k, statusMode: true), const SizedBox(height: 6)],
+        for (final k in zugriffsZeilen) ...[methodRow(k, statusMode: true), const SizedBox(height: 6)],
         const SizedBox(height: 4),
         Text(t('secureFoot'), style: mono(size: 11, color: p.dim, height: 1.5)),
         const Spacer(),
@@ -847,17 +987,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // "bio" und "hw" haben jetzt echte Faecher dahinter. "passkey" und "totp"
     // nicht — das Antippen erklaert warum, statt eine Einrichtung
     // vorzutaeuschen.
-    final on = switch (key) {
-      'bio' => st.hatFaktor(UnlockFactorKind.biometric),
-      'hw' => st.hatFaktor(UnlockFactorKind.hardwareKey),
-      _ => false,
-    };
+    final art = zeilenArt[key];
+    final on = art != null && st.hatFaktor(art);
     final mark = on ? '✓' : '·';
     // Bei "passkey" und "totp" stand hier "EINRICHTEN" — fuer etwas, das sich
     // nicht einrichten laesst. Genau die Sorte Zusage, wegen der jemand sein
     // Telefon aus der Hand gibt. Jetzt steht dort, was das Antippen wirklich
     // bringt: eine Erklaerung.
-    final echt = key == 'bio' || key == 'hw';
+    final echt = zeilenArt.containsKey(key);
     final right = !echt
         ? t('whyNot')
         : statusMode
@@ -1304,8 +1441,27 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ])),
         const SizedBox(height: 22),
         label6(t('access')),
-        for (final k in ['bio', 'passkey', 'hw', 'totp']) ...[methodRow(k, statusMode: false), const SizedBox(height: 3)],
+        for (final k in zugriffsZeilen) ...[methodRow(k, statusMode: false), const SizedBox(height: 3)],
         Padding(padding: const EdgeInsets.fromLTRB(11, 3, 11, 0), child: Text(t('minOne'), style: mono(size: 10.5, color: p.dim))),
+
+        // Die Frist erscheint erst, wenn es etwas zu sperren gibt. Ohne
+        // Faktor waere sie eine Einstellung ohne Wirkung.
+        if (st.faktoren.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          settingCard(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                settingHead(t('lockDelay'), t('lockDelaySub')),
+                const SizedBox(height: 8),
+                segmented(
+                  const ['0', '60', '300', '-1'],
+                  [t('delayNow'), t('delay1m'), t('delay5m'), t('delayNever')],
+                  '${st.sperrfristAlsZahl}',
+                  (v) => _setzeSperrfrist(int.parse(v)),
+                ),
+              ])),
+        ],
         const SizedBox(height: 22),
         label6(t('security')),
         toggleRow(t("screenshot"), t("screenshotSub"), st.einstellungen.blockScreenshots,
@@ -1558,12 +1714,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       );
     }
     if (en == 'hw') return stickModal();
+    if (en == 'pw') return passwortModal();
 
-    final title = en == "bio"
-        ? t("enrollBio")
-        : en == "passkey"
-            ? t("enrollPasskey")
-            : t("enrollTotp");
+    // Hierher kommen nur noch die beiden, die es nicht gibt.
+    final title = en == 'passkey' ? t('enrollPasskey') : t('enrollTotp');
     // 2FA ist der einzige Fall, der NIE echt wird: bei einer App ohne Server
     // laege das Geheimnis auf demselben Geraet, und wer das Geraet hat,
     // rechnet sich den Code selbst aus.
@@ -1585,6 +1739,89 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         const SizedBox(height: 14),
         outlineBtn(t("close"), () => setState(() => enroll = null),
             padding: const EdgeInsets.all(11)),
+      ]),
+    );
+  }
+
+  /// Ein Textfeld im Stil der App, fuer Geheimnisse.
+  Widget _geheimFeld(TextEditingController ctl, String hinweis,
+      {bool aktiv = true, bool nurZahlen = false, bool autofokus = false}) {
+    return Container(
+      decoration: BoxDecoration(
+          color: p.surf2,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: p.line)),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: TextField(
+        controller: ctl,
+        enabled: aktiv,
+        obscureText: true,
+        autofocus: autofokus,
+        keyboardType: nurZahlen ? TextInputType.number : null,
+        style: mono(size: 14, color: p.ink, spacing: 2),
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          hintText: hinweis,
+          hintStyle: mono(size: 13, color: p.dim),
+        ),
+      ),
+    );
+  }
+
+  /// Ein Hinweis- oder Fehlerkasten im Stil der App.
+  Widget _hinweisKasten(String text) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+            color: p.tint,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: p.tintLine)),
+        child:
+            Text(text, style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+      );
+
+  /// Das App-Passwort wird eingerichtet.
+  ///
+  /// Dieses Fach haengt an NICHTS ausser dem Passwort — kein gesicherter
+  /// Bereich, kein Stick. Wer die Fachdatei kopiert, probiert auf eigener
+  /// Hardware, so lange er will. Deshalb steht die Anforderung hier deutlich
+  /// da und wird nicht erst beim Absenden nachgereicht.
+  Widget passwortModal() {
+    return scrim(
+      onTapOutside: () => setState(() => enroll = null),
+      sheetCard(children: [
+        Center(
+            child: Container(
+                width: 36,
+                height: 3,
+                decoration: BoxDecoration(
+                    color: p.line, borderRadius: BorderRadius.circular(99)))),
+        const SizedBox(height: 11),
+        h2(t('enrollPw'), size: 20),
+        const SizedBox(height: 10),
+        Text(t('pwIntro'), style: mono(size: 12.5, color: p.muted, height: 1.6)),
+        const SizedBox(height: 14),
+        _geheimFeld(pwCtl, t('pwHint'), autofokus: true),
+        const SizedBox(height: 8),
+        _geheimFeld(pwCtl2, t('pwAgain')),
+        const SizedBox(height: 12),
+        if (lockFehler != null) ...[
+          _hinweisKasten(lockFehler!),
+          const SizedBox(height: 12),
+        ],
+        Row(children: [
+          Expanded(
+              child: outlineBtn(t('cancel'), () => setState(() => enroll = null),
+                  accent: false,
+                  padding: const EdgeInsets.all(11),
+                  weight: FontWeight.w400)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: outlineBtn(t('add'), _passwortAnlegen,
+                  padding: const EdgeInsets.all(11))),
+        ]),
+        const SizedBox(height: 10),
+        Text(t('pwLostNote'), style: mono(size: 11, color: p.dim, height: 1.5)),
       ]),
     );
   }

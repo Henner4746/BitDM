@@ -247,9 +247,32 @@ class KeyVault {
   final int version;
   final List<KeySlot> slots;
 
-  const KeyVault({this.version = currentVersion, required this.slots});
+  /// Nach wie vielen Sekunden im Hintergrund die App wieder verriegelt.
+  ///
+  /// STEHT HIER UND NICHT IN DEN EINSTELLUNGEN, und das ist keine
+  /// Bequemlichkeit: die Einstellungen liegen IN der verschluesselten
+  /// Datenbank. Beim Sperren wird sie geschlossen — die Frist waere dann
+  /// genau in dem Moment nicht lesbar, in dem sie gebraucht wird.
+  ///
+  /// 0 heisst sofort. Das ist der Standard: wer eine Sperre einrichtet, will
+  /// gefragt werden, und nicht manchmal.
+  final int sperrfristSekunden;
+
+  const KeyVault({
+    this.version = currentVersion,
+    required this.slots,
+    this.sperrfristSekunden = 0,
+  });
 
   bool get isEmpty => slots.isEmpty;
+
+  Duration get sperrfrist => Duration(seconds: sperrfristSekunden);
+
+  KeyVault mitSperrfrist(int sekunden) => KeyVault(
+        version: version,
+        slots: slots,
+        sperrfristSekunden: sekunden < 0 ? 0 : sekunden,
+      );
 
   KeySlot? slotById(String id) {
     for (final s in slots) {
@@ -263,6 +286,7 @@ class KeyVault {
 
   String toJsonString() => const JsonEncoder.withIndent('  ').convert({
         'version': version,
+        'lockDelaySeconds': sperrfristSekunden,
         'slots': slots.map((s) => s.toJson()).toList(),
       });
 
@@ -282,8 +306,12 @@ class KeyVault {
     }
     final slots = roh['slots'];
     if (slots is! List) throw const VaultFormatException('slots fehlt');
+    // Fehlt die Frist, ist das kein Fehler: Faecher aus einer aelteren
+    // Fassung haben sie nicht. Sofort zu sperren ist dann die sichere Annahme.
+    final frist = roh['lockDelaySeconds'];
     return KeyVault(
       version: version,
+      sperrfristSekunden: frist is int && frist >= 0 ? frist : 0,
       slots: slots
           .map((e) => KeySlot.fromJson((e as Map).cast<String, Object?>()))
           .toList(),
@@ -363,7 +391,10 @@ class KeyVault {
   }
 
   KeyVault mitSlot(KeySlot slot) =>
-      KeyVault(version: version, slots: [...slots, slot]);
+      KeyVault(
+          version: version,
+          sperrfristSekunden: sperrfristSekunden,
+          slots: [...slots, slot]);
 
   /// Entfernt ein Fach.
   ///
@@ -380,6 +411,7 @@ class KeyVault {
     }
     return KeyVault(
       version: version,
+      sperrfristSekunden: sperrfristSekunden,
       slots: slots.where((s) => s.id != id).toList(),
     );
   }

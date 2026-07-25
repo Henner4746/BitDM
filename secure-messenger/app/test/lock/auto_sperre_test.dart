@@ -65,7 +65,7 @@ void main() {
       jetzt: () => 1000,
     );
     core = FakeMessengerCore()..simulateExistingIdentity = true;
-    st = AppState(core, tresor: tresor, geraeteAblage: ablage);
+    st = AppState(core, tresor: tresor, ablagen: (_) => ablage);
     await st.boot();
   });
 
@@ -78,7 +78,7 @@ void main() {
   });
 
   Future<void> richteEin() async {
-    await st.fuegeGeraetHinzu();
+    await st.fuegeBiometrieHinzu();
     expect(st.faktoren, hasLength(1));
   }
 
@@ -124,15 +124,36 @@ void main() {
       expect(st.meineAdresse, isEmpty);
     });
 
-    test('eine kurze Abwesenheit sperrt NICHT', () async {
-      // Adresse in eine andere App kopieren, Benachrichtigung wegwischen, den
-      // Stick per NFC bedienen — alles unter einer Minute. Wer hier sperrt,
-      // erzieht den Nutzer dazu, die Sperre abzuschalten.
+    test('ab Werk sperrt schon eine kurze Abwesenheit', () async {
+      // DAS WAR DIE MELDUNG vom 25.07.2026: App zu, App auf, einfach drin.
+      // Vorher stand die Frist fest auf einer Minute.
       await richteEin();
       st.vordergrund(false);
       st.vordergrund(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(st.gesperrt, isTrue);
+    });
+
+    test('mit eingestellter Frist bleibt eine kurze Abwesenheit folgenlos',
+        () async {
+      // Adresse in eine andere App kopieren, Benachrichtigung wegwischen —
+      // wer das jedes Mal mit einer Anmeldung bezahlt, schaltet die Sperre ab.
+      await richteEin();
+      await st.setzeSperrfrist(60);
+      st.vordergrund(false);
+      st.vordergrund(true);
+      await Future<void>.delayed(Duration.zero);
       expect(st.gesperrt, isFalse);
       expect(core.isInitialized, isTrue);
+    });
+
+    test('"nie" sperrt nicht von selbst', () async {
+      await richteEin();
+      await st.setzeSperrfrist(-1);
+      st.vordergrund(false);
+      st.vordergrund(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(st.gesperrt, isFalse);
     });
 
     test('nach dem Zusperren geht die App mit dem Faktor wieder auf', () async {
@@ -140,17 +161,33 @@ void main() {
       await st.sperreWieder();
       expect(st.gesperrt, isTrue);
 
-      final ok = await st.entsperreMitGeraet();
+      final ok = await st.entsperreMitBiometrie();
 
       expect(ok, isTrue);
       expect(st.gesperrt, isFalse);
       expect(core.isInitialized, isTrue);
     });
 
-    test('die Frist steht auf einer Minute', () {
-      // Festgehalten, weil beide Richtungen schaden: sofort erzieht zum
-      // Abschalten, gar nicht laesst den Schluessel tagelang im Speicher.
-      expect(AppState.sperrfrist, const Duration(minutes: 1));
+    test('die Frist steht ab Werk auf SOFORT', () {
+      // Wer eine Sperre einrichtet, will gefragt werden — und nicht manchmal.
+      // Laenger geht, muss aber eingestellt werden.
+      expect(st.sperrfrist, Duration.zero);
+    });
+
+    test('eine eingestellte Frist ueberlebt den Neustart', () async {
+      await richteEin();
+      await st.setzeSperrfrist(300);
+
+      final frisch = AppState(FakeMessengerCore()..simulateExistingIdentity = true,
+          tresor: VaultSecretStore(
+              datei: vaultDateiIn(verzeichnis.path),
+              basis: FakeBasis(),
+              jetzt: () => 2000),
+          ablagen: (_) => ablage);
+      await frisch.boot();
+
+      expect(frisch.sperrfrist, const Duration(seconds: 300));
+      frisch.dispose();
     });
   });
 }
