@@ -79,20 +79,35 @@ class Payload {
   /// Bei den Bestaetigungen die Kennung(en), auf die sie sich beziehen.
   final List<String> refs;
 
+  /// Wie lange die Nachricht leben soll, in Sekunden. Null heisst: bleibt.
+  ///
+  /// Sie reist MIT, damit auch der Empfaenger loescht. Waere es nur eine
+  /// oertliche Einstellung, waere "verschwindet nach 24 Stunden" eine
+  /// Halbwahrheit — beim anderen laege sie weiter.
+  ///
+  /// Erzwingbar ist das gegen einen veraenderten Client nicht; das ist bei
+  /// keiner Umsetzung dieser Funktion irgendwo anders. Fuer jeden gewoehnlichen
+  /// Client stimmt es, und die Oberflaeche sagt genau das.
+  final int? ttlSeconds;
+
   Payload({
     required this.kind,
     required this.messageId,
     required this.sentAt,
     this.text = '',
     this.refs = const [],
+    this.ttlSeconds,
   });
 
-  factory Payload.text(String messageId, String text, DateTime sentAt) =>
+  factory Payload.text(String messageId, String text, DateTime sentAt,
+          {Duration? lebensdauer}) =>
       Payload(
-          kind: PayloadKind.text,
-          messageId: messageId,
-          sentAt: sentAt,
-          text: text);
+        kind: PayloadKind.text,
+        messageId: messageId,
+        sentAt: sentAt,
+        text: text,
+        ttlSeconds: lebensdauer?.inSeconds,
+      );
 
   factory Payload.control(PayloadKind kind, String messageId, DateTime sentAt,
           {List<String> refs = const []}) =>
@@ -112,6 +127,7 @@ class Payload {
       't': sentAt.toUtc().millisecondsSinceEpoch,
       if (text.isNotEmpty) 'x': text,
       if (refs.isNotEmpty) 'r': refs,
+      if (ttlSeconds != null) 'l': ttlSeconds,
     });
     final inhalt = <int>[kind.code, ...utf8.encode(json)];
 
@@ -159,12 +175,22 @@ class Payload {
     }
     if (t is! int) throw const PayloadFormatException('Zeitstempel fehlt');
 
+    // Eine unsinnige Lebensdauer wird verworfen, nicht uebernommen: eine
+    // negative liesse die Nachricht sofort verschwinden, eine absurd grosse
+    // wuerde beim Rechnen ueberlaufen. Beides koennte eine boesartige
+    // Gegenstelle schicken.
+    final ttl = j['l'];
+    final gueltigeTtl = (ttl is int && ttl > 0 && ttl <= 365 * 24 * 3600)
+        ? ttl
+        : null;
+
     return Payload(
       kind: kind,
       messageId: id,
       sentAt: DateTime.fromMillisecondsSinceEpoch(t, isUtc: true),
       text: j['x'] as String? ?? '',
       refs: ((j['r'] ?? const []) as List).map((e) => '$e').toList(),
+      ttlSeconds: gueltigeTtl,
     );
   }
 }

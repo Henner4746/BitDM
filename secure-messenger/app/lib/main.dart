@@ -69,6 +69,23 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   AppState get st => widget.state;
 
+  /// Die Pruefnummer der offenen Unterhaltung. Wird beim Oeffnen des
+  /// Verschluesselungs-Blatts geladen — sie zu berechnen kostet 5200 Runden
+  /// SHA-512 und lohnt nicht auf Vorrat.
+  SafetyNumber? pruefnummer;
+  String? pruefnummerFehler;
+
+  Future<void> _ladePruefnummer(String id) async {
+    setState(() { pruefnummer = null; pruefnummerFehler = null; });
+    try {
+      final n = await st.pruefnummer(id);
+      if (mounted) setState(() => pruefnummer = n);
+    } on MessengerException {
+      // Es gibt noch keine Sitzung — erst muss eine Nachricht geflossen sein.
+      if (mounted) setState(() => pruefnummerFehler = "verifyNoSession");
+    }
+  }
+
   /// Adressen der Unterhaltungen, die in der Liste erscheinen.
   List<String> get contacts => st.aktiveKontakte.map((c) => c.id).toList();
 
@@ -99,7 +116,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   String lang = 'en', mode = 'dark';
   Map<String, bool> auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
   String? enroll;
-  Map<String, dynamic> settings = {'shot': true, 'rec': false, 'eph': '24h'};
 
   final draftCtl = TextEditingController();
   final addCtl = TextEditingController();
@@ -155,9 +171,30 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         '${l.month.toString().padLeft(2, '0')}. $hm';
   }
 
+  /// Die Frist als Text — jetzt aus der ECHTEN Einstellung, nicht aus einer
+  /// Anzeigevariablen.
   String ephLabel() {
-    final e = settings['eph'];
-    return e == 'off' ? t('off') : e == '1h' ? t('h1') : e == '7d' ? t('d7') : t('h24');
+    final d = st.einstellungen.messageLifetime;
+    if (d == null) return t("off");
+    if (d.inHours <= 1) return t("h1");
+    if (d.inHours <= 24) return t("h24");
+    return t("d7");
+  }
+
+  /// Fristen, die die Oberflaeche anbietet. null = aus.
+  static const Map<String, Duration?> _fristen = {
+    "off": null,
+    "1h": Duration(hours: 1),
+    "24h": Duration(hours: 24),
+    "7d": Duration(days: 7),
+  };
+
+  String get _fristSchluessel {
+    final d = st.einstellungen.messageLifetime;
+    if (d == null) return "off";
+    if (d.inHours <= 1) return "1h";
+    if (d.inHours <= 24) return "24h";
+    return "7d";
   }
 
   String nowHm() {
@@ -188,30 +225,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     await st.senden(chat!, d);
   }
 
-  void startEnroll(String key) {
-    setState(() { enroll = key; codeCtl.clear(); });
-    if (key != 'totp') {
-      Future.delayed(const Duration(milliseconds: 1600), () {
-        if (enroll != key || !mounted) return;
-        setState(() { enroll = null; auth[key] = true; });
-      });
-    }
-  }
-
+  /// Die App-Sperre ist noch nicht angeschlossen.
+  ///
+  /// Der rechnerische Teil steht und ist geprueft (lib/core/lock/): mehrere
+  /// Faecher, jedes fuer einen Faktor, jedes mit derselben verschluesselten
+  /// Nutzlast. Was fehlt, ist die Anbindung an das Geraet — der
+  /// Schluesselspeicher von Android und ein FIDO2-Stick lassen sich ohne
+  /// echte Hardware weder bauen noch pruefen.
+  ///
+  /// Bis dahin zeigt diese Stelle das AUCH SO. Vorher lief eine
+  /// Einrichtungs-Animation und danach stand ein Haken da — die App
+  /// behauptete eine Sperre, die es nicht gab. Genau die Sorte Zusage, wegen
+  /// der jemand sein Telefom aus der Hand gibt.
   void methodAct(String key) {
-    final on = auth[key]!;
-    final count = auth.values.where((v) => v).length;
-    if (on) {
-      if (count <= 1) return;
-      setState(() => auth[key] = false);
-    } else {
-      startEnroll(key);
-    }
-  }
-
-  void confirmTotp() {
-    if (codeCtl.text.length < 6) return;
-    setState(() { auth['totp'] = true; enroll = null; codeCtl.clear(); });
+    setState(() => enroll = key);
   }
 
   /// Die eigene Adresse, wie der Entwurf sie zeigt: Vierergruppen mit
@@ -266,7 +293,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       wiped = true; copied = false;
       auth = {'bio': false, 'passkey': false, 'hw': false, 'totp': false};
       enroll = null;
-      settings = {'shot': true, 'rec': false, 'eph': '24h'};
       lang = l; mode = m;
       draftCtl.clear(); addCtl.clear(); codeCtl.clear();
     });
@@ -754,9 +780,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Widget chatScreen() {
     final cid = chat ?? c1;
     final hints = <String>[];
-    if (settings['shot'] == true) hints.add(t('hintShot'));
-    hints.add(t('hintEnc'));
-    if (settings['eph'] != 'off') hints.add(t('hintEph') + ephLabel());
+    if (st.einstellungen.blockScreenshots) hints.add(t("hintShot"));
+    hints.add(t("hintEnc"));
+    if (st.einstellungen.messageLifetime != null) {
+      hints.add(t("hintEph") + ephLabel());
+    }
     final list = st.verlaufVon(cid);
     return Column(children: [
       Padding(
@@ -766,7 +794,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           const SizedBox(width: 11),
           Expanded(
             child: GestureDetector(
-              onTap: () => setState(() => sheet = true),
+              onTap: () { setState(() => sheet = true); _ladePruefnummer(cid); },
               child: Row(children: [
                 Identicon(cid, 32, avp, 8),
                 const SizedBox(width: 8),
@@ -780,7 +808,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             ),
           ),
           GestureDetector(
-            onTap: () => setState(() => sheet = true),
+            onTap: () { setState(() => sheet = true); _ladePruefnummer(cid); },
             child: Container(
               width: 30, height: 30, alignment: Alignment.center,
               decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
@@ -917,14 +945,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         Padding(padding: const EdgeInsets.fromLTRB(11, 3, 11, 0), child: Text(t('minOne'), style: mono(size: 10.5, color: p.dim))),
         const SizedBox(height: 22),
         label6(t('security')),
-        toggleRow(t('screenshot'), t('screenshotSub'), settings['shot'] == true, () => setState(() => settings['shot'] = !(settings['shot'] as bool))),
+        toggleRow(t("screenshot"), t("screenshotSub"), st.einstellungen.blockScreenshots,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(
+                blockScreenshots: !st.einstellungen.blockScreenshots))),
         const SizedBox(height: 3),
-        toggleRow(t('readReceipts'), t('readReceiptsSub'), settings['rec'] == true, () => setState(() => settings['rec'] = !(settings['rec'] as bool))),
+        toggleRow(t("readReceipts"), t("readReceiptsSub"), st.einstellungen.readReceipts,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(
+                readReceipts: !st.einstellungen.readReceipts))),
         const SizedBox(height: 3),
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('selfDestruct'), t('selfDestructSub')),
           const SizedBox(height: 8),
-          segmented(['off', '1h', '24h', '7d'], [t('off'), t('h1'), t('h24'), t('d7')], settings['eph'] as String, (v) => setState(() => settings['eph'] = v)),
+          segmented(["off", "1h", "24h", "7d"], [t("off"), t("h1"), t("h24"), t("d7")],
+              _fristSchluessel,
+              (v) => st.setzeEinstellungen(st.einstellungen.copyWith(
+                  messageLifetime: _fristen[v], loescheLebensdauer: _fristen[v] == null))),
         ])),
         const SizedBox(height: 22),
         label6(t('identity')),
@@ -1073,9 +1108,31 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         h2(t('encryption'), size: 20),
         const SizedBox(height: 11),
         kvRow(t('protocol'), 'Double-Ratchet, X25519'),
-        kvRow(t('sessionKey'), 'a3f9 21bd 77c4', mono2: true),
         kvRow(t('selfDestruct'), ephLabel()),
-        kvRow(t('readReceipts'), settings['rec'] == true ? t('on') : t('off')),
+        kvRow(t('readReceipts'), st.einstellungen.readReceipts ? t('on') : t('off')),
+        const SizedBox(height: 11),
+
+        // Die echte Pruefnummer. Hier stand vorher ein erfundener Wert
+        // ('a3f9 21bd 77c4') — er sah nach Sicherheit aus und war keine.
+        //
+        // Beide Seiten sehen dieselben 60 Ziffern. Stimmen sie ueberein, sitzt
+        // wirklich der Erwartete am anderen Ende und niemand dazwischen. Das
+        // ist der einzige Weg, den ein Nutzer selbst gehen kann.
+        label6(t('safetyNumber')),
+        if (pruefnummerFehler != null)
+          Text(t(pruefnummerFehler!), style: mono(size: 11.5, color: p.dim, height: 1.5))
+        else if (pruefnummer == null)
+          Text('…', style: mono(size: 13, color: p.dim))
+        else
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final g in pruefnummer!.groups)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(4)),
+                child: Text(g, style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 1.2)),
+              ),
+          ]),
+
         const SizedBox(height: 8),
         Container(height: 1, color: p.lineSoft),
         const SizedBox(height: 8),
@@ -1117,77 +1174,41 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
+  /// Erklaert, warum dieser Faktor noch nicht zu haben ist.
+  ///
+  /// Hier lief vorher eine Einrichtungs-Animation, nach der ein Haken stand.
+  /// Die App behauptete damit eine Sperre, die es nicht gab — genau die Sorte
+  /// Zusage, wegen der jemand sein Telefon aus der Hand gibt.
   Widget enrollModal() {
     final en = enroll!;
-    final isTotp = en == 'totp';
-    final title = en == 'bio' ? t('enrollBio') : en == 'passkey' ? t('enrollPasskey') : en == 'hw' ? t('enrollHw') : t('enrollTotp');
-    final body = en == 'bio' ? t('enrollBioBody') : en == 'passkey' ? t('enrollPasskeyBody') : en == 'hw' ? t('enrollHwBody') : t('enrollTotpBody');
-    final ready = codeCtl.text.length == 6;
+    final title = en == "bio"
+        ? t("enrollBio")
+        : en == "passkey"
+            ? t("enrollPasskey")
+            : en == "hw"
+                ? t("enrollHw")
+                : t("enrollTotp");
+    // 2FA ist der einzige Fall, der NIE echt wird: bei einer App ohne Server
+    // laege das Geheimnis auf demselben Geraet, und wer das Geraet hat,
+    // rechnet sich den Code selbst aus.
+    final body = en == "totp" ? t("totpNever") : t("lockNotYet");
+
     return scrim(
-      onTapOutside: () {},
+      onTapOutside: () => setState(() => enroll = null),
       sheetCard(children: [
-        Center(child: Container(width: 36, height: 3, decoration: BoxDecoration(color: p.line, borderRadius: BorderRadius.circular(99)))),
+        Center(
+            child: Container(
+                width: 36,
+                height: 3,
+                decoration: BoxDecoration(
+                    color: p.line, borderRadius: BorderRadius.circular(99)))),
         const SizedBox(height: 11),
         h2(title, size: 20),
         const SizedBox(height: 11),
-        Text(body, style: mono(size: 12, color: p.muted, height: 1.5)),
-        const SizedBox(height: 11),
-        if (!isTotp)
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
-            child: Row(children: [
-              SizedBox(width: 34, height: 34, child: CircularProgressIndicator(strokeWidth: 1, color: p.accent)),
-              const SizedBox(width: 11),
-              Expanded(child: Text(t('waiting').toUpperCase(), style: mono(size: 11, weight: FontWeight.w500, color: p.tintInk, spacing: 1.4))),
-            ]),
-          ),
-        if (isTotp) ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(11),
-            decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t('secret').toUpperCase(), style: mono(size: 10, color: p.dim, spacing: 1.6)),
-              const SizedBox(height: 4),
-              Text('JBSW Y3DP EHPK 3PXP', style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 1.4)),
-            ]),
-          ),
-          const SizedBox(height: 8),
-          Text(t('codeLabel').toUpperCase(), style: mono(size: 10, color: p.dim, spacing: 1.6)),
-          const SizedBox(height: 6),
-          Container(
-            decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-            child: TextField(
-              controller: codeCtl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(6)],
-              onChanged: (_) => setState(() {}),
-              style: doto(size: 22, weight: FontWeight.w600, color: p.ink, spacing: 4),
-              cursorColor: p.accent,
-              decoration: InputDecoration.collapsed(hintText: '000000', hintStyle: doto(size: 22, weight: FontWeight.w600, color: p.dim, spacing: 4)),
-            ),
-          ),
-        ],
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: outlineBtn(t('cancel'), () => setState(() { enroll = null; codeCtl.clear(); }), accent: false, padding: const EdgeInsets.all(11), weight: FontWeight.w400)),
-          if (isTotp) ...[
-            const SizedBox(width: 8),
-            Expanded(
-              child: GestureDetector(
-                onTap: confirmTotp,
-                child: Container(
-                  padding: const EdgeInsets.all(11),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: ready ? p.wash : Colors.transparent, borderRadius: BorderRadius.circular(8), border: Border.all(color: ready ? p.accent : p.line)),
-                  child: Text(t('confirm').toUpperCase(), style: mono(size: 12, weight: FontWeight.w600, color: ready ? p.ink : p.dim, spacing: 1.2)),
-                ),
-              ),
-            ),
-          ],
-        ]),
+        Text(body, style: mono(size: 12.5, color: p.muted, height: 1.6)),
+        const SizedBox(height: 14),
+        outlineBtn(t("close"), () => setState(() => enroll = null),
+            padding: const EdgeInsets.all(11)),
       ]),
     );
   }

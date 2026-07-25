@@ -74,7 +74,7 @@ class EncryptedDatabase {
   Database get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -239,6 +239,8 @@ class EncryptedDatabase {
             _schemaV1(db);
           case 2:
             _schemaV2(db);
+          case 3:
+            _schemaV3(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -329,6 +331,24 @@ class EncryptedDatabase {
     db.execute(
         'CREATE UNIQUE INDEX idx_messages_eindeutig ON messages(chat_id, sender_id, id)');
     db.execute('CREATE INDEX idx_messages_chat ON messages(chat_id, seq)');
+  }
+
+  /// Verfallszeit fuer Nachrichten.
+  ///
+  /// Die Oberflaeche bot "Verschwinden nach 24 Stunden" schon an, als es im
+  /// Kern nichts dergleichen gab — der Schalter stand da und tat nichts. Wer
+  /// glaubt, seine Nachrichten verschwinden, schreibt Dinge, die er sonst
+  /// nicht schriebe; das ist schlimmer als eine fehlende Funktion.
+  ///
+  /// NULL bedeutet "bleibt". Der Zeitpunkt wird beim Speichern berechnet und
+  /// nicht bei jeder Abfrage aus Alter plus Frist — sonst wuerde eine spaeter
+  /// geaenderte Einstellung rueckwirkend Nachrichten loeschen oder
+  /// wiederauferstehen lassen.
+  static void _schemaV3(Database db) {
+    db.execute('ALTER TABLE messages ADD COLUMN expires_at INTEGER');
+    db.execute(
+        'CREATE INDEX idx_messages_verfall ON messages(expires_at) '
+        'WHERE expires_at IS NOT NULL');
   }
 
   static String? _metaLesen(Database db, String key) {

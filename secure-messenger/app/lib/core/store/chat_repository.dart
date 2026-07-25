@@ -117,8 +117,9 @@ class ChatRepository {
   }
 
   /// Legt eine eigene Nachricht an, noch bevor sie verschickt ist.
-  void speichereEigene(Message m) {
-    db.transaction((raw) => _schreibeNachricht(raw, m, empfangen: false));
+  void speichereEigene(Message m, {Duration? lebensdauer}) {
+    db.transaction((raw) =>
+        _schreibeNachricht(raw, m, empfangen: false, lebensdauer: lebensdauer));
   }
 
   /// Speichert eine empfangene Nachricht UND den Sitzungsfortschritt in
@@ -132,10 +133,11 @@ class ChatRepository {
   ///
   /// Rueckgabe: false, wenn die Nachricht schon vorlag (doppelt zugestellt).
   /// Der Sitzungsfortschritt wird trotzdem geschrieben.
-  bool speichereEmpfangen(Message m, BitdmSignalStore store) {
+  bool speichereEmpfangen(Message m, BitdmSignalStore store,
+      {Duration? lebensdauer}) {
     var neu = false;
     db.transaction((raw) {
-      neu = _schreibeNachricht(raw, m, empfangen: true);
+      neu = _schreibeNachricht(raw, m, empfangen: true, lebensdauer: lebensdauer);
       SignalStoreRepository.schreibeDelta(raw, store);
     });
     store.markClean();
@@ -147,12 +149,12 @@ class ChatRepository {
   /// Der Fall: eine Nachricht von jemandem, den es lokal noch nicht gibt. Der
   /// Kontakt entsteht dabei und muss zusammen mit der Nachricht bestehen —
   /// sonst laege eine Nachricht ohne Unterhaltung in der Datenbank.
-  bool speichereEmpfangenMitKontakt(
-      Message m, Contact c, BitdmSignalStore store) {
+  bool speichereEmpfangenMitKontakt(Message m, Contact c,
+      BitdmSignalStore store, {Duration? lebensdauer}) {
     var neu = false;
     db.transaction((raw) {
       _schreibeKontakt(raw, c);
-      neu = _schreibeNachricht(raw, m, empfangen: true);
+      neu = _schreibeNachricht(raw, m, empfangen: true, lebensdauer: lebensdauer);
       SignalStoreRepository.schreibeDelta(raw, store);
     });
     store.markClean();
@@ -182,11 +184,19 @@ class ChatRepository {
   }
 
   static bool _schreibeNachricht(Database raw, Message m,
-      {required bool empfangen}) {
+      {required bool empfangen, Duration? lebensdauer}) {
+    // Der Verfallszeitpunkt wird EINMAL beim Speichern festgelegt, nicht bei
+    // jeder Abfrage aus Alter plus Frist gerechnet. Sonst wuerde eine spaeter
+    // geaenderte Einstellung rueckwirkend Nachrichten loeschen — oder, noch
+    // schlimmer, geglaubt-geloeschte wieder auftauchen lassen.
+    final verfall = lebensdauer == null
+        ? null
+        : DateTime.now().toUtc().add(lebensdauer).millisecondsSinceEpoch;
+
     raw.execute(
       'INSERT OR IGNORE INTO messages '
-      '(id, chat_id, sender_id, body, kind, is_mine, sent_at, received_at, status) '
-      'VALUES (?,?,?,?,?,?,?,?,?)',
+      '(id, chat_id, sender_id, body, kind, is_mine, sent_at, received_at, status, expires_at) '
+      'VALUES (?,?,?,?,?,?,?,?,?,?)',
       [
         m.id,
         m.chatId,
@@ -197,9 +207,60 @@ class ChatRepository {
         m.timestamp.toUtc().millisecondsSinceEpoch,
         empfangen ? DateTime.now().toUtc().millisecondsSinceEpoch : null,
         m.status.index,
+        verfall,
       ],
     );
     return raw.updatedRows > 0;
+  }
+
+  /// Loescht alles, dessen Zeit abgelaufen ist. Rueckgabe: Anzahl.
+  ///
+  /// Billig, wenn nichts zu tun ist — der Index auf expires_at deckt nur die
+  /// Zeilen ab, die ueberhaupt einen Verfall haben.
+  int loescheAbgelaufene() {
+    var weg = 0;
+    db.transaction((raw) {
+      raw.execute('DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?',
+          [DateTime.now().toUtc().millisecondsSinceEpoch]);
+      weg = raw.updatedRows;
+    });
+    return weg;
+  }
+
+  /// Wann die naechste Nachricht ablaeuft — damit der Aufrufer einen Wecker
+  /// stellen kann, statt im Sekundentakt nachzusehen.
+  DateTime? naechsterVerfall() {
+    final r = db.raw.select(
+        'SELECT MIN(expires_at) v FROM messages WHERE expires_at IS NOT NULL');
+    final v = r.isEmpty ? null : r.first['v'] as int?;
+    return v == null ? null : DateTime.fromMillisecondsSinceEpoch(v, isUtc: true);
+  }
+
+  // ══════════════════════════════════════════════════════════ Einstellungen
+
+  static const _praefix = 'pref_';
+
+  AppPreferences ladeEinstellungen() {
+    String? lies(String k) => db.meta('$_praefix$k');
+    final dauer = int.tryParse(lies('lifetime_seconds') ?? '');
+    return AppPreferences(
+      readReceipts: lies('read_receipts') != '0',
+      messageLifetime:
+          (dauer == null || dauer <= 0) ? null : Duration(seconds: dauer),
+      blockScreenshots: lies('block_screenshots') != '0',
+    );
+  }
+
+  void speichereEinstellungen(AppPreferences p) {
+    db.transaction((raw) {
+      void setze(String k, String v) => raw.execute(
+          'INSERT INTO meta (key, value) VALUES (?,?) '
+          'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+          ['$_praefix$k', v]);
+      setze('read_receipts', p.readReceipts ? '1' : '0');
+      setze('lifetime_seconds', '${p.messageLifetime?.inSeconds ?? 0}');
+      setze('block_screenshots', p.blockScreenshots ? '1' : '0');
+    });
   }
 
   void setzeStatus(String chatId, String senderId, String messageId,

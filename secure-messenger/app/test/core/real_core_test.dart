@@ -1,93 +1,22 @@
-// real_core_test.dart — die App als Ganzes.
+﻿// real_core_test.dart â€” die App als Ganzes.
 //
 // Hier laeuft nichts Nachgebautes mehr: echter Kern, echte verschluesselte
 // Datenbank, echter relay_server.py als eigener Prozess. Was dieser Test
-// durchspielt, ist genau das, was ein Nutzer tut — Identitaet anlegen,
+// durchspielt, ist genau das, was ein Nutzer tut â€” Identitaet anlegen,
 // jemanden hinzufuegen, schreiben, App schliessen, App oeffnen.
 //
 // Nur der Schluesselspeicher des Geraets ist ersetzt: er ist ein
 // Plattform-Plugin und laeuft ausserhalb eines Telefons nicht. Genau dafuer
 // gibt es die Schnittstelle in secret_store.dart.
 
-import 'dart:async';
 import 'dart:io';
 
 import 'package:bitdm/core/messenger_core.dart';
 import 'package:bitdm/core/real_messenger_core.dart';
-import 'package:bitdm/core/secret_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/nutzer.dart';
 import '../support/relay_process.dart';
-
-/// Ein Nutzer mit seinem Geraet. [neustart] wirft alles weg und baut den Kern
-/// aus dem auf, was auf der Platte liegt.
-class Nutzer {
-  Nutzer(this.name, this.pfad, this.relayUri) : tresor = InMemorySecretStore();
-
-  final String name;
-  final String pfad;
-  final Uri relayUri;
-  final InMemorySecretStore tresor;
-
-  late RealMessengerCore core;
-
-  final eingang = <Message>[];
-  final kontaktEreignisse = <ContactEvent>[];
-  final statusEreignisse = <MessageStatusUpdate>[];
-  final _abos = <StreamSubscription<Object?>>[];
-
-  RealMessengerCore _neuerKern() => RealMessengerCore(
-        secretStore: tresor,
-        databasePath: pfad,
-        relayUri: relayUri,
-      );
-
-  void _hoere() {
-    _abos
-      ..add(core.incomingMessages.listen(eingang.add))
-      ..add(core.contactEvents.listen(kontaktEreignisse.add))
-      ..add(core.messageStatusUpdates.listen(statusEreignisse.add));
-  }
-
-  Future<void> starten() async {
-    core = _neuerKern();
-    _hoere();
-    await core.initialize();
-  }
-
-  Future<void> neustart() async {
-    for (final a in _abos) {
-      await a.cancel();
-    }
-    _abos.clear();
-    await core.dispose();
-    eingang.clear();
-    kontaktEreignisse.clear();
-    statusEreignisse.clear();
-    core = _neuerKern();
-    _hoere();
-    final geladen = await core.initialize();
-    if (!geladen) throw StateError('$name: Identitaet ueberlebte den Neustart nicht');
-  }
-
-  Future<void> aufraeumen() async {
-    for (final a in _abos) {
-      await a.cancel();
-    }
-    _abos.clear();
-    await core.dispose();
-  }
-
-  /// Wartet, bis [pruefung] zutrifft, statt blind zu schlafen.
-  static Future<bool> warteBis(bool Function() pruefung,
-      {Duration frist = const Duration(seconds: 20)}) async {
-    final ende = DateTime.now().add(frist);
-    while (!pruefung() && DateTime.now().isBefore(ende)) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    }
-    return pruefung();
-  }
-}
 
 void main() {
   Relay? relay;
@@ -109,7 +38,7 @@ void main() {
   Nutzer nutzer(String name) =>
       Nutzer(name, '${tmp.path}/${name}_${n++}.db', relay!.uri);
 
-  test('Relay laeuft — sonst sagen die folgenden Tests nichts aus', () {
+  test('Relay laeuft â€” sonst sagen die folgenden Tests nichts aus', () {
     expect(relay, isNotNull,
         reason: 'relay_server.py liess sich nicht starten. '
             'py -3 -m pip install -r secure-messenger/server/requirements.txt');
@@ -123,7 +52,7 @@ void main() {
       a.core = RealMessengerCore(
           secretStore: a.tresor, databasePath: a.pfad, relayUri: relay!.uri);
       expect(await a.core.initialize(), isFalse,
-          reason: 'ohne Zutun darf keine Identitaet entstehen — sonst haette '
+          reason: 'ohne Zutun darf keine Identitaet entstehen â€” sonst haette '
               'jemand, der wiederherstellen will, schon eine falsche');
       expect(a.core.hasIdentity, isFalse);
 
@@ -145,7 +74,7 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 2)));
 
     test('die Phrase ist spaeter noch abrufbar', () async {
-      // Nur moeglich, weil die ENTROPIE gespeichert wird und nicht der Seed —
+      // Nur moeglich, weil die ENTROPIE gespeichert wird und nicht der Seed â€”
       // BIP39 fuehrt die Woerter durch PBKDF2, das laesst sich nicht umkehren.
       final a = nutzer('alice');
       addTearDown(a.aufraeumen);
@@ -203,7 +132,7 @@ void main() {
       expect(bob.core.connectionState, ConnectionState.online);
     }
 
-    test('Kontaktanfrage, Annahme, Nachricht — der ganze Ablauf', () async {
+    test('Kontaktanfrage, Annahme, Nachricht â€” der ganze Ablauf', () async {
       await beideBereit();
 
       // Alice fuegt Bob hinzu. Das verschickt eine Anfrage.
@@ -242,7 +171,7 @@ void main() {
       expect(bob.eingang.single.isMine, isFalse);
       expect(bob.eingang.single.chatId, alice.core.myId);
 
-      // Bob quittiert automatisch — Alices Nachricht wird zugestellt gemeldet.
+      // Bob quittiert automatisch â€” Alices Nachricht wird zugestellt gemeldet.
       expect(
           await Nutzer.warteBis(() => alice.statusEreignisse
               .any((s) => s.status == MessageStatus.delivered)),
@@ -375,7 +304,7 @@ void main() {
       await a.core.wipeEverything();
 
       expect(await a.tresor.read(), isNull,
-          reason: 'die Entropie muss weg sein — sie ist der Schluessel zu allem');
+          reason: 'die Entropie muss weg sein â€” sie ist der Schluessel zu allem');
       expect(File(a.pfad).existsSync(), isFalse,
           reason: 'die Datenbankdatei muss weg sein');
       expect(a.core.hasIdentity, isFalse);
@@ -397,7 +326,7 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('mit den zwoelf Woertern kommt die Identitaet zurueck', () async {
-      // Das ist die einzige Ausnahme von "unwiderruflich" — und der Grund,
+      // Das ist die einzige Ausnahme von "unwiderruflich" â€” und der Grund,
       // warum die Phrase beim Anlegen gezeigt werden MUSS.
       final a = nutzer('alice');
       addTearDown(a.aufraeumen);

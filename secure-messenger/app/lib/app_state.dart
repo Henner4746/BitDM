@@ -15,6 +15,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import 'core/fenster.dart';
 import 'core/messenger_core.dart';
 
 class AppState extends ChangeNotifier {
@@ -56,6 +57,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> _nachIdentitaet() async {
     meineAdresse = core.myId;
+    await _ladeEinstellungen();
+    await raeumeAbgelaufeneWeg();
     kontakte = await core.getContacts();
     _hoereZu();
     // Nicht abwarten: der Kern wirft bei Netzproblemen nicht, er meldet den
@@ -90,6 +93,7 @@ class AppState extends ChangeNotifier {
     if (_imVordergrund == sichtbar) return;
     _imVordergrund = sichtbar;
     if (sichtbar) {
+      unawaited(raeumeAbgelaufeneWeg());
       _fehlversuche = 0;
       if (verbindung != ConnectionState.online) unawaited(_versucheVerbindung());
     } else {
@@ -261,6 +265,42 @@ class AppState extends ChangeNotifier {
   }
 
   Future<SafetyNumber> pruefnummer(String id) => core.getSafetyNumber(id);
+
+  // ══════════════════════════════════════════════════════════ Einstellungen
+
+  AppPreferences einstellungen = const AppPreferences();
+
+  Future<void> _ladeEinstellungen() async {
+    einstellungen = await core.getPreferences();
+    // Die Sperre wird beim Start in MainActivity.onCreate gesetzt, bevor
+    // ueberhaupt gezeichnet wird. Hier wird sie nur an die gespeicherte
+    // Einstellung angeglichen — moeglicherweise also geloest.
+    await Fenster.screenshotSperre(einstellungen.blockScreenshots);
+    notifyListeners();
+  }
+
+  Future<void> setzeEinstellungen(AppPreferences neu) async {
+    await core.setPreferences(neu);
+    einstellungen = neu;
+    await Fenster.screenshotSperre(neu.blockScreenshots);
+    notifyListeners();
+  }
+
+  /// Raeumt Abgelaufenes weg und meldet, ob sich etwas geaendert hat.
+  ///
+  /// Wird beim Start und bei jedem Zurueckkommen in den Vordergrund gerufen —
+  /// sonst saehe der Nutzer nach dem Aufwachen noch Nachrichten, die laengst
+  /// haetten verschwinden sollen.
+  Future<void> raeumeAbgelaufeneWeg() async {
+    if (!hatIdentitaet) return;
+    final weg = await core.purgeExpiredMessages();
+    if (weg == 0) return;
+    // Betroffene Verlaeufe neu laden statt zu raten, welche es traf.
+    for (final id in verlaeufe.keys.toList()) {
+      verlaeufe[id] = await core.getMessages(id);
+    }
+    notifyListeners();
+  }
 
   // ══════════════════════════════════════════════════════════════════ Loeschen
 

@@ -157,6 +157,27 @@ abstract class MessengerCore {
   /// otherwise. Throws `UnknownContactException`.
   Future<void> markRead(String contactId);
 
+  // ------------------------------------------------------------ settings
+  /// The settings the core enforces. Persisted in the encrypted database.
+  ///
+  /// Added 2026-07-25 (contract v1.2). Before that the three switches existed
+  /// only as UI state and changed nothing — see [AppPreferences].
+  Future<AppPreferences> getPreferences();
+
+  /// Store settings. Takes effect immediately.
+  ///
+  /// Changing [AppPreferences.messageLifetime] does NOT rewrite existing
+  /// messages: each one keeps the expiry it was given when it arrived.
+  /// Otherwise turning the setting off would resurrect messages the user
+  /// believed were gone, and turning it on would silently delete history.
+  Future<void> setPreferences(AppPreferences prefs);
+
+  /// Delete every message whose time is up. Returns how many went.
+  ///
+  /// Call on start and whenever the app comes back to the foreground. Cheap
+  /// when there is nothing to do.
+  Future<int> purgeExpiredMessages();
+
   // --------------------------------------------------------- verification
   /// The out-of-band verification number for a contact (Signal-style).
   /// Throws `UnknownContactException`.

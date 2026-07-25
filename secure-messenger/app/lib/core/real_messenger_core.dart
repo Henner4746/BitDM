@@ -73,6 +73,7 @@ class RealMessengerCore implements MessengerCore {
   StreamSubscription<RelayEvent>? _relayAbo;
 
   var _conn = ConnectionState.disconnected;
+  AppPreferences _prefs = const AppPreferences();
   var _hatIdentitaet = false;
 
   final _connCtl = StreamController<ConnectionState>.broadcast();
@@ -156,6 +157,11 @@ class RealMessengerCore implements MessengerCore {
     _signalRepo = signalRepo;
     _store = store;
     _chats = ChatRepository(db, signalRepo);
+
+    _prefs = _chats!.ladeEinstellungen();
+    // Was waehrend der App-Pause abgelaufen ist, verschwindet beim Start —
+    // nicht erst, wenn jemand die Unterhaltung oeffnet und es noch sieht.
+    _chats!.loescheAbgelaufene();
 
     _fuelleVorratAuf();
   }
@@ -389,9 +395,15 @@ class RealMessengerCore implements MessengerCore {
       status: MessageStatus.delivered,
     );
 
+    // Die Lebensdauer kommt vom ABSENDER: er hat entschieden, wie lange seine
+    // Nachricht leben soll, und das gilt auf beiden Geraeten. Eine eigene
+    // Einstellung hier draufzurechnen wuerde seine Entscheidung stillschweigend
+    // uebergehen.
+    final ttl = p.ttlSeconds == null ? null : Duration(seconds: p.ttlSeconds!);
     final neu = neuerKontakt == null
-        ? chats.speichereEmpfangen(nachricht, store)
-        : chats.speichereEmpfangenMitKontakt(nachricht, neuerKontakt, store);
+        ? chats.speichereEmpfangen(nachricht, store, lebensdauer: ttl)
+        : chats.speichereEmpfangenMitKontakt(nachricht, neuerKontakt, store,
+            lebensdauer: ttl);
 
     if (neuerKontakt != null && neu) _meldeAnfrage(von);
 
@@ -568,10 +580,12 @@ class RealMessengerCore implements MessengerCore {
     // die Nachricht als unversandt in der Datenbank und wird beim naechsten
     // Verbinden wiederholt. Umgekehrt waere sie beim Empfaenger und hier
     // verschwunden.
-    _chats!.speichereEigene(nachricht);
+    _chats!.speichereEigene(nachricht, lebensdauer: _prefs.messageLifetime);
 
     unawaited(_versucheZuSenden(
-        contactId, Payload.text(nachricht.id, text, nachricht.timestamp),
+        contactId,
+        Payload.text(nachricht.id, text, nachricht.timestamp,
+            lebensdauer: _prefs.messageLifetime),
         eigeneNachricht: nachricht.id));
 
     return nachricht;
@@ -583,9 +597,46 @@ class RealMessengerCore implements MessengerCore {
   @override
   Stream<MessageStatusUpdate> get messageStatusUpdates => _status.stream;
 
+  // ══════════════════════════════════════════════════════════ Einstellungen
+
+  @override
+  Future<AppPreferences> getPreferences() async {
+    if (_chats == null) throw const NotInitializedException();
+    return _prefs;
+  }
+
+  @override
+  Future<void> setPreferences(AppPreferences prefs) async {
+    if (_chats == null) throw const NotInitializedException();
+    _prefs = prefs;
+    _chats!.speichereEinstellungen(prefs);
+    // Eine geaenderte Lebensdauer wirkt NUR auf Neues. Bestehende Nachrichten
+    // behalten ihren Verfall — sonst wuerde Ausschalten Geglaubt-Geloeschtes
+    // wieder auftauchen lassen und Einschalten stillschweigend Verlauf
+    // vernichten.
+  }
+
+  @override
+  Future<int> purgeExpiredMessages() async {
+    if (_chats == null) return 0;
+    return _chats!.loescheAbgelaufene();
+  }
+
+  /// Wann die naechste Nachricht verfaellt — fuer einen Wecker statt Pollen.
+  DateTime? get naechsterVerfall => _chats?.naechsterVerfall();
+
   @override
   Future<void> markRead(String contactId) async {
     _fordereKontakt(contactId);
+
+    // Der Schalter steuert jetzt wirklich etwas. Vorher wurde IMMER
+    // quittiert, egal was in den Einstellungen stand.
+    //
+    // Aus heisst: die Gegenstelle sieht "zugestellt", aber nie "gelesen" —
+    // und kann nicht unterscheiden, ob es abgeschaltet ist oder nur noch
+    // niemand hingesehen hat. Genau darum geht es.
+    if (!_prefs.readReceipts) return;
+
     final ungelesen = _db!.raw.select(
         'SELECT id FROM messages WHERE chat_id=? AND is_mine=0 ORDER BY seq DESC LIMIT 1',
         [contactId]);

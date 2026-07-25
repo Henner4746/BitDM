@@ -280,6 +280,17 @@ class FakeMessengerCore implements MessengerCore {
     _contacts[contactId] = c.copyWith(verified: verified);
   }
 
+  AppPreferences _prefs = const AppPreferences();
+
+  @override
+  Future<AppPreferences> getPreferences() async => _prefs;
+
+  @override
+  Future<void> setPreferences(AppPreferences prefs) async => _prefs = prefs;
+
+  @override
+  Future<int> purgeExpiredMessages() async => 0;
+
   @override
   Future<void> wipeEverything() async {
     _msgs.clear();

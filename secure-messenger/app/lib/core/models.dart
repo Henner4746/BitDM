@@ -108,6 +108,52 @@ class ContactEvent {
   const ContactEvent({required this.type, required this.contactId, required this.at});
 }
 
+/// User-visible settings that the CORE actually enforces.
+///
+/// Added 2026-07-25. Until then these three switches lived only in the UI and
+/// changed nothing at all — the app claimed messages would disappear after 24
+/// hours, that screenshots were blocked and that read receipts could be turned
+/// off, and none of it was true. A promise the software does not keep is worse
+/// than a missing feature: someone writes something they otherwise would not.
+class AppPreferences {
+  /// Send a receipt when the user opens a conversation.
+  ///
+  /// Off means the peer sees "delivered" but never "read". They cannot tell
+  /// the difference between "switched off" and "not opened yet" — which is
+  /// exactly the point.
+  final bool readReceipts;
+
+  /// How long a message survives, on BOTH devices. `null` = forever.
+  ///
+  /// The lifetime travels inside the encrypted payload, so the recipient
+  /// applies it too. It is not enforceable against a modified client — no
+  /// implementation of this anywhere is — but it is honest for every ordinary
+  /// one, and the UI says so.
+  final Duration? messageLifetime;
+
+  /// Ask Android to keep this app out of screenshots and the recents preview.
+  final bool blockScreenshots;
+
+  const AppPreferences({
+    this.readReceipts = true,
+    this.messageLifetime,
+    this.blockScreenshots = true,
+  });
+
+  AppPreferences copyWith({
+    bool? readReceipts,
+    Duration? messageLifetime,
+    bool loescheLebensdauer = false,
+    bool? blockScreenshots,
+  }) =>
+      AppPreferences(
+        readReceipts: readReceipts ?? this.readReceipts,
+        messageLifetime:
+            loescheLebensdauer ? null : (messageLifetime ?? this.messageLifetime),
+        blockScreenshots: blockScreenshots ?? this.blockScreenshots,
+      );
+}
+
 /// Out-of-band verification material for a conversation (Signal-style).
 class SafetyNumber {
   final String contactId;
