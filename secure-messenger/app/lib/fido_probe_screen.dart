@@ -1,11 +1,11 @@
-﻿// fido_probe_screen.dart â€” was kann dieser Stick?
+// fido_probe_screen.dart — was kann dieser Stick?
 //
 // Ob ein bestimmter Sicherheitsschluessel die Rechenfunktion hmac-secret
 // beherrscht, steht in keiner Produktbeschreibung verlaesslich. Die Erweiterung
 // ist in CTAP2 optional, und Hersteller werben nicht damit.
 //
 // Statt zu raten fragt dieser Bildschirm den Stick selbst. Er schickt genau
-// einen Befehl â€” authenticatorGetInfo â€”, der nichts anlegt, nichts aendert und
+// einen Befehl — authenticatorGetInfo —, der nichts anlegt, nichts aendert und
 // keine PIN verlangt. Danach steht fest, ob sich die App-Sperre auf diesen
 // Stick bauen laesst.
 
@@ -66,7 +66,7 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
       final iso = IsoDepAndroid.from(tag);
       if (iso == null) {
         throw const FormatException(
-            'Das ist kein Sicherheitsschluessel â€” die Karte spricht kein ISO-DEP.');
+            'Das ist kein Sicherheitsschluessel — die Karte spricht kein ISO-DEP.');
       }
 
       final transport = CtapNfcTransport((Uint8List apdu) => iso.transceive(apdu));
@@ -84,7 +84,7 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
 
   /// Denselben Test ueber ein eingestecktes Kabel.
   ///
-  /// USB spricht CTAPHID statt ISO-7816 â€” voellig andere Verpackung, derselbe
+  /// USB spricht CTAPHID statt ISO-7816 — voellig andere Verpackung, derselbe
   /// Inhalt. Genau dafuer sitzt die Protokolllogik in ctap.dart und nicht in
   /// den Transporten.
   Future<void> _ueberUsb() async {
@@ -193,7 +193,7 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
         );
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Die Antwort auf die eine Frage, um die es geht â€” ganz oben.
+      // Die Antwort auf die eine Frage, um die es geht — ganz oben.
       Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),

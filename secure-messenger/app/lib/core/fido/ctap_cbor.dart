@@ -1,4 +1,4 @@
-﻿// ctap_cbor.dart â€” CBOR so, wie CTAP2 es verlangt.
+// ctap_cbor.dart — CBOR so, wie CTAP2 es verlangt.
 //
 // WARUM NICHT DIE BIBLIOTHEK
 // Zum LESEN ist package:cbor richtig. Zum SCHREIBEN nicht: CTAP2 verlangt
@@ -9,21 +9,21 @@
 // Das ist kein Feinschliff. Der Stick rechnet ueber die gesendeten Bytes einen
 // Pruefwert und vergleicht ihn mit dem, den wir mitschicken. Steht auch nur ein
 // Schluessel an der falschen Stelle, weicht der Pruefwert ab, und der Stick
-// lehnt ab â€” mit einer Fehlermeldung, die auf alles Moegliche hindeutet, nur
+// lehnt ab — mit einer Fehlermeldung, die auf alles Moegliche hindeutet, nur
 // nicht auf die Reihenfolge von CBOR-Schluesseln.
 //
 // DIE SORTIERREGEL AUS DER CTAP2-SPEZIFIKATION
 //   1. Unterschiedliche Haupttypen: der niedrigere zuerst.
 //      Praktisch heisst das: positive Zahlen VOR negativen. Bei einem
 //      COSE-Schluessel mit den Feldern 1, 3, -1, -2, -3 ist die richtige
-//      Reihenfolge also 1, 3, -1, -2, -3 â€” nicht -3, -2, -1, 1, 3, wie man
+//      Reihenfolge also 1, 3, -1, -2, -3 — nicht -3, -2, -1, 1, 3, wie man
 //      beim Sortieren nach Zahlenwert erwarten wuerde. Genau hier liegt die
 //      Falle.
 //   2. Bei gleichem Haupttyp: der kuerzere zuerst, sonst byteweise.
 //
 // Geschrieben wird nur, was CTAP2 wirklich braucht: ganze Zahlen, Bytefolgen,
 // Zeichenketten, Listen, Objekte und Wahrheitswerte. Kein Gleitkomma, keine
-// Tags, keine unbestimmten Laengen â€” was hier fehlt, kommt in CTAP2 nicht vor.
+// Tags, keine unbestimmten Laengen — was hier fehlt, kommt in CTAP2 nicht vor.
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -39,7 +39,7 @@ class CtapCbor {
   /// EINE REGEL, DIE MAN KENNEN MUSS: nur Uint8List wird zur Bytefolge,
   /// jede andere Liste zu einer CBOR-Liste.
   ///
-  /// Eine Unterscheidung nach Inhalt gibt es nicht â€” in Dart IST eine `List<int>`\r
+  /// Eine Unterscheidung nach Inhalt gibt es nicht — in Dart IST eine `List<int>`\r
   /// auch eine `List<Object?>`, beide sind zur Laufzeit dasselbe.
   /// Wer Bytes meint, muss Uint8List uebergeben. Sonst schickt man dem Stick
   /// eine Liste von Zahlen, wo er eine Bytefolge erwartet, und bekommt eine
@@ -86,7 +86,7 @@ class CtapCbor {
     final ka = kodiere(a);
     final kb = kodiere(b);
 
-    // Regel 1: unterschiedlicher Haupttyp â€” der niedrigere zuerst. Der
+    // Regel 1: unterschiedlicher Haupttyp — der niedrigere zuerst. Der
     // Haupttyp steht in den oberen drei Bit des ersten Bytes.
     final ta = ka[0] >> 5;
     final tb = kb[0] >> 5;
@@ -104,7 +104,7 @@ class CtapCbor {
   ///
   /// Auch das gehoert zu "kanonisch": die Zahl 1 muss als ein Byte kodiert
   /// werden, nicht als vier. Die laengere Form waere gueltiges CBOR und ergaebe
-  /// denselben Wert â€” aber andere Bytes, und damit einen anderen Pruefwert.
+  /// denselben Wert — aber andere Bytes, und damit einen anderen Pruefwert.
   static void _kopf(BytesBuilder aus, int typ, int wert) {
     final t = typ << 5;
     if (wert < 24) {

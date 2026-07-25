@@ -1,4 +1,4 @@
-﻿// app_lock.dart â€” die App-Sperre.
+// app_lock.dart — die App-Sperre.
 //
 // WAS SIE IST, UND WAS SIE NICHT IST
 // Sie ist KEINE Bildschirmabfrage. Eine Abfrage im Stil von "Fingerabdruck
@@ -9,13 +9,13 @@
 // Statt dessen wird die Entropie unter einem Schluessel abgelegt, den der
 // gesicherte Bereich des Geraets nur dann benutzt, wenn kurz zuvor eine
 // Anmeldung stattgefunden hat. Ohne Fingerabdruck oder Geraete-PIN gibt der
-// Schluesselspeicher nichts heraus â€” auch nicht an ein Werkzeug, auch nicht
+// Schluesselspeicher nichts heraus — auch nicht an ein Werkzeug, auch nicht
 // mit Root. Das Geraet selbst verweigert die Rechenoperation.
 //
 // WARUM NICHT DER EIGENE PLATTFORM-KANAL
 // Ein selbstgeschriebener BiometricPrompt mit CryptoObject waere derselbe
 // Mechanismus, nur mit mehr eigenem Code an der empfindlichsten Stelle. Das
-// Paket hier ist bereits eingebunden, wird gepflegt und macht genau das â€”
+// Paket hier ist bereits eingebunden, wird gepflegt und macht genau das —
 // setUserAuthenticationRequired auf dem Keystore-Schluessel.
 //
 // WAS DAMIT NOCH NICHT GEHT
@@ -81,7 +81,7 @@ class LockableSecretStore implements SecretStore {
   );
 
   /// enforceBiometrics: true verlangt, dass das Geraet ueberhaupt gesichert
-  /// ist. Auf einem Telefon ohne Sperrbildschirm schlaegt das Anlegen fehl â€”
+  /// ist. Auf einem Telefon ohne Sperrbildschirm schlaegt das Anlegen fehl —
   /// und das ist richtig so: eine Sperre, die jeder ohne Weiteres oeffnet,
   /// waere keine.
   static final _standardGesperrt = FlutterSecureStorage(
@@ -146,14 +146,14 @@ class LockableSecretStore implements SecretStore {
   @override
   Future<void> delete() async {
     // BEIDE Ablagen loeschen, nicht nur die aktuelle. Bei einem Wechsel der
-    // Stufe koennte sonst ein Rest in der anderen liegen bleiben â€” und beim
+    // Stufe koennte sonst ein Rest in der anderen liegen bleiben — und beim
     // Panik-Loeschen ist "fast alles weg" nichts wert.
     for (final s in [_offen, _gesperrt]) {
       try {
         await s.delete(key: _schluessel);
       } catch (_) {
         // Bei eingeschalteter Sperre verlangt schon das Loeschen eine
-        // Anmeldung. Bricht sie ab, bleibt der Eintrag liegen â€” deshalb wird
+        // Anmeldung. Bricht sie ab, bleibt der Eintrag liegen — deshalb wird
         // zusaetzlich der Modus zurueckgesetzt, damit der naechste Start nicht
         // in einer Sperre ohne Inhalt haengt.
       }
@@ -165,7 +165,7 @@ class LockableSecretStore implements SecretStore {
 
   /// Stellt die Schutzstufe um.
   ///
-  /// Die Entropie wird dafuer gelesen und unter der neuen Stufe neu abgelegt â€”
+  /// Die Entropie wird dafuer gelesen und unter der neuen Stufe neu abgelegt —
   /// bei einer Umstellung AUF die Sperre also einmal durch den gesicherten
   /// Bereich geschrieben, bei einer Umstellung ZURUECK einmal ausgelesen. Beides
   /// verlangt eine Anmeldung, wenn die Sperre gerade an ist. Das ist gewollt:

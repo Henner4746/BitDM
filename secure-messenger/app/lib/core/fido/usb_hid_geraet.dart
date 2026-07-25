@@ -1,4 +1,4 @@
-﻿// usb_hid_geraet.dart â€” die Dart-Seite des USB-Kanals.
+// usb_hid_geraet.dart — die Dart-Seite des USB-Kanals.
 //
 // Duenn mit Absicht: alles, was schiefgehen kann, steckt in der Verpackung des
 // Protokolls (ctap_hid.dart), und die ist ohne Geraet pruefbar. Hier bleibt nur
@@ -24,7 +24,7 @@ class UsbStick {
     required this.productId,
   });
 
-  /// Was der Nutzer lesen soll. Manche Sticks melden keinen Namen â€” dann
+  /// Was der Nutzer lesen soll. Manche Sticks melden keinen Namen — dann
   /// bleiben die Kennungen, mit denen sich immerhin unterscheiden laesst,
   /// welcher gemeint ist.
   String get anzeige {
@@ -52,7 +52,7 @@ class UsbHidGeraet implements HidGeraet {
         .toList();
   }
 
-  /// Oeffnet einen Stick. Fragt beim ersten Mal die Erlaubnis des Nutzers ab â€”
+  /// Oeffnet einen Stick. Fragt beim ersten Mal die Erlaubnis des Nutzers ab —
   /// Android zeigt dafuer einen Systemdialog.
   static Future<UsbHidGeraet> oeffne({String? name}) async {
     await _kanal.invokeMethod<bool>('oeffne', {'name': name});
