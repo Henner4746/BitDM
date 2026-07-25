@@ -111,8 +111,7 @@ const Map<String, Map<String, String>> strings = {
     'badAddress': 'That is not a valid BitDM ID. Check for typos — the ID carries a checksum.',
     'safetyNumber': 'Safety number',
     'verifyNoSession': 'Available once you have exchanged a message. The number is derived from both keys.',
-    'lockNotYet': 'A passkey would be the same mechanism as the security key, with this phone as the key. The difference is what makes it a passkey at all: it syncs, through Google Password Manager. That would put the thing that unlocks BitDM into a cloud — in an app that has no account and no server, that is a contradiction, not a feature. What a synced passkey would actually give you over the fingerprint slot is a second device. What it costs is the guarantee that the key never leaves this phone. Use Biometrics for this phone and a security key as the backup: that key cannot be copied off either.',
-    'totpNever': 'This one will never work here, and that is not an oversight. A 2FA code is checked against a secret. In an app without a server that secret would sit on this very device — whoever holds the device can compute the code themselves. It would look like security and be none. A PIN or password is planned instead: that secret stays in your head.',
+
     'scanHint': 'Point the camera at the QR code of the other person. Nothing is stored, nothing is sent - the picture is only read on this device.',
     'scanNoCamera': 'No camera available. Without camera access the code cannot be read - you can paste the address instead.',
     'waitingForAccept': 'Request sent — waiting for confirmation',
@@ -142,7 +141,7 @@ const Map<String, Map<String, String>> strings = {
     'idNote': 'The ID holds no private key. Details under Settings › Security.',
     'addTitle': 'Add contact', 'idLabel': 'BitDM ID', 'paste': 'Paste', 'scan': 'Scan QR', 'sendReq': 'Send request',
     'pending': 'Pending', 'reqSentNote': 'Request sent. The chat opens once the other side confirms.',
-    'demo': 'Demo:', 'simAccept': 'simulate confirmation',
+
     'addFoot': 'No messages are transmitted before confirmation. A contact can be removed unilaterally at any time.',
     'chats': 'Chats', 'wantsChat': 'Wants to start an encrypted chat with you.', 'accept': 'Accept', 'decline': 'Decline',
     'noNames': 'Contacts appear as an ID and a pattern. There are no names — not even local ones.',
@@ -152,9 +151,9 @@ const Map<String, Map<String, String>> strings = {
     'verifyNote': 'Compare the session key in person to verify the other side.', 'close': 'Close',
     'secureTitle': 'Secure this device', 'secureSub': 'Your identity exists only here. Add at least one way to prove it is you before the app unlocks.',
     'secureFoot': 'You can add or remove factors later under Settings › Access.', 'secureSkip': 'Skip for now', 'secureDone': 'Continue',
-    'access': 'Access', 'on2': 'Active', 'offMethod': 'Not set up', 'add': 'Set up', 'remove': 'Remove', 'whyNot': 'Why not',
+    'access': 'Access', 'on2': 'Active', 'offMethod': 'Not set up', 'add': 'Set up', 'remove': 'Remove',
     'bio': 'Biometrics', 'bioSub': 'Fingerprint or face unlock on this device',
-    'passkey': 'Passkey', 'passkeySub': 'Stored in your device keychain, synced by the OS',
+
     'devpin': 'Device lock', 'devpinSub': 'The PIN, pattern or password of this phone',
     'pw': 'App password', 'pwSub': 'A password only for BitDM — stays in your head',
     'enrollPw': 'Set an app password',
@@ -173,12 +172,10 @@ const Map<String, Map<String, String>> strings = {
     'lockDelaySub': 'How long the app may stay open in the background',
     'delayNow': 'Instantly', 'delay1m': '1 min', 'delay5m': '5 min', 'delayNever': 'Never',
     'hw': 'Hardware security key', 'hwSub': 'FIDO2 key over USB-C or NFC',
-    'totp': 'Two-factor code', 'totpSub': 'Six-digit code from an authenticator app',
-    'enrollBio': 'Touch the sensor', 'enrollBioBody': 'Place your finger on the sensor to bind biometric unlock to this identity.',
-    'enrollPasskey': 'Confirm with your device', 'enrollPasskeyBody': 'The system dialog will ask for your screen lock. The passkey never leaves your keychain.',
-    'enrollHw': 'Insert or tap your key', 'enrollHwBody': 'Plug the key into USB-C or hold it against the back of the phone, then touch the contact.',
-    'enrollTotp': 'Add authenticator', 'enrollTotpBody': 'Scan the QR in your authenticator app or enter the secret, then confirm the six-digit code.',
-    'secret': 'Secret', 'codeLabel': 'Six-digit code', 'confirm': 'Confirm', 'waiting': 'Waiting for device',
+
+    'enrollHw': 'Insert or tap your key',
+
+ 'waiting': 'Waiting for device',
     'minOne': 'At least one factor stays required.',
     'settings': 'Settings', 'general': 'General', 'security': 'Security', 'identity': 'Identity', 'emergency': 'Emergency',
     'language': 'Language', 'languageSub': 'App-wide', 'appearance': 'Appearance', 'appearanceSub': 'Dark by default',
@@ -190,7 +187,7 @@ const Map<String, Map<String, String>> strings = {
     'dark': 'Dark', 'light': 'Light', 'off': 'Off', 'h1': '1 hour', 'h24': '24 hours', 'd7': '7 days', 'on': 'On',
     'navChats': 'Chats', 'navId': 'My ID', 'navSet': 'Settings',
     'voice': 'Voice message', 'newContact': 'New contact',
-    'm1': 'Did you get the file?', 'm2': 'Yes, everything arrived.', 'm3': 'See you tomorrow.', 'm4': 'Photo sent.', 'm5': 'File received, thanks.', 'reply': 'Understood.',
+
     'hintShot': 'Screenshot protection on', 'hintEnc': 'End-to-end encrypted', 'hintEph': 'Messages delete after ',
   },
   'de': {
@@ -208,8 +205,7 @@ const Map<String, Map<String, String>> strings = {
     'badAddress': 'Das ist keine gueltige BitDM-ID. Pruefe auf Tippfehler — die ID traegt eine Pruefsumme.',
     'safetyNumber': 'Pruefnummer',
     'verifyNoSession': 'Verfuegbar, sobald ihr eine Nachricht ausgetauscht habt. Die Nummer entsteht aus beiden Schluesseln.',
-    'lockNotYet': 'Ein Passkey wäre derselbe Mechanismus wie beim Sicherheitsschlüssel, nur mit diesem Telefon als Schlüssel. Der Unterschied ist genau das, was ihn zum Passkey macht: er wird synchronisiert, über den Google-Passwortmanager. Damit läge das, was BitDM aufschließt, in einer Cloud — bei einer App ohne Konto und ohne Server ist das kein Merkmal, sondern ein Widerspruch. Was ein synchronisierter Passkey gegenüber dem Fingerabdruck-Fach wirklich brächte, ist ein zweites Gerät. Was er kostet, ist die Zusage, dass der Schlüssel dieses Telefon nie verlässt. Nimm Biometrie für dieses Telefon und einen Sicherheitsschlüssel als Rückfall: der lässt sich auch nicht herunterkopieren.',
-    'totpNever': 'Das hier wird nie funktionieren, und das ist kein Versaeumnis. Ein 2FA-Code wird gegen ein Geheimnis geprueft. Bei einer App ohne Server laege dieses Geheimnis auf genau diesem Geraet — wer das Geraet hat, rechnet sich den Code selbst aus. Es saehe nach Sicherheit aus und waere keine. Geplant ist stattdessen PIN oder Passwort: dieses Geheimnis bleibt in deinem Kopf.',
+
     'scanHint': 'Halte die Kamera auf den QR-Code des anderen. Es wird nichts gespeichert und nichts gesendet - das Bild wird nur auf diesem Geraet gelesen.',
     'scanNoCamera': 'Keine Kamera verfuegbar. Ohne Kamerazugriff laesst sich der Code nicht lesen - du kannst die Adresse stattdessen einfuegen.',
     'waitingForAccept': 'Anfrage gesendet — wartet auf Bestaetigung',
@@ -239,7 +235,7 @@ const Map<String, Map<String, String>> strings = {
     'idNote': 'Die ID enthält keinen privaten Schlüssel. Details unter Einstellungen › Sicherheit.',
     'addTitle': 'Kontakt hinzufügen', 'idLabel': 'BitDM-ID', 'paste': 'Einfügen', 'scan': 'QR scannen', 'sendReq': 'Anfrage senden',
     'pending': 'Ausstehend', 'reqSentNote': 'Anfrage gesendet. Der Chat öffnet sich, sobald die Gegenseite bestätigt.',
-    'demo': 'Zur Demo:', 'simAccept': 'Bestätigung simulieren',
+
     'addFoot': 'Vor der Bestätigung werden keine Nachrichten übertragen. Ein Kontakt kann jederzeit einseitig entfernt werden.',
     'chats': 'Chats', 'wantsChat': 'Möchte einen verschlüsselten Chat mit dir beginnen.', 'accept': 'Annehmen', 'decline': 'Ablehnen',
     'noNames': 'Kontakte erscheinen als ID und Muster. Namen gibt es nicht — auch nicht lokal.',
@@ -249,9 +245,9 @@ const Map<String, Map<String, String>> strings = {
     'verifyNote': 'Vergleiche den Sitzungsschlüssel persönlich, um die Gegenseite zu verifizieren.', 'close': 'Schließen',
     'secureTitle': 'Gerät absichern', 'secureSub': 'Deine Identität liegt nur hier. Richte mindestens einen Nachweis ein, bevor die App entsperrt.',
     'secureFoot': 'Faktoren lassen sich später unter Einstellungen › Zugriff ergänzen oder entfernen.', 'secureSkip': 'Später', 'secureDone': 'Weiter',
-    'access': 'Zugriff', 'on2': 'Aktiv', 'offMethod': 'Nicht eingerichtet', 'add': 'Einrichten', 'remove': 'Entfernen', 'whyNot': 'Warum nicht',
+    'access': 'Zugriff', 'on2': 'Aktiv', 'offMethod': 'Nicht eingerichtet', 'add': 'Einrichten', 'remove': 'Entfernen',
     'bio': 'Biometrie', 'bioSub': 'Fingerabdruck oder Gesichtsentsperrung dieses Geräts',
-    'passkey': 'Passkey', 'passkeySub': 'Im Schlüsselbund des Geräts, vom System synchronisiert',
+
     'devpin': 'Gerätesperre', 'devpinSub': 'Die PIN, das Muster oder das Passwort dieses Telefons',
     'pw': 'App-Passwort', 'pwSub': 'Ein Passwort nur für BitDM — bleibt in deinem Kopf',
     'enrollPw': 'App-Passwort festlegen',
@@ -270,12 +266,10 @@ const Map<String, Map<String, String>> strings = {
     'lockDelaySub': 'Wie lange die App im Hintergrund offen bleiben darf',
     'delayNow': 'Sofort', 'delay1m': '1 Min.', 'delay5m': '5 Min.', 'delayNever': 'Nie',
     'hw': 'Hardware-Sicherheitsschlüssel', 'hwSub': 'FIDO2-Schlüssel über USB-C oder NFC',
-    'totp': 'Zwei-Faktor-Code', 'totpSub': 'Sechsstelliger Code aus einer Authenticator-App',
-    'enrollBio': 'Sensor berühren', 'enrollBioBody': 'Lege den Finger auf den Sensor, um die biometrische Entsperrung an diese Identität zu binden.',
-    'enrollPasskey': 'Mit dem Gerät bestätigen', 'enrollPasskeyBody': 'Der Systemdialog fragt die Displaysperre ab. Der Passkey verlässt den Schlüsselbund nicht.',
-    'enrollHw': 'Schlüssel einstecken oder auflegen', 'enrollHwBody': 'Stecke den Schlüssel in USB-C oder halte ihn an die Rückseite, dann Kontakt berühren.',
-    'enrollTotp': 'Authenticator hinzufügen', 'enrollTotpBody': 'Scanne den QR in der Authenticator-App oder gib das Secret ein, dann bestätige den sechsstelligen Code.',
-    'secret': 'Secret', 'codeLabel': 'Sechsstelliger Code', 'confirm': 'Bestätigen', 'waiting': 'Warte auf Gerät',
+
+    'enrollHw': 'Schlüssel einstecken oder auflegen',
+
+ 'waiting': 'Warte auf Gerät',
     'minOne': 'Mindestens ein Faktor bleibt erforderlich.',
     'settings': 'Einstellungen', 'general': 'Allgemein', 'security': 'Sicherheit', 'identity': 'Identität', 'emergency': 'Notfall',
     'language': 'Sprache', 'languageSub': 'Gilt für die ganze App', 'appearance': 'Erscheinungsbild', 'appearanceSub': 'Standard: dunkel',
@@ -287,7 +281,7 @@ const Map<String, Map<String, String>> strings = {
     'dark': 'Dunkel', 'light': 'Hell', 'off': 'Aus', 'h1': '1 Std.', 'h24': '24 Std.', 'd7': '7 Tage', 'on': 'An',
     'navChats': 'Chats', 'navId': 'Meine ID', 'navSet': 'Einstellungen',
     'voice': 'Sprachnachricht', 'newContact': 'Neuer Kontakt',
-    'm1': 'Hast du die Datei bekommen?', 'm2': 'Ja, alles angekommen.', 'm3': 'Bis morgen dann.', 'm4': 'Bild gesendet.', 'm5': 'Datei erhalten, danke.', 'reply': 'Verstanden.',
+
     'hintShot': 'Screenshot-Schutz aktiv', 'hintEnc': 'Ende-zu-Ende verschlüsselt', 'hintEph': 'Nachrichten löschen sich nach ',
   },
 };
