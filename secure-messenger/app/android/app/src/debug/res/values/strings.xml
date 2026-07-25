@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Nur im Testbau. Damit auf dem Bildschirm klar ist, welches Symbol die
-         echte App ist und welches der Testbau — sie stehen nebeneinander, weil
-         der Testbau die Paketkennung com.bitdm.bitdm.dev traegt. -->
-    <string name="app_name">BitDM (Test)</string>
-</resources>

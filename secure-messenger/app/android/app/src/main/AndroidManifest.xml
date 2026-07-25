@@ -118,7 +118,7 @@
          ist. -->
 
     <application
-        android:label="@string/app_name"
+        android:label="BitDM"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"

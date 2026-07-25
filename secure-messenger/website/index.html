@@ -27,7 +27,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BitDM — Verschlüsselt schreiben, ohne Konto</title>
-<meta name="description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer und ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll (libsignal): X3DH über Curve25519, Double Ratchet, AES-256-GCM für Anhänge. Quelloffen unter GPL-3.0.">
+<meta name="description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer und ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll (libsignal): AES-256, X3DH über Curve25519, Double Ratchet, AES-256-GCM für Anhänge. Quelloffen unter GPL-3.0.">
 <meta name="theme-color" content="#0b0c12">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
@@ -372,8 +372,8 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     </p>
     <p class="de">
       Verschlüsselt wird mit <strong>libsignal</strong> — derselben Bibliothek,
-      die Signal benutzt. Was genau darin steckt, steht weiter unten Zeile für
-      Zeile.
+      die Signal benutzt, mit <strong>AES 256 Bit</strong> für jede einzelne
+      Nachricht. Was genau darin steckt, steht weiter unten Zeile für Zeile.
     </p>
     <p class="en">
       Most messengers ask for your phone number first. BitDM asks for nothing at
@@ -387,7 +387,8 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     </p>
     <p class="en">
       The encryption is <strong>libsignal</strong> — the same library Signal
-      uses. What exactly is inside it is spelled out line by line further down.
+      uses, with <strong>AES 256-bit</strong> for every single message. What
+      exactly is inside it is spelled out line by line further down.
     </p>
   </section>
 
@@ -643,8 +644,8 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       </div>
       <div class="plate-row">
         <dt><span class="de">Die Nachricht selbst</span><span class="en">The message itself</span></dt>
-        <dd><span class="de">AES-256-CBC, beglaubigt mit HMAC-SHA256 — Signals eigene Konstruktion.</span>
-            <span class="en">AES-256-CBC, authenticated with HMAC-SHA256 — Signal's own construction.</span></dd>
+        <dd><span class="de"><strong>AES mit 256 Bit</strong> Schlüssellänge im CBC-Betrieb, beglaubigt mit HMAC-SHA256 — Signals eigene Konstruktion. Der Schlüssel ist 32 Byte lang und gilt für genau eine Nachricht.</span>
+            <span class="en"><strong>AES with a 256-bit key</strong> in CBC mode, authenticated with HMAC-SHA256 — Signal's own construction. The key is 32 bytes long and covers exactly one message.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Unterschriften</span><span class="en">Signatures</span></dt>
@@ -692,8 +693,8 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       </div>
       <div class="plate-row">
         <dt><span class="de">App-Sperre</span><span class="en">App lock</span></dt>
-        <dd><span class="de">AES-256-GCM. Beim App-Passwort entsteht der Schlüssel über Argon2id mit 19 MiB Speicher und 2 Durchgängen — die Empfehlung des OWASP. Raten kostet damit Speicher und Zeit, nicht nur Rechenschritte.</span>
-            <span class="en">AES-256-GCM. With the app password the key comes from Argon2id using 19 MiB of memory and 2 passes — the OWASP recommendation. Guessing therefore costs memory and time, not just cycles.</span></dd>
+        <dd><span class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb. Beim App-Passwort entsteht der Schlüssel über Argon2id mit 19 MiB Speicher und 2 Durchgängen — die Empfehlung des OWASP. Raten kostet damit Speicher und Zeit, nicht nur Rechenschritte.</span>
+            <span class="en"><strong>AES with a 256-bit key</strong> in GCM mode. With the app password the key comes from Argon2id using 19 MiB of memory and 2 passes — the OWASP recommendation. Guessing therefore costs memory and time, not just cycles.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Vier Wege hinein</span><span class="en">Four ways in</span></dt>
@@ -737,11 +738,11 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       <div class="step">
         <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
         <h3><span class="de">Je Stück ein Schlüssel</span><span class="en">One key per piece</span></h3>
-        <p class="de">AES-256-GCM, und jedes Stück bekommt einen eigenen Zufallsschlüssel. Mit
+        <p class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb, und jedes Stück bekommt einen eigenen Zufallsschlüssel. Mit
           <em>einem</em> Schlüssel für die ganze Datei müsste ein Zähler über alle
           Stücke sauber geführt werden — über Abbrüche und Wiederaufnahmen hinweg —,
           und ein Fehler dabei bricht GCM vollständig.</p>
-        <p class="en">AES-256-GCM, and every piece gets its own random key. With <em>one</em> key for
+        <p class="en"><strong>AES with a 256-bit key</strong> in GCM mode, and every piece gets its own random key. With <em>one</em> key for
           the whole file a counter would have to be tracked across all pieces — across
           aborts and resumptions —, and a single slip there breaks GCM completely.</p>
       </div>
@@ -833,6 +834,11 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
 
     <div class="facts">
       <div class="fact">
+        <span class="num">AES-256</span>
+        <p class="de">Schlüssellänge überall, wo AES benutzt wird: Nachrichten, App-Sperre, Anhänge. 256 Bit — 32 Byte, nachlesbar im Quelltext.</p>
+        <p class="en">Key length everywhere AES is used: messages, app lock, attachments. 256 bits — 32 bytes, verifiable in the source.</p>
+      </div>
+      <div class="fact">
         <span class="num">GPL-3.0</span>
         <p class="de">Quelloffen. Wer die App verteilt, muss den Quellcode mitliefern.</p>
         <p class="en">Open source. Anyone distributing the app must ship the source.</p>
@@ -886,7 +892,15 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     </div>
     <div class="foot-col">
       <span class="screen de">Kontakt</span><span class="en">Contact</span>
-      <a href="mailto:kontakt@bitdm.net">kontakt@bitdm.net</a>
+      <!-- email_off / Cloudflare: OHNE diese Klammer ersetzt Cloudflares
+           "Email Address Obfuscation" (Scrape Shield) den Text durch
+           "[email protected]" und den Link durch /cdn-cgi/l/email-protection.
+           Wer kein JavaScript laufen laesst — und das sind genau die Leute,
+           die diese Seite anspricht —, sieht dann keine Adresse mehr.
+           Nachgeprueft am 26.07.2026 am ausgelieferten HTML von bitdm.net.
+           Die Klammer schaltet es nur fuer diese Stelle ab, ohne dass jemand
+           ins Cloudflare-Konto muss. -->
+      <!--email_off--><a href="mailto:kontakt@bitdm.net">kontakt@bitdm.net</a><!--/email_off-->
     </div>
   </div>
   <p class="foot-note">

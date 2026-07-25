@@ -183,7 +183,15 @@ footer a{color:var(--muted)}
       </div>
       <div class="plate-row">
         <dt><span class="de">Kontakt</span><span class="en">Contact</span></dt>
-        <dd><a href="mailto:kontakt@bitdm.net">kontakt@bitdm.net</a></dd>
+        <!-- email_off / Cloudflare: OHNE diese Klammer ersetzt Cloudflares
+             "Email Address Obfuscation" (Scrape Shield) den Text durch
+             "[email protected]" und den Link durch /cdn-cgi/l/email-protection.
+             Wer kein JavaScript laufen laesst — und das sind genau die Leute,
+             die diese Seite anspricht —, sieht dann keine Adresse mehr.
+             Nachgeprueft am 26.07.2026 am ausgelieferten HTML von bitdm.net.
+             Die Klammer schaltet es nur fuer diese Stelle ab, ohne dass jemand
+             ins Cloudflare-Konto muss. -->
+        <!--email_off--><dd><a href="mailto:kontakt@bitdm.net">kontakt@bitdm.net</a></dd><!--/email_off-->
       </div>
       <div class="plate-row">
         <dt><span class="de">App</span><span class="en">App</span></dt>
