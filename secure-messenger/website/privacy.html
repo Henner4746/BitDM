@@ -285,10 +285,15 @@ footer a{color:var(--muted)}
       fonts, no scripts, no tracking pixels, no embedded video. No cookies are
       set. Your language choice stays in your browser only
       (<code>localStorage</code>) and is not transmitted.</p>
-    <p class="de">Beim Aufruf fällt technisch bedingt ein Server-Protokolleintrag
-      an (gekürzte IP, Zeitpunkt, aufgerufene Datei), gespeichert für 7 Tage.</p>
-    <p class="en">Loading the page technically produces a server log entry
-      (truncated IP, time, requested file), kept for 7 days.</p>
+    <p class="de">Auf unserem Server fällt beim Aufruf ein Protokolleintrag an
+      (Zeitpunkt, aufgerufene Datei), gespeichert für 7 Tage. Weil die Seite
+      über Cloudflare ausgeliefert wird, sieht unser Server dabei
+      <strong>keine Besucher-IP-Adressen</strong> — er sieht nur Cloudflare.
+      Siehe den nächsten Abschnitt.</p>
+    <p class="en">Loading the page produces a log entry on our server (time,
+      requested file), kept for 7 days. Because the page is delivered through
+      Cloudflare, our server sees <strong>no visitor IP addresses</strong> — it
+      only sees Cloudflare. See the next section.</p>
     <p class="de">Trägst du im Benachrichtigungsfeld eine E-Mail-Adresse ein,
       öffnet sich dein Mailprogramm. Es gibt <strong>keine Empfängerliste auf
       einem Server</strong> — deine Adresse liegt nur dann in einem Postfach,
@@ -302,16 +307,48 @@ footer a{color:var(--muted)}
 
   <section>
     <h2><span class="de">Weitergabe an Dritte</span><span class="en">Sharing with third parties</span></h2>
-    <p class="de">Es findet <strong>keine</strong> Weitergabe statt. Es gibt keine
-      Analysedienste, keine Werbenetzwerke, keinen Absturzbericht-Dienst und
-      keinen Verkauf von Daten. Die App enthält keine Werbe-SDKs.</p>
-    <p class="en">There is <strong>no</strong> sharing. No analytics services, no
-      ad networks, no crash-reporting service, no sale of data. The app contains
-      no advertising SDKs.</p>
-    <p class="de">Der Relay-Server steht in Deutschland. Eine Übermittlung in
-      Drittländer findet nicht statt.</p>
-    <p class="en">The relay server is located in Germany. No transfer to third
-      countries takes place.</p>
+    <p class="de">Es gibt keine Analysedienste, keine Werbenetzwerke, keinen
+      Absturzbericht-Dienst und keinen Verkauf von Daten. Die App enthält keine
+      Werbe-SDKs. Ein Dienstleister ist dennoch beteiligt, und den nennen wir
+      hier statt ihn zu verschweigen:</p>
+    <p class="en">There are no analytics services, no ad networks, no
+      crash-reporting service and no sale of data. The app contains no
+      advertising SDKs. One service provider is nevertheless involved, and we
+      name it here instead of leaving it out:</p>
+
+    <dl class="plate">
+      <div class="plate-row">
+        <dt>Cloudflare</dt>
+        <dd><span class="de"><strong>Nur diese Website</strong>, nicht die App und
+            nicht der Relay. Cloudflare, Inc. (USA) liefert
+            <code>app.henrik.click</code> aus und sieht dabei IP-Adresse,
+            Zeitpunkt, Browserkennung und aufgerufene Seite jedes Besuchers.
+            Zweck: Schutz vor Überlastungsangriffen und Verbergen der
+            Server-Adresse. Grundlage: Art. 6 Abs. 1 lit. f DSGVO. Da Cloudflare
+            ein US-Unternehmen ist, kann eine Übermittlung in die USA nicht
+            ausgeschlossen werden; abgesichert über die Standardvertragsklauseln
+            der EU. <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Datenschutzerklärung von Cloudflare</a></span>
+          <span class="en"><strong>This website only</strong>, not the app and not
+            the relay. Cloudflare, Inc. (USA) delivers
+            <code>app.henrik.click</code> and thereby sees each visitor's IP
+            address, time, browser identifier and requested page. Purpose:
+            protection against overload attacks and hiding the server address.
+            Basis: Art. 6(1)(f) GDPR. As Cloudflare is a US company, transfer to
+            the USA cannot be ruled out; covered by the EU standard contractual
+            clauses. <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Cloudflare's privacy policy</a></span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Relay-Server</span><span class="en">Relay server</span></dt>
+        <dd><span class="de">Steht in Deutschland und läuft <strong>ohne</strong>
+            Cloudflare oder ein anderes Zwischennetz. Das ist Absicht: ein
+            vorgeschalteter Dienst würde sehen, wer wann mit wem verbunden ist —
+            also genau die Metadaten, die wir so klein wie möglich halten.</span>
+          <span class="en">Located in Germany and runs <strong>without</strong>
+            Cloudflare or any other intermediary. That is deliberate: an
+            upstream service would see who is connected to whom and when, which
+            is exactly the metadata we keep as small as possible.</span></dd>
+      </div>
+    </dl>
   </section>
 
   <section>
