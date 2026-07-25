@@ -26,24 +26,51 @@ if (hasKeystore) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
-// Ohne diesen Abbruch erzeugt Gradle klaglos eine UNSIGNIERTE APK und Flutter
-// meldet "√ Built app-release.apk" — also Erfolg fuer ein Artefakt, das sich auf
-// keinem Geraet installieren laesst. Das faellt erst beim Installationsversuch
-// auf, im schlimmsten Fall beim Nutzer. Darum hier hart abbrechen, und zwar nur
-// wenn tatsaechlich ein Release-Artefakt gebaut wird (Debug-Builds bleiben
-// unberuehrt).
+// Ohne Pruefung erzeugt Gradle klaglos eine UNSIGNIERTE APK und Flutter meldet
+// "√ Built app-release.apk" — also Erfolg fuer ein Artefakt, das sich auf keinem
+// Geraet installieren laesst. Das faellt erst beim Installationsversuch auf, im
+// schlimmsten Fall beim Nutzer.
+//
+// ABER: die erste Fassung brach IMMER ab, wenn key.properties fehlte. Damit war
+// jeder F-Droid-Build unmoeglich — nicht schwierig, sondern unmoeglich. F-Droid
+// baut aus einem sauberen Checkout, in dem key.properties per .gitignore gar
+// nicht existieren KANN, und signiert anschliessend selbst. Der Abbruch haette
+// dort bei jedem Versuch zugeschlagen, und zwar erst auf deren Buildserver.
+//
+// Deshalb jetzt zweistufig:
+//   - key.properties vorhanden  -> pruefen und verwenden, Fehler hart melden
+//   - fehlt, ohne -PbitdmRequireSigning=true -> unsigniert bauen, LAUT warnen
+//   - fehlt, MIT -PbitdmRequireSigning=true  -> abbrechen (eigene Releases)
+//
+// Das eigene Release-Skript setzt die Eigenschaft; F-Droid tut es nicht.
+val requireSigning = project.findProperty("bitdmRequireSigning") == "true"
+
 gradle.taskGraph.whenReady {
     val releaseTargets = listOf("assembleRelease", "bundleRelease", "packageRelease")
     val buildsRelease = allTasks.any { task -> releaseTargets.any { task.name.equals(it, true) } }
     if (!buildsRelease) return@whenReady
 
     if (!hasKeystore) {
-        throw GradleException(
-            "\n\n  Release-Build abgebrochen: android/key.properties fehlt.\n" +
-            "  Ohne Schluesseldatei entstuende eine UNSIGNIERTE APK, die sich\n" +
-            "  nicht installieren laesst.\n\n" +
-            "  Vorlage kopieren und ausfuellen:  android/key.properties.example\n"
+        if (requireSigning) {
+            throw GradleException(
+                "\n\n  Release-Build abgebrochen: android/key.properties fehlt,\n" +
+                "  obwohl -PbitdmRequireSigning=true gesetzt ist.\n\n" +
+                "  Vorlage kopieren und ausfuellen:  android/key.properties.example\n"
+            )
+        }
+        logger.warn(
+            "\n" +
+            "  ============================================================\n" +
+            "   ACHTUNG: android/key.properties fehlt.\n" +
+            "   Es entsteht eine UNSIGNIERTE APK. Sie laesst sich NICHT\n" +
+            "   installieren und ist nicht zur Weitergabe geeignet.\n" +
+            "\n" +
+            "   Das ist der erwartete Weg fuer reproduzierbare Builds\n" +
+            "   (F-Droid signiert selbst). Fuer eigene Releases:\n" +
+            "     flutter build apk --release -PbitdmRequireSigning=true\n" +
+            "  ============================================================\n"
         )
+        return@whenReady
     }
 
     // Ein vergessener Platzhalter wuerde sonst als "keystore password was
