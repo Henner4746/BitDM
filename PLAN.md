@@ -269,7 +269,3 @@ Nativer Android-Code über Plattformkanäle. **Größter Einzelposten des Projek
 2. **`specialUse`-Vordergrunddienst im Play-Review** — Google verweist gern auf
    FCM. Entschärft dadurch, dass die Play-Variante ohnehin FCM nutzt.
 3. **Metadaten beim Relay** — akzeptiert für privat, Blocker für öffentlich.
-4. **Schadensreichweite auf `henner`** — der Relay teilt die Maschine mit Mailcow,
-   Spieleservern und einem LLM-Gateway. Dieselbe Kiste wurde am 12.07.2026 über
-   einen exponierten Port übernommen. Isolation mildert, beseitigt nicht.
-5. **Kein Android-Spezialist im Team** — Phasen 5 und 6 sind nativ-lastig.
