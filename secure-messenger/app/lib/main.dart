@@ -1,12 +1,14 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart'
+    show kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'app_state.dart';
 import 'core/messenger_core.dart';
+import 'core/nah/funk.dart';
 import 'core/real_messenger_core.dart';
 import 'core/app_lock.dart';
 import 'core/fido/client_pin.dart';
@@ -26,6 +28,8 @@ import 'core/crypto/address.dart';
 import 'core/empfang.dart';
 import 'core/fenster.dart';
 import 'core/push.dart';
+import 'core/qr_bild.dart';
+import 'core/verbindungstest.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'data.dart';
 import 'painters.dart';
@@ -86,7 +90,13 @@ Future<void> main() async {
           : GeraeteArt.biometrie,
       verzeichnis: verzeichnis.path,
     ),
-  )..empfangsDienst = EmpfangsDienst();
+  )
+    ..empfangsDienst = EmpfangsDienst()
+    // Die Bluetooth-Strecke. Hier angehaengt und nicht im Konstruktor
+    // verlangt, weil sie in Tests fehlt: `flutter test` hat keine
+    // Plattformkanaele, und ein Pflichtfeld haette jeden Zustandstest an
+    // Bluetooth gebunden.
+    ..funk = (Nahfunk()..horcheAuf());
 
   // Die Rueckrufe des Verteilers MUESSEN bei jedem Start stehen, nicht erst
   // wenn der Nutzer etwas einstellt: ein Anstoss kann kommen, bevor er die App
@@ -114,6 +124,161 @@ class BitApp extends StatelessWidget {
       title: 'BitDM',
       debugShowCheckedModeBanner: false,
       home: Home(state: state),
+    );
+  }
+}
+
+
+/// Verschiebt den Inhalt langsam um wenige Pixel — gegen Einbrennen auf OLED.
+///
+/// WOGEGEN GENAU
+///
+/// Auf einem OLED altert jedes Leuchtelement einzeln. Was tagelang an
+/// derselben Stelle in derselben Farbe steht, bleibt als Schatten sichtbar,
+/// auch wenn laengst etwas anderes dort ist. BitDM hat davon mehr als die
+/// meisten Apps: die Reiterleiste steht immer unten, die Kopfzeile immer oben,
+/// und der QR-Bildschirm wird bewusst liegengelassen, waehrend jemand ihn
+/// abscannt.
+///
+/// ZWEI PIXEL GENUEGEN, und das ist der ganze Trick: die Alterung verteilt
+/// sich auf mehrere Elemente, sobald das Bild nicht exakt stehenbleibt. Mehr
+/// waere sichtbar und damit stoerend — hier soll niemand etwas bemerken.
+///
+/// KEIN DAUERLAUF. Es waere naheliegend, das zu animieren; das hiesse aber,
+/// die Bildwiederholung nie zur Ruhe kommen zu lassen und dafuer Akku zu
+/// verbrennen. Stattdessen ein Schritt alle 40 Sekunden — fuer die Alterung
+/// ist das schnell genug, fuer den Akku unsichtbar.
+///
+/// Die Schrittfolge ist absichtlich KEIN Kreis mit gerader Laenge: sechs
+/// Stellungen, deren Summe null ist, aber deren Reihenfolge das Bild nicht in
+/// zwei Haelften teilt. Ein Hin und Her zwischen zwei Punkten waere nur die
+/// halbe Wirkung.
+class Einbrennschutz extends StatefulWidget {
+  const Einbrennschutz({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<Einbrennschutz> createState() => _EinbrennschutzState();
+}
+
+class _EinbrennschutzState extends State<Einbrennschutz> {
+  static const _stellungen = <Offset>[
+    Offset(0, 0),
+    Offset(1, -1),
+    Offset(2, 0),
+    Offset(1, 1),
+    Offset(-1, 1),
+    Offset(-1, -1),
+  ];
+
+  int _wo = 0;
+  Timer? _takt;
+
+  @override
+  void initState() {
+    super.initState();
+    _takt = Timer.periodic(const Duration(seconds: 40), (_) {
+      if (!mounted) return;
+      setState(() => _wo = (_wo + 1) % _stellungen.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    _takt?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Transform.translate UND NICHT Padding: das hier verschiebt beim Zeichnen
+    // und loest kein neues Layout aus. Ein Padding, das sich alle 40 Sekunden
+    // aendert, liesse den ganzen Baum neu rechnen — fuer zwei Pixel.
+    return Transform.translate(
+      offset: _stellungen[_wo],
+      child: widget.child,
+    );
+  }
+}
+
+/// Was Leertaste und Eingabetaste auf einem FOKUSSIERTEN Bedienelement
+/// ausloesen sollen.
+///
+/// UEBER DIE INTENTS UND NICHT UEBER TASTEN. Die Zuordnung Taste → Absicht
+/// haengt schon in `WidgetsApp` ueber der ganzen App; hier wird nur gesagt, was
+/// die Absicht bewirkt. Wer stattdessen selbst auf die Eingabetaste hoert,
+/// nimmt sie dem fokussierten Bedienelement weg — genau der Fehler, der am
+/// 30.07.2026 auf 'onboard' eine neue Identitaet anlegte, obwohl der Verweis
+/// "Ich habe schon 12 Woerter" den Fokus hatte.
+///
+/// BEIDE ABSICHTEN SIND NOETIG: im Browser bildet WidgetsApp die Eingabetaste
+/// auf [ButtonActivateIntent] ab, nicht auf [ActivateIntent]
+/// (flutter/lib/src/widgets/app.dart:1317, nachgesehen am 30.07.2026) — mit nur
+/// einer der beiden waere im Web allein die Leertaste ein Druck.
+Map<Type, Action<Intent>> _aktivierung(VoidCallback tun) => {
+      ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
+        tun();
+        return null;
+      }),
+      ButtonActivateIntent:
+          CallbackAction<ButtonActivateIntent>(onInvoke: (_) {
+        tun();
+        return null;
+      }),
+    };
+
+/// Macht ein Bedienelement im Fenster zeigerbar, ueberfahrbar und fokussierbar.
+///
+/// WARUM ES DAS BRAUCHT. Am 30.07.2026 kam MouseRegion in ganz lib/ nicht ein
+/// einziges Mal vor: der Zeiger blieb ueber jedem Knopf ein Pfeil, ueber
+/// Textknoepfen sogar ein Text-Cursor, und mit Tab war kein Knopf der App
+/// erreichbar. Am Schreibtisch ist der Zeiger das erste, woran man erkennt,
+/// dass etwas ein Knopf ist — bleibt er ein Pfeil, sucht man weiter.
+///
+/// DER TIPP BLEIBT DRINNEN. Diese Huelle bringt KEIN eigenes GestureDetector
+/// mit; das Antippen behandelt weiter der Baustein, um den sie liegt
+/// (`outlineBtn`, `Masse.trefferflaeche`, die freien GestureDetector). Zwei
+/// Erkenner um dieselbe Flaeche waeren zwei Wege zu derselben Wirkung — und
+/// einer davon wuerde irgendwann anders reagieren als der andere.
+///
+/// AUF ANDROID FAELLT SIE WEG, nicht "wirkt nicht": bei `imFenster == false`
+/// gibt sie den Baum unveraendert zurueck. Damit bleibt dort jedes Pixel und
+/// jeder Test, wie er war — im Widget-Test meldet Flutter android.
+class _Bedienbar extends StatefulWidget {
+  const _Bedienbar({
+    required this.imFenster,
+    required this.bau,
+    this.onTap,
+  });
+
+  final bool imFenster;
+
+  /// Null heisst: gerade nicht bedienbar. Dann bleibt der Standardzeiger, und
+  /// die Huelle nimmt keinen Fokus — eine Hand ueber etwas, das nicht geht,
+  /// verspricht etwas, was nicht kommt.
+  final VoidCallback? onTap;
+
+  final Widget Function(bool ueberfahren, bool fokus) bau;
+
+  @override
+  State<_Bedienbar> createState() => _BedienbarState();
+}
+
+class _BedienbarState extends State<_Bedienbar> {
+  bool _ueber = false, _fokus = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.imFenster) return widget.bau(false, false);
+    final an = widget.onTap != null;
+    return FocusableActionDetector(
+      enabled: an,
+      mouseCursor: an ? SystemMouseCursors.click : MouseCursor.defer,
+      onShowHoverHighlight: (v) => setState(() => _ueber = v),
+      onShowFocusHighlight: (v) => setState(() => _fokus = v),
+      actions: _aktivierung(() => widget.onTap?.call()),
+      child: widget.bau(_ueber && an, _fokus),
     );
   }
 }
@@ -158,7 +323,67 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   String? chat;
   bool reqSent = false, sheet = false, panic = false, wiped = false, copied = false;
 
+  /// Die Bildlaufsteuerung der offenen Unterhaltung.
+  final _chatScroll = ScrollController();
+
+  /// Woran [_haltUnten] erkennt, dass sich etwas geaendert hat. Ohne dieses
+  /// Gedaechtnis wuerde bei JEDEM Neubauen gescrollt — und neu gebaut wird
+  /// auch beim Tippen, beim Eintreffen eines Lesehakens, beim Wechsel der
+  /// Verbindungsanzeige.
+  String? _scrollChat;
+  int _scrollAnzahl = 0;
+
+  /// Ob der Nutzer gerade selbst etwas abgeschickt hat.
+  ///
+  /// GEMESSEN, NICHT ERSCHLOSSEN. Erst stand hier "ist die letzte Nachricht
+  /// von mir" — das faellt um, sobald das Gegenueber schnell antwortet: dann
+  /// ist die letzte Nachricht die Antwort, und das eigene Senden zaehlte
+  /// ploetzlich als fremdes Eintreffen. Beim Testen sprang die Zaehlung um
+  /// zwei statt um eins, und daran war es zu sehen.
+  bool _selbstGeschrieben = false;
+
   AppState get st => widget.state;
+
+  /// Haelt die Unterhaltung am unteren Ende.
+  ///
+  /// Wird beim Bauen des Chatbildschirms gerufen und tut in zwei Faellen
+  /// etwas — die sich absichtlich unterschiedlich verhalten:
+  ///
+  ///   BEIM OEFFNEN springt sie immer ans Ende, ohne Ruecksicht auf den
+  ///   Schalter. Eine Unterhaltung, die bei der aeltesten Nachricht aufgeht,
+  ///   ist kein Merkmal, das man abschalten koennen muss. (Genau das tat sie
+  ///   bisher: die Liste hatte keine Steuerung und begann oben.)
+  ///
+  ///   BEI EINER NEUEN NACHRICHT nur, wenn [AppPreferences.autoScroll] an ist
+  ///   — und selbst dann nicht, wenn der Leser gerade weiter oben steht. Wer
+  ///   Alteres liest, soll nicht mitten im Satz weggerissen werden. Eigene
+  ///   Nachrichten nehmen ihn trotzdem mit: wer schreibt, will sehen, was er
+  ///   geschrieben hat.
+  void _haltUnten(String cid, int anzahl) {
+    final gewechselt = cid != _scrollChat;
+    final eigene = _selbstGeschrieben;
+    if (!gewechselt && anzahl == _scrollAnzahl) return;
+    _scrollChat = cid;
+    _scrollAnzahl = anzahl;
+    _selbstGeschrieben = false;
+    if (!gewechselt && !st.einstellungen.autoScroll) return;
+
+    // NACH dem Bau, nicht waehrend: vorher steht die Hoehe der Liste noch
+    // nicht fest, und maxScrollExtent waere der Wert von gestern.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_chatScroll.hasClients) return;
+      final unten = _chatScroll.position.maxScrollExtent;
+      if (gewechselt) {
+        _chatScroll.jumpTo(unten);
+        return;
+      }
+      // Etwa eine Nachrichtenhoehe Spielraum: wer so nah am Ende steht, hat
+      // die Liste nicht verlassen, sondern nur einen Rest Schwung uebrig.
+      if (!eigene && unten - _chatScroll.offset > 140) return;
+      _chatScroll.animateTo(unten,
+          duration: const Duration(milliseconds: 260), curve: Curves.easeOut);
+    });
+  }
 
   /// Die Pruefnummer der offenen Unterhaltung. Wird beim Oeffnen des
   /// Verschluesselungs-Blatts geladen — sie zu berechnen kostet 5200 Runden
@@ -188,6 +413,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // leeren; das gehoert an den Vordergrunddienst, den es noch nicht gibt.
     WidgetsBinding.instance.addObserver(this);
     st.addListener(_aktualisiere);
+    // Der Rahmen der beiden mehrzeiligen Felder haengt am Fokus, also muss ein
+    // Fokuswechsel neu zeichnen lassen.
+    //
+    // NUR IM FENSTER, und das ist keine Vorsicht, sondern der Punkt: auf dem
+    // Telefon tippt man IMMER ins Feld, um zu schreiben. Dort waere jeder
+    // Fokuswechsel ein setState des ganzen _HomeState — Einbrennschutz-Transform
+    // und kompletter Neubau — fuer eine Rahmenfarbe, die dort niemand bestellt
+    // hat. Die Farbe selbst haengt an derselben Weiche (wiederherstellenScreen
+    // und addScreen), damit Android Pixel fuer Pixel bleibt, wie es war.
+    if (_imFenster) {
+      _phraseFokus.addListener(_aktualisiere);
+      _addFokus.addListener(_aktualisiere);
+      FocusManager.instance.addListener(_fokusNachfassen);
+    }
     _setzeMeldetexte();
     st.boot().then((_) {
       if (!mounted) return;
@@ -264,14 +503,308 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   final pwCtl2 = TextEditingController();
   final phraseCtl = TextEditingController();
 
+  /// Nur fuer den sichtbaren Fokusrahmen der beiden mehrzeiligen Felder.
+  ///
+  /// Beide liegen in einem Container, der den Rahmen zeichnet und vom Feld
+  /// darin nichts weiss. Ohne diese Knoten sah man auf einem leeren Feld
+  /// nicht, dass es am Zug ist — mit Tab-Bedienung ist das der Unterschied
+  /// zwischen bedienbar und nicht.
+  final _phraseFokus = FocusNode();
+  final _addFokus = FocusNode();
+
+  /// Faengt den Tastaturfokus ein, wenn ihn sonst niemand hat.
+  ///
+  /// WARUM DAS NOETIG IST. Tastenereignisse laufen vom fokussierten Knoten nach
+  /// OBEN. Hat in der App nichts den Fokus, liegt er auf dem FocusScope der
+  /// Route — und das ist ueber [_mitTasten]. Escape und Eingabe kamen dort nie
+  /// an, solange niemand vorher geklickt oder getabbt hatte, also genau in dem
+  /// Moment, in dem man sie zuerst probiert.
+  ///
+  /// `skipTraversal`, damit Tab nicht auf diesem unsichtbaren Knoten anfaengt,
+  /// sondern beim ersten echten Bedienelement.
+  final _tastenFokus =
+      FocusNode(debugLabel: 'Tastenfang', skipTraversal: true);
+
+  /// Fuer welchen Bildschirm [_sorgeFuerFokus] den Fokus schon gesetzt hat.
+  String? _zuletztFokussiert;
+
   Pal get p => mode == 'dark' ? palDark : palLight;
+
+  /// Breiteste Darstellung des Inhalts. Darueber wird der Rest Rand.
+  ///
+  /// Ein Desktop-Fenster ist leicht 1400 Pixel breit. Ein Eingabefeld dieser
+  /// Breite ist keins mehr, und eine Textzeile, die man von einem Bildrand zum
+  /// anderen lesen muss, liest niemand. Diese App ist fuer eine Hand
+  /// entworfen — in einem grossen Fenster bleibt sie das.
+  ///
+  /// Genau das stand als Absicht schon in der README ("am Desktop im
+  /// Handy-Rahmen, am Handy im Vollbild"), war aber nie gebaut. Am 30.07.2026
+  /// im ersten Windows-Bau nachgemessen: das Feld auf dem Anmeldebildschirm
+  /// war 1430 Pixel breit.
+  ///
+  static const _telefonbreite = 460.0;
+
+  /// Laeuft die App in einem FENSTER, dessen Groesse jemand zieht?
+  ///
+  /// AN DER PLATTFORM UND NICHT AN DER BREITE, und das war ein Fehler, den ich
+  /// erst gemessen habe. Zuerst hiess die Regel "ab 460 Pixel begrenzen". Die
+  /// trifft aber auch den 800x600-Bildschirm der Widget-Tests: der Inhalt
+  /// wurde dort schmaler und damit hoeher, und 16 Tests fielen mit
+  /// "RenderFlex overflowed by 22 pixels on the bottom" — 791 statt 807 gruen,
+  /// am 30.07.2026.
+  ///
+  /// Auf einem echten Telefon passiert das nicht, weil ein Telefon hoch ist.
+  /// 800x600 ist weder Telefon noch Desktop, und eine Regel, die daran
+  /// haengenblieb, war am falschen Merkmal aufgehaengt.
+  ///
+  /// So laesst sie Android vollstaendig unberuehrt, Tests eingeschlossen, und
+  /// sagt genauer, was gemeint ist: der Rahmen ist fuer Fenster da, nicht fuer
+  /// breite Telefone. Das Web ist mitgezaehlt — dort greift zusaetzlich die
+  /// Breitenpruefung, ein Telefonbrowser bleibt also im Vollbild.
+  static bool get _imFenster =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+
+  /// Breite der Spalte in einem Fenster.
+  ///
+  /// 460 war die Telefonbreite und im Fenster zu schmal: die Abfolgen —
+  /// Anmeldung, Phrase, Wiederherstellen — standen als duenner Streifen in
+  /// einer leeren Flaeche. 560 nimmt der Zeile die Enge, ohne sie so lang zu
+  /// machen, dass das Auge am Zeilenende den Anfang verliert.
+  static const _fensterspalte = 560.0;
+
+  /// Begrenzt [kind] auf [_telefonbreite], sobald mehr Platz da ist.
+  ///
+  /// Bewusst NUR um den Inhalt und nicht um das Scaffold: dessen Hintergrund
+  /// soll das Fenster weiter ausfuellen. Die Ueberlagerungen daneben im Stack
+  /// (Anmeldung, Bogen, Notfall) bleiben ebenfalls voll — sie bringen eigene
+  /// Verdunkelung mit, und die muss bis an den Fensterrand reichen.
+  Widget _aufTelefonbreite(Widget kind) => !_imFenster
+      ? kind
+      : LayoutBuilder(
+          builder: (_, con) => con.maxWidth <= _telefonbreite
+              ? kind
+              : Center(
+                  child: Container(
+                    width: _fensterspalte,
+                    // SEITENLINIEN, KEIN KASTEN. Ohne sie schwebt der Text im
+                    // Fenster und sieht aus wie ein Fehler im Layout; mit einem
+                    // ganzen Rahmen sieht er aus wie ein Dialog, der auf eine
+                    // Antwort wartet. Zwei Linien sagen "hier ist die Spalte"
+                    // und sonst nichts.
+                    decoration: BoxDecoration(
+                      border: Border.symmetric(
+                        vertical: BorderSide(color: p.lineSoft),
+                      ),
+                    ),
+                    child: kind,
+                  ),
+                ),
+        );
+
+  // ── Abfolgen im Fenster ─────────────────────────────────────────────────
+  //
+  // Die Bildschirme, die Schritt fuer Schritt durch etwas fuehren, sind fuer
+  // eine Hand entworfen: senkrecht zentriert, Knoepfe ueber die ganze Breite,
+  // Schrift fuer 30 cm Abstand. Am Schreibtisch sitzt man doppelt so weit weg,
+  // das Fenster ist hoeher als jeder Inhalt, und ein Knopf ueber die ganze
+  // Spalte ist kein Knopf mehr, sondern ein Banner. Henrik hat das am
+  // 30.07.2026 an einem 984x1040 grossen Fenster beanstandet.
+
+  /// Genau die Bildschirme, die eine Abfolge sind — und keinen weiteren.
+  ///
+  /// Die vier Schreibtisch-Bildschirme ('chats', 'chat', 'id', 'set') stehen
+  /// bewusst NICHT hier: die haben ihr eigenes Geruest und sind fertig. Der
+  /// Sperrbildschirm auch nicht, der ist ein eigener Fall.
+  static const _abfolgeSchirme = {
+    'onboard', 'creating', 'phrase', 'secure', 'restore', 'test', 'nahHilfe',
+    'add',
+  };
+
+  bool get _abfolgeImFenster =>
+      _imFenster && _abfolgeSchirme.contains(screen);
+
+  /// Um diesen Faktor waechst die Schrift der Abfolgen im Fenster.
+  ///
+  /// EIN FAKTOR AN EINER STELLE statt vierzig geaenderter Zahlen: die
+  /// Proportionen des Entwurfs bleiben damit erhalten, und die naechste
+  /// Aenderung muss nicht vierzig Stellen finden. Er greift in [_font], also
+  /// ueberall, wo diese App Text setzt.
+  ///
+  /// 1.15 ist gemessen, nicht geraten: die kleinste Schrift der Abfolgen ist
+  /// `label6` mit 10 pt, und 10 pt sind auf 60 cm Abstand an der Grenze. 11.5
+  /// liest sich dort wie 10 pt in der Hand; mehr liess die Zeilen in der
+  /// Spalte umbrechen, die vorher in eine Zeile passten (30.07.2026, 984 px
+  /// Fenster, 24-Zoll-Schirm).
+  ///
+  /// Die 36-pt-Ueberschrift auf 'onboard' waechst NICHT mit — sie ist dort
+  /// gegengerechnet kleiner gesetzt, siehe [onboardScreen].
+  static const _schriftFaktor = 1.15;
+
+  /// Hoechstbreite eines Knopfes im Fenster.
+  ///
+  /// In der 560er Spalte bleiben 516 px Innenbreite. Ein Knopf darueber ist
+  /// ein Banner — er sieht aus wie eine Kopfzeile mit Rahmen. 320 ist an den
+  /// laengsten Knopfbeschriftungen gemessen ('CREATE IDENTITY',
+  /// 'WIEDERHERSTELLEN', 'ANFRAGE SENDEN' bei 13 pt mal 1.15): sie passen
+  /// ohne Umbruch hinein, und der Knopf sieht noch wie einer aus (30.07.2026).
+  static const _knopfBreiteMax = 320.0;
+
+  /// Begrenzt einen Knopf im Fenster und schlaegt ihn links an.
+  ///
+  /// LINKS UND NICHT MITTIG, weil aller Text dieser Bildschirme links
+  /// anschlaegt (`CrossAxisAlignment.start`). Ein mittiger Knopf unter linkem
+  /// Text sieht aus wie ein Knopf, der zu einem anderen Abschnitt gehoert.
+  Widget _knopfBreite(Widget knopf) => !_imFenster
+      ? knopf
+      : Align(
+          alignment: Alignment.centerLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _knopfBreiteMax),
+            child: knopf,
+          ),
+        );
+
+  /// Ein Gitter mit ZWEI Kaesten je Zeile, gerechnet aus dem Platz, den es HIER
+  /// gibt — nicht aus der Fensterbreite.
+  ///
+  /// EIN BAUSTEIN FUER BEIDE STELLEN: die zwoelf Woerter auf 'phrase' und die
+  /// vierzehn Vierergruppen der Adresse auf 'id'. Vorher stand in beiden
+  /// `MediaQuery.of(context).size.width`, und behoben wurde nur die erste — die
+  /// zweite fiel dem Gegenlesen am 30.07.2026 auf. Mit einer Stelle kann das
+  /// nicht mehr passieren.
+  ///
+  /// WAS DIE FENSTERBREITE FALSCH MACHT: die Spalte, in der diese Bildschirme
+  /// stehen, ist begrenzt — die Abfolgen auf [_fensterspalte] (560 minus zwei
+  /// Seitenlinien minus 44 px Rand = 514 px innen), die rechte
+  /// Schreibtischspalte auf 720 (676 px innen, im Test nachgemessen). Die alte
+  /// Rechnung `(Fensterbreite - 44 - 6) / 2` ergab bei 984 px Fenster 467 px je
+  /// Kasten: in 514 px passte davon nur EINER je Zeile. Ab 1078 px Fenster
+  /// (bzw. 1402 px bei 676 px Innenbreite) ist der Kasten sogar breiter als der
+  /// Platz — RenderWrap klemmt ihn dann auf die Spaltenbreite, also wieder
+  /// einer je Zeile. Beides fiel genau die Lesehilfe zusammen, deren Zweck das
+  /// Vergleichen ist.
+  ///
+  /// `con.maxWidth` ist der Platz INNERHALB des Randes, die 44 sind darin also
+  /// schon abgezogen — auf Android kommt dasselbe heraus wie vorher.
+  Widget _zweiSpaltenGitter(int anzahl, Widget Function(int i) bau) =>
+      LayoutBuilder(
+        builder: (_, con) => Wrap(spacing: 6, runSpacing: 6, children: [
+          for (var i = 0; i < anzahl; i++)
+            SizedBox(width: (con.maxWidth - 6) / 2, child: bau(i)),
+        ]),
+      );
+
+  // ── Schreibtisch ────────────────────────────────────────────────────────
+  //
+  // WARUM UEBERHAUPT EIN ZWEITES GERUEST. Zuerst habe ich die Telefon-
+  // Oberflaeche nur auf 460 Pixel begrenzt und mittig gestellt. Das behob den
+  // 1430 Pixel breiten Eingabekasten, sah aber aus wie eine Telefon-App in
+  // einem zu grossen Fenster — ein schmaler Streifen mit viel Leere daneben.
+  // Henrik hat das am 30.07.2026 genau so beanstandet, und er hatte recht: das
+  // war ein Kompromiss, keine Desktop-App.
+  //
+  // NEU IST NUR DIE ANORDNUNG. Die Bildschirme selbst bleiben, wie sie sind —
+  // `chatsScreen()` links, der Rest rechts. Kein zweiter Satz Oberflaeche, der
+  // getrennt gepflegt werden muesste, und kein zweiter Ort, an dem ein Fehler
+  // behoben werden muss.
+
+  /// Ab dieser Fensterbreite lohnen zwei Spalten.
+  ///
+  /// Darunter ist die Telefonanordnung die bessere: 300 Pixel Liste plus einen
+  /// brauchbaren Unterhaltungsbereich gehen sich unter 900 nicht aus, und ein
+  /// gequetschtes Nebeneinander liest schlechter als ein klares Nacheinander.
+  static const _zweiSpaltenAb = 900.0;
+
+  /// Nur diese Bildschirme haben zwei Spalten. Die Einrichtung nicht.
+  ///
+  /// Anmeldung, Wiederherstellen und die Phrase sind Abfolgen — Schritt fuer
+  /// Schritt, ein Gedanke je Bild. Die gehoeren auch auf dem Desktop in eine
+  /// Spalte, sonst steht rechts eine leere Flaeche und fragt, was man dort
+  /// verpasst hat.
+  static const _schreibtischSchirme = {'chats', 'chat', 'id', 'set'};
+
+  bool get _zweiSpalten =>
+      _imFenster && MediaQuery.sizeOf(context).width >= _zweiSpaltenAb;
+
+  bool get _amSchreibtisch =>
+      _zweiSpalten &&
+      st.bereit &&
+      !st.gesperrt &&
+      _schreibtischSchirme.contains(screen);
+
+  /// Liste links, Inhalt rechts.
+  Widget schreibtischGeruest() => Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 300,
+            child: Column(children: [
+              Expanded(child: chatsScreen()),
+              buildNav(),
+            ]),
+          ),
+          Container(width: 1, color: p.lineSoft),
+          Expanded(child: _rechteSpalte()),
+        ],
+      );
+
+  /// Was rechts steht, haengt am gewaehlten Bildschirm.
+  ///
+  /// 'chats' heisst hier NICHT "die Liste nochmal", sondern "es ist nichts
+  /// ausgewaehlt" — links steht sie ja schon.
+  Widget _rechteSpalte() {
+    final inhalt = switch (screen) {
+      'chat' => chatScreen(),
+      'id' => idScreen(),
+      'set' => settingsScreen(),
+      _ => _nichtsGewaehlt(),
+    };
+    // Auch rechts nicht unbegrenzt: eine Textzeile ueber 1200 Pixel liest
+    // niemand, und die Einstellungen sind fuer eine Spalte entworfen.
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720),
+        child: inhalt,
+      ),
+    );
+  }
+
+  Widget _nichtsGewaehlt() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(
+            t('noChats'),
+            textAlign: TextAlign.center,
+            style: mono(size: 12, color: p.dim, height: 1.6),
+          ),
+        ),
+      );
   List<Color> get avp => mode == 'dark' ? avPalDark : avPalLight;
   String t(String k) => strings[lang]![k] ?? k;
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // OHNE `if (_imFenster)` und VOR `_tastenFokus.dispose()`: die Weiche haengt
+    // an `defaultTargetPlatform`, und im Test setzt der Fenster-Fall sie zurueck,
+    // BEVOR flutter_test den Baum abbaut — mit der Bedingung waere der Horcher
+    // hier haengengeblieben und haette auf einen abgeraeumten State gezeigt.
+    //
+    // AUF ANDROID LAEUFT DIESE ZEILE ALSO INS LEERE, und das ist Absicht:
+    // angemeldet wird der Horcher nur unter `if (_imFenster)` (initState,
+    // main.dart:425-429). `removeListener` auf einen nicht angemeldeten Horcher
+    // ist ein Nichts — `ChangeNotifier.removeListener` laeuft die Liste ab und
+    // tut nichts, wenn er nicht drinsteht, ohne assert und ohne Wurf
+    // (change_notifier.dart:339-363; `FocusManager` mischt ChangeNotifier ein
+    // und ueberschreibt die Methode nicht, focus_manager.dart:1636. Nachgesehen
+    // am 30.07.2026). Steht hier ohne Weiche, damit nicht bei jedem Gegenlesen
+    // dieselbe Frage neu aufkommt.
+    FocusManager.instance.removeListener(_fokusNachfassen);
     st.removeListener(_aktualisiere);
+    _chatScroll.dispose();
     draftCtl.dispose();
     addCtl.dispose();
     codeCtl.dispose();
@@ -279,6 +812,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     pwCtl.dispose();
     pwCtl2.dispose();
     phraseCtl.dispose();
+    _phraseFokus.dispose();
+    _addFokus.dispose();
+    _tastenFokus.dispose();
     super.dispose();
   }
 
@@ -289,6 +825,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   // drive that axis reliably, so the axis is set explicitly via fontVariations
   // and `fontWeight` is kept for Flutter's own fallback/metrics handling.
   TextStyle _font(String family, double size, FontWeight weight, Color? color, double? spacing, double height) {
+    // DIE EINE STELLE, an der die Schrift der Abfolgen im Fenster waechst —
+    // siehe [_schriftFaktor]. Der Faktor haengt am Bildschirm und nicht nur an
+    // der Plattform: die vier fertigen Schreibtisch-Bildschirme sind
+    // ausgemessen, wie sie sind, und sollen sich nicht verschieben.
+    if (_abfolgeImFenster) size *= _schriftFaktor;
     return TextStyle(
       fontFamily: family,
       fontVariations: [FontVariation('wght', weight.value.toDouble())],
@@ -354,10 +895,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // Die Richtung mitfuehren, damit ein Tippen auf die Leiste genauso
     // aussieht wie ein Wischen dorthin. Sonst kaeme der Bildschirm beim Tippen
     // immer von rechts, auch wenn man nach links gegangen ist.
+    // BEIM VERLASSEN DER UNTERHALTUNG DAS GEDAECHTNIS LOESCHEN.
+    //
+    // Sonst gilt das erneute Oeffnen DERSELBEN Unterhaltung nicht als Wechsel,
+    // und sie geht dort auf, wo man sie verlassen hat — beim Testen war das
+    // ganz oben, bei der aeltesten Nachricht.
+    if (screen == 'chat' && s != 'chat') _scrollChat = null;
     final von = reiter.indexOf(screen);
     final nach = reiter.indexOf(s);
     if (von >= 0 && nach >= 0 && von != nach) _richtung = nach > von ? 1 : -1;
     setState(() { screen = s; sheet = false; panic = false; });
+    // JEDES MAL neu fragen, nicht einmal beim Start. Bluetooth laesst sich
+    // ausserhalb der App umschalten; eine gemerkte Antwort waere spaetestens
+    // beim zweiten Hinsehen falsch, und der Nutzer saehe "Bluetooth ist aus",
+    // waehrend es laengst an ist.
+    if (s == 'set') unawaited(st.pruefeFunk());
   }
 
   /// Legt eine echte Identitaet an und zeigt danach die zwoelf Woerter.
@@ -377,6 +929,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final d = draftCtl.text.trim();
     if (d.isEmpty || chat == null) return;
     draftCtl.clear();
+    // VOR dem Senden setzen, nicht danach: `senden` meldet die Aenderung
+    // selbst, der Neubau laeuft also noch waehrend dieses `await`. Danach
+    // waere die Marke zu spaet.
+    _selbstGeschrieben = true;
     await st.senden(chat!, d);
   }
 
@@ -641,18 +1197,24 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           hinweis: t('scanHint'),
           keineKamera: t('scanNoCamera'),
           abbrechen: t('cancel'),
-          istGueltig: (s) =>
-              st.adresseGueltig(s.replaceAll(RegExp(r'[s-]'), '')),
+          // BEIDE STELLEN MUESSEN NORMALISIEREN, und beide auf dieselbe Art.
+          //
+          // Hier stand `RegExp(r'[s-]')` — eine Zeichenklasse aus 's' und '-',
+          // nicht "Leerraum oder Strich". Aus jeder gescannten Adresse fiel
+          // damit der Buchstabe s heraus, und Adressen sind Base32 in
+          // Kleinbuchstaben: s kommt in fast jeder vor. Die Pruefsumme
+          // scheiterte, der Leser nahm den Code NIE an und suchte weiter. Von
+          // aussen sah es aus, als koenne die App keine QR-Codes lesen.
+          //
+          // Unten in dieser Methode war derselbe Fehler schon behoben — hier
+          // oben nicht, und HIER faellt die Entscheidung. Deshalb steht jetzt
+          // an beiden Stellen dieselbe Funktion statt einer zweiten
+          // handgeschriebenen Fassung davon.
+          istGueltig: (s) => st.adresseGueltig(BitdmAddress.normalize(s)),
         ),
       ),
     );
     if (adresse == null || !mounted) return;
-    // ACHTUNG, HIER STAND EIN ECHTER FEHLER: RegExp(r'[s-]') ist eine
-    // Zeichenklasse aus 's' und '-', nicht "Leerraum oder Strich". Aus jeder
-    // gescannten Adresse fiel damit der Buchstabe s heraus — und Adressen sind
-    // Base32 in Kleinbuchstaben, s kommt in fast jeder vor. Das Ergebnis
-    // scheiterte an der Pruefsumme, und es sah aus, als taugte der QR-Code
-    // nicht.
     setState(() => addCtl.text = adresseFormatiert(BitdmAddress.normalize(adresse)));
   }
 
@@ -707,19 +1269,40 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         child: Text(s.toUpperCase(), style: mono(size: 10, color: p.dim, spacing: 1.8)),
       );
 
-  Widget outlineBtn(String labelTxt, VoidCallback onTap,
-      {bool accent = true, double fontSize = 12, EdgeInsets? padding, FontWeight weight = FontWeight.w600, Color? textColor}) {
-    return GestureDetector(
+  /// [onTap] darf null sein: dann ist der Knopf sichtbar, aber nicht bedienbar
+  /// — und behaelt den Standardzeiger, statt eine Hand zu zeigen, die nichts
+  /// verspricht. [fuellung] und [rahmen] sind fuer die Faelle, in denen ein
+  /// Knopf einen Hintergrund traegt (der Start des Verbindungstests) — dort
+  /// gehoeren Fuellung und Rahmen zusammen, `accent` allein trifft es nicht.
+  Widget outlineBtn(String labelTxt, VoidCallback? onTap,
+      {bool accent = true, double fontSize = 12, EdgeInsets? padding, FontWeight weight = FontWeight.w600, Color? textColor, Color? fuellung, Color? rahmen}) {
+    // RUECKMELDUNG OHNE LAYOUT: nur Rahmenfarbe und Fuellung wechseln, nie
+    // Rahmenbreite oder Abstand. Ein Fokusring aussen herum haette jeden Knopf
+    // im Fenster um 3 px verschoben — auch auf den vier fertigen
+    // Schreibtisch-Bildschirmen, die outlineBtn mitbenutzen.
+    //
+    // p.accHover lag seit dem Entwurf in beiden Paletten und wurde nirgends
+    // benutzt (data.dart:58/80, nachgesehen am 30.07.2026). Die Entscheidung
+    // war also getroffen, nur nie angeschlossen.
+    return _Bedienbar(
+      imFenster: _imFenster,
       onTap: onTap,
-      child: Container(
-        padding: padding ?? const EdgeInsets.symmetric(vertical: 13),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: accent ? p.accent : p.line),
+      bau: (ueber, fokus) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: padding ?? const EdgeInsets.symmetric(vertical: 13),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: fokus ? p.wash : fuellung,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+                color: ueber || fokus
+                    ? p.accHover
+                    : (rahmen ?? (accent ? p.accent : p.line))),
+          ),
+          child: Text(labelTxt.toUpperCase(),
+              style: mono(size: fontSize, weight: weight, color: textColor ?? (accent ? p.ink : p.muted), spacing: fontSize * 0.12)),
         ),
-        child: Text(labelTxt.toUpperCase(),
-            style: mono(size: fontSize, weight: weight, color: textColor ?? (accent ? p.ink : p.muted), spacing: fontSize * 0.12)),
       ),
     );
   }
@@ -732,12 +1315,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// danebengetippt — nicht von ungeschickten Leuten, sondern von allen, nur
   /// unterschiedlich oft.
   Widget iconBtn(String glyph, VoidCallback onTap, {Color? color, double fontSize = 15}) =>
-      Masse.trefferflaeche(
+      _Bedienbar(
+        imFenster: _imFenster,
         onTap: onTap,
-        child: Container(
-          width: 30, height: 30, alignment: Alignment.center,
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
-          child: Text(glyph, style: TextStyle(color: color ?? p.muted, fontSize: fontSize, height: 1)),
+        bau: (ueber, fokus) => Masse.trefferflaeche(
+          onTap: onTap,
+          child: Container(
+            width: 30, height: 30, alignment: Alignment.center,
+            decoration: BoxDecoration(
+                color: fokus ? p.wash : null,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: ueber || fokus ? p.accHover : p.line)),
+            child: Text(glyph, style: TextStyle(color: ueber ? p.accHover : (color ?? p.muted), fontSize: fontSize, height: 1)),
+          ),
         ),
       );
 
@@ -751,19 +1342,56 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // Auch "noch nicht bereit" gehoert dazu: waehrend boot() laeuft, steht
     // hinter der Leiste noch nichts.
     final showNav = st.bereit && !st.gesperrt && reiter.contains(screen);
-    return Scaffold(
+
+    // WER UNTEN EINE EIGENE LEISTE HAT, bringt seinen Abstand selbst mit —
+    // die Reiterleiste und die Schreibzeile im Chat tun das, weil ihr
+    // Hintergrund bis unter die Systemleiste durchlaufen soll. Alle anderen
+    // Bildschirme bekommen ihn hier.
+    //
+    // OHNE DAS lag jeder unten angeschlagene Knopf IN den Systemtasten. Am
+    // 26.07.2026 auf einem S10 gesehen und im Emulator nachgestellt: bei
+    // 1080x2280 mit drei Tasten ragte "I WROTE THEM DOWN" 68 Pixel in die
+    // Leiste. Ein Tipp darauf loeste HOME aus statt des Knopfes — die
+    // Testautomatik ist genau daran aus der App geflogen, bevor ein Mensch es
+    // gemeldet hat.
+    //
+    // Auf dem Emulator mit Wischgesten fiel es nicht auf: dort ist die Leiste
+    // 72 statt 126 Pixel hoch, und der Knopf ragte nur 6 Pixel hinein.
+    final eigeneLeiste = showNav || screen == 'chat';
+
+    // ZURUECKWISCHEN GEHT ZURUECK, NICHT RAUS.
+    //
+    // Diese App wechselt den Bildschirm ueber eine Variable (`screen`), nicht
+    // ueber den Navigator. Fuer Android heisst das: der Stapel ist leer, egal
+    // wie tief man in der App steht — und die Zurueck-Geste beendet sie. Aus
+    // einer Unterhaltung herauszuwischen schloss BitDM.
+    //
+    // `canPop: false` faengt die Geste ab, solange es hier drin noch etwas zu
+    // schliessen gibt; erst auf der Chatliste (und im Onboarding) darf sie
+    // durch. Die Ziele sind dieselben wie bei den ‹-Knoepfen — zwei Wege,
+    // eine Ordnung.
+    final Widget geruest = Scaffold(
       backgroundColor: p.bg,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         bottom: false,
         child: Stack(
           children: [
-            Column(
-              children: [
-                Expanded(child: buildScreen()),
-                if (showNav) buildNav(),
-              ],
-            ),
+            if (_amSchreibtisch)
+              SafeArea(top: false, child: schreibtischGeruest())
+            else
+              _aufTelefonbreite(Column(
+                children: [
+                  Expanded(
+                    child: SafeArea(
+                      top: false,
+                      bottom: !eigeneLeiste,
+                      child: buildScreen(),
+                    ),
+                  ),
+                  if (showNav) buildNav(),
+                ],
+              )),
             if (enroll != null) enrollModal(),
             if (sheet && screen == 'chat') encSheet(),
             if (panic && screen == 'set') panicModal(),
@@ -789,6 +1417,374 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                   child: const Text('≡', style: TextStyle(fontSize: 20, height: 1)),
                 ),
     );
+
+    // KEIN EINBRENNSCHUTZ IM FENSTER. Er ist fuer ein OLED-Telefon gebaut
+    // (Begruendung ab Zeile 132) — an einem Schreibtischschirm gibt es den
+    // Grund nicht, dafuer eine neue Nebenwirkung: alle 40 Sekunden wandert
+    // jedes Ziel unter dem Mauszeiger um bis zu 2 px weg, und die neuen
+    // Ueberfahr-Zustaende flackern dabei. Im Fenster faellt damit auch der
+    // 40-Sekunden-Rebuild des ganzen Baums weg.
+    return PopScope(
+      // Der Schluessel ist fuer den Test da, und das ist kein Selbstzweck:
+      // ueber den Typ ist dieses Widget nicht sicher zu finden (der
+      // Typparameter wird abgeleitet, und das Geruest der App bringt eigene
+      // PopScopes mit). Ohne ihn wuerde der Test irgendeines pruefen.
+      key: const Key('zurueckWaechter'),
+      canPop: _zurueckZiel() == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _gehZurueck();
+      },
+      child: _mitTasten(
+          _imFenster ? geruest : Einbrennschutz(child: geruest)),
+    );
+  }
+
+  /// Legt Eingabetaste und Escape auf die Abfolgen — nur im Fenster.
+  ///
+  /// WARUM UEBER DEN VORHANDENEN WEGEN UND NICHT DANEBEN: Escape ruft
+  /// [_gehZurueck], also genau die Logik, die schon hinter der Zurueck-Geste
+  /// und den ‹-Knoepfen steht. Eine zweite Ordnung der Zurueck-Ziele waere die
+  /// naechste Stelle, an der beide auseinanderlaufen. Auf 'phrase' und
+  /// 'creating' gibt [_zurueckZiel] absichtlich null zurueck — dort tut Escape
+  /// dann auch nichts, und das ist richtig: die zwoelf Woerter stehen nur
+  /// einmal da.
+  ///
+  /// Die Eingabetaste liegt auf dem Hauptknopf — aber nur, solange sie kein
+  /// naeherer Knoten vorher abfaengt. Zwei tun das, und beide gehoeren zu
+  /// Flutter, nicht hierher:
+  ///
+  ///   * JEDES BEDIENELEMENT bringt fuer [ActivateIntent] seine eigene Handlung
+  ///     mit ([_Bedienbar] setzt sie ueber [_aktivierung]). Die Handlung wird
+  ///     von unten nach oben gesucht, also findet sie zuerst die des Knopfes.
+  ///   * EIN FOKUSSIERTES TEXTFELD faengt die blanke Eingabe- UND Leertaste ab,
+  ///     bevor daraus ueberhaupt eine Absicht wird: `DefaultTextEditingShortcuts`
+  ///     haengt UNTER dem `Shortcuts` von WidgetsApp, sieht die Taste also
+  ///     zuerst, und bildet beide auf `DoNothingAndStopPropagationTextIntent`
+  ///     ab. Das gilt fuer ALLE VIER Plattformen hinter [_imFenster], und zwar
+  ///     ueber DREI verschiedene Wege — einzeln nachgesehen am 30.07.2026 in
+  ///     flutter/lib/src/widgets/default_text_editing_shortcuts.dart
+  ///     (flutter-Baum C:\flutter, Stand 058e0af2):
+  ///
+  ///     - WINDOWS und LINUX nehmen das Paar aus `_clipboardShortcuts` (294;
+  ///       Leertaste 328, Eingabetaste 329, mit dem Kommentar "these keys should
+  ///       go to the IME when a field is focused"). Eingestreut wird es in
+  ///       `_windowsShortcuts` (779, Streuung 781) und `_linuxShortcuts` (546,
+  ///       Streuung 548). `_androidShortcuts` (345, Streuung 347) fuehrt es
+  ///       ebenfalls — dort greift [_imFenster] aber gar nicht, die Zeile stand
+  ///       hier vorher zu Unrecht als Beleg.
+  ///     - MACOS nimmt `_clipboardShortcuts` NICHT. `_macShortcuts` (590)
+  ///       traegt dasselbe Paar als eigene Eintraege (Leertaste 753,
+  ///       Eingabetaste 754), mit demselben Intent und demselben Kommentar.
+  ///       Ausgewaehlt wird das Buendel in `_shortcuts` (961-970). Oben drauf
+  ///       haengt auf macOS ausserdem `_macDisablingTextShortcuts` (897) noch
+  ///       naeher am Feld; darin liegt das Paar ueber
+  ///       `_commonDisablingTextShortcuts` (863; Leertaste 893, Eingabetaste
+  ///       894) ein drittes Mal.
+  ///     - IM WEB kommt `_webDisablingTextShortcuts` (828) als zweites,
+  ///       naeheres `Shortcuts` dazu (`_getDisablingShortcut` 972-988, gebaut in
+  ///       1005-1020). Es streut ebenfalls `_commonDisablingTextShortcuts` und
+  ///       riegelt Leer- und Eingabetaste damit unabhaengig davon, welche
+  ///       Plattform der Browser meldet.
+  ///
+  ///     `EditableText` antwortet auf diesen Intent mit
+  ///     `DoNothingAction(consumesKey: false)` (editable_text.dart:5597): die
+  ///     Taste gilt als NICHT verbraucht und erreicht die Textschicht als
+  ///     Umbruch bzw. Leerzeichen. Deshalb steht in [_mitStrgEingabe] auch keine
+  ///     Gegenmassnahme — sie waere eine zweite Ordnung ohne Wirkung.
+  ///
+  ///     WAS DAVON GEMESSEN IST: windows und macOS laufen beide im Fenster-Fall
+  ///     "IM PHRASENFELD UND IM ADRESSFELD BLEIBEN EINGABE UND LEERTASTE BEIM
+  ///     TEXT" (fenster_abfolge_test.dart, Schleife ueber die Plattformen).
+  ///     linux teilt sich `_clipboardShortcuts` mit windows, wird also von
+  ///     derselben Fundstelle getragen. NICHT GEMESSEN ist das WEB: `kIsWeb` ist
+  ///     eine Konstante des Uebersetzers, im Widget-Test laesst sie sich nicht
+  ///     setzen — dafuer steht hier nur die Fundstelle, kein Messwert.
+  ///
+  /// Der Tastenfang selbst bringt keine Handlung mit. Hat er den Fokus, laeuft
+  /// die Suche an ihm vorbei und findet die Karte hier.
+  ///
+  /// DAS WAR DER GEFAEHRLICHSTE FEHLER DES 30.07.2026 und er ist es wert,
+  /// aufgeschrieben zu werden: die Bindung hing zuerst als blanke Eingabetaste
+  /// in `CallbackShortcuts`. Tastenereignisse laufen vom fokussierten Knoten
+  /// nach OBEN, und dieses CallbackShortcuts lag naeher am Knopf als das
+  /// `Shortcuts` von WidgetsApp — es sah die Taste also zuerst und meldete sie
+  /// als behandelt (shortcuts.dart, `_applyKeyEventBinding`: `accepts` wahr →
+  /// handled, ganz egal, was der Rueckruf tut — ein Wachposten im Rueckruf
+  /// haette die Taste also trotzdem verbraucht, und der naheliegende Vorschlag
+  /// `if (primaryFocus != _tastenFokus) return;` haette den Fehler nur
+  /// versteckt). FOLGE: auf 'onboard' legte Tab auf "Ich habe schon 12 Woerter"
+  /// plus Eingabe eine NEUE IDENTITAET an. Die Leertaste ging richtig, weil sie
+  /// nicht gebunden war — die beiden Tasten liefen auseinander.
+  ///
+  /// Deshalb liegt die Eingabetaste jetzt als [_aktivierung] AM Fang und nicht
+  /// als Taste darueber: WidgetsApp macht aus der Taste ein `ActivateIntent`,
+  /// und dessen Handlung wird von unten nach oben gesucht. Hat ein Knopf den
+  /// Fokus, findet die Suche zuerst SEINE Handlung; hat der Fang den Fokus,
+  /// findet sie diese hier. Festgenagelt in
+  /// test/oberflaeche/fenster_abfolge_test.dart.
+  ///
+  /// Escape bleibt in `CallbackShortcuts`, und zwar bewusst: es soll auch dann
+  /// zurueckfuehren, wenn ein Textfeld oder ein Knopf den Fokus hat. Es haengt
+  /// aber UNTER dem FocusScope der Route — liegt der Fokus dort, kommt Escape
+  /// nicht an. Dagegen stehen [_sorgeFuerFokus] und [_fokusNachfassen].
+  Widget _mitTasten(Widget kind) {
+    if (!_imFenster) return kind;
+    _sorgeFuerFokus();
+    final haupt = _hauptKnopf();
+    // Der Fang MUSS unter den Tasten und unter den Handlungen haengen: geprueft
+    // und gesucht wird nur, was UEBER dem fokussierten Knoten liegt.
+    //
+    // DIE BAUMFORM BLEIBT UEBER ALLE ZUSTAENDE GLEICH. Vorher hing der
+    // Actions-Knoten nur ein, wenn es einen Hauptknopf gab — an derselben
+    // Stelle stand damit einmal Actions und einmal Focus. `Widget.canUpdate`
+    // vergleicht runtimeType, ist dann falsch, und Flutter aktualisiert den
+    // Teilbaum nicht, sondern wirft ihn weg und baut ihn neu
+    // (framework.dart, `updateChild`: deactivateChild + inflateWidget). Jedes
+    // State-Objekt der ganzen App waere neu, samt der Ueberfahr- und
+    // Fokusmarken in [_BedienbarState] — allein weil eine Ueberlagerung
+    // aufgeht. Ohne Hauptknopf steht deshalb eine LEERE Karte drin: dann sucht
+    // [ActivateIntent] einfach weiter nach oben, genau wie ohne den Knoten.
+    //
+    // Sonst aendert hier nichts seine Form: der Zweig oben haengt an
+    // [_imFenster], und das ist die Plattform, keine Regung des Zustands.
+    Widget baum = Focus(focusNode: _tastenFokus, child: kind);
+    baum = Actions(
+      actions: haupt == null
+          ? const <Type, Action<Intent>>{}
+          : _aktivierung(haupt),
+      child: baum,
+    );
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): _gehZurueck,
+      },
+      child: baum,
+    );
+  }
+
+  /// Legt den Tastaturfokus dorthin, wo er hingehoert — einmal je Bild.
+  ///
+  /// EINE STELLE STATT `autofocus` AN DEN FELDERN. Zwei Knoten mit `autofocus`
+  /// in derselben Fokusgruppe sind ein Wettlauf: Flutter wendet nur den ersten
+  /// an, sobald die Gruppe ein fokussiertes Kind hat, wird der zweite
+  /// verworfen. Der Tastenfang haette damit den Feldern den Fokus weggenommen.
+  ///
+  /// Genommen wird der Fokus nur, wenn ihn NICHTS hat: `primaryFocus` ist dann
+  /// der FocusScope der Route. Wer selbst geklickt oder getabbt hat, behaelt
+  /// ihn — auch ein offener Dialog, dessen Feld selbst `autofocus` traegt.
+  void _sorgeFuerFokus() {
+    // EINMAL JE BILDSCHIRM, nicht je Aufbau. [_mitTasten] laeuft im build, und
+    // gebaut wird bei jeder Regung des AppState und bei jedem Fokuswechsel —
+    // jeder Aufruf haengte bisher einen weiteren addPostFrameCallback an.
+    //
+    // Die Marke haengt am Bildschirm und nicht an [go]: 'creating', 'phrase'
+    // und der ‹-Knopf auf 'restore' setzen `screen` direkt per setState, die
+    // gingen bei einem Aufruf in go() leer aus.
+    if (_zuletztFokussiert == screen) return;
+    _zuletztFokussiert = screen;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // "Frei" heisst: es hat niemand ECHTES den Fokus. Der Tastenfang selbst
+      // zaehlt dazu — sonst haette er den Feldern beim Bildschirmwechsel den
+      // Fokus weggenommen und behalten (am 30.07.2026 genau so gemessen: auf
+      // 'restore' stand der Fokus auf dem Fang, nicht im Phrasenfeld).
+      final jetzt = FocusManager.instance.primaryFocus;
+      final frei =
+          jetzt == null || jetzt is FocusScopeNode || jetzt == _tastenFokus;
+      if (!frei) return;
+      // Wo genau ein Bildschirm nur ein Feld hat, gehoert der Fokus dorthin —
+      // sonst muesste man erst mit der Maus hineinklicken, um zu tippen.
+      switch (screen) {
+        case 'restore':
+          _phraseFokus.requestFocus();
+        case 'add':
+          _addFokus.requestFocus();
+        default:
+          _tastenFokus.requestFocus();
+      }
+    });
+  }
+
+  /// Faengt den Fokus wieder ein, wenn er seinen Knoten VERLIERT.
+  ///
+  /// [_sorgeFuerFokus] setzt ihn einmal je Bildschirm. Danach kann er ohne
+  /// Bildschirmwechsel heimatlos werden, und es bleiben zwei Wege dorthin
+  /// (der dritte, "der Teilbaum wird neu aufgebaut", ist mit der immer gleichen
+  /// Baumform in [_mitTasten] weg — festgenagelt in fenster_abfolge_test.dart,
+  /// "DIE BAUMFORM BLEIBT, WENN DER HAUPTKNOPF WEGFAELLT"):
+  ///
+  ///   * ein Bedienelement verschwindet — sein FocusNode wird abgeraeumt;
+  ///   * sein `onTap` wird null, dann setzt [_Bedienbar] den
+  ///     [FocusableActionDetector] auf `enabled: false`, und dessen FocusNode
+  ///     gibt den Fokus ab, sobald `canRequestFocus` faellt
+  ///     (focus_manager.dart:541-551, `unfocus` mit
+  ///     `UnfocusDisposition.previouslyFocusedChild`; gibt es kein solches
+  ///     Kind, landet der Fokus beim Scope).
+  ///
+  /// Danach liegt der Fokus beim FocusScope der Route, also UEBER [_mitTasten],
+  /// und Escape kommt dort nicht mehr an — bis zum naechsten
+  /// Bildschirmwechsel. Dieselbe Ursache wie beim Tastenfang selbst, nur
+  /// spaeter.
+  ///
+  /// UEBER DEN FOCUSMANAGER UND NICHT UEBER JEDEN AUFBAU. Der Fokuswechsel ist
+  /// ein Ereignis, das es schon gibt; eine Pruefung im build waere dieselbe
+  /// Frage bei jeder Regung des AppState UND sie kaeme zu frueh: aufgegeben
+  /// wird der Fokus erst, wenn der Teilbaum abgebaut ist, also nach dem build,
+  /// das ihn abbaut.
+  ///
+  /// NUR IN DER EIGENEN ROUTE. Ein Dialog bringt seinen eigenen FocusScope mit
+  /// ([_frageGeheimnis], der Entwicklersprung); dessen Fokus gehoert ihm, und
+  /// ihn zurueckzuholen machte den Dialog unbedienbar. Verglichen wird deshalb
+  /// mit genau dem Scope, in dem der Tastenfang haengt — haengt der gar nicht
+  /// im Baum, ist er null, und dann ist hier nichts zu tun.
+  /// UND ES BLEIBT BEI EINEM RUECKRUF JE FOKUSVERLUST — gemessen, nicht
+  /// geschlossen. Diese Methode laeuft NICHT im build, sondern in einem
+  /// Microtask (`FocusManager._markNeedsUpdate` →
+  /// `scheduleMicrotask(applyFocusChangesIfNeeded)`, focus_manager.dart:1931;
+  /// das `notifyListeners` darin nur bei echter Aenderung, Zeile 1999-2001).
+  /// [_sorgeFuerFokus] haengt seine Arbeit aber an einen
+  /// `addPostFrameCallback` — zwischen Microtask und Frame liegt also Platz fuer
+  /// weitere Fokuswechsel. Am 30.07.2026 mit einem Zaehler im Rueckruf gezaehlt,
+  /// im Fenster-Zweig auf 'restore':
+  ///
+  ///   * ein einzelner Fokusverlust (`unfocus()`, wie im ESCAPE-Fall):
+  ///     1 Rueckruf.
+  ///   * drei Fokusverluste OHNE Frame dazwischen (nur `tester.idle()`, damit
+  ///     die Microtasks laufen): 0 Rueckrufe vor dem Frame, 3 danach — also
+  ///     drei, die alle im SELBEN Frame laufen.
+  ///   * dieselben drei Verluste MIT einem Frame dazwischen: 3, einer je Frame.
+  ///
+  /// Immer genau einer je Verlust, nie mehr. Der Grund steckt in der Reihenfolge
+  /// hier: die Marke wird geloest und von [_sorgeFuerFokus] noch im SELBEN
+  /// synchronen Aufruf wieder gesetzt, ein build kann dazwischen keinen zweiten
+  /// Rueckruf anhaengen. Und laufen doch mehrere im selben Frame, tun sie
+  /// dasselbe: `screen` kann sich innerhalb eines Frames nicht aendern, also
+  /// greifen alle nach demselben Knoten, und `requestFocus` auf den schon
+  /// vorgemerkten ist ein Nichts. Deshalb steht hier keine zweite Marke.
+  void _fokusNachfassen() {
+    final eigener = _tastenFokus.enclosingScope;
+    if (eigener == null || FocusManager.instance.primaryFocus != eigener) return;
+    // Die Marke loesen, sonst haelt [_sorgeFuerFokus] den Bildschirm fuer schon
+    // versorgt. Eine Endlosschleife wird das nicht: der naechste Aufruf kommt
+    // erst beim naechsten FOKUSWECHSEL, und nach dem gelungenen Griff ist
+    // `primaryFocus` nicht mehr der Scope.
+    _zuletztFokussiert = null;
+    _sorgeFuerFokus();
+  }
+
+  /// Legt Strg+Eingabe auf [tun], solange [kind] den Fokus hat — nur im Fenster.
+  ///
+  /// Fuer mehrzeilige Felder: dort ist die Eingabetaste der Zeilenumbruch und
+  /// darf es bleiben. Auf dem Telefon gibt es keine Strg-Taste, dort faellt die
+  /// Huelle weg statt wirkungslos dazwischenzuliegen.
+  ///
+  /// UND HIER STEHT NICHTS, DAS DIE BLANKE EINGABETASTE ABWEHRT — geprueft und
+  /// nicht angenommen. Die Handlungskarte aus [_mitTasten] liegt ueber dem
+  /// ganzen Baum, ein Textfeld braeuchte also eigentlich einen Riegel. Es hat
+  /// schon einen, und der gehoert zu Flutter: `DefaultTextEditingShortcuts`
+  /// haengt naeher am Feld als das `Shortcuts` von WidgetsApp und bildet die
+  /// blanke Eingabe- und Leertaste auf
+  /// `DoNothingAndStopPropagationTextIntent` ab, bevor daraus [ActivateIntent]
+  /// wird — Begruendung, Fundstellen und Zahlen stehen bei [_mitTasten].
+  ///
+  /// GEMESSEN am 30.07.2026 im Fenster-Zweig: mit einem
+  /// `Actions(ActivateIntent: DoNothingAction(consumesKey: false))` um das Feld
+  /// UND ohne es laufen dieselben Faelle gruen (fenster_abfolge_test.dart, "IM
+  /// PHRASENFELD BLEIBEN EINGABE UND LEERTASTE BEIM TEXT"). Ein Riegel, der
+  /// nichts verriegelt, ist nicht drin: er saehe wie eine Notwendigkeit aus und
+  /// naehme dem naechsten Leser die Begruendung, die oben steht.
+  Widget _mitStrgEingabe(VoidCallback tun, Widget kind) => !_imFenster
+      ? kind
+      : CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.enter, control: true): tun,
+            const SingleActivator(LogicalKeyboardKey.numpadEnter, control: true):
+                tun,
+          },
+          child: kind,
+        );
+
+  /// Der eine offensichtliche Weiter-Knopf des aktuellen Bildschirms.
+  ///
+  /// Ein switch an derselben Stelle wie die Bildschirmwahl und keine neue
+  /// Abstraktion: wer hier einen Bildschirm vergisst, sieht das an der Liste.
+  /// Null heisst "kein eindeutiger Hauptknopf" — dann tut die Eingabetaste
+  /// nichts, und das ist besser als eine Taste, die auf einem Bildschirm etwas
+  /// anderes tut als auf dem daneben.
+  VoidCallback? _hauptKnopf() {
+    if (!st.bereit || st.gesperrt) return null;
+    // Solange eine Ueberlagerung offen ist, gehoert die Taste ihr.
+    if (enroll != null || panic || sheet) return null;
+    return switch (screen) {
+      'onboard' => doCreate,
+      'phrase' => () {
+          st.phraseBestaetigt();
+          go('secure');
+        },
+      'secure' => () => go('id'),
+      'restore' => _stelleWieder,
+      'add' => sendReq,
+      'test' => st.testLaeuft ? null : () => st.verbindungPruefen(),
+      _ => null,
+    };
+  }
+
+  /// Wohin die Zurueck-Geste als Naechstes fuehrt — oder null, wenn es hier
+  /// nichts mehr zu schliessen gibt und die App sich beenden darf.
+  ///
+  /// Getrennt von [_gehZurueck], weil `PopScope.canPop` die Antwort BEIM BAUEN
+  /// braucht, das Handeln aber erst danach kommt. Eine Methode, die beides
+  /// taete, muesste beim Bauen schon etwas veraendern.
+  ///
+  /// Die Rueckgabe ist entweder ein Bildschirmcode oder eine der '#'-Marken
+  /// fuer die Ueberlagerungen — die haben keinen eigenen Bildschirm, muessen
+  /// aber zuerst weg.
+  String? _zurueckZiel() {
+    // Ueberlagerungen zuerst, in der Reihenfolge, in der sie uebereinander
+    // liegen: was oben liegt, geht zuerst.
+    if (enroll != null) return '#enroll';
+    if (panic && screen == 'set') return '#panic';
+    if (sheet && screen == 'chat') return '#sheet';
+
+    // Gesperrt: die Geste darf die Sperre nicht umgehen. Sie beendet die App,
+    // und das ist richtig so — die Identitaet bleibt verschlossen.
+    if (st.gesperrt) return null;
+
+    return switch (screen) {
+      // Unterbildschirme, zurueck zu ihrem Ausgangspunkt. Dieselben Ziele wie
+      // die ‹-Knoepfe in den jeweiligen Kopfzeilen.
+      'chat' || 'add' => 'chats',
+      'test' || 'nahHilfe' => 'set',
+      'secure' => 'id',
+      'restore' => 'onboard',
+
+      // Die Reiter: zurueck heisst zum ersten Reiter, wie ueberall unter
+      // Android.
+      'id' || 'set' => 'chats',
+
+      // 'chats' ist die Wurzel, 'onboard' der Anfang — dort beendet die Geste
+      // die App. 'creating' und 'phrase' ebenfalls, und zwar mit Absicht: die
+      // Wiederherstellungswoerter stehen nur einmal da. Ein Zurueck mitten
+      // hinein waere ein Weg, sie zu verlieren.
+      _ => null,
+    };
+  }
+
+  void _gehZurueck() {
+    final ziel = _zurueckZiel();
+    if (ziel == null) return;
+    switch (ziel) {
+      case '#enroll':
+        setState(() { enroll = null; stickSchritt = null; });
+      case '#panic':
+        setState(() => panic = false);
+      case '#sheet':
+        setState(() => sheet = false);
+      case 'onboard':
+        setState(() { screen = 'onboard'; restoreFehler = null; });
+      default:
+        go(ziel);
+    }
   }
 
   /// Die drei Reiter der unteren Leiste, in ihrer Reihenfolge.
@@ -833,6 +1829,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       'id' => idScreen(),
       'add' => addScreen(),
       'restore' => wiederherstellenScreen(),
+      'test' => testScreen(),
+      'nahHilfe' => nahHilfeScreen(),
       'chats' => chatsScreen(),
       'chat' => chatScreen(),
       'set' => settingsScreen(),
@@ -886,14 +1884,25 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   // ---- ONBOARD ----
   Widget onboardScreen() {
     return LayoutBuilder(builder: (ctx, con) {
-      return SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: con.maxHeight),
-          child: IntrinsicHeight(
-            child: Padding(
-              padding: const EdgeInsets.all(22),
+      // IM FENSTER OBEN ANSCHLAGEN. Der Inhalt ist etwa 700 px hoch; in dem
+      // 984x1040 grossen Fenster vom 30.07.2026 blieben durch die Zentrierung
+      // oben und unten je ueber 160 px tote Flaeche, die die Seitenlinien der
+      // Spalte als fast leeren Kasten mitzeichneten.
+      //
+      // Damit fallen ConstrainedBox und IntrinsicHeight im Fenster weg: sie
+      // sind nur fuer die Zentrierung auf niedrigen Telefonen da, und
+      // IntrinsicHeight kostet bei jedem Aufbau einen zweiten Layout-Durchgang
+      // ueber den ganzen Teilbaum.
+      final Widget inhalt = Padding(
+              // 40 px Kopfabstand im Fenster, gemessen an 1040 px Fensterhoehe:
+              // weniger klebte das Zeichen an der Fensterkante, mehr fing an,
+              // wieder wie Zentrierung auszusehen. Die 22 sind der Rand der
+              // Abfolgen (Masse.rand).
+              padding: EdgeInsets.fromLTRB(22, _imFenster ? 40 : 22, 22, 22),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: _imFenster
+                    ? MainAxisAlignment.start
+                    : MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
@@ -902,7 +1911,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     child: Text('B', style: doto(size: 22, weight: FontWeight.w900, color: p.accLight)),
                   ),
                   const SizedBox(height: 16),
-                  Text('${t('h1a')}\n${t('h1b')}', style: doto(size: 36, weight: FontWeight.w800, color: p.ink, height: 1.05, spacing: 0.4)),
+                  // DIE UEBERSCHRIFT WAECHST NICHT MIT. [_schriftFaktor] ist
+                  // fuer Lesetext gedacht; 36 mal 1.15 waeren 41 pt und
+                  // brachen "SECURE MESSAGING" in der 560er Spalte um. 28 mal
+                  // 1.15 sind 32 pt — im Fenster also bewusst KLEINER als auf
+                  // dem Telefon, wo die Ueberschrift den ganzen Bildschirm
+                  // traegt (30.07.2026).
+                  Text('${t('h1a')}\n${t('h1b')}', style: doto(size: _imFenster ? 28 : 36, weight: FontWeight.w800, color: p.ink, height: 1.05, spacing: 0.4)),
                   const SizedBox(height: 10),
                   Text(t('intro'), style: mono(size: 13.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
                   const SizedBox(height: 16),
@@ -916,7 +1931,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     ),
                   ],
                   const SizedBox(height: 20),
-                  outlineBtn(t('create'), doCreate, padding: const EdgeInsets.all(15), fontSize: 13),
+                  _knopfBreite(outlineBtn(t('create'), doCreate, padding: const EdgeInsets.all(15), fontSize: 13)),
                   const SizedBox(height: 8),
                   Text(t('createNote'), style: mono(size: 11, color: p.dim)),
 
@@ -933,23 +1948,60 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                   const SizedBox(height: 22),
                   Container(height: 1, color: p.lineSoft),
                   const SizedBox(height: 18),
-                  GestureDetector(
-                    onTap: () {
-                      phraseCtl.clear();
-                      setState(() { screen = 'restore'; restoreFehler = null; });
-                    },
-                    child: Text(t('restoreLink').toUpperCase(),
-                        style: mono(size: 11, weight: FontWeight.w600, color: p.accLight, spacing: 1.2)),
-                  ),
+                  // EIN VERWEIS MUSS SICH WIE EINER VERHALTEN. Bisher war das
+                  // ein Text in Akzentfarbe, ueber dem der Zeiger ein
+                  // Text-Cursor blieb — am Schreibtisch das Zeichen fuer "hier
+                  // ist nichts". Und das ist der Weg, den nach einem
+                  // Geraeteverlust jemand dringend braucht.
+                  //
+                  // Unterstrichen wird nur beim Ueberfahren und im Fokus:
+                  // dauerhaft unterstrichen saehe er auf dem Telefon anders aus
+                  // als heute, und dort ist er unstrittig.
+                  _restoreVerweis(),
                   const SizedBox(height: 6),
                   Text(t('restoreLinkSub'), style: mono(size: 11, color: p.dim, height: 1.5)),
                 ],
               ),
-            ),
-          ),
-        ),
+      );
+
+      return SingleChildScrollView(
+        child: _imFenster
+            ? inhalt
+            : ConstrainedBox(
+                constraints: BoxConstraints(minHeight: con.maxHeight),
+                child: IntrinsicHeight(child: inhalt),
+              ),
       );
     });
+  }
+
+  /// Der Weg zur Wiederherstellung auf 'onboard'.
+  Widget _restoreVerweis() {
+    void hin() {
+      phraseCtl.clear();
+      setState(() { screen = 'restore'; restoreFehler = null; });
+    }
+
+    return _Bedienbar(
+      imFenster: _imFenster,
+      onTap: hin,
+      bau: (ueber, fokus) => GestureDetector(
+        onTap: hin,
+        child: Text(
+          t('restoreLink').toUpperCase(),
+          style: mono(
+            size: 11,
+            weight: FontWeight.w600,
+            color: ueber || fokus ? p.accHover : p.accLight,
+            spacing: 1.2,
+          ).copyWith(
+            decoration:
+                ueber || fokus ? TextDecoration.underline : TextDecoration.none,
+            decorationColor: p.accHover,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget bullet(String s) => Padding(
@@ -1212,7 +2264,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          iconBtn('<', () => setState(() { screen = 'onboard'; restoreFehler = null; })),
+          // EINE GLYPHE FUER ALLE ZURUECK-KNOEPFE, auf jeder Plattform. Dieser
+          // hier war der einzige mit '<', 'add', 'test' und 'nahHilfe' hatten
+          // schon '‹' — und die beiden sehen deutlich verschieden aus. Das ist
+          // eine Vereinheitlichung und keine Desktop-Sache: sie aendert das
+          // Zeichen auch auf dem Telefon, und das ist gewollt (30.07.2026).
+          // Nicht auf `go` umgestellt — hier muss zusaetzlich `restoreFehler`
+          // weg.
+          iconBtn('‹', () => setState(() { screen = 'onboard'; restoreFehler = null; })),
           const SizedBox(width: 11),
           Expanded(child: h2(t('restoreTitle'), size: 24)),
         ]),
@@ -1221,14 +2280,37 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
         const SizedBox(height: 16),
 
-        Container(
+        // DER RAHMEN ZEIGT DEN FOKUS — IM FENSTER. Der Kasten zeichnet den
+        // Rahmen, das Feld darin weiss nichts davon; beim Hineinklicken oder
+        // Hineintabben aenderte sich bisher nichts Sichtbares, und auf einem
+        // leeren Feld war damit nicht zu erkennen, dass es am Zug ist. Auf dem
+        // Telefon bleibt er still: dort ist Tippen ins Feld der Normalfall, der
+        // Rahmen wuerde bei jeder Benutzung wechseln, und jeder Wechsel kostet
+        // einen Neubau des ganzen _HomeState (siehe initState).
+        //
+        // DEN FOKUS BEIM OEFFNEN bekommt dieses Feld im Fenster von
+        // [_sorgeFuerFokus] — nicht ueber `autofocus`, siehe die Begruendung
+        // dort. Auf dem Telefon geschieht das absichtlich nicht: dort wuerde
+        // die Tastatur ungefragt aufklappen und den halben Bildschirm nehmen.
+        // STRG+EINGABE STELLT WIEDER HER, Eingabe allein nicht: das Feld hat
+        // vier Zeilen, dort ist die Eingabetaste der Zeilenumbruch. Strg+
+        // Eingabe ist am Schreibtisch die uebliche Abkuerzung fuer "fertig" in
+        // einem mehrzeiligen Feld — ohne sie war der wichtigste Bildschirm der
+        // App ohne Maus nicht zu bedienen.
+        _mitStrgEingabe(
+          _stelleWieder,
+          Container(
           decoration: BoxDecoration(
               color: p.surf2,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: p.line)),
+              border: Border.all(
+                  color: _imFenster && _phraseFokus.hasFocus
+                      ? p.accent
+                      : p.line)),
           padding: const EdgeInsets.all(12),
           child: TextField(
             controller: phraseCtl,
+            focusNode: _phraseFokus,
             maxLines: 4,
             autocorrect: false,
             enableSuggestions: false,
@@ -1240,6 +2322,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 hintText: t('restoreHint'),
                 hintStyle: mono(size: 13, color: p.dim, height: 1.6)),
           ),
+        ),
         ),
         const SizedBox(height: 6),
         Row(children: [
@@ -1282,8 +2365,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ],
 
         const SizedBox(height: 18),
-        outlineBtn(t('restoreDo'), _stelleWieder,
-            padding: const EdgeInsets.all(14), fontSize: 13),
+        _knopfBreite(outlineBtn(t('restoreDo'), _stelleWieder,
+            padding: const EdgeInsets.all(14), fontSize: 13)),
         const SizedBox(height: 14),
 
         // WAS DIE WIEDERHERSTELLUNG NICHT ZURUECKBRINGT. Das gehoert VOR die
@@ -1295,9 +2378,36 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   // ---- WIRD ANGELEGT ----
+  //
+  // EIN DREHENDER RING GEHOERT DAZU. Vorher war das eine einzige graue Zeile
+  // in der Mitte — in einem 984x1040 grossen Fenster ein winziger Schriftzug
+  // in einer leeren Flaeche, nicht zu unterscheiden von einer haengenden App.
+  // Der Bildschirm steht beim Anlegen, beim Wiederherstellen und beim
+  // Loeschen, und das Wiederherstellen dauert wegen PBKDF2 merkbar laenger als
+  // die versprochene Sekunde.
+  //
+  // KEIN BALKEN UND KEINE PROZENTE: die Dauer ist nicht bekannt. Dieselben
+  // Masse wie der Ring in `methodRow` (strokeWidth 1.6, p.accLight), damit es
+  // nicht nach einem zweiten Entwurf aussieht.
+  //
+  // NUR IM FENSTER, und diesmal nicht nur wegen Android: ein Ring dreht sich
+  // endlos, und `pumpAndSettle` wartet auf das Ende einer Animation. Im
+  // Widget-Test meldet Flutter android — dort bleibt dieser Bildschirm die
+  // eine Zeile, und kein Test wartet auf etwas, das nie aufhoert.
   Widget arbeitetScreen() => Center(
-        child: Text(t('creating').toUpperCase(),
-            style: mono(size: 12, color: p.dim, spacing: 1.8)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (_imFenster) ...[
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                  strokeWidth: 1.6, color: p.accLight),
+            ),
+            const SizedBox(height: 16),
+          ],
+          Text(t('creating').toUpperCase(),
+              style: mono(size: 12, color: p.dim, spacing: 1.8)),
+        ]),
       );
 
   // ---- WIEDERHERSTELLUNGSPHRASE ----
@@ -1312,7 +2422,28 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   // Fremdes anfuehlt.
   Widget phraseScreen() {
     final woerter = st.frischePhrase ?? const <String>[];
-    return Padding(
+
+    // ZWEI SPALTEN AUS DEM PLATZ DER SPALTE, nicht aus der Fensterbreite —
+    // Begruendung und Zahlen stehen an [_zweiSpaltenGitter].
+    final Widget gitter = _zweiSpaltenGitter(
+      woerter.length,
+      (i) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+        decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(4)),
+        child: Row(children: [
+          SizedBox(
+            width: 20,
+            child: Text('${i + 1}', style: mono(size: 10, color: p.dim)),
+          ),
+          Expanded(
+            child: Text(woerter[i],
+                style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
+          ),
+        ]),
+      ),
+    );
+
+    final Widget inhalt = Padding(
       padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         h2(t('phraseTitle')),
@@ -1320,30 +2451,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         Text(t('phraseSub'),
             style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
         const SizedBox(height: 16),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Wrap(spacing: 6, runSpacing: 6, children: [
-              for (var i = 0; i < woerter.length; i++)
-                SizedBox(
-                  width: (MediaQuery.of(context).size.width - 44 - 6) / 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-                    decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(4)),
-                    child: Row(children: [
-                      SizedBox(
-                        width: 20,
-                        child: Text('${i + 1}', style: mono(size: 10, color: p.dim)),
-                      ),
-                      Expanded(
-                        child: Text(woerter[i],
-                            style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
-                      ),
-                    ]),
-                  ),
-                ),
-            ]),
-          ),
-        ),
+        // IM FENSTER KEIN Expanded. Es frisst dort die ganze Resthoehe, und
+        // Warnkasten und Knopf klebten am unteren Fensterrand — weit weg von
+        // den Woertern, auf die sie sich beziehen. Stattdessen scrollt der
+        // ganze Bildschirm (wie 'restore' und 'test'); das faengt gleich den
+        // zweiten Fall mit ab: zieht man das Fenster niedriger als etwa 350 px,
+        // lief der Inhalt vorher in den gelb-schwarzen Ueberlaufbalken.
+        if (_imFenster) gitter else Expanded(child: SingleChildScrollView(child: gitter)),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(12),
@@ -1355,12 +2469,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           child: Text(t('phraseWarn'), style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
         ),
         const SizedBox(height: 12),
-        outlineBtn(t('phraseDone'), () {
+        _knopfBreite(outlineBtn(t('phraseDone'), () {
           st.phraseBestaetigt();
           go('secure');
-        }, padding: const EdgeInsets.all(13)),
+        }, padding: const EdgeInsets.all(13))),
       ]),
     );
+
+    return _imFenster ? SingleChildScrollView(child: inhalt) : inhalt;
   }
 
   // ---- SECURE ----
@@ -1377,7 +2493,37 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Widget secureScreen() {
-    return Padding(
+    // DER SPACER WAR DER AUFFAELLIGSTE EINZELNE GRUND, warum die Abfolgen im
+    // Fenster nicht wie eine Desktop-App aussahen: auf dem Desktop bleibt von
+    // den vier Zugriffszeilen nur eine uebrig (siehe `_faktorGehtHier` — nur
+    // 'pw' hat dort eine Gegenseite), der Bildschirm hat also etwa 260 px
+    // Inhalt, und in einem 1040 px hohen Fenster klebten darunter nach ueber
+    // 600 px Leere zwei Knoepfe am Boden (30.07.2026).
+    //
+    // 24 px ist der Abstand zwischen zwei Gruppen (Masse.gruppe ist 22, hier
+    // eine Stufe mehr, weil darunter die Handlung folgt).
+    //
+    // ZWEI KNOEPFE NEBENEINANDER, ABER NICHT MEHR GEDEHNT: die beiden Expanded
+    // machten aus ihnen zwei 254 px breite Halbbanner. Im Fenster nehmen sie
+    // ihre Textbreite und stehen links, wie alles andere auf diesem Bildschirm.
+    final Widget knoepfe = _imFenster
+        ? Row(mainAxisSize: MainAxisSize.min, children: [
+            outlineBtn(t('secureSkip'), () => go('id'),
+                accent: false,
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
+                weight: FontWeight.w400),
+            const SizedBox(width: 8),
+            outlineBtn(t('secureDone'), () => go('id'),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 22, vertical: 13)),
+          ])
+        : Row(children: [
+            Expanded(child: outlineBtn(t('secureSkip'), () => go('id'), accent: false, padding: const EdgeInsets.all(13), weight: FontWeight.w400)),
+            const SizedBox(width: 8),
+            Expanded(child: outlineBtn(t('secureDone'), () => go('id'), padding: const EdgeInsets.all(13))),
+          ]);
+
+    final Widget inhalt = Padding(
       padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         h2(t('secureTitle')),
@@ -1387,14 +2533,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ...zugriffsBlock(statusMode: true),
         const SizedBox(height: 4),
         Text(t('secureFoot'), style: mono(size: 11, color: p.dim, height: 1.5)),
-        const Spacer(),
-        Row(children: [
-          Expanded(child: outlineBtn(t('secureSkip'), () => go('id'), accent: false, padding: const EdgeInsets.all(13), weight: FontWeight.w400)),
-          const SizedBox(width: 8),
-          Expanded(child: outlineBtn(t('secureDone'), () => go('id'), padding: const EdgeInsets.all(13))),
-        ]),
+        if (_imFenster) const SizedBox(height: 24) else const Spacer(),
+        _imFenster
+            ? Align(alignment: Alignment.centerLeft, child: knoepfe)
+            : knoepfe,
       ]),
     );
+
+    // Scrollbar im Fenster, sobald der Spacer weg ist — sonst ueberlaeuft der
+    // Bildschirm, wenn jemand das Fenster niedriger zieht als seinen Inhalt.
+    // Spacer und Scrollview gehen nicht zusammen, deshalb geht beides nur
+    // gemeinsam.
+    return _imFenster ? SingleChildScrollView(child: inhalt) : inhalt;
   }
 
   Widget methodRow(String key, {bool statusMode = true}) {
@@ -1412,13 +2562,41 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             ? (on ? t('on2') : t('offMethod'))
             : (on ? t('remove') : t('add'));
 
-    return Opacity(
+    // ALS KNOPF ANSAGEN, UND OB ER GERADE GEHT.
+    //
+    // Die ganze Zeile ist das Bedienelement; ein eigenes "SET UP" gibt es
+    // nicht. Vorgelesen wurde deshalb nur eine Aneinanderreihung von Texten —
+    // "Geraetesperre, Die PIN dieses Telefons, Einrichten" —, ohne dass
+    // erkennbar war, dass man sie antippen kann.
+    //
+    // `enabled` traegt die zweite Haelfte: waehrend ein anderer Faktor
+    // arbeitet, ist die Zeile gesperrt. Sichtbar ist das an der Transparenz.
+    // Wer sie nicht sieht, tippte bisher ins Leere und bekam keine Auskunft,
+    // warum nichts geschieht.
+    //
+    // Aufgefallen am 29.07.2026: beim Durchgehen der Ablaeufe traf mein
+    // eigener Tipp die Zeile nicht, weil sie kein eigener Knoten war.
+    // AM ZEIGER WAR VON ALLEM NICHTS ZU SEHEN. Auf 'secure' ist diese Zeile im
+    // Fenster die EINZIGE (nur 'pw' ueberlebt `_faktorGehtHier`), also der
+    // einzige Weg zu einem App-Passwort — und sie sah aus wie eine
+    // Statuszeile. `blockiert` behaelt den Standardzeiger: eine Hand ueber
+    // etwas, das gerade nicht geht, verspricht etwas, was nicht kommt.
+    return Semantics(
+      button: true,
+      enabled: !blockiert,
+      container: true,
+      child: Opacity(
       opacity: blockiert ? 0.4 : 1,
-      child: GestureDetector(
+      child: _Bedienbar(
+        imFenster: _imFenster,
+        onTap: blockiert ? null : () => methodAct(key),
+        bau: (ueber, fokus) => GestureDetector(
         onTap: blockiert ? null : () => methodAct(key),
         child: Container(
           padding: const EdgeInsets.all(11),
-          decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(
+              color: ueber || fokus ? p.surf : p.surf2,
+              borderRadius: BorderRadius.circular(8)),
           child: Row(children: [
             Container(
               width: 26, height: 26, alignment: Alignment.center,
@@ -1449,16 +2627,56 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ]),
         ),
       ),
+      ),
+    ),
     );
   }
 
-  /// Die vier Zeilen samt Fehlerkasten.
+  /// Kann dieser Faktor auf DIESEM Geraet ueberhaupt etwas einrichten?
+  ///
+  /// Drei der vier haengen an Android: Biometrie und Geraetesperre am
+  /// Schluesselfach (`bitdm/schluesselfach`), der Sicherheitsschluessel an
+  /// USB-HID und NFC. Auf Windows gibt es diese Kanaele nicht — ein Druck
+  /// darauf endet in einer MissingPluginException. Nur das App-Passwort ist
+  /// reines Dart und laeuft ueberall.
+  ///
+  /// DAS IST DERSELBE FEHLER, DER SCHON UEBER `zugriffsZeilen` STEHT: eine
+  /// Liste, in der die Haelfte der Eintraege nichts tut, laesst den Nutzer bei
+  /// jedem der anderen zweifeln. Am 30.07.2026 bot der erste Windows-Bau vier
+  /// Faktoren an, von denen drei nicht funktionieren konnten — und einer sagte
+  /// "the PIN, pattern or password of this phone" auf einem PC.
+  ///
+  /// Im Test meldet Flutter Android, dort bleiben also alle vier sichtbar.
+  bool _faktorGehtHier(String k) => k == 'pw' || _nurAufAndroid;
+
+  /// Laeuft die App dort, wo die Kotlin-Kanaele ueberhaupt existieren?
+  ///
+  /// Drei Dinge in dieser App stecken vollstaendig in Kotlin und haben auf
+  /// keiner anderen Plattform eine Gegenseite:
+  ///
+  ///   * `bitdm/schluesselfach` — Biometrie und Geraetesperre
+  ///   * `bitdm/usb_hid` und NFC — der Sicherheitsschluessel
+  ///   * `bitdm/nahfunk` — der ganze Nahbereich
+  ///
+  /// Dazu UnifiedPush, ein Android-Plugin. Ein Aufruf ohne Gegenseite endet in
+  /// einer MissingPluginException — sichtbar als Bedienelement, das auf Tippen
+  /// mit einem Fehler antwortet statt mit einer Wirkung.
+  ///
+  /// `kIsWeb` MUSS mitgeprueft werden: im Browser auf einem Android-Telefon
+  /// meldet `defaultTargetPlatform` android, Kanaele gibt es dort aber keine.
+  ///
+  /// Im Widget-Test meldet Flutter android, dort bleibt also alles sichtbar
+  /// und keiner der vorhandenen Tests aendert sein Verhalten.
+  static bool get _nurAufAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// Die Zeilen samt Fehlerkasten.
   ///
   /// DER KASTEN IST DER PUNKT: bis zum 25.07.2026 wurden Fehler beim
   /// Einrichten zwar gesetzt, aber auf diesem Bildschirm nie angezeigt. Wer
   /// tippte, sah nichts — weder Dialog noch Grund.
   List<Widget> zugriffsBlock({required bool statusMode}) => [
-        for (final k in zugriffsZeilen) ...[
+        for (final k in zugriffsZeilen.where(_faktorGehtHier)) ...[
           methodRow(k, statusMode: statusMode),
           const SizedBox(height: 3),
         ],
@@ -1486,6 +2704,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       );
     }
 
+    final bloecke = meineAdresseAnzeige.split('-');
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1493,23 +2713,68 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         const SizedBox(height: 4),
         Text(t('myIdSub'), style: mono(size: 12, color: p.dim)),
         const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: p.surf, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
-          child: QrView(st.meineAdresse, p.ink, p.surf),
+        // HELLE KARTE, DUNKLE MODULE — auch im dunklen Thema.
+        //
+        // Ein QR-Code ist nach Norm dunkel auf hell. Umgekehrt lesen ihn viele
+        // Kameras nicht; ZXing kehrt nicht von sich aus um. Der Code hier soll
+        // aber von JEDER App gelesen werden koennen, nicht nur von BitDM.
+        // Deshalb bricht diese eine Flaeche mit dem dunklen Thema.
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+                color: const Color(0xFFF2F2F2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: p.line)),
+            child: QrBild(
+              st.meineAdresse,
+              vordergrund: const Color(0xFF0B0B10),
+              hintergrund: const Color(0xFFF2F2F2),
+              kante: 220,
+            ),
+          ),
         ),
         const SizedBox(height: 16),
-        Wrap(spacing: 6, runSpacing: 6, children: [
-          for (final blk in meineAdresseAnzeige.split('-'))
-            SizedBox(
-              width: (MediaQuery.of(context).size.width - 44 - 6) / 2,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-                decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(4)),
-                child: Text(blk, style: doto(size: 16, weight: FontWeight.w600, color: p.ink, spacing: 1.4)),
-              ),
+
+        // EINE BESCHRIFTUNG FUER DIE GANZE ADRESSE, nicht vierzehn.
+        //
+        // Die Vierergruppen sind eine Lesehilfe fuer die AUGEN — sie machen
+        // aus 56 Zeichen etwas, das man abtippen und vergleichen kann. Fuer
+        // einen Screenreader sind sie das Gegenteil: vierzehn
+        // zusammenhanglose Haeppchen, zwischen denen er jedes Mal neu
+        // ansetzt. `excludeSemantics` blendet sie deshalb aus und legt EINEN
+        // Text darueber.
+        //
+        // Aufgefallen ist es an einer anderen Ecke: die Adresse liess sich auf
+        // dem Galaxy S10 nicht aus dem Bedienungsbaum lesen (auf dem S25
+        // schon), und damit war ein Zwei-Telefon-Test nicht zu fahren. Der
+        // Grund war derselbe wie beim Screenreader — die Gruppen sind
+        // vierzehn beilaeufige Textknoten und keine Angabe. Ein Testkniff
+        // haette mein Problem geloest und das der Nutzer stehen gelassen.
+        //
+        // DIESELBE BREITENRECHNUNG WIE AUF 'phrase', und das ist der Punkt:
+        // hier stand bis zum 30.07.2026 noch die Fensterbreite. Ab 1402 px
+        // Fenster fielen die vierzehn Vierergruppen zu vierzehn spaltenbreiten
+        // Zeilen zusammen — auf dem Bildschirm, dessen Zweck das Vergleichen
+        // der Adresse ist. Zahlen und Herleitung an [_zweiSpaltenGitter].
+        Semantics(
+          label: adresseFormatiert(st.meineAdresse),
+          excludeSemantics: true,
+          child: _zweiSpaltenGitter(
+            bloecke.length,
+            (i) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+              decoration: BoxDecoration(
+                  color: p.surf2, borderRadius: BorderRadius.circular(4)),
+              child: Text(bloecke[i],
+                  style: doto(
+                      size: 16,
+                      weight: FontWeight.w600,
+                      color: p.ink,
+                      spacing: 1.4)),
             ),
-        ]),
+          ),
+        ),
         const SizedBox(height: 16),
         Row(children: [
           Expanded(child: outlineBtn(copied ? t('copied') : t('copy'), copyId, padding: const EdgeInsets.all(11))),
@@ -1532,27 +2797,42 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   // ---- ADD ----
   Widget addScreen() {
-    return Padding(
+    final Widget inhalt = Padding(
       padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           iconBtn('‹', () => go('chats')),
           const SizedBox(width: 11),
-          h2(t('addTitle'), size: 20),
+          // FEHLERBEHEBUNG, AUCH FUER ANDROID: ohne Expanded laeuft eine
+          // laengere Uebersetzung aus der Row heraus ("Kontakt hinzufügen" auf
+          // einem schmalen Telefon). Dass 'restore', 'test' und 'nahHilfe' das
+          // Expanded schon hatten, macht es hier nicht zur Angleichung — es war
+          // an dieser Stelle schlicht kaputt.
+          Expanded(child: h2(t('addTitle'), size: 20)),
         ]),
         const SizedBox(height: 16),
         Text(t('idLabel').toUpperCase(), style: mono(size: 10.5, color: p.dim, spacing: 1.6)),
         const SizedBox(height: 6),
-        Container(
-          decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
+        // Strg+Eingabe schickt die Anfrage; Begruendung siehe 'restore'. Der
+        // Rahmen zeigt den Fokus, damit man das leere Feld am Zug erkennt.
+        _mitStrgEingabe(
+          sendReq,
+          Container(
+          decoration: BoxDecoration(
+              color: p.surf2,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: _imFenster && _addFokus.hasFocus ? p.accent : p.line)),
           padding: const EdgeInsets.all(11),
           child: TextField(
             controller: addCtl,
+            focusNode: _addFokus,
             maxLines: 3,
             style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 1.4, height: 1.7),
             cursorColor: p.accent,
             decoration: InputDecoration.collapsed(hintText: beispielAdresse, hintStyle: doto(size: 15, weight: FontWeight.w600, color: p.dim, spacing: 1.4, height: 1.7)),
           ),
+        ),
         ),
         const SizedBox(height: 8),
         Row(children: [
@@ -1562,11 +2842,23 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             if (txt == null || txt.isEmpty || !mounted) return;
             setState(() => addCtl.text = txt);
           }),
-          const SizedBox(width: 8),
-          smallBtn(t('scan'), _scanneQr),
+          // KEIN QR-SCANNER AUSSERHALB VON ANDROID. pubspec.lock bringt nur
+          // camera_android_camerax, camera_avfoundation und camera_web mit —
+          // auf Windows und Linux wirft `availableCameras()` eine
+          // MissingPluginException, und `_starte()` in qr_scan_screen.dart
+          // faengt nur CameraException. Der Druck landete also auf einer Seite
+          // mit Fehlerbild statt auf einem Scanner. Im Web gibt es camera_web,
+          // dort ist aber `startImageStream` nicht umgesetzt — dasselbe Ende.
+          //
+          // Dieselbe Begruendung wie bei den Anmeldefaktoren (`_faktorGehtHier`):
+          // ein Bedienelement, das auf Tippen mit einem Fehler antwortet, laesst
+          // am Rest der App zweifeln. Im Widget-Test meldet Flutter android,
+          // dort bleibt der Knopf sichtbar.
+          if (_nurAufAndroid) const SizedBox(width: 8),
+          if (_nurAufAndroid) smallBtn(t('scan'), _scanneQr),
         ]),
         const SizedBox(height: 16),
-        outlineBtn(t('sendReq'), sendReq, padding: const EdgeInsets.all(13)),
+        _knopfBreite(outlineBtn(t('sendReq'), sendReq, padding: const EdgeInsets.all(13))),
         if (reqSent) ...[
           const SizedBox(height: 16),
           Container(
@@ -1594,18 +2886,37 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           const SizedBox(height: 12),
           Text(t('badAddress'), style: mono(size: 11.5, color: p.accLight, height: 1.5)),
         ],
-        const Spacer(),
+        // Wie auf 'secure': im Fenster schob der Spacer die 11-pt-Fussnote an
+        // den unteren Fensterrand, mit mehreren hundert Pixeln Leere darueber.
+        // Und weil Spacer und Scrollview nicht zusammengehen, war der
+        // Bildschirm gleichzeitig nicht scrollbar — mit eingeblendetem
+        // reqSent-Kasten lief er in einem niedrigen Fenster ueber.
+        if (_imFenster) const SizedBox(height: 22) else const Spacer(),
         Text(t('addFoot'), style: mono(size: 11, color: p.dim, height: 1.5)),
       ]),
     );
+
+    return _imFenster ? SingleChildScrollView(child: inhalt) : inhalt;
   }
 
-  Widget smallBtn(String labelTxt, VoidCallback onTap) => Masse.trefferflaeche(
+  Widget smallBtn(String labelTxt, VoidCallback onTap) => _Bedienbar(
+        imFenster: _imFenster,
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(4), border: Border.all(color: p.line)),
-          child: Text(labelTxt.toUpperCase(), style: mono(size: 11, weight: FontWeight.w400, color: p.muted, spacing: 1.2)),
+        bau: (ueber, fokus) => Masse.trefferflaeche(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            decoration: BoxDecoration(
+                color: fokus ? p.wash : null,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: ueber || fokus ? p.accHover : p.line)),
+            child: Text(labelTxt.toUpperCase(),
+                style: mono(
+                    size: 11,
+                    weight: FontWeight.w400,
+                    color: ueber ? p.accHover : p.muted,
+                    spacing: 1.2)),
+          ),
         ),
       );
 
@@ -1630,30 +2941,68 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       AtmenderPunkt(farbe: farbe, aktiv: aktiv, groesse: 7),
       const SizedBox(width: 6),
-      AnimatedDefaultTextStyle(
-        duration: Bewegung.klein,
-        style: mono(size: 10, weight: FontWeight.w500, color: farbe, spacing: 1.1),
-        child: Text(text.toUpperCase()),
+      // Kuerzen statt ueberlaufen, wenn die Kopfzeile eng wird (siehe dort):
+      // ein abgeschnittenes "KEINE VERBIND…" sagt noch etwas, ein gelb
+      // gestreifter Balken nichts.
+      Flexible(
+        child: AnimatedDefaultTextStyle(
+          duration: Bewegung.klein,
+          style: mono(size: 10, weight: FontWeight.w500, color: farbe, spacing: 1.1),
+          child: Text(text.toUpperCase(),
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
       ),
     ]);
   }
+
+  /// Was das '+' in der Kopfzeile tut. Als Methode, weil [_Bedienbar] die
+  /// Handlung zweimal braucht — fuer den Zeiger und fuer den Tipp.
+  void _zumHinzufuegen() =>
+      setState(() { screen = 'add'; addCtl.clear(); reqSent = false; });
 
   Widget chatsScreen() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(22, 11, 22, 8),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            h2(t('chats')),
-            const SizedBox(width: 10),
-            verbindungsPunkt(),
-          ]),
-          GestureDetector(
-            onTap: () => setState(() { screen = 'add'; addCtl.clear(); reqSent = false; }),
-            child: Container(
-              width: 32, height: 32, alignment: Alignment.center,
-              decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.accent)),
-              child: Text('+', style: TextStyle(color: p.accLight, fontSize: 18, height: 1)),
+          // FLEXIBEL, WEIL DIE LINKE SPALTE ENG IST. Im Schreibtisch-Geruest
+          // steht diese Kopfzeile in 300 px minus 44 px Rand = 256 px, und
+          // darin liegen 'CHATS', der Punkt, sein Text und das '+'. Der neue
+          // Fenster-Test hat den Ueberlauf am 30.07.2026 gemeldet: 31 px zu
+          // viel (mit der Testschrift, die breiter baut als Doto — auf dem
+          // Geraet passt es, aber mit einem langen Text wie "keine
+          // Verbindung" nur knapp). Flexible aendert nichts, solange es
+          // passt, und laesst den Text kuerzen statt ueberzulaufen.
+          Flexible(
+            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              h2(t('chats')),
+              const SizedBox(width: 10),
+              Flexible(child: verbindungsPunkt()),
+            ]),
+          ),
+          _Bedienbar(
+            imFenster: _imFenster,
+            onTap: _zumHinzufuegen,
+            bau: (ueber, fokus) => GestureDetector(
+              onTap: _zumHinzufuegen,
+              child: Container(
+                width: 32, height: 32, alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    color: fokus ? p.wash : null,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: ueber || fokus ? p.accHover : p.accent)),
+                // EIGENE BESCHRIFTUNG FUER DIE VORLESEFUNKTION.
+                //
+                // Ohne sie liest ein Screenreader die ganze Kopfzeile als einen
+                // Block vor: "CHATS OFFLINE +". Das Pluszeichen ist der einzige
+                // Weg, jemanden hinzuzufuegen, und es hatte keinen Namen.
+                child: Semantics(
+                  label: t('addContact'),
+                  button: true,
+                  child: Text('+', style: TextStyle(color: p.accLight, fontSize: 18, height: 1)),
+                ),
+              ),
             ),
           ),
         ]),
@@ -1714,22 +3063,34 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           const SizedBox(height: 6),
           Text(t('wantsChat'), style: mono(size: 11.5, color: p.muted)),
           const SizedBox(height: 8),
+          // Annehmen und Ablehnen stehen IN der Chatliste und sind echte
+          // Knoepfe — also auch durch [_Bedienbar]. Nicht auf `smallBtn`
+          // umgestellt: dessen Masse sind andere, und das waere eine
+          // Layout-Aenderung am Telefon fuer nichts.
           Row(children: [
-            GestureDetector(
+            _Bedienbar(
+              imFenster: _imFenster,
               onTap: () => acceptReq(k.id),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(4), border: Border.all(color: p.accent)),
-                child: Text(t('accept').toUpperCase(), style: mono(size: 11, weight: FontWeight.w600, color: p.ink, spacing: 1.2)),
+              bau: (ueber, fokus) => GestureDetector(
+                onTap: () => acceptReq(k.id),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                  decoration: BoxDecoration(color: fokus ? p.wash : null, borderRadius: BorderRadius.circular(4), border: Border.all(color: ueber || fokus ? p.accHover : p.accent)),
+                  child: Text(t('accept').toUpperCase(), style: mono(size: 11, weight: FontWeight.w600, color: p.ink, spacing: 1.2)),
+                ),
               ),
             ),
             const SizedBox(width: 8),
-            GestureDetector(
+            _Bedienbar(
+              imFenster: _imFenster,
               onTap: () => st.anfrageAblehnen(k.id),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(4), border: Border.all(color: p.line)),
-                child: Text(t('decline').toUpperCase(), style: mono(size: 11, color: p.muted, spacing: 1.2)),
+              bau: (ueber, fokus) => GestureDetector(
+                onTap: () => st.anfrageAblehnen(k.id),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                  decoration: BoxDecoration(color: fokus ? p.wash : null, borderRadius: BorderRadius.circular(4), border: Border.all(color: ueber || fokus ? p.accHover : p.line)),
+                  child: Text(t('decline').toUpperCase(), style: mono(size: 11, color: p.muted, spacing: 1.2)),
+                ),
               ),
             ),
           ]),
@@ -1744,10 +3105,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // Ungelesen: die letzte Nachricht kam von der Gegenstelle und diese
     // Unterhaltung ist gerade nicht offen.
     final unread = letzte != null && !letzte.isMine && chat != id;
-    return GestureDetector(
+    // Die Zeilen der Chatliste sind die am haeufigsten angetippten der App und
+    // waren im Fenster die letzten ohne Zeiger, Ueberfahren und Tab. Die
+    // Fuellung ist die Rueckmeldung: die Zeile hat keinen Rahmen, den man
+    // faerben koennte, und ein neuer haette sie um 1 px verschoben.
+    return _Bedienbar(
+      imFenster: _imFenster,
+      onTap: () => oeffneChat(id),
+      bau: (ueber, fokus) => GestureDetector(
       onTap: () => oeffneChat(id),
       child: Container(
-        color: Colors.transparent,
+        color: ueber || fokus ? p.wash : Colors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
         child: Row(children: [
           Identicon(id, 40, avp, 8),
@@ -1767,6 +3135,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ]),
         ]),
       ),
+      ),
     );
   }
 
@@ -1784,12 +3153,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       hints.add(t("hintEph") + ephLabel());
     }
     final list = st.verlaufVon(cid);
+    _haltUnten(cid, list.length);
     return Column(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(17, 8, 17, 8),
         child: Row(children: [
-          iconBtn('‹', () => go('chats')),
-          const SizedBox(width: 11),
+          // KEIN ZURUECK BEI ZWEI SPALTEN. Die Liste steht dann links und ist
+          // nie verlassen worden — ein Pfeil, der "zurueck zur Liste" heisst,
+          // zeigt dort auf etwas, das schon sichtbar ist.
+          if (!_zweiSpalten) ...[
+            iconBtn('‹', () => go('chats')),
+            const SizedBox(width: 11),
+          ],
           Expanded(
             child: GestureDetector(
               onTap: () { setState(() => sheet = true); _ladePruefnummer(cid); },
@@ -1798,7 +3173,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(shortId(cid), maxLines: 1, overflow: TextOverflow.ellipsis, style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
+                    // DIESELBE SCHREIBWEISE WIE UEBERALL SONST.
+                    //
+                    // Hier stand `shortId(cid)` — die ROHE Kennung, ohne
+                    // `adresseFormatiert`. Die Liste zeigte dieselbe Adresse
+                    // als "BITD...2L-X", diese Kopfzeile als "bitd...q2lx":
+                    // andere Gruppierung, andere Schreibweise, dasselbe
+                    // Gegenueber. Wer zwei Geraete vergleichen will — und
+                    // genau das tut man bei einer Adresse, die der Schluessel
+                    // IST —, muss die beiden erst ineinander umrechnen.
+                    Text(shortId(adresseFormatiert(cid)), maxLines: 1, overflow: TextOverflow.ellipsis, style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
                     Text(t('encDetails').toUpperCase(), style: mono(size: 10, color: p.dim, spacing: 1)),
                   ]),
                 ),
@@ -1818,6 +3202,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       Container(height: 1, color: p.lineSoft),
       Expanded(
         child: ListView(
+          controller: _chatScroll,
           padding: const EdgeInsets.all(17),
           children: [
             Center(child: Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(hints.join(' · '), textAlign: TextAlign.center, style: mono(size: 10.5, color: p.dim, height: 1.5)))),
@@ -1858,7 +3243,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       Container(
         padding: const EdgeInsets.fromLTRB(17, 11, 17, 16),
         decoration: BoxDecoration(border: Border(top: BorderSide(color: p.lineSoft))),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        // DER ABSTAND GEHOERT NACH INNEN, nicht um das Container herum: so
+        // laeuft die Trennlinie und der Hintergrund bis an den Rand durch, und
+        // nur der Inhalt bleibt ueber der Systemleiste. Genauso macht es die
+        // Reiterleiste in buildNav().
+        //
+        // Bei offener Tastatur ist padding.bottom von sich aus 0 — Flutter
+        // zieht die Tastaturhoehe ab. Es entsteht also kein doppelter Abstand.
+        child: SafeArea(
+          top: false,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
           // DIESER KNOPF WAR EIN BILD. Bis zum 26.07.2026 stand hier ein
           // Container ohne GestureDetector: er sah aus wie ein Knopf, liess
           // sich druecken und tat nichts. Jetzt haengt die Dateiauswahl daran.
@@ -1909,7 +3303,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               child: Text(t('send').toUpperCase(), style: mono(size: 11, weight: FontWeight.w600, color: p.ink, spacing: 1.2)),
             ),
           ),
-        ]),
+          ]),
+        ),
       ),
     ]);
   }
@@ -1961,7 +3356,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (f == 'anhangKeineApp') return t('attachNoApp');
     if (f == 'nurNahbereich') return t('nearOnlyNoAttach');
     if (f.startsWith('anhangZuGross:')) return t('attachTooBig');
-    return null;
+    // WAS HIER NICHT AUFGEZAEHLT IST, WIRD TROTZDEM GEZEIGT.
+    //
+    // Vorher stand hier `return null` — jeder Fehler ohne eigenen Satz
+    // verschwand also spurlos. Das ist die schlechteste aller Auskuenfte: der
+    // Nutzer sieht, dass nichts ankommt, und die App schweigt dazu.
+    //
+    // Ein unuebersetzter technischer Text ist haesslich, aber er laesst sich
+    // abfotografieren und weitergeben. Genau das brauchte ich am 29.07.2026
+    // und hatte es nicht.
+    return f;
   }
 
   Widget msgBubble(String cid, Message m, int i) {
@@ -1993,6 +3397,41 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 Align(alignment: Alignment.centerLeft, child: Text(m.text, style: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4))),
               const SizedBox(height: 3),
               Row(mainAxisSize: MainAxisSize.min, children: [
+                // DAS EINZIGE, WAS DIE NAEHE SICHTBAR MACHT.
+                //
+                // Hier steht, wie diese Nachricht gegangen IST — nicht, wo
+                // jemand gerade IST. Der Unterschied ist der Grund, warum es
+                // an keiner Stelle dieser App eine Anwesenheitsanzeige gibt:
+                // ein Punkt am Kontakt waere bequem und verriete jedes Mal,
+                // wer neben wem sitzt.
+                //
+                // Ein Wort statt eines Zeichens. Ein Funkwellen-Glyph waere
+                // kuerzer und muesste doch erklaert werden — und ob ihn eine
+                // Schrift ueberhaupt hat, weiss man erst auf dem Geraet.
+                if (m.ueberNaehe) ...[
+                  Semantics(
+                    button: true,
+                    label: t('viaNearbyTitle'),
+                    child: GestureDetector(
+                      onTap: _erklaereNaehe,
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 4),
+                        decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: p.tintLine)),
+                        child: Text(t('viaNearby').toUpperCase(),
+                            style: mono(
+                                size: 8,
+                                weight: FontWeight.w600,
+                                color: p.accLight,
+                                spacing: 0.9)),
+                      ),
+                    ),
+                  ),
+                ],
                 Text(time, style: mono(size: 9.5, color: p.dim)),
                 if (me) ...[
                   const SizedBox(width: 5),
@@ -2274,6 +3713,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           const SizedBox(height: 8),
           segmented(['dark', 'light'], [t('dark'), t('light')], mode, (v) => setState(() => mode = v)),
         ])),
+        const SizedBox(height: 3),
+        // Steht bei "Allgemein" und nicht bei "Sicherheit": das ist eine
+        // Frage der Bequemlichkeit, nicht des Schutzes. Die beiden nicht zu
+        // vermischen ist der Grund, warum die Abschnitte ueberhaupt getrennt
+        // sind.
+        toggleRow(t('autoScroll'), t('autoScrollSub'), st.einstellungen.autoScroll,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(
+                autoScroll: !st.einstellungen.autoScroll))),
         const SizedBox(height: 22),
         label6(t('access')),
         ...zugriffsBlock(statusMode: false),
@@ -2305,9 +3752,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('bgReceive'), t('bgReceiveSub')),
           const SizedBox(height: 8),
+          // OHNE PUSH AUF DEM DESKTOP. '-2' ist der Push-Takt, und der laeuft
+          // ueber UnifiedPush — ein Android-Plugin. Auf Windows waehlbar zu
+          // sein, aber beim Umschalten zu scheitern, ist schlechter als nicht
+          // angeboten zu werden. Die Verbindung bleibt dort ohnehin offen, ein
+          // Weckdienst von aussen wird also nicht gebraucht.
           segmented(
-            const ['0', '-2', '-1', '15', '60'],
-            [t('bgOff'), t('bgPush'), t('bgLive'), t('bg15'), t('bg60')],
+            _nurAufAndroid
+                ? const ['0', '-2', '-1', '15', '60']
+                : const ['0', '-1', '15', '60'],
+            _nurAufAndroid
+                ? [t('bgOff'), t('bgPush'), t('bgLive'), t('bg15'), t('bg60')]
+                : [t('bgOff'), t('bgLive'), t('bg15'), t('bg60')],
             '${st.empfangsTakt.minuten}',
             (v) => _setzeEmpfangsTakt(int.parse(v)),
           ),
@@ -2341,6 +3797,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ],
         ])),
 
+        // IN DER NAEHE steht VOR der Sicherheit, weil es ein Weg ist und
+        // keine Einschraenkung. Die Einschraenkung "nur in der Naehe" ist
+        // mitgewandert — sie gehoert zu dem Weg, den sie erzwingt, nicht zu
+        // Bildschirmfotos und Lesebestaetigungen.
+        // NUR WO ES FUNK GIBT. Der Nahbereich haengt vollstaendig am
+        // Kotlin-Kanal `bitdm/nahfunk`; auf Windows gibt es ihn nicht, und zwei
+        // Schalter, die nichts schalten, sind schlimmer als keine.
+        if (_nurAufAndroid) ...[
+          const SizedBox(height: 22),
+          nahbereichBlock(),
+        ],
+
         const SizedBox(height: 22),
         label6(t('security')),
         toggleRow(t("screenshot"), t("screenshotSub"), st.einstellungen.blockScreenshots,
@@ -2351,37 +3819,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             () => st.setzeEinstellungen(st.einstellungen.copyWith(
                 readReceipts: !st.einstellungen.readReceipts))),
         const SizedBox(height: 3),
-
-        // NUR IN DER NAEHE.
-        //
-        // Der Schalter steht hier bei der Sicherheit und nicht bei der
-        // Verbindung, weil das der Grund ist, aus dem man ihn umlegt: er
-        // sorgt dafuer, dass die App KEINEN Server anspricht. Was er heute
-        // noch NICHT kann — Nachrichten ueber die Naehe zustellen —, steht
-        // ausdruecklich darunter, sobald er an ist. Ein Schalter, der
-        // stillschweigend nichts zustellt, waere schlimmer als keiner.
-        toggleRow(t("nearOnly"), t("nearOnlySub"), st.einstellungen.nurNahbereich,
-            () => st.setzeEinstellungen(st.einstellungen.copyWith(
-                nurNahbereich: !st.einstellungen.nurNahbereich))),
-        if (st.einstellungen.nurNahbereich) ...[
-          const SizedBox(height: 3),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(Masse.innen),
-            decoration: BoxDecoration(
-                color: p.tint,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: p.tintLine)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t('nearOnlyNow').toUpperCase(),
-                  style: mono(size: 10, weight: FontWeight.w600, color: p.tintInk, spacing: 1.1)),
-              const SizedBox(height: Masse.eng),
-              Text(t('nearOnlyWarn'),
-                  style: mono(size: 11.5, color: p.tintInk, height: 1.55)),
-            ]),
-          ),
-        ],
-        const SizedBox(height: 3),
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('selfDestruct'), t('selfDestructSub')),
           const SizedBox(height: 8),
@@ -2390,14 +3827,37 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               (v) => st.setzeEinstellungen(st.einstellungen.copyWith(
                   messageLifetime: _fristen[v], loescheLebensdauer: _fristen[v] == null))),
         ])),
+        // Der Verbindungstest steht bei der Sicherheit und nicht ganz unten:
+        // wer hier landet, sucht meist einen Fehler und soll ihn finden,
+        // bevor er die Notfallknoepfe erreicht.
+        const SizedBox(height: 3),
+        settingCard(
+            onTap: () {
+              go('test');
+              st.verbindungPruefen();
+            },
+            child: Row(children: [
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t('connTestRow'),
+                          style: TextStyle(fontSize: 13.5, color: p.ink)),
+                      Text(t('connTestRowSub'),
+                          style: mono(size: 11, color: p.dim)),
+                    ]),
+              ),
+              Text('›', style: TextStyle(fontSize: 18, color: p.dim)),
+            ])),
+
         const SizedBox(height: 22),
         label6(t('identity')),
-        GestureDetector(
+        settingCard(
           onTap: () => go('id'),
-          child: settingCard(child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Text(t('myIdQr'), style: TextStyle(fontSize: 13.5, color: p.ink)),
             Text(shortId(meineAdresseAnzeige), style: doto(size: 12.5, weight: FontWeight.w600, color: p.dim, spacing: 0.8)),
-          ])),
+          ]),
         ),
         const SizedBox(height: 3),
         settingCard(child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -2406,27 +3866,59 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ])),
         const SizedBox(height: 22),
         label6(t('emergency')),
-        GestureDetector(
+        // Die Notfallzeile ist keine settingCard (eigene Warnfarben), braucht
+        // die Huelle aber genauso: sie ist die folgenreichste Zeile der App.
+        _Bedienbar(
+          imFenster: _imFenster,
           onTap: () => setState(() => panic = true),
-          child: Container(
-            padding: const EdgeInsets.all(11),
-            decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t('panic'), style: TextStyle(fontSize: 13.5, color: p.tintInk)),
-              Text(t('panicSub'), style: mono(size: 11, color: p.muted, height: 1.4)),
-            ]),
+          bau: (ueber, fokus) => GestureDetector(
+            onTap: () => setState(() => panic = true),
+            child: Container(
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: ueber || fokus ? p.accHover : p.tintLine)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(t('panic'), style: TextStyle(fontSize: 13.5, color: p.tintInk)),
+                Text(t('panicSub'), style: mono(size: 11, color: p.muted, height: 1.4)),
+              ]),
+            ),
           ),
         ),
       ]),
     );
   }
 
-  Widget settingCard({required Widget child}) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(11),
-        decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8)),
-        child: child,
-      );
+  /// Eine Karte in den Einstellungen. Mit [onTap] ist sie eine ANTIPPBARE
+  /// Zeile — und dann im Fenster auch zeigerbar, ueberfahrbar und tabbar.
+  ///
+  /// HIER UND NICHT AN JEDER ZEILE: 'set' hat die meisten antippbaren Zeilen der
+  /// App, und die liefen alle als blanke GestureDetector um diese Karte. Ein
+  /// [_Bedienbar] je Aufrufstelle waere derselbe Fehler in sechs Ausfuehrungen —
+  /// die siebte Zeile haette ihn wieder. Ohne [onTap] bleibt die Karte reine
+  /// Anzeige (die Fingerabdruck-Zeile), und dort gehoert kein Zeigerwechsel hin.
+  Widget settingCard({required Widget child, VoidCallback? onTap}) {
+    Widget karte(bool ueber, bool fokus) => Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(11),
+          // RUECKMELDUNG OHNE LAYOUT, wie bei `outlineBtn`: nur die Fuellung
+          // wechselt, kein Rahmen — ein Rahmen haette den Inhalt jeder Zeile
+          // beim Ueberfahren um 1 px eingerueckt. `p.wash` liegt UEBER der
+          // Flaeche und ersetzt sie nicht (er ist durchscheinend, 0x24/0x1F in
+          // data.dart), sonst waere die Karte beim Ueberfahren verschwunden.
+          decoration: BoxDecoration(
+              color: ueber || fokus
+                  ? Color.alphaBlend(p.wash, p.surf2)
+                  : p.surf2,
+              borderRadius: BorderRadius.circular(8)),
+          child: child,
+        );
+    if (onTap == null) return karte(false, false);
+    return _Bedienbar(
+      imFenster: _imFenster,
+      onTap: onTap,
+      bau: (ueber, fokus) =>
+          GestureDetector(onTap: onTap, child: karte(ueber, fokus)),
+    );
+  }
 
   Widget settingHead(String title, String sub) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(title, style: TextStyle(fontSize: 13.5, color: p.ink)),
@@ -2440,14 +3932,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       child: Row(children: [
         for (int i = 0; i < keys.length; i++)
           Expanded(
-            child: GestureDetector(
+            child: _Bedienbar(
+              imFenster: _imFenster,
               onTap: () => onPick(keys[i]),
-              child: Container(
-                margin: EdgeInsets.only(right: i < keys.length - 1 ? 3 : 0),
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(color: cur == keys[i] ? p.tint : Colors.transparent, borderRadius: BorderRadius.circular(4)),
-                child: Text(labels[i], style: mono(size: 11, weight: FontWeight.w500, color: cur == keys[i] ? p.tintInk : p.muted)),
+              bau: (ueber, fokus) => GestureDetector(
+                onTap: () => onPick(keys[i]),
+                child: Container(
+                  margin: EdgeInsets.only(right: i < keys.length - 1 ? 3 : 0),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                      color: cur == keys[i]
+                          ? p.tint
+                          : (ueber || fokus ? p.wash : Colors.transparent),
+                      borderRadius: BorderRadius.circular(4)),
+                  child: Text(labels[i], style: mono(size: 11, weight: FontWeight.w500, color: cur == keys[i] ? p.tintInk : p.muted)),
+                ),
               ),
             ),
           ),
@@ -2455,9 +3955,30 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
-  Widget toggleRow(String title, String sub, bool on, VoidCallback onTap) => GestureDetector(
-        onTap: onTap,
+  /// Eine Zeile mit Schalter.
+  ///
+  /// DER ZUSTAND MUSS ANGESAGT WERDEN, und er wurde es nicht.
+  ///
+  /// Der Schalter ist reine Grafik: eine Farbe und eine Ausrichtung. Wer ihn
+  /// sieht, weiss sofort, ob er an ist. Wer ihn vorlesen laesst, hoerte
+  /// bisher nur "Neuen Nachrichten folgen. Springt zur neuesten Nachricht." —
+  /// weder den Zustand noch ueberhaupt, dass es ein Schalter ist. Damit war
+  /// jede Einstellung der App fuer einen blinden Nutzer unlesbar: umlegen
+  /// ginge, feststellen wohin nicht.
+  ///
+  /// Aufgefallen am 29.07.2026 beim Durchgehen der taeglichen Ablaeufe auf
+  /// dem Emulator — betroffen waren ALLE fuenf Schalter der Einstellungen.
+  ///
+  /// `toggled` setzt in Android die Merkmale "checkable" und "checked"; die
+  /// Vorlesefunktion sagt dann von sich aus "an" oder "aus" dazu. `container`
+  /// haelt den Knoten beisammen — sonst verschmilzt der Zustand mit der
+  /// Nachbarzeile und haengt an beiden.
+  Widget toggleRow(String title, String sub, bool on, VoidCallback onTap) =>
+      Semantics(
+        toggled: on,
+        container: true,
         child: settingCard(
+          onTap: onTap,
           child: Row(children: [
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2476,6 +3997,461 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ]),
         ),
       );
+
+
+  // ══════════════════════════════════════════════════════════ In der Naehe
+
+  /// Der Funk und die Einschraenkung — in dieser Reihenfolge, in EINEM
+  /// Abschnitt.
+  ///
+  /// WARUM ZUSAMMEN. Vorher gab es nur "nur in der Naehe", und der sass bei
+  /// der Sicherheit. Das war richtig, solange es den Funk nicht gab: der
+  /// Schalter verbot einen Server und baute keinen Weg. Jetzt gibt es beides,
+  /// und getrennt waere es irrefuehrend — wer nur die Einschraenkung sieht,
+  /// legt sie um und wundert sich, dass nichts mehr ankommt.
+  ///
+  /// Die Reihenfolge ist die Aussage: erst der WEG, dann das VERBOT.
+  Widget nahbereichBlock() {
+    final z = st.funkzustand;
+    final prefs = st.einstellungen;
+
+    // NUR EIN HINDERNIS, das erste, das zutrifft. Vier Zeilen untereinander
+    // waeren eine Fehlerliste; gebraucht wird der naechste Schritt.
+    //
+    // Die Reihenfolge ist nicht beliebig: die fehlende Berechtigung steht vor
+    // dem ausgeschalteten Bluetooth, weil sie sich mit einem Tipp in der App
+    // erledigen laesst und das andere einen Weg in die Systemleiste braucht.
+    String? hindernis;
+    Widget? ausweg;
+    if (z != null && !z.geht) {
+      if (z.zuAlt) {
+        hindernis = t('nearbyTooOld');
+      } else if (!z.vorhanden || !z.erweitert) {
+        // Beides heisst fuer den Nutzer dasselbe: dieses Telefon kann es
+        // nicht. Ob die Hardware ganz fehlt oder nur die erweiterte Werbung,
+        // aendert nichts daran, was er tun kann — naemlich nichts.
+        hindernis = t('nearbyNoHardware');
+      } else if (!z.rechte) {
+        // Der Knopf aus den Anleitungen, links eingerueckt wie die Zeile
+        // darueber. `Masse.trefferflaeche` sorgt darin fuer eine Flaeche, die
+        // man auch mit dem Daumen trifft — deshalb kein eigener Knopf hier.
+        Widget links(Widget w) => Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+                padding: const EdgeInsets.only(left: 11), child: w));
+        if (st.rechteEndgueltigWeg) {
+          hindernis = t('nearbyBlocked');
+          ausweg = links(_kleinerKnopf(
+              t('nearbyOpenSettings'), st.oeffneSystemeinstellungen));
+        } else {
+          hindernis = t('nearbyNoPerm');
+          ausweg = links(_kleinerKnopf(t('nearbyAllow'), _fordereFunkRechte));
+        }
+      } else if (!z.an) {
+        hindernis = t('nearbyBtOff');
+      }
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      label6(t('nearby')),
+      toggleRow(t('nearbyUse'), t('nearbyUseSub'), prefs.naheAn, _schalteFunkUm),
+
+      if (hindernis != null) ...[
+        const SizedBox(height: 3),
+        _hinweisKasten(hindernis, warnend: false),
+        if (ausweg != null) ...[
+          const SizedBox(height: 6),
+          ausweg,
+        ],
+      ],
+
+      // Was es KOSTET, und zwar erst wenn es an ist. Vorher waere es eine
+      // Warnung vor etwas, das niemand vorhat.
+      // Der Abstand ist hier die Aussage: eng an den Schalter darueber, weit
+      // weg vom naechsten Feld. Mit gleichem Abstand nach beiden Seiten las
+      // sich der Satz wie eine Anmerkung zu "nur in der Naehe" — also zu dem
+      // Schalter, um den es dabei gerade nicht geht.
+      if (prefs.naheAn && (z?.geht ?? false)) ...[
+        const SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 11),
+          child: Text(t('nearbyCost'),
+              style: mono(size: 11, color: p.dim, height: 1.5)),
+        ),
+        const SizedBox(height: 13),
+      ] else
+        const SizedBox(height: 3),
+
+      toggleRow(t('nearOnly'), t('nearOnlySub'), prefs.nurNahbereich,
+          () => st.setzeEinstellungen(
+              prefs.copyWith(nurNahbereich: !prefs.nurNahbereich))),
+
+      // WIEDER DA, seit die Wegwahl am Nachrichtenweg haengt.
+      //
+      // Der Hinweis lag eine Weile still, weil er falscher Rat war: der Funk
+      // fand zwar Kontakte, trug aber keine Nachrichten, und Bluetooth
+      // einzuschalten aenderte an der Zustellung nichts. Jetzt aendert es
+      // alles — mit "nur in der Naehe" allein geht ueberhaupt nichts hinaus.
+      //
+      // NUR WENN "NUR IN DER NAEHE" AN IST UND DER FUNK AUS. Sonst waere es
+      // eine Werbung fuer eine Einstellung, um die gerade niemand gebeten
+      // hat; hier ist es der fehlende zweite Schalter zu einer Entscheidung,
+      // die der Nutzer schon getroffen hat.
+      if (prefs.nurNahbereich && !prefs.naheAn) ...[
+        const SizedBox(height: 3),
+        _hinweisKasten(t('nearbyNeedsBoth')),
+      ],
+
+      // DER KASTEN GEHOERT UNTER SEINEN SCHALTER, nicht unter den Link. Er
+      // stand vorher darunter, und dazwischen las sich "Wie das funktioniert"
+      // wie eine Ueberschrift zu einer Warnung, zu der es nicht gehoert.
+      if (prefs.nurNahbereich) ...[
+        const SizedBox(height: 3),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(Masse.innen),
+          decoration: BoxDecoration(
+              color: p.tint,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: p.tintLine)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t('nearOnlyNow').toUpperCase(),
+                style: mono(
+                    size: 10,
+                    weight: FontWeight.w600,
+                    color: p.tintInk,
+                    spacing: 1.1)),
+            const SizedBox(height: Masse.eng),
+            // ZWEI FASSUNGEN, je nachdem ob der Funk an ist. Mit nur einer
+            // stuende "Bluetooth ist noch nicht gebaut" direkt unter einem
+            // eingeschalteten Bluetooth-Schalter. Jeder Satz fuer sich waere
+            // wahr, zusammen saehe es nach einem Fehler aus — und der Nutzer
+            // wuesste nicht, welchem von beiden er glauben soll.
+            Text(prefs.naheAn ? t('nearOnlyWarnRadio') : t('nearOnlyWarn'),
+                style: mono(size: 11.5, color: p.tintInk, height: 1.55)),
+          ]),
+        ),
+      ],
+
+      // Die Anleitung ist IMMER erreichbar, nicht erst wenn etwas an ist.
+      // Wer wissen will, was ihn erwartet, soll nachlesen koennen, BEVOR er
+      // etwas umlegt.
+      const SizedBox(height: 3),
+      GestureDetector(
+        onTap: () => go('nahHilfe'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(11, 2, 11, 6),
+          child: Text(t('nearGuideLink').toUpperCase(),
+              style: mono(
+                  size: 10,
+                  weight: FontWeight.w600,
+                  color: p.accLight,
+                  spacing: 1.2)),
+        ),
+      ),
+    ]);
+  }
+
+  Future<void> _fordereFunkRechte() async {
+    await st.erlaubeFunk();
+    if (mounted) setState(() {});
+  }
+
+  /// Beim EINSCHALTEN erst fragen, dann umlegen.
+  ///
+  /// Ein Schalter, der auf "an" steht, waehrend die Berechtigung fehlt, waere
+  /// eine Einstellung ohne Wirkung — und der Nutzer haette keinen Anlass,
+  /// weiter zu suchen. Ausschalten geht dagegen immer sofort.
+  /// Entfernt den Kontakt der offenen Unterhaltung — nach Rueckfrage.
+  ///
+  /// MIT RUECKFRAGE, weil es den ganzen Verlauf mitnimmt und sich nicht
+  /// zurueckholen laesst. Der Knopf steht bewusst ohne Betonung da: er ist
+  /// noetig, aber nichts, wozu die Oberflaeche einladen sollte.
+  Future<void> _entferneOffenenKontakt() async {
+    final id = chat;
+    if (id == null) return;
+    final sicher = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surf,
+        title: Text(t('removeContact'),
+            style: mono(size: 15, weight: FontWeight.w500, color: p.ink)),
+        content: Text(t('removeAsk'),
+            style: mono(size: 12.5, color: p.muted, height: 1.5)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(t('cancel'), style: mono(size: 12.5, color: p.muted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(t('removeDo'),
+                style: mono(size: 12.5, weight: FontWeight.w500, color: p.accLight)),
+          ),
+        ],
+      ),
+    );
+    if (sicher != true || !mounted) return;
+    await st.entferneKontakt(id);
+    if (!mounted) return;
+    // ZURUECK ZUR LISTE, denn die Unterhaltung, die hier offen war, gibt es
+    // nicht mehr. Stehenzubleiben zeigte einen leeren Chat zu einem Kontakt,
+    // den es nicht mehr gibt.
+    setState(() {
+      sheet = false;
+      chat = null;
+    });
+    go('chats');
+  }
+
+  Future<void> _schalteFunkUm() async {
+    final prefs = st.einstellungen;
+    if (prefs.naheAn) {
+      await st.setzeEinstellungen(prefs.copyWith(naheAn: false));
+      return;
+    }
+    await st.pruefeFunk();
+    final z = st.funkzustand;
+    if (z != null && !z.geht && !z.rechte && !z.zuAlt && z.vorhanden) {
+      final ok = await st.erlaubeFunk();
+      if (!ok) {
+        if (mounted) setState(() {});
+        return;
+      }
+    }
+    await st.setzeEinstellungen(st.einstellungen.copyWith(naheAn: true));
+    if (mounted) setState(() {});
+  }
+
+  /// Was das Zeichen an einer Nachricht bedeutet.
+  void _erklaereNaehe() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: p.surf,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 26),
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                    width: 36,
+                    height: 3,
+                    decoration: BoxDecoration(
+                        color: p.line,
+                        borderRadius: BorderRadius.circular(99))),
+              ),
+              const SizedBox(height: 14),
+              h2(t('viaNearbyTitle'), size: 18),
+              const SizedBox(height: 10),
+              Text(t('viaNearbyWhat'),
+                  style: mono(size: 12.5, color: p.muted, height: 1.55)),
+            ]),
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════ Verbindungstest
+
+  /// Sagt, WO die Kette reisst — statt "versuch es nochmal".
+  ///
+  /// Der Bildschirm ist bewusst nuechtern: eine Zeile je Glied, ein Zeichen
+  /// davor, die Dauer dahinter, und beim ersten, das nicht haelt, der
+  /// technische Grund. Wer ihn abfotografiert und weiterschickt, hat alles
+  /// beisammen, was jemand zum Beheben braucht.
+  Widget testScreen() {
+    Color farbe(Befund b) => switch (b) {
+          Befund.gut => p.accLight,
+          Befund.schlecht => p.accent,
+          Befund.hinweis => p.accLight,
+          Befund.uebersprungen => p.dim,
+        };
+    String zeichen(Befund b) => switch (b) {
+          Befund.gut => 'OK',
+          Befund.schlecht => '!',
+          Befund.hinweis => '·',
+          Befund.uebersprungen => '–',
+        };
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          iconBtn('‹', () => go('set')),
+          const SizedBox(width: 11),
+          Expanded(child: h2(t('connTest'), size: 20)),
+        ]),
+        const SizedBox(height: 6),
+        Text(t('connTestSub'), style: mono(size: 12, color: p.dim, height: 1.5)),
+        const SizedBox(height: 16),
+
+        for (final sch in st.testSchritte)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 6),
+            decoration: BoxDecoration(
+                color: p.surf2, borderRadius: BorderRadius.circular(8)),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                SizedBox(
+                  width: 28,
+                  child: Text(zeichen(sch.befund),
+                      style: mono(
+                          size: 11,
+                          weight: FontWeight.w600,
+                          color: farbe(sch.befund))),
+                ),
+                Expanded(
+                  child: Text(t(sch.schluessel),
+                      style: TextStyle(fontSize: 13.5, color: p.ink)),
+                ),
+                if (sch.dauer != null)
+                  Text('${sch.dauer!.inMilliseconds} ms',
+                      style: mono(size: 10.5, color: p.dim)),
+              ]),
+              // DER GRUND STEHT DABEI, nicht in einem Protokoll, das niemand
+              // findet. Unuebersetzt: er soll weitergegeben werden koennen,
+              // und eine uebersetzte Fehlermeldung ist beim Suchen wertlos.
+              if (sch.detail != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 28, top: 6),
+                  child: SelectableText(sch.detail!,
+                      style: mono(size: 11, color: p.muted, height: 1.5)),
+                ),
+              if (sch.befund == Befund.hinweis &&
+                  sch.schluessel == 'pruefNahbereich')
+                Padding(
+                  padding: const EdgeInsets.only(left: 28, top: 6),
+                  child: Text(t('pruefNahbereichWas'),
+                      style: mono(size: 11, color: p.muted, height: 1.5)),
+                ),
+            ]),
+          ),
+
+        if (st.testLaeuft)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child:
+                Text(t('connTestRunning'), style: mono(size: 11.5, color: p.dim)),
+          ),
+
+        const SizedBox(height: 12),
+        // AUF outlineBtn UMGESTELLT. Vorher war das ein eigener
+        // GestureDetector mit `width: double.infinity` — ein 516 px breites
+        // Banner ohne Zeigerwechsel, ohne Ueberfahr-Zustand und ohne Fokus,
+        // und waehrend `testLaeuft` war `onTap` null, wobei der Kasten weiter
+        // wie ein Knopf aussah. Ueber den Baustein greift beides jetzt von
+        // selbst; die Sonderfarben liegen in `fuellung`, `accent` und
+        // `textColor`.
+        _knopfBreite(outlineBtn(
+          st.testSchritte.isEmpty ? t('connTestStart') : t('connTestAgain'),
+          st.testLaeuft ? null : () => st.verbindungPruefen(),
+          fuellung: st.testLaeuft ? p.surf2 : p.tint,
+          rahmen: st.testLaeuft ? p.line : p.tintLine,
+          textColor: st.testLaeuft ? p.dim : p.tintInk,
+          fontSize: 11,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        )),
+
+        // WAS ZULETZT SCHIEFGING, auch wenn der Test gerade gruen ist. Ein
+        // Fehler, der nur manchmal auftritt, waere sonst nicht zu fassen: bis
+        // der Nutzer den Test oeffnet, ist die Lage wieder in Ordnung.
+        if (st.letzteTechnischeMeldung != null) ...[
+          const SizedBox(height: 22),
+          label6(t('connLast')),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+                color: p.surf2, borderRadius: BorderRadius.circular(8)),
+            child: SelectableText(st.letzteTechnischeMeldung!,
+                style: mono(size: 11, color: p.muted, height: 1.5)),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  // ══════════════════════════════════════════════════ Anleitung zur Naehe
+
+  /// Schritt fuer Schritt, was "nur in der Naehe" verlangt und was es leistet.
+  ///
+  /// EHRLICH AN DER STELLE, AN DER ES WEHTUT: die Zustellung ueber Funk ist
+  /// noch nicht gebaut. Das steht hier nicht im Kleingedruckten, sondern in
+  /// einem eigenen Kasten ganz oben — wer die Schritte befolgt und dann
+  /// vergeblich wartet, verliert das Vertrauen in alles andere mit.
+  ///
+  /// NUR UNTER ANDROID ERREICHBAR. Der einzige Weg hierher ist `go('nahHilfe')`
+  /// in `nahbereichBlock()`, und der ganze Block steht in den Einstellungen
+  /// hinter `if (_nurAufAndroid)`. Auf Windows, Linux und im Web kann diesen
+  /// Bildschirm niemand oeffnen — beim Desktop-Feinschliff am 30.07.2026 ist er
+  /// deshalb bewusst ungeschliffen geblieben (er hat dieselben Maengel wie
+  /// 'test' hatte, aber niemand sieht sie). Wenn der Nahbereich fuer den
+  /// Desktop kommt, faellt er zusammen mit `nahbereichBlock` wieder an.
+  Widget nahHilfeScreen() {
+    Widget schritt(int nr, String titel, String text) => Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(13),
+          margin: const EdgeInsets.only(bottom: 6),
+          decoration: BoxDecoration(
+              color: p.surf2, borderRadius: BorderRadius.circular(8)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(
+              width: 26,
+              child: Text('$nr',
+                  style: doto(
+                      size: 15, weight: FontWeight.w600, color: p.accLight)),
+            ),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(titel, style: TextStyle(fontSize: 13.5, color: p.ink)),
+                    const SizedBox(height: 3),
+                    Text(text,
+                        style: mono(size: 11.5, color: p.muted, height: 1.55)),
+                  ]),
+            ),
+          ]),
+        );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(22, 17, 22, 22),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          iconBtn('‹', () => go('set')),
+          const SizedBox(width: 11),
+          Expanded(child: h2(t('nearGuide'), size: 20)),
+        ]),
+        const SizedBox(height: 12),
+        _hinweisKasten(t('nearGuideNotYet')),
+        const SizedBox(height: 18),
+        label6(t('nearGuideWhat')),
+        Text(t('nearGuideWhatBody'),
+            style: mono(size: 12, color: p.muted, height: 1.6)),
+        const SizedBox(height: 18),
+        label6(t('nearGuideSteps')),
+        schritt(1, t('nearStep1'), t('nearStep1Body')),
+        schritt(2, t('nearStep2'), t('nearStep2Body')),
+        schritt(3, t('nearStep3'), t('nearStep3Body')),
+        schritt(4, t('nearStep4'), t('nearStep4Body')),
+        schritt(5, t('nearStep5'), t('nearStep5Body')),
+        const SizedBox(height: 18),
+        label6(t('nearGuideBack')),
+        Text(t('nearGuideBackBody'),
+            style: mono(size: 12, color: p.muted, height: 1.6)),
+        const SizedBox(height: 18),
+        label6(t('nearGuideLimits')),
+        Text(t('nearGuideLimitsBody'),
+            style: mono(size: 12, color: p.muted, height: 1.6)),
+      ]),
+    );
+  }
 
   // ---- NAV ----
   Widget buildNav() {
@@ -2593,10 +4569,65 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         Container(height: 1, color: p.lineSoft),
         const SizedBox(height: 8),
         Text(t('verifyNote'), style: mono(size: 11, color: p.dim, height: 1.5)),
+
+        // ANWESENHEIT JE KONTAKT.
+        //
+        // Sie steht hier und nicht in den Einstellungen, weil sie zu EINEM
+        // Kontakt gehoert — und weil dies der einzige Ort ist, an dem man
+        // ohnehin ueber diesen einen nachdenkt.
+        //
+        // NUR wenn der Funk ueberhaupt an ist: ein Schalter fuer eine
+        // Anwesenheit, die niemand aussendet, waere eine Einstellung ohne
+        // Wirkung — und der Nutzer wuesste nicht, warum sie nichts tut.
+        if (st.einstellungen.naheAn) ...[
+          const SizedBox(height: 11),
+          Container(height: 1, color: p.lineSoft),
+          const SizedBox(height: 11),
+          label6(t('nearby')),
+          toggleRow(
+            t('presence'),
+            t('presenceSub'),
+            _zeigtAnwesenheit(chat ?? c1),
+            () => _legeAnwesenheitUm(chat ?? c1),
+          ),
+        ],
+
         const SizedBox(height: 11),
+        // ENTFERNEN GEHOERT HIERHER, und es fehlte ganz.
+        //
+        // `removeContact` steht seit jeher im Kern; gerufen hat es niemand.
+        // Wer eine falsche Adresse eintippte — 56 Zeichen, kein Randfall —,
+        // wurde sie nie wieder los. Am 29.07.2026 blieb auf einem Testgeraet
+        // ein toter Kontakt stehen, den nichts mehr entfernen konnte.
+        //
+        // In diesem Blatt und nicht in der Liste: hier steht schon alles
+        // andere ueber die Gegenstelle, und ein Wisch-zum-Loeschen in der
+        // Chatliste waere die Sorte Geste, die man versehentlich macht.
+        outlineBtn(t('removeContact'), _entferneOffenenKontakt,
+            accent: false, padding: const EdgeInsets.all(11)),
+        const SizedBox(height: 6),
         outlineBtn(t('close'), () => setState(() => sheet = false), padding: const EdgeInsets.all(11)),
       ]),
     );
+  }
+
+  /// Ob dieser Kontakt uns sieht. Unbekannt heisst ja — so steht es im
+  /// Datenmodell, und ein "nein" hier waere eine stille Abweichung davon.
+  bool _zeigtAnwesenheit(String id) =>
+      st.kontakte
+          .where((k) => k.id == id)
+          .map((k) => k.zeigtAnwesenheit)
+          .firstOrNull ??
+      true;
+
+  Future<void> _legeAnwesenheitUm(String id) async {
+    try {
+      await st.setzeAnwesenheit(id, !_zeigtAnwesenheit(id));
+    } on MessengerException {
+      // Ein Kontakt, den es nicht mehr gibt. Kein Grund, das Blatt
+      // wegzuwerfen — es schliesst sich gleich ohnehin.
+    }
+    if (mounted) setState(() {});
   }
 
   Widget kvRow(String k, String v, {bool mono2 = false}) => Padding(
