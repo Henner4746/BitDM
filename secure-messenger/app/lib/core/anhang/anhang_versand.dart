@@ -40,6 +40,7 @@ import 'package:cryptography/cryptography.dart';
 import '../net/relay_client.dart';
 import 'lager_client.dart';
 import 'rezept.dart';
+import 'native_krypto.dart';
 import 'stueck_krypto.dart';
 
 class AnhangZuGross implements Exception {
@@ -71,13 +72,22 @@ class AnhangVersand {
   AnhangVersand({
     required this.relay,
     required this.lager,
-    this.krypto = const GcmStueckKrypto(),
+    StueckKrypto? krypto,
     Random? zufall,
     this.stueckGroesse = standardStueckGroesse,
-  }) : _zufall = zufall ?? Random.secure();
+  })  : krypto = krypto ?? NativeStueckKrypto(),
+        _zufall = zufall ?? Random.secure();
 
   final RelayClient relay;
   final LagerClient lager;
+  /// NATIV, mit Rueckfall auf Dart.
+  ///
+  /// Der Unterschied ist gemessen und gross: 16,6 MB/s in Dart gegen rund 90
+  /// ueber javax.crypto. Bei einem 32-MiB-Stueck sind das zwei Sekunden gegen
+  /// eine Drittelsekunde, bei einer grossen Datei Minuten gegen Sekunden.
+  ///
+  /// Wo es den Kanal nicht gibt — im Einheitentest, auf allem ausser Android —
+  /// rechnet weiter Dart, und zwar bitgleich. Siehe native_krypto.dart.
   final StueckKrypto krypto;
   final Random _zufall;
   final int stueckGroesse;
@@ -90,13 +100,30 @@ class AnhangVersand {
   /// ganz im Arbeitsspeicher, zweimal sogar (Klartext und Chiffretext), und
   /// ein abgebrochenes Stueck ist verlorene Uebertragung.
   ///
-  /// Bei 16 MiB braucht die groesste erlaubte Datei (3 GiB) 192 Stuecke — das
-  /// passt in 256 (siehe [Rezept.hoechstStueckzahl]) und kostet rund 23 KB
-  /// Anleitung.
-  static const int standardStueckGroesse = 16 * 1024 * 1024;
+  /// SEIT 26.07.2026 32 STATT 16 MiB, weil die Obergrenze auf 5 GiB gestiegen
+  /// ist. Bei 16 MiB braeuchte eine 5-GiB-Datei 320 Stuecke und passte damit
+  /// nicht mehr in die 256, die eine Anleitung fasst. Zwei Wege fuehrten
+  /// heraus: mehr Stuecke erlauben oder groessere nehmen.
+  ///
+  /// GROESSERE, weil die Anleitung sonst waechst: 320 Zeilen a rund 130 Byte
+  /// sind 41 KB, und der Umschlag fasst 64 KiB — mit Name, Auffuellung und
+  /// dem Aufschlag der Verschluesselung waere das zu knapp fuer eine Grenze,
+  /// hinter der ein Nutzer steht. Mit 32 MiB sind es 160 Stuecke und 21 KB.
+  ///
+  /// WAS ES KOSTET: ein Stueck liegt beim Verschluesseln zweimal im
+  /// Arbeitsspeicher, als Klartext und als Chiffretext. Aus 32 MB Spitze
+  /// werden 64 MB. Das traegt auch ein aelteres Telefon, aber es ist der
+  /// Grund, warum die Zahl nicht einfach weiter steigt.
+  static const int standardStueckGroesse = 32 * 1024 * 1024;
 
   /// Was das Lager annimmt. Muss zu MAX_BYTES in blob_server.py passen.
-  static const int hoechstGroesse = 3 * 1024 * 1024 * 1024;
+  ///
+  /// EHRLICH DAZU, WAS DAS HEISST: auf dem Telefon lief AES-GCM mit 5 bis 8
+  /// MB/s. Eine Datei an dieser Grenze ist also zehn bis siebzehn Minuten
+  /// allein mit dem Verschluesseln beschaeftigt, das Hochladen kommt obendrauf.
+  /// Die Grenze ist kein Versprechen, dass es schnell geht — nur, dass es
+  /// geht.
+  static const int hoechstGroesse = 5 * 1024 * 1024 * 1024;
 
   /// Schickt [datei] und gibt die fertige Anleitung zurueck.
   ///
@@ -124,7 +151,7 @@ class AnhangVersand {
 
     final zahl = (gesamt / stueckGroesse).ceil();
     if (zahl > Rezept.hoechstStueckzahl) {
-      // Kann mit den aktuellen Zahlen nicht vorkommen (3 GiB / 16 MiB = 192).
+      // Kann mit den aktuellen Zahlen nicht vorkommen (5 GiB / 32 MiB = 160).
       // Steht trotzdem hier: wer eines Tages die Stueckgroesse verkleinert,
       // soll es HIER merken und nicht daran, dass der letzte Umschlag beim
       // Relay abprallt — nach der ganzen Uebertragung.

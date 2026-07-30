@@ -27,6 +27,7 @@ import 'package:cryptography/cryptography.dart';
 
 import 'lager_client.dart';
 import 'rezept.dart';
+import 'native_krypto.dart';
 import 'stueck_krypto.dart';
 
 class AnhangKaputt implements Exception {
@@ -53,12 +54,20 @@ class EmpfangsStand {
 }
 
 class AnhangEmpfang {
-  const AnhangEmpfang({
+  AnhangEmpfang({
     required this.lager,
-    this.krypto = const GcmStueckKrypto(),
-  });
+    StueckKrypto? krypto,
+  }) : krypto = krypto ?? NativeStueckKrypto();
 
   final LagerClient lager;
+  /// NATIV, mit Rueckfall auf Dart.
+  ///
+  /// Der Unterschied ist gemessen und gross: 16,6 MB/s in Dart gegen rund 90
+  /// ueber javax.crypto. Bei einem 32-MiB-Stueck sind das zwei Sekunden gegen
+  /// eine Drittelsekunde, bei einer grossen Datei Minuten gegen Sekunden.
+  ///
+  /// Wo es den Kanal nicht gibt — im Einheitentest, auf allem ausser Android —
+  /// rechnet weiter Dart, und zwar bitgleich. Siehe native_krypto.dart.
   final StueckKrypto krypto;
 
   /// Holt alle Stuecke und schreibt die Datei nach [ziel].

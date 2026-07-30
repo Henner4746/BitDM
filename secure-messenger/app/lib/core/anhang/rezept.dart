@@ -21,7 +21,7 @@
 // Zufallsschluessel je Stueck gibt es nichts zu zaehlen.
 //
 // Der Preis: 44 Zeichen je Stueck in der Anleitung. Bei 16-MiB-Stuecken sind
-// das fuer 3 GiB etwa 23 KB — der Umschlag darf 64 KiB.
+// das fuer 5 GiB etwa 21 KB — der Umschlag darf 64 KiB.
 //
 // ══════════════════════════════════════════ WARUM DIE NUMMER MITVERSCHLUESSELT
 //

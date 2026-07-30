@@ -199,7 +199,7 @@ Der Weg ist vollständig, aber der Chat weiß noch nichts davon:
 
 ```bash
 # Läuft alles?
-ssh -i /root/.ssh/storage_transfer root@5.231.234.142 \
+ssh -i ~/.ssh/<dein-schlüssel> root@dateien.bitdm.net \
   'systemctl is-active bitdm-blob; curl -sS http://127.0.0.1:8081/health'
 ```
 

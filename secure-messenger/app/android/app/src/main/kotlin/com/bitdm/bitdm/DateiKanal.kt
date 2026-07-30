@@ -72,6 +72,18 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
 
     /** Offene Deskriptoren, nach Griff. Siehe oben: NICHT detachFd(). */
     private val offene = mutableMapOf<String, ParcelFileDescriptor>()
+    
+    /** Kopien im Zwischenspeicher, je Zettel eine. Siehe waehlen(). */
+    private val kopien = mutableMapOf<String, File>()
+
+    /** Wo kopiert wird. Siehe waehlen(). Ein Faden, kein Pool: es wird
+     *  ohnehin eine Datei nach der anderen ausgewaehlt, und zwei Kopien
+     *  gleichzeitig wuerden sich nur die Platte streitig machen. */
+    private val kopierfaden = java.util.concurrent.Executors
+        .newSingleThreadExecutor { r ->
+            Thread(r, "bitdm-datei").apply { isDaemon = true }
+        }
+    private val hauptfaden = android.os.Handler(android.os.Looper.getMainLooper())
 
     private var wartend: MethodChannel.Result? = null
     private var laufendeNummer = 0
@@ -181,24 +193,129 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
         if (groesse < 0) groesse = statGroesse
 
         val zettel = "d${laufendeNummer++}"
-        offene[zettel] = pfd
-        warte.success(mapOf(
-            // Der Kern oeffnet diesen Pfad und bekommt einen eigenen
-            // Deskriptor. Solange der hier offen ist, zeigt er auf dieselbe
-            // Datei.
-            "pfad" to "/proc/self/fd/${pfd.fd}",
-            "name" to name,
-            "groesse" to groesse,
-            "zettel" to zettel,
-            "kopiert" to false,
-        ))
+        val ohneKopie = "/proc/self/fd/${pfd.fd}"
+
+        // ═══════════ NACHSEHEN, OB DER KURZE WEG HIER WIRKLICH GEHT
+        //
+        // AM 26.07.2026 AUF EINEM ECHTEN GERAET GESCHEITERT:
+        //   PathAccessException, /proc/self/fd/124, Permission denied (13)
+        //
+        // Der Grund steht nicht in der Anleitung zu SAF, ist aber logisch:
+        // /proc/self/fd/<nr> zu OEFFNEN ist kein Duplizieren des Deskriptors,
+        // sondern ein neues open() auf die dahinterliegende Datei — mit einer
+        // neuen Rechtepruefung. Die Freigabe von SAF gilt aber dem URI, nicht
+        // dem Pfad. Bei allem, was dem Medienspeicher gehoert (Download,
+        // Bilder, alles ueber DocumentsUI), gehoert die Datei der Gruppe
+        // media_rw, und diese App ist nicht darin. Ergebnis: EACCES.
+        //
+        // Wo es GEHT — Dateien im eigenen Bereich der App, manche Anbieter —
+        // bleibt der kopierfreie Weg. Deshalb wird er nicht aufgegeben,
+        // sondern geprueft: ein open() auf die ersten Bytes kostet nichts und
+        // sagt die Wahrheit ueber genau diese Datei.
+        val gehtOhneKopie = try {
+            java.io.FileInputStream(ohneKopie).use { it.read() }
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+        if (gehtOhneKopie) {
+            offene[zettel] = pfd
+            warte.success(mapOf(
+                // Der Kern oeffnet diesen Pfad und bekommt einen eigenen
+                // Deskriptor. Solange der hier offen ist, zeigt er auf
+                // dieselbe Datei.
+                "pfad" to ohneKopie,
+                "name" to name,
+                "groesse" to groesse,
+                "zettel" to zettel,
+                "kopiert" to false,
+            ))
+            return
+        }
+
+        // ═══════════ SONST KOPIEREN — aus dem SCHON OFFENEN Deskriptor
+        //
+        // FileInputStream(pfd.fileDescriptor) oeffnet nichts neu, es liest aus
+        // dem Deskriptor, den der ContentResolver hergegeben hat. Genau daran
+        // scheitert der Weg oben, und genau deshalb geht dieser hier.
+        //
+        // DAS KOSTET, und zwar sichtbar: eine 3-GB-Datei liegt danach zweimal
+        // auf dem Telefon, und das Kopieren laeuft vor dem ersten
+        // uebertragenen Byte. Es ist trotzdem besser als die Alternative, denn
+        // die Alternative war: geht nicht.
+        // AUF EINEM EIGENEN FADEN, nicht hier.
+        //
+        // Diese Methode laeuft im Ergebnis eines onActivityResult, also auf
+        // dem Haupt-Thread. Ein 2-GB-Video zu kopieren dauert dort Minuten,
+        // in denen kein Bild gezeichnet und kein Tippen verarbeitet wird —
+        // nach fuenf Sekunden zeigt Android "BitDM reagiert nicht". Tippt der
+        // Nutzer dann auf "Schliessen", ist die Auswahl weg und die halbe
+        // Kopie liegt im Zwischenspeicher.
+        //
+        // Der Fehler stammt vom 26.07.2026 und ist beim Beheben eines anderen
+        // entstanden: der Rueckfall aufs Kopieren war richtig, nur am
+        // falschen Ort. Ein Suchagent hat ihn noch am selben Tag gefunden.
+        //
+        // `warte` DARF NUR VOM HAUPT-THREAD gerufen werden — das ist eine
+        // Auflage von Flutter, keine Empfehlung. Deshalb Executor fuer die
+        // Arbeit, Handler fuer die Antwort, genau wie in KryptoKanal.kt.
+        val ziel = File(activity.cacheDir, "anhang-$zettel.bin")
+        val fd = pfd.fileDescriptor
+        kopierfaden.execute {
+            var fehler: String? = null
+            try {
+                java.io.FileInputStream(fd).use { ein ->
+                    java.io.FileOutputStream(ziel).use { aus ->
+                        ein.copyTo(aus, 1 shl 20)
+                    }
+                }
+            } catch (e: Throwable) {
+                // AUCH Throwable: bei einer vollen Platte kommt hier ein
+                // IOException, bei einem zerrissenen Deskriptor auch anderes.
+                // Was hier durchschlaegt, reisst sonst den Faden mit.
+                fehler = e.javaClass.simpleName
+                try { ziel.delete() } catch (_: Exception) {}
+            } finally {
+                // Der Deskriptor wird nach dem Kopieren nicht mehr gebraucht.
+                try { pfd.close() } catch (_: Exception) {}
+            }
+
+            val grund = fehler
+            hauptfaden.post {
+                if (grund != null) {
+                    warte.error("nichtLesbar",
+                        "Diese Datei laesst sich nicht lesen ($grund)", null)
+                } else {
+                    kopien[zettel] = ziel
+                    warte.success(mapOf(
+                        "pfad" to ziel.absolutePath,
+                        "name" to name,
+                        "groesse" to ziel.length(),
+                        "zettel" to zettel,
+                        "kopiert" to true,
+                    ))
+                }
+            }
+        }
     }
 
     private fun gibFrei(zettel: String?) {
-        val pfd = offene.remove(zettel ?: return) ?: return
-        try {
-            pfd.close()
-        } catch (_: Exception) {
+        val z = zettel ?: return
+        offene.remove(z)?.let {
+            try {
+                it.close()
+            } catch (_: Exception) {
+            }
+        }
+        // UND DIE KOPIE, falls es eine gab. Ohne das bliebe nach jedem
+        // Anhang ein vollstaendiges Abbild im Zwischenspeicher liegen — bei
+        // Videos in Gigabyte, und niemand wuesste, wovon das Telefon voll ist.
+        kopien.remove(z)?.let {
+            try {
+                it.delete()
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -249,8 +366,9 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(endung) ?: "*/*"
     }
 
-    /** Beim Beenden: was noch offen ist, schliessen. */
+    /** Beim Beenden: was noch offen ist, schliessen und wegraeumen. */
     fun raeumeAuf() {
+        kopierfaden.shutdown()
         for (pfd in offene.values) {
             try {
                 pfd.close()
@@ -258,5 +376,20 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
             }
         }
         offene.clear()
+        for (datei in kopien.values) {
+            try {
+                datei.delete()
+            } catch (_: Exception) {
+            }
+        }
+        kopien.clear()
+
+        // AUCH WAS EIN ABSTURZ HINTERLASSEN HAT. Wer nur die eigene Liste
+        // aufraeumt, laesst nach jedem harten Beenden eine Leiche liegen.
+        try {
+            activity.cacheDir.listFiles { f -> f.name.startsWith("anhang-") }
+                ?.forEach { it.delete() }
+        } catch (_: Exception) {
+        }
     }
 }

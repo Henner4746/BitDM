@@ -19,6 +19,7 @@
 import 'dart:typed_data';
 
 import 'package:bitdm/core/anhang/anhang_versand.dart';
+import 'package:bitdm/core/anhang/native_krypto.dart';
 import 'package:bitdm/core/anhang/stueck_krypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -72,11 +73,81 @@ void main() {
     // ueberdecken.
     final jeStueck = AnhangVersand.standardStueckGroesse / 1024 / 1024 / hoch;
     // ignore: avoid_print
-    print('=> ein 16-MiB-Stueck: ${jeStueck.toStringAsFixed(1)} s');
+    print('=> ein 32-MiB-Stueck: ${jeStueck.toStringAsFixed(1)} s');
     // ignore: avoid_print
-    print('=> 3 GiB am Stueck:   '
-        '${(3 * 1024 / hoch / 60).toStringAsFixed(1)} min reine Rechenzeit');
+    print('=> 5 GiB am Stueck:   '
+        '${(5 * 1024 / hoch / 60).toStringAsFixed(1)} min reine Rechenzeit');
 
     expect(hoch, greaterThan(0));
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // SEIT 26.07.2026: derselbe Vorgang ueber den nativen Kanal.
+  //
+  // Die Zahl oben war der Grund, AES aus Dart herauszunehmen. Hier steht,
+  // was es gebracht hat — auf DIESEM Geraet, nicht auf einem Desktop und
+  // nicht auf einer JVM. Beide Messungen rechnen dasselbe mit denselben
+  // Eingaben; der einzige Unterschied ist, wer rechnet.
+
+  test('AES-GCM nativ gegen Dart, auf diesem Geraet', () async {
+    final schluessel =
+        Uint8List.fromList(List.generate(32, (i) => i * 7 & 0xFF));
+    final nonce = Uint8List.fromList(List.generate(12, (i) => i));
+    final klar = Uint8List(AnhangVersand.standardStueckGroesse);
+    for (var i = 0; i < klar.length; i += 997) {
+      klar[i] = i & 0xFF;
+    }
+    final mib = klar.length / (1024 * 1024);
+
+    Future<(int, Uint8List)> miss(StueckKrypto k) async {
+      // Warmlaufen, dann messen.
+      await k.verschluessle(
+          klar: Uint8List(65536),
+          schluessel: schluessel,
+          nonce: nonce,
+          nummer: 0,
+          vonWievielen: 1);
+      final u = Stopwatch()..start();
+      final aus = await k.verschluessle(
+          klar: klar,
+          schluessel: schluessel,
+          nonce: nonce,
+          nummer: 0,
+          vonWievielen: 1);
+      u.stop();
+      return (u.elapsedMilliseconds, aus);
+    }
+
+    final nativ = NativeStueckKrypto();
+    final (msNativ, ausNativ) = await miss(nativ);
+    final (msDart, ausDart) = await miss(const GcmStueckKrypto());
+
+    // DIE WICHTIGSTE ZEILE DIESES TESTS. Schneller zu sein nuetzt nichts,
+    // wenn dabei etwas anderes herauskommt — dann kann die Gegenseite es
+    // nicht lesen. Die JVM-Vektoren zeigen dasselbe; hier steht es fuer die
+    // Hardware, auf der es wirklich laeuft.
+    expect(ausNativ, ausDart,
+        reason: 'nativ und Dart muessen bitgleich rechnen');
+
+    String tempo(int ms) => (mib * 1000 / ms).toStringAsFixed(1);
+    // ignore: avoid_print
+    print('TEMPO nativ:  $msNativ ms fuer ${mib.toStringAsFixed(0)} MiB '
+        '= ${tempo(msNativ)} MB/s');
+    // ignore: avoid_print
+    print('TEMPO Dart:   $msDart ms = ${tempo(msDart)} MB/s');
+    // ignore: avoid_print
+    print('TEMPO Faktor: ${(msDart / msNativ).toStringAsFixed(1)}x');
+    // ignore: avoid_print
+    print('TEMPO 5 GiB:  nativ '
+        '${(5 * 1024 * msNativ / mib / 1000 / 60).toStringAsFixed(1)} min, '
+        'in Dart ${(5 * 1024 * msDart / mib / 1000 / 60).toStringAsFixed(1)} min');
+    // ignore: avoid_print
+    print('TEMPO Rueckfall: ${nativ.imRueckfall ?? "nein, laeuft nativ"}');
+    // ignore: avoid_print
+    print('TEMPO Anbieter: ${nativ.anbieter}');
+    expect(nativ.anbieter, isNot('BC'),
+        reason: 'BouncyCastle waere reines Java — bitgleich, aber zwanzigmal '
+            'langsamer, und kein anderer Test wuerde davon rot');
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }

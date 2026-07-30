@@ -81,7 +81,7 @@ if len(GEHEIMNIS) < 32:
 
 # Groesste Datei. 3 GiB — darueber wird es auf einem Telefon ohnehin zur
 # Geduldsprobe, und die Grenze steht besser hier als im Ermessen des Clients.
-MAX_BYTES = int(os.getenv("BITDM_BLOB_MAX", str(3 * 1024**3)))
+MAX_BYTES = int(os.getenv("BITDM_BLOB_MAX", str(5 * 1024**3)))
 
 # Wie lange etwas liegen bleibt, steht NICHT hier, sondern in
 # blob_kehrmaschine.py — dort, wo es auch angewendet wird. Eine Konstante an
