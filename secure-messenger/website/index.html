@@ -1,4 +1,7 @@
 <!doctype html>
+<html lang="de" data-lang="de">
+<head>
+<meta charset="utf-8">
 <!--
   ═══════════════════════════════════════════════════════════════════════════
   RICHTUNGSVERTRAG — BitDM Startseite
@@ -6,25 +9,44 @@
   THESIS      Die Seite ist die Frontplatte eines Signalgeraets, nicht die
               Werbeseite einer App. Sie verweigert das Kategorie-Uebliche:
               Handy-Mockups, Feature-Kaertchen, Vertrauens-Logos. Was ein
-              Geraet kann, liest man an seinen Anzeigen ab.
+              Gerät kann, liest man an seinen Anzeigen ab.
   OWN-WORLD   Nocturne, geerbt aus App und Prototyp. Grund #0b0c12, Module
               #161826, EIN violetter Akzent, der nur Anzeigen zuendet.
-              Doto (Punktmatrix) ausschliesslich fuer Anzeigen, Chivo Mono
-              versal und gesperrt fuer eingebrannte Beschriftungen.
-  STORY       Besucher versteht: die Adresse IST der Schluessel, es gibt kein
+              Doto (Punktmatrix) ausschliesslich für Anzeigen, Chivo Mono
+              versal und gesperrt für eingebrannte Beschriftungen.
+  STORY       Besucher versteht: die Adresse IST der Schlüssel, es gibt kein
               Konto. Er glaubt es, weil die Seite auch zeigt, was der Server
               trotzdem sieht. Er laedt die App oder liest den Quellcode.
-  FIRST VIEWPORT  Eine Punktmatrix-Anzeige ueber die volle Breite zeigt eine
-              56-stellige Adresse in 14 Gruppen. Darunter die Erklaerung,
+  FIRST VIEWPORT  Eine Punktmatrix-Anzeige über die volle Breite zeigt eine
+              56-stellige Adresse in 14 Gruppen. Darunter die Erklärung,
               darunter die Bedienleiste mit den drei Bezugswegen.
   FORM        Gerätefeld — Kandidat 5 der Strukturliste, per concept-seed
               zugeteilt (key 626891dd). Staging: die durchlaufende Zeile aus
               dem Step-Row-Challenger, uebersetzt in die Adressanzeige.
   ═══════════════════════════════════════════════════════════════════════════
 -->
-<html lang="de" data-lang="de">
-<head>
-<meta charset="utf-8">
+<!-- DER SPRACHBLITZ, und warum dieses Stueck Skript ganz oben steht.
+     setLang() liegt am Dateiende. Bei kaltem Zwischenspeicher oder auf einem
+     langsamen Gerät zeichnet der Browser die deutsche Fassung fertig, BEVOR
+     der Umschalter laeuft — wer Englisch eingestellt hat, sieht die Seite
+     einmal auf Deutsch aufblitzen. Das war die lauteste Bewegung der ganzen
+     Seite, und entworfen hat sie niemand.
+     Hier wird nur das Attribut gesetzt, bevor irgendetwas gezeichnet ist. Der
+     Rest bleibt unten. Ohne JavaScript ändert sich nichts: Deutsch steht im
+     html-Tag und bleibt stehen. -->
+<script>
+(function () {
+  try {
+    var l = localStorage.getItem('bitdm-lang');
+  } catch (e) {}
+  if (l !== 'de' && l !== 'en') {
+    l = (navigator.language || 'de').slice(0, 2) === 'de' ? 'de' : 'en';
+  }
+  var r = document.documentElement;
+  r.setAttribute('data-lang', l);
+  r.setAttribute('lang', l);
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BitDM — Verschlüsselt schreiben, ohne Konto</title>
 <meta name="description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer und ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll (libsignal): AES-256, X3DH über Curve25519, Double Ratchet, AES-256-GCM für Anhänge. Quelloffen unter GPL-3.0.">
@@ -68,6 +90,13 @@ body{
 html[data-lang="de"] .en{display:none!important}
 html[data-lang="en"] .de{display:none!important}
 
+/* ─── Eine Kurve für alles ───
+   cubic-bezier(.33,1,.68,1) ist der CSS-Zwilling von 1-(1-t)^3, mit dem das
+   Skript der Adressanzeige laeuft: sofort schnell, dann auslaufend. Vorher
+   liefen die Uebergaenge auf dem Browserstandard `ease` — erst beschleunigen,
+   dann bremsen. Zwei Bewegungsgefuehle auf einer Seite, und keines davon war
+   entschieden. */
+
 /* ─── Eingebrannte Beschriftung ─── */
 .screen{
   font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
@@ -92,7 +121,11 @@ a:focus-visible,button:focus-visible,input:focus-visible{
   position:sticky; top:0; z-index:40;
   background:linear-gradient(180deg,#0d0e16 0%,rgba(11,12,18,.92) 100%);
   border-bottom:1px solid var(--line-soft);
-  backdrop-filter:saturate(140%) blur(8px);
+  /* backdrop-filter ist hier ersatzlos gestrichen.
+     Ein Weichzeichnen über die volle Breite kostet bei JEDEM Bild waehrend
+     des Scrollens, nicht nur einmal — der einzige dauerhafte Verbraucher der
+     ganzen Seite. Der Balken ist ohnehin fast deckend; zu sehen war davon
+     kaum etwas. */
 }
 .bezel-in{display:flex; align-items:center; gap:20px; height:58px}
 .mark{display:flex; align-items:baseline; gap:10px; margin-right:auto; text-decoration:none}
@@ -101,22 +134,42 @@ a:focus-visible,button:focus-visible,input:focus-visible{
 .mark-rev{font:500 10px/1 'Chivo Mono',monospace; letter-spacing:.16em;
   color:var(--dim); text-transform:uppercase}
 
-/* Kippschalter fuer die Sprache — ein echtes Bedienelement, kein Link */
+/* Kippschalter für die Sprache — ein echtes Bedienelement, kein Link */
 .toggle{display:flex; border:1px solid var(--line); border-radius:var(--r-pill);
   padding:2px; background:var(--panel-2)}
+
+/* Der Knopf FAEHRT zwischen DE und EN, statt dass eine Farbe springt.
+   Die einzige Bewegung auf dieser Seite, die keinen Fehler behebt — sie ist
+   die Antwort auf einen Druck und sagt, welcher der beiden Zustaende gerade
+   gilt, ohne dass man die Farben vergleichen muss.
+   Nur transform, kein Layout. */
+.toggle{position:relative}
+.toggle::before{
+  content:''; position:absolute; z-index:0;
+  top:3px; bottom:3px; left:3px; width:calc(50% - 3px);
+  border-radius:var(--r-pill); background:var(--unlit-deep);
+  transform:translateX(0);
+  transition:transform .18s cubic-bezier(.33,1,.68,1);
+}
+html[data-lang="en"] .toggle::before{transform:translateX(100%)}
+.toggle button{position:relative; z-index:1}
+
 .toggle button{
   appearance:none; border:0; background:transparent; cursor:pointer;
   padding:5px 11px; border-radius:var(--r-pill); color:var(--muted);
   font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
-  transition:color .18s, background .18s;
+  transition:color .18s cubic-bezier(.33,1,.68,1), background .18s cubic-bezier(.33,1,.68,1);
 }
 .toggle button:hover{color:var(--body)}
-.toggle button[aria-pressed="true"]{background:var(--unlit-deep); color:var(--lit-hi)}
+/* KEIN Hintergrund mehr an der Taste selbst — den faehrt jetzt
+   .toggle::before. Beides zugleich waere ein Kasten unter einem Kasten, und
+   beim Fahren saehe man den alten noch stehen. */
+.toggle button[aria-pressed="true"]{color:var(--lit-hi)}
 
 .src-link{
   display:inline-flex; align-items:center; gap:8px; text-decoration:none;
   color:var(--muted); font:600 10px/1 'Chivo Mono',monospace;
-  letter-spacing:.14em; text-transform:uppercase; transition:color .18s;
+  letter-spacing:.14em; text-transform:uppercase; transition:color .18s cubic-bezier(.33,1,.68,1);
 }
 .src-link:hover{color:var(--lit)}
 @media (max-width:640px){.src-link{display:none}}
@@ -141,7 +194,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{
   flex-wrap:wrap}
 .display-head .screen{white-space:nowrap}
 .rule{flex:1; min-width:24px; height:1px; background:var(--line-soft)}
-/* Auf schmalen Geraeten traegt die lange deutsche Beschriftung nicht mehr
+/* Auf schmalen Geräten traegt die lange deutsche Beschriftung nicht mehr
    neben Trennlinie und Zusatz — dann faellt der Zusatz weg statt zu ueberlaufen. */
 @media (max-width:520px){
   .display-head .screen:not(.screen-lit){display:none}
@@ -157,7 +210,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{
 #addr .grp{display:flex; gap:.09em}
 #addr .ch{
   color:var(--lit); text-shadow:0 0 14px rgba(181,171,252,.32);
-  transition:color .12s;
+  transition:color .12s cubic-bezier(.33,1,.68,1);
 }
 #addr .ch.scramble{color:var(--dim); text-shadow:none}
 
@@ -171,7 +224,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{
   border:1px solid var(--line); border-radius:var(--r);
   color:var(--body); padding:9px 15px;
   font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
-  transition:border-color .18s, color .18s, background .18s;
+  transition:border-color .18s cubic-bezier(.33,1,.68,1), color .18s cubic-bezier(.33,1,.68,1), background .18s cubic-bezier(.33,1,.68,1);
 }
 .regen:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
 .regen:active{background:#101220}
@@ -197,6 +250,13 @@ a:focus-visible,button:focus-visible,input:focus-visible{
 .lamp.on{background:var(--lit); box-shadow:0 0 10px rgba(181,171,252,.75)}
 .slot p{margin:0; font-size:13.5px; line-height:1.6; color:var(--muted)}
 .slot .act{margin-top:auto}
+/* Der Download ist der einzige echte Knopf hier und traegt zwei 64-Zeichen-
+   Hashes. In einer Spalte streckt er die Platzhalter daneben ins Leere. */
+.slot-breit{grid-column:1/-1}
+.slot-breit .act{margin-top:0}
+@media(min-width:720px){.pruef{display:grid; grid-template-columns:1fr 1fr;
+  gap:0 30px}
+  .pruef dt{margin-top:0}}
 
 .btn{
   display:inline-flex; align-items:center; justify-content:center; gap:9px;
@@ -204,7 +264,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{
   font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
   text-decoration:none; cursor:pointer; border:1px solid var(--line);
   background:var(--panel-2); color:var(--body);
-  transition:border-color .18s, color .18s, background .18s, box-shadow .18s;
+  transition:border-color .18s cubic-bezier(.33,1,.68,1), color .18s cubic-bezier(.33,1,.68,1), background .18s cubic-bezier(.33,1,.68,1), box-shadow .18s cubic-bezier(.33,1,.68,1);
 }
 .btn:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
 .btn-primary{background:var(--unlit-deep); border-color:var(--unlit); color:var(--lit-hi)}
@@ -223,6 +283,27 @@ a:focus-visible,button:focus-visible,input:focus-visible{
 }
 .field input::placeholder{color:var(--muted)}
 .field input:hover{border-color:var(--unlit-deep)}
+.schirme{display:grid; gap:26px; grid-template-columns:1fr; margin:26px 0 0;
+  justify-content:center}
+@media(min-width:720px){.schirme{grid-template-columns:repeat(2,290px);
+  align-items:start; gap:34px}}
+/* Ein Handy-Bildschirm muss wie ein Handy aussehen. Ohne Deckel zieht das Raster
+   ihn auf 580 px auf, und die Schrift darin wird größer als die der Seite. */
+.schirme figure{margin:0 auto; max-width:290px}
+.schirme img{display:block; width:100%; height:auto; border-radius:var(--r-lg);
+  border:1px solid var(--line)}
+.schirme figcaption{margin:9px 2px 0; font-size:11.5px; line-height:1.55;
+  color:var(--muted)}
+.pruef{margin:18px 0 0}
+.pruef dt{margin:14px 0 4px; font-size:11px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--muted)}
+.pruef dd{margin:0; font-size:11.5px; line-height:1.7; color:var(--muted)}
+/* Ein 64-Zeichen-Hash sprengt sonst jedes Telefon und darf darum mitten im
+   Zeichen brechen. Der Befehl daneben NICHT: sonst haengt ein einzelnes "b"
+   von "bitdm-1.5.1.apk" allein in der naechsten Zeile. Der bricht an Leer-
+   zeichen, wie Text das tut. */
+.pruef dd > code:first-child{word-break:break-all}
+.pruef dd{overflow-wrap:break-word}
 .hint{font-size:11.5px; line-height:1.55; color:var(--muted); margin:0}
 
 /* ════════════ Module ════════════ */
@@ -285,18 +366,76 @@ a:focus-visible,button:focus-visible,input:focus-visible{
 .fact p{margin:0; font-size:12.5px; line-height:1.6; color:var(--muted)}
 
 /* ════════════ Fuss ════════════ */
-footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44px; margin-top:20px}
-.foot-grid{display:flex; flex-wrap:wrap; gap:26px 40px; align-items:flex-start}
+/* footer.wrap UND NICHT NUR footer — sonst greift nichts davon.
+   `.wrap` setzt `margin:0 auto` und `padding:0 var(--rail)`, beides
+   Kurzschreibweisen: sie setzen also auch margin-top und padding-top auf 0.
+   Eine Klasse sticht ein Element-Kennzeichen unabhaengig von der Reihenfolge,
+   damit gewann `.wrap`. Ergebnis: der Strich klebte oben am Text (gemessen
+   1 Pixel Abstand statt 38 bis 58) und stand zugleich ohne Luft unter dem
+   letzten Abschnitt.
+
+   ZWEITER PUNKT, beim Nachmessen aufgefallen: der Strich lag am Fuss über
+   die ganze Breite, waehrend der Strich der Fussnote — und jede andere Linie
+   der Seite — um den Rand eingerueckt ist. Zwei Striche im selben Block auf
+   verschiedenen Fluchten. Der Rahmen sitzt deshalb jetzt an .foot-grid, also
+   INNERHALB des Randes, und beide liegen auf einer Linie. */
+footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
+.foot-grid{display:flex; flex-wrap:wrap; gap:26px 40px; align-items:flex-start;
+  border-top:1px solid var(--line-soft); padding-top:clamp(38px,5vw,58px)}
 .foot-col{min-width:170px}
 .foot-col .screen{display:block; margin-bottom:13px}
 .foot-col a{display:block; color:var(--muted); text-decoration:none; font-size:13px;
-  padding:4px 0; transition:color .18s}
+  padding:4px 0; transition:color .18s cubic-bezier(.33,1,.68,1)}
 .foot-col a:hover{color:var(--lit)}
 .foot-note{margin:34px 0 0; padding-top:22px; border-top:1px solid var(--line-soft);
   font-size:11.5px; line-height:1.7; color:var(--muted); max-width:74ch}
 
+/* ─── Was auf Zeigen und Druecken antwortet ───
+
+   ZWEI BEWEGUNGEN, MEHR NICHT. Beide fassen nur color oder transform an —
+   nichts, was ein Layout neu rechnet — und beide sind Antworten auf eine
+   Handlung des Lesers, nicht Selbstzweck. Etwas, das von allein losläuft,
+   gibt es auf dieser Seite weiterhin nirgends. */
+
+/* Zeigt man auf eine Faktenzeile, zuendet ihre eingebrannte Beschriftung.
+   Das sind die dichtesten Stellen der Seite; die Aufhellung sagt "diese
+   Zeile", ohne dass sich irgendetwas bewegt. */
+.plate-row:hover dt{color:var(--lit-mid)}
+.sees li:hover .what{color:var(--ink)}
+.plate-row dt,
+.sees li .what{transition:color .18s cubic-bezier(.33,1,.68,1)}
+
+/* Ein Pixel auf den Druck — der Haarstrich, die kleinste Einheit, die diese
+   Platte kennt.
+
+   HINUNTER OHNE UEBERGANG, zurück in 180 ms. Die Asymmetrie ist der
+   Unterschied zwischen einem Knopf, der nachgibt, und einem, der wackelt:
+   der Druckpunkt muss sofort da sein, das Zurueckfedern darf man sehen.
+
+   :not([aria-disabled="true"]) beim Hauptknopf, weil ein Knopf, der nichts
+   tut, auch nicht so aussehen darf, als taete er etwas. */
+.regen, .toggle button, .btn{transition:transform .18s cubic-bezier(.33,1,.68,1)}
+.regen:active,
+.toggle button:active,
+.btn:not([aria-disabled="true"]):active{transform:translateY(1px); transition:none}
+
 @media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation-duration:.01ms!important; transition-duration:.01ms!important}
+  /* DREI ZEILEN, NICHT EINE.
+     Die Dauer allein reicht nicht: eine Animation mit
+     `animation-iteration-count: infinite` laeuft auch mit 0,01 ms
+     unendlich oft weiter und flackert dann nur schneller. Und
+     scroll-behavior gehoert dazu, weil ein weich scrollender Anker für
+     jemanden mit Bewegungsempfindlichkeit dasselbe Problem ist wie eine
+     Animation.
+     Die Datei enthaelt heute keine @keyframes. Die Regel steht trotzdem
+     vollstaendig da — sie soll gelten, bevor die erste dazukommt, nicht
+     danach. */
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:.01ms!important;
+    scroll-behavior:auto!important;
+  }
 }
 </style>
 </head>
@@ -334,8 +473,19 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
         <span class="screen en">Example</span>
       </div>
 
+      <!-- DIE ADRESSE STEHT HIER, nicht erst im Skript.
+           Sie war bis zum 26.07.2026 leer: die 56 Zellen entstanden
+           ausschliesslich in build(). Ohne JavaScript zeigte die
+           Hauptanzeige des ersten Bildschirms damit einen leeren Kasten —
+           auf einer Seite, die zwei Abschnitte weiter unten damit wirbt,
+           ohne JavaScript zu funktionieren.
+           Das Skript ersetzt die Zeichen jetzt nur noch. Wer den Knopf
+           drueckt, bekommt eine neue; wer kein JavaScript hat, sieht
+           dieselbe wie jeder andere. Sie ist ein Beispiel und kein
+           Schlüssel — das steht in der Fussnote der Seite. -->
       <div id="addr" role="img"
-           aria-label="Beispiel einer BitDM-Adresse: 56 Zeichen in 14 Gruppen"></div>
+           aria-label="Beispiel einer BitDM-Adresse: 56 Zeichen in 14 Gruppen" data-en-aria-label="Example of a BitDM address: 56 characters in 14 groups"
+        ><span class="grp"><span class="ch">m</span><span class="ch">b</span><span class="ch">m</span><span class="ch">7</span></span><span class="grp"><span class="ch">7</span><span class="ch">4</span><span class="ch">g</span><span class="ch">7</span></span><span class="grp"><span class="ch">o</span><span class="ch">w</span><span class="ch">k</span><span class="ch">l</span></span><span class="grp"><span class="ch">4</span><span class="ch">i</span><span class="ch">q</span><span class="ch">v</span></span><span class="grp"><span class="ch">p</span><span class="ch">i</span><span class="ch">7</span><span class="ch">a</span></span><span class="grp"><span class="ch">w</span><span class="ch">e</span><span class="ch">c</span><span class="ch">f</span></span><span class="grp"><span class="ch">4</span><span class="ch">h</span><span class="ch">y</span><span class="ch">c</span></span><span class="grp"><span class="ch">t</span><span class="ch">o</span><span class="ch">h</span><span class="ch">4</span></span><span class="grp"><span class="ch">z</span><span class="ch">k</span><span class="ch">7</span><span class="ch">y</span></span><span class="grp"><span class="ch">b</span><span class="ch">l</span><span class="ch">r</span><span class="ch">i</span></span><span class="grp"><span class="ch">z</span><span class="ch">l</span><span class="ch">x</span><span class="ch">w</span></span><span class="grp"><span class="ch">y</span><span class="ch">w</span><span class="ch">b</span><span class="ch">o</span></span><span class="grp"><span class="ch">c</span><span class="ch">p</span><span class="ch">g</span><span class="ch">y</span></span><span class="grp"><span class="ch">7</span><span class="ch">c</span><span class="ch">w</span><span class="ch">y</span></span></div>
 
       <div class="display-foot">
         <button class="regen" type="button" id="regen">
@@ -393,7 +543,50 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
   </section>
 
   <!-- ═══════════ Bedienleiste ═══════════ -->
-  <section class="wrap rail" aria-label="App beziehen">
+  <section class="wrap rail" aria-label="App beziehen" data-en-aria-label="Get the app">
+
+    <div class="slot slot-breit">
+      <div class="slot-head">
+        <span class="lamp" aria-hidden="true"></span>
+        <span class="screen de">Direkter Download</span>
+        <span class="screen en">Direct download</span>
+      </div>
+      <p class="de">Version 1.5.1, 66 MB, für arm64 und arm32. Android wird beim
+        Installieren warnen — es warnt bei jeder App, deren Zertifikat Google
+        nicht kennt, unabhängig davon, was in der Datei steht. Was in dieser
+        steht, lässt sich an den zwei Werten darunter nachprüfen.</p>
+      <p class="en">Version 1.5.1, 66 MB, for arm64 and arm32. Android will warn you
+        when installing — it warns about every app whose certificate Google does
+        not know, regardless of what the file contains. What this one contains
+        can be checked against the two values below.</p>
+
+      <div class="act">
+        <a class="btn btn-primary" href="bitdm-1.5.1.apk" download>
+          <span class="de">APK herunterladen</span><span class="en">Download APK</span>
+        </a>
+      </div>
+
+      <dl class="pruef">
+        <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
+        <dd><code>62027fc7cb2aceacd74d7150dcca1ff937861c30cc420fcd35f9055dc20ee72c</code>
+          — <code>sha256sum bitdm-1.5.1.apk</code></dd>
+        <dt><span class="de">Der Schlüssel, mit dem sie signiert ist</span>
+            <span class="en">The key it is signed with</span></dt>
+        <dd><code>e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063</code>
+          — <code>apksigner verify --print-certs bitdm-1.5.1.apk</code></dd>
+      </dl>
+
+      <p class="hint">
+        <span class="de">Der erste Wert gilt nur für diese Datei, der zweite für
+          alle künftigen Versionen: Android nimmt ein Update nur an, wenn es mit
+          demselben Schlüssel signiert ist. Ändert sich dieser Wert je, ist es
+          nicht mehr dieselbe App.</span>
+        <span class="en">The first value covers only this file; the second covers
+          every future version: Android accepts an update only if it carries the
+          same signing key. If that second value ever changes, it is no longer
+          the same app.</span>
+      </p>
+    </div>
 
     <div class="slot">
       <div class="slot-head">
@@ -431,23 +624,6 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       </div>
     </div>
 
-    <div class="slot">
-      <div class="slot-head">
-        <span class="lamp" aria-hidden="true"></span>
-        <span class="screen de">Direkter Download</span>
-        <span class="screen en">Direct download</span>
-      </div>
-      <p class="de">Die APK erscheint hier, sobald sie mit dem echten
-        Release-Schlüssel signiert ist. Der Fingerabdruck steht dann daneben.
-        Prüf ihn, bevor du installierst.</p>
-      <p class="en">The APK appears here once it is signed with the real release
-        key. Its fingerprint will sit next to it. Check it before installing.</p>
-      <div class="act">
-        <span class="btn" aria-disabled="true">
-          <span class="de">In Vorbereitung</span><span class="en">In preparation</span>
-        </span>
-      </div>
-    </div>
 
     <div class="slot">
       <div class="slot-head">
@@ -463,7 +639,7 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
         <form class="field" id="notify">
           <label for="mail" class="screen" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">E-Mail</label>
           <input id="mail" type="email" name="mail" required
-                 placeholder="du@beispiel.de" autocomplete="email" spellcheck="false">
+                 placeholder="du@beispiel.de" data-en-placeholder="you@example.com" autocomplete="email" spellcheck="false">
           <button class="btn btn-primary" type="submit" style="width:auto;white-space:nowrap">
             <span class="de">Senden</span><span class="en">Send</span>
           </button>
@@ -524,6 +700,105 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
   </section>
 
   <!-- ═══════════ Signalweg ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Ohne Netz</span>
+      <span class="screen screen-lit en">Module — No network</span>
+      <h2>
+        <span class="de">Wenn es keinen Server gibt</span>
+        <span class="en">When there is no server</span>
+      </h2>
+      <p class="de">Zwei Telefone, die nebeneinander liegen, brauchen niemanden
+        dazwischen. BitDM findet den anderen über Bluetooth und schickt die
+        Nachricht direkt — kein WLAN, keine Mobilfunkdaten, kein Rechenzentrum.
+        Sie tragen dann ein Zeichen: <strong>direkt</strong>.</p>
+      <p class="en">Two phones lying next to each other need nobody in between.
+        BitDM finds the other over Bluetooth and delivers the message directly —
+        no Wi-Fi, no mobile data, no data centre. Such messages carry a mark:
+        <strong>direct</strong>.</p>
+    </div>
+
+    <div class="fact">
+      <p class="de">Am 29. Juli 2026 auf zwei Geräten gemessen, beide im
+        Flugmodus für Daten: <strong>325 Byte in 1,35 Sekunden</strong>.</p>
+      <p class="en">Measured on two devices on 29 July 2026, both with data
+        switched off: <strong>325 bytes in 1.35 seconds</strong>.</p>
+    </div>
+
+    <p>
+      <span class="de">Das Schwierige daran ist nicht das Senden, sondern das
+        <em>Finden</em>. Ein Gerät, das seine Adresse in die Gegend ruft, damit
+        Freunde es erkennen, verrät sie auch allen anderen — und eine Adresse,
+        die man über Tage wiedererkennt, ist ein Bewegungsprofil.</span>
+      <span class="en">The hard part is not the sending, it is the
+        <em>finding</em>. A device broadcasting its address so friends can spot
+        it also hands that address to everyone else — and an address you can
+        recognise across days is a movement profile.</span>
+    </p>
+
+    <p>
+      <span class="de">BitDM sendet darum keine Adresse aus, sondern
+        <strong>Leuchtfeuer</strong>: sechs Byte je Kontakt, berechnet aus dem
+        gemeinsamen Geheimnis und dem laufenden Viertelstundenfenster. Wer das
+        Geheimnis hat, erkennt daran seinen Kontakt. Wer es nicht hat, sieht
+        sechs Byte Rauschen, die sich alle fünfzehn Minuten ändern.</span>
+      <span class="en">So BitDM broadcasts no address. It broadcasts
+        <strong>beacons</strong>: six bytes per contact, computed from the shared
+        secret and the current fifteen-minute window. Whoever holds the secret
+        recognises their contact in it. Whoever does not sees six bytes of noise
+        that change every fifteen minutes.</span>
+    </p>
+
+    <p>
+      <span class="de">Es gibt bewusst <strong>keine Anzeige, wer gerade in
+        Reichweite ist</strong>. Am Zeichen an einer Nachricht lässt sich
+        ablesen, wie sie <em>gegangen ist</em>; wer da war, sagt niemand.</span>
+      <span class="en">There is deliberately <strong>no display of who is
+        nearby</strong>. The mark on a message tells you how it
+        <em>travelled</em>; who was around is nobody's business.</span>
+    </p>
+
+    <div class="schirme">
+      <figure>
+        <img src="bilder/naehe.webp" width="620" height="723" loading="lazy"
+             alt="Die Nahbereich-Einstellungen: zwei Schalter und ein Kasten, der
+                  sagt, was gerade gilt."
+             data-en-alt="The nearby settings: two switches and a box that
+                  says what currently applies.">
+        <figcaption>
+          <span class="de">Zwei Schalter, und die App sagt geradeheraus, wenn
+            einer allein nichts bewirkt.</span>
+          <span class="en">Two switches — and the app says plainly when one
+            alone achieves nothing.</span>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="bilder/meine-id.webp" width="620" height="1200" loading="lazy"
+             alt="Der eigene Ausweis: ein QR-Code und dieselbe Adresse in
+                  vierzehn Blöcken zum Vorlesen."
+             data-en-alt="Your own ID: a QR code and the same address in
+                  fourteen blocks to read out loud.">
+        <figcaption>
+          <span class="de">Die Adresse IST der Schlüssel — als QR-Code und in
+            Blöcken, die man vorlesen kann.</span>
+          <span class="en">The address IS the key — as a QR code and in blocks
+            you can read out loud.</span>
+        </figcaption>
+      </figure>
+    </div>
+
+    <p class="hint">
+      <span class="de">Braucht Android 12 oder neuer und Bluetooth 5 auf beiden
+        Geräten. Die erste Nachricht an einen ganz neuen Kontakt tauscht die
+        Schlüssel ebenfalls über Funk — dazu muss die Gegenseite kurz in
+        Reichweite sein. Anhänge gehen diesen Weg nicht.</span>
+      <span class="en">Needs Android 12 or newer and Bluetooth 5 on both
+        devices. The first message to a brand new contact exchanges keys over
+        the air as well, so the other side has to be in range for a moment.
+        Attachments do not take this route.</span>
+    </p>
+  </section>
+
   <section class="wrap mod">
     <div class="mod-head">
       <span class="screen screen-lit de">Modul — Signalweg</span>
@@ -592,7 +867,7 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
         in. So on first launch you get twelve words. They are the only way back.
         There is no second one, not even for us.</p>
     </div>
-    <div class="words" aria-label="Beispiel einer Wiederherstellungsphrase">
+    <div class="words" aria-label="Beispiel einer Wiederherstellungsphrase" data-en-aria-label="Example of a recovery phrase">
       <div class="word"><i>01</i><span>village</span></div>
       <div class="word"><i>02</i><span>mother</span></div>
       <div class="word"><i>03</i><span>food</span></div>
@@ -709,7 +984,7 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     </dl>
   </section>
 
-  <!-- ═══════════ Anhaenge ═══════════ -->
+  <!-- ═══════════ Anhänge ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
       <span class="screen screen-lit de">Modul — Anhänge</span>
@@ -718,10 +993,10 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
         <span class="de">Große Dateien, ohne großen Server</span>
         <span class="en">Large files, without a large server</span>
       </h2>
-      <p class="de">Bis zu 3 GB je Datei. Sie geht nicht durch den Relay — der ist für
+      <p class="de">Bis zu 5 GB je Datei. Sie geht nicht durch den Relay — der ist für
         kurze Nachrichten gebaut. Sie liegt verschlüsselt in einem eigenen
         Zwischenlager, in Stücken, und verschwindet nach 14 Tagen von selbst.</p>
-      <p class="en">Up to 3 GB per file. It does not pass through the relay — that one
+      <p class="en">Up to 5 GB per file. It does not pass through the relay — that one
         is built for short messages. It rests encrypted in a separate holding store,
         in pieces, and disappears by itself after 14 days.</p>
     </div>
@@ -864,9 +1139,9 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
         <p class="en">Bytes per block every message is padded to. That is why a “yes” looks like a paragraph on the wire.</p>
       </div>
       <div class="fact">
-        <span class="num">3 GB</span>
-        <p class="de">Größte Datei je Anhang — in 16-MiB-Stücken, jedes mit eigenem Schlüssel.</p>
-        <p class="en">Largest file per attachment — in 16 MiB pieces, each with its own key.</p>
+        <span class="num">5 GB</span>
+        <p class="de">Größte Datei je Anhang — in 32-MiB-Stücken, jedes mit eigenem Schlüssel.</p>
+        <p class="en">Largest file per attachment — in 32 MiB pieces, each with its own key.</p>
       </div>
     </div>
   </section>
@@ -880,14 +1155,16 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
       <span class="screen de">Projekt</span><span class="screen en">Project</span>
       <a href="https://github.com/Henner4746/BitDM" rel="noopener">
         <span class="de">Quellcode auf GitHub</span><span class="en">Source on GitHub</span></a>
-      <a href="https://www.gnu.org/licenses/gpl-3.0.html" rel="noopener">
-        <span class="de">Lizenz GPL-3.0</span><span class="en">GPL-3.0 licence</span></a>
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">
+        <span class="de">Lizenz AGPL-3.0</span><span class="en">AGPL-3.0 licence</span></a>
+      <a href="docs">
+        <span class="de">Server selbst betreiben</span><span class="en">Run your own server</span></a>
     </div>
     <div class="foot-col">
       <span class="screen de">Rechtliches</span><span class="screen en">Legal</span>
-      <a href="privacy.html">
+      <a href="privacy">
         <span class="de">Datenschutzerklärung</span><span class="en">Privacy policy</span></a>
-      <a href="privacy.html#impressum">
+      <a href="privacy#impressum">
         <span class="de">Impressum</span><span class="en">Imprint</span></a>
     </div>
     <div class="foot-col">
@@ -897,11 +1174,11 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
            "[email geschuetzt]" und den Link durch einen eigenen /cdn-cgi/-Pfad.
            (Die Zeichenkette daraus steht hier ABSICHTLICH nicht: sonst faende
            ein spaeteres grep sie in diesem Kommentar und haelte die Sache
-           faelschlich fuer ungeloest.)
-           Wer kein JavaScript laufen laesst — und das sind genau die Leute,
+           faelschlich für ungeloest.)
+           Wer kein JavaScript laufen lässt — und das sind genau die Leute,
            die diese Seite anspricht —, sieht dann keine Adresse mehr.
            Nachgeprueft am 26.07.2026 am ausgelieferten HTML von bitdm.net.
-           Die Klammer schaltet es nur fuer diese Stelle ab, ohne dass jemand
+           Die Klammer schaltet es nur für diese Stelle ab, ohne dass jemand
            ins Cloudflare-Konto muss. -->
       <!--email_off--><a href="mailto:kontakt@bitdm.net">kontakt@bitdm.net</a><!--/email_off-->
     </div>
@@ -929,7 +1206,23 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     document.querySelectorAll('[data-set-lang]').forEach(function(b){
       b.setAttribute('aria-pressed', String(b.dataset.setLang === l));
     });
+    /* Text in Attributen kann der CSS-Umschalter oben nicht anfassen.
+       Konvention: deutsches Attribut bleibt stehen, englisches als
+       data-en-<attribut> daneben. Das Deutsche wird beim ersten Umschalten
+       am Element gemerkt, damit der Rueckweg es nicht verloren hat. */
+    ['placeholder', 'alt', 'aria-label'].forEach(function(a){
+      document.querySelectorAll('[data-en-' + a + ']').forEach(function(el){
+        var merk = '_de_' + a;
+        if (el[merk] === undefined) el[merk] = el.getAttribute(a) || '';
+        el.setAttribute(a, l === 'en' ? el.getAttribute('data-en-' + a) : el[merk]);
+      });
+    });
     try{ localStorage.setItem('bitdm-lang', l); }catch(e){}
+    /* Sagt der Adressanzeige Bescheid. Ueber ein Ereignis und nicht über
+       einen direkten Aufruf: setLang steht weiter oben als die Anzeige, und
+       eine Reihenfolge-Abhaengigkeit zwischen zwei Blöcken derselben Datei
+       ist genau die Sorte Faden, an dem später jemand zieht. */
+    try{ window.dispatchEvent(new Event('bitdm-sprache')); }catch(e){}
   }
   document.querySelectorAll('[data-set-lang]').forEach(function(b){
     b.addEventListener('click', function(){ setLang(b.dataset.setLang); });
@@ -940,12 +1233,18 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
 
   /* ── Adressanzeige ─────────────────────────────────────────────────────
      Erzeugt eine Zeichenkette im echten Format: Base32-Alphabet, 56 Stellen,
-     14 Gruppen a 4. Es ist KEIN Schluessel — nur die Form ist echt, damit
+     14 Gruppen a 4. Es ist KEIN Schlüssel — nur die Form ist echt, damit
      sichtbar wird, wie eine Adresse aussieht. */
   var ALPHA = 'abcdefghijklmnopqrstuvwxyz234567';
   var GROUPS = 14, PER = 4, TOTAL = GROUPS * PER;
   var box = document.getElementById('addr');
-  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* BEI JEDEM LAUF NEU GELESEN, nicht einmal beim Start.
+     Wer die Einstellung im Betriebssystem umstellt, waehrend die Seite offen
+     ist, bekommt sonst bis zum naechsten Neuladen weiter das alte Verhalten —
+     und ausgerechnet bei einer Einstellung gegen Bewegungsempfindlichkeit ist
+     das die falsche Richtung, in der man sich irren kann. */
+  var bewegungsWunsch = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function reduziert(){ return bewegungsWunsch.matches; }
 
   function randomAddress(){
     var out = '', bytes = new Uint8Array(TOTAL);
@@ -954,7 +1253,16 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
     return out;
   }
 
+  /* Nimmt die Zellen, die schon im Markup stehen. Nur wenn dort nichts ist —
+     etwa weil jemand das HTML gekuerzt hat — werden sie angelegt.
+
+     VORHER wurde der Kasten IMMER zuerst geleert. Das war der Grund, warum
+     ohne JavaScript nichts zu sehen war, und es machte den ersten Lauf der
+     Anzeige zu einem Aufbau aus dem Nichts statt zu einem Wechsel. */
   function build(){
+    var da = box.querySelectorAll('.ch');
+    if (da.length === TOTAL) return Array.prototype.slice.call(da);
+
     box.textContent = '';
     var cells = [];
     for (var g = 0; g < GROUPS; g++){
@@ -973,56 +1281,274 @@ footer{border-top:1px solid var(--line-soft); padding:clamp(38px,5vw,58px) 0 44p
 
   var cells = build();
 
-  /* Der eine komponierte Moment: die Stellen fallen von links nach rechts
-     in ihren Endwert, mit exponentiell auslaufendem Abstand. Kein Effekt
-     ohne Aussage — es zeigt, dass die Adresse entsteht, nicht vergeben wird. */
+  /* ── Das Zaehlwerk ─────────────────────────────────────────────────────
+
+     Jede Stelle laeuft EINMAL durch das ganze Alphabet und bleibt auf ihrem
+     Zeichen stehen. Sie starten versetzt, von links nach rechts.
+
+     VORHER WAR ES ZUFALL: die Stellen rechts von der Front zeigten je Bild
+     ein gewuerfeltes Zeichen. Das sah aus wie Rauschen und sagte nichts. Ein
+     Durchlauf durch das Alphabet sagt etwas: die Stelle SUCHT ihren Wert und
+     findet ihn. Und weil jede genau eine Runde dreht, endet sie zwangslaeufig
+     auf dem richtigen Zeichen — es gibt keinen Moment, in dem sie danebenhaelt
+     und dann noch einmal springen muss.
+
+     DIE ZAHLEN. 32 Schritte a 20 ms sind 640 ms je Stelle; bei 7 ms Versatz
+     faengt die letzte nach 385 ms an und alles steht nach gut einer Sekunde.
+
+     LANGSAM GENUG, DASS MAN ES SIEHT — so gewuenscht. Bei 12 ms war das
+     Durchlaufen nur noch ein Wischen. Der Satz unter der Anzeige spricht von
+     einer Zehntelsekunde; die Bewegung ist also laenger als das, was sie
+     zeigt. Das ist bewusst in Kauf genommen: sie erklärt, wie eine Adresse
+     entsteht, sie misst nicht die Zeit dafuer.
+
+     NACH DER ZEIT GERECHNET, nicht nach Bildern: auf einem Gerät mit 120 Hz
+     liefe es sonst doppelt so schnell wie auf einem mit 60. */
+  var SCHRITTE = ALPHA.length;   /* eine volle Runde */
+  var SCHRITT_MS = 20;
+  var VERSATZ_MS = 7;
+
+  var laufend = null;            /* die Kennung des laufenden Durchgangs */
+  var jetzige = null;            /* was gerade angezeigt wird */
+
   function render(addr){
-    if (reduced){
-      for (var i = 0; i < cells.length; i++){
-        cells[i].textContent = addr[i];
-        cells[i].classList.remove('scramble');
-      }
-      box.setAttribute('aria-label', 'Beispieladresse: ' + addr);
+    jetzige = addr;
+
+    if (reduziert()){
+      /* Bei reduzierter Bewegung sofort der Endwert. Kein Zwischenschritt,
+         kein Rattern — und dieselbe Adresse wie für alle anderen. */
+      for (var i = 0; i < cells.length; i++) cells[i].textContent = addr[i];
+      box.setAttribute('aria-label', (document.documentElement.getAttribute('data-lang') === 'en' ? 'Example address: ' : 'Beispieladresse: ') + addr);
       return;
     }
-    var start = null, settled = 0;
-    for (var j = 0; j < cells.length; j++) cells[j].classList.add('scramble');
+
+    /* Ein laufender Durchgang wird abgebrochen, nicht ueberlagert. Wer
+       zweimal schnell auf "Neu erzeugen" drueckt, saehe sonst zwei
+       Zaehlwerke uebereinander. */
+    var dieser = {};
+    laufend = dieser;
+
+    var ziele = [];
+    for (var z = 0; z < cells.length; z++) ziele.push(ALPHA.indexOf(addr[z]));
+
+    var start = null;
+    var fertig = 0;
 
     function frame(ts){
+      if (laufend !== dieser) return;   /* ein neuer Durchgang hat uebernommen */
       if (start === null) start = ts;
-      var t = Math.min(1, (ts - start) / 900);
-      var eased = 1 - Math.pow(1 - t, 3);      /* exponentielles Auslaufen */
-      var target = Math.floor(eased * cells.length);
+      var t = ts - start;
+      fertig = 0;
 
-      for (var i = settled; i < target; i++){
-        cells[i].textContent = addr[i];
-        cells[i].classList.remove('scramble');
-      }
-      settled = target;
-      for (var k = target; k < cells.length; k++){
-        cells[k].textContent = ALPHA[(Math.random() * 32) | 0];
-      }
-      if (t < 1) requestAnimationFrame(frame);
-      else {
-        for (var m = 0; m < cells.length; m++){
-          cells[m].textContent = addr[m];
-          cells[m].classList.remove('scramble');
+      for (var i = 0; i < cells.length; i++){
+        var lokal = t - i * VERSATZ_MS;
+        if (lokal < 0){
+          /* Noch nicht dran. Die Stelle behaelt, was sie zeigt — nichts ist
+             je leer, auch nicht für ein Bild. */
+          continue;
         }
-        box.setAttribute('aria-label', 'Beispieladresse: ' + addr);
+        var schritt = (lokal / SCHRITT_MS) | 0;
+        if (schritt >= SCHRITTE){
+          if (cells[i].textContent !== addr[i]) cells[i].textContent = addr[i];
+          cells[i].classList.remove('scramble');
+          fertig++;
+        } else {
+          /* Eine Runde, die auf dem Ziel endet: beim Zeichen NACH dem Ziel
+             anfangen, dann 32 Schritte weiter — der letzte ist das Ziel. */
+          cells[i].textContent = ALPHA[(ziele[i] + 1 + schritt) % ALPHA.length];
+          cells[i].classList.add('scramble');
+        }
+      }
+
+      if (fertig < cells.length){
+        requestAnimationFrame(frame);
+      } else {
+        laufend = null;
+        /* Die Beschriftung erst am Ende setzen. Während des Laufs saehe eine
+           Vorlesehilfe sonst 56 Zwischenstaende. */
+        box.setAttribute('aria-label', (document.documentElement.getAttribute('data-lang') === 'en' ? 'Example address: ' : 'Beispieladresse: ') + addr);
       }
     }
     requestAnimationFrame(frame);
   }
 
-  render(randomAddress());
+  render(box.querySelector('.ch') ? adresseAusMarkup() : randomAddress());
+
+  /* Beim ersten Lauf laeuft das Zaehlwerk auf die Adresse zu, die schon im
+     Markup steht — nicht auf eine neue. Wer ohne JavaScript kommt, sieht
+     dieselbe; wer mit JavaScript kommt, sieht sie entstehen. Eine andere
+     Adresse zu nehmen hiesse, dem Leser die zu zeigen, die er gerade nicht
+     bekommen hat. */
+  function adresseAusMarkup(){
+    var aus = '';
+    for (var i = 0; i < cells.length; i++) aus += cells[i].textContent;
+    return aus.length === TOTAL ? aus : randomAddress();
+  }
+
   document.getElementById('regen').addEventListener('click', function(){
     render(randomAddress());
   });
 
+  /* Beim Sprachwechsel laeuft dasselbe Zaehlwerk noch einmal — mit DERSELBEN
+     Adresse.
+
+     Der Umschalter tauscht rund vierzig Textbloecke aus, und etliche sehen in
+     beiden Sprachen gleich aus: "Google Play", "AES-256", "GPL-3.0", die
+     zwoelf Woerter, die Adresse. Wer EN drueckt und gerade auf so eine Stelle
+     sieht, bekommt keine Rueckmeldung, dass ueberhaupt etwas passiert ist.
+     Das Zaehlwerk gibt sie — und weil die Adresse dieselbe bleibt, behauptet
+     es dabei nichts Falsches. */
+  window.addEventListener('bitdm-sprache', function(){
+    if (jetzige) render(jetzige);
+  });
+
+
+  /* ── Das Zaehlwerk für die ganze Seite ────────────────────────────────
+
+     Beim Sprachwechsel rattert nicht nur die Adresse, sondern jeder Text,
+     der gerade zu sehen ist. 134 Blöcke je Sprache — genug, dass die Seite
+     einmal komplett durchlaeuft, und wenig genug, dass es kurz bleibt.
+
+     ═══════════════════════════════════════════════ VIER ENTSCHEIDUNGEN
+
+     UEBER TEXTKNOTEN, NICHT UEBER ELEMENTE. Ein Block kann einen Link oder
+     eine Hervorhebung enthalten; wer dessen textContent ueberschreibt,
+     zerstoert das Markup und bekommt es nicht zurück. Ein TreeWalker geht
+     nur die Textstuecke ab und lässt alles andere in Ruhe.
+
+     JEDES ZEICHEN BLEIBT IN SEINER ART. Buchstaben rattern durch Buchstaben,
+     Ziffern durch Ziffern, Leerzeichen und Satzzeichen stehen still. Damit
+     bleiben Wortlaengen und Zeilenumbrueche waehrend des Laufs erhalten —
+     die Seite rattert, sie zappelt nicht. Wuerde man jedes Zeichen durch ein
+     beliebiges ersetzen, entstuende Rauschen, und der Umbruch spraenge bei
+     jedem Bild neu.
+
+     NUR WAS IM BILD IST. Wer unten auf der Seite steht, sieht nichts davon,
+     dass oben etwas rattert — es kostet nur Rechenzeit. Ein einziger
+     Sichtbarkeitstest je Knoten spart bei 134 Blöcken das meiste davon.
+
+     EIN EINZIGER rAF FUER ALLES. 134 eigene Schleifen waeren 134 Aufrufe je
+     Bild; so ist es einer, der eine Liste abarbeitet.
+
+     JEDER TEXT BEKOMMT SEINEN EIGENEN VERSATZ. Ein fester hätte einen langen
+     Absatz viermal so lange rattern lassen wie eine Ueberschrift, und die
+     Seite truepfelte von oben nach unten aus.
+
+     30 Schritte a 16 ms sind 480 ms je Zeichen; was bis GESAMT_MS uebrig
+     bleibt, verteilt sich auf die Laenge — gedeckelt bei 7 ms, damit ein Wort
+     aus drei Buchstaben nicht traege wirkt.
+
+     WAS DER DECKEL BEDEUTET, gemessen: acht Zeichen stehen nach 525 ms, 171
+     Zeichen nach 1092. Lange Texte landen also bei GESAMT_MS, kurze deutlich
+     frueher. Das ist Absicht und keine Ungenauigkeit — eine Ueberschrift, die
+     genauso lange braucht wie ein Absatz, fuehlt sich falsch an. Wer hier
+     später etwas gleichziehen will, sollte den Deckel anheben und nicht die
+     Rechnung ändern. */
+
+  var GLYPH_BUCHSTABEN = 'abcdefghijklmnopqrstuvwxyz';
+  var GLYPH_GROSS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  var GLYPH_ZIFFERN = '0123456789';
+  var SEITE_SCHRITTE = 30;
+  var SEITE_SCHRITT_MS = 16;
+  var SEITE_GESAMT_MS = 1100;
+  var SEITE_VERSATZ_MAX = 7;
+
+  /* Ein Zeichen derselben Art. Alles, was weder Buchstabe noch Ziffer ist,
+     bleibt es selbst — sonst zerfaellt der Satzbau vor den Augen. */
+  function artgleich(z, schritt){
+    var q = null;
+    if (z >= 'a' && z <= 'z') q = GLYPH_BUCHSTABEN;
+    else if (z >= 'A' && z <= 'Z') q = GLYPH_GROSS;
+    else if (z >= '0' && z <= '9') q = GLYPH_ZIFFERN;
+    else if ('äöüÄÖÜß'.indexOf(z) >= 0) q = GLYPH_BUCHSTABEN;
+    if (q === null) return z;
+    return q[schritt % q.length];
+  }
+
+  var seitenlauf = null;
+
+  function rattereSeite(){
+    if (reduziert()) return;
+
+    var sichtbar = document.querySelectorAll(
+      'html[data-lang="de"] .de, html[data-lang="en"] .en');
+    var posten = [];
+    var hoehe = window.innerHeight || 800;
+
+    for (var i = 0; i < sichtbar.length; i++){
+      var el = sichtbar[i];
+      var r = el.getBoundingClientRect();
+      /* Nur was im Bild steht — mit etwas Rand, damit ein kleiner Ruck beim
+         Umbruch nichts abschneidet. */
+      if (r.bottom < -80 || r.top > hoehe + 80) continue;
+      if (r.width === 0 && r.height === 0) continue;
+
+      var lauf = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      var k;
+      while ((k = lauf.nextNode())){
+        var text = k.nodeValue;
+        if (!text || !/\S/.test(text)) continue;
+        var n = text.length;
+        /* Der eigene Versatz: was nach dem Durchlauf eines Zeichens noch an
+           Zeit uebrig ist, auf die Laenge verteilt — gedeckelt, damit ein
+           Wort aus drei Buchstaben nicht traege wirkt. */
+        var rest = SEITE_GESAMT_MS - SEITE_SCHRITTE * SEITE_SCHRITT_MS;
+        var v = n > 1 ? Math.min(SEITE_VERSATZ_MAX, rest / (n - 1)) : 0;
+        posten.push({ knoten: k, ziel: text, laenge: n, versatz: v });
+      }
+    }
+    if (!posten.length) return;
+
+    /* Ein neuer Lauf loest den alten ab, statt sich darueberzulegen. */
+    var dieser = {};
+    seitenlauf = dieser;
+
+    var start = null;
+    function bild(ts){
+      if (seitenlauf !== dieser) return;
+      if (start === null) start = ts;
+      var t = ts - start;
+      var offen = 0;
+
+      for (var i = 0; i < posten.length; i++){
+        var pk = posten[i];
+        if (pk.fertig) continue;
+        var aus = '';
+        var nochOffen = false;
+        for (var c = 0; c < pk.laenge; c++){
+          var lokal = t - c * pk.versatz;
+          var schritt = lokal < 0 ? 0 : (lokal / SEITE_SCHRITT_MS) | 0;
+          if (schritt >= SEITE_SCHRITTE){
+            aus += pk.ziel[c];
+          } else {
+            aus += artgleich(pk.ziel[c], schritt + c);
+            nochOffen = true;
+          }
+        }
+        pk.knoten.nodeValue = aus;
+        if (nochOffen) { offen++; } else { pk.fertig = true; }
+      }
+
+      if (offen > 0) requestAnimationFrame(bild);
+      else {
+        seitenlauf = null;
+        /* Zum Schluss ausdruecklich den Originaltext zurueckschreiben.
+           Die Schleife oben setzt ihn zwar auch — aber wer sie je anfasst,
+           soll den Endzustand nicht aus Versehen verlieren. */
+        for (var j = 0; j < posten.length; j++){
+          posten[j].knoten.nodeValue = posten[j].ziel;
+        }
+      }
+    }
+    requestAnimationFrame(bild);
+  }
+
+  window.addEventListener('bitdm-sprache', rattereSeite);
+
   /* ── Benachrichtigung ──────────────────────────────────────────────────
      Es gibt bewusst keine Empfaengerliste auf einem Server. Das Formular
-     oeffnet das Mailprogramm — die Adresse liegt dann in einem Postfach und
-     sonst nirgends. Soll spaeter ein echter Endpunkt dazukommen, wird
+     öffnet das Mailprogramm — die Adresse liegt dann in einem Postfach und
+     sonst nirgends. Soll später ein echter Endpunkt dazukommen, wird
      NOTIFY_ENDPOINT gesetzt und dieser Zweig faellt weg. */
   var NOTIFY_ENDPOINT = null;
   var form = document.getElementById('notify');

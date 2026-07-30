@@ -112,7 +112,24 @@ strong{color:var(--lit-hi); font-weight:600}
   .plate-row dt{border-right:0; border-bottom:1px solid var(--line-soft)}
 }
 
-footer{border-top:1px solid var(--line-soft); padding:34px 0 44px; margin-top:14px}
+/* footer.wrap UND NICHT NUR footer — sonst greift nichts davon.
+   `.wrap` setzt `margin:0 auto` und `padding:0 var(--rail)`, beides
+   Kurzschreibweisen: sie setzen also auch margin-top und padding-top auf 0.
+   Eine Klasse sticht ein Element-Kennzeichen unabhaengig von der Reihenfolge,
+   damit gewann `.wrap`. Ergebnis: der Strich klebte oben am Text (gemessen
+   1 Pixel Abstand statt 38 bis 58) und stand zugleich ohne Luft unter dem
+   letzten Abschnitt.
+
+   ZWEITER PUNKT, beim Nachmessen aufgefallen: der Strich lag am Fuss ueber
+   die ganze Breite, waehrend der Strich der Fussnote — und jede andere Linie
+   der Seite — um den Rand eingerueckt ist. Zwei Striche im selben Block auf
+   verschiedenen Fluchten. Der Rahmen sitzt deshalb jetzt an .foot-grid, also
+   INNERHALB des Randes, und beide liegen auf einer Linie. */
+footer.wrap{padding:0 var(--rail) 44px; margin:34px auto 0}
+/* Der Fuss dieser Seite ist nur ein Absatz, kein .foot-grid wie auf der
+   Startseite — die Linie gehoert deshalb HIER hin. Der erste Versuch
+   traf .foot-grid und liess sie damit ganz verschwinden. */
+footer.wrap > p{border-top:1px solid var(--line-soft); padding-top:34px}
 footer p{margin:0; font-size:11.5px; line-height:1.7; color:var(--muted)}
 footer a{color:var(--muted)}
 
@@ -126,8 +143,8 @@ footer a{color:var(--muted)}
 
 <header class="bezel">
   <div class="bezel-in">
-    <a class="mark" href="index.html"><span class="mark-name">BitDM</span></a>
-    <a class="back" href="index.html">
+    <a class="mark" href="/"><span class="mark-name">BitDM</span></a>
+    <a class="back" href="/">
       <span class="de">← Zurück</span><span class="en">← Back</span>
     </a>
     <div class="toggle" role="group" aria-label="Sprache / Language">
@@ -178,8 +195,8 @@ footer a{color:var(--muted)}
       </div>
       <div class="plate-row">
         <dt><span class="de">Anschrift</span><span class="en">Address</span></dt>
-        <dd><span class="de">Wird auf Anfrage mitgeteilt und ist vor Veröffentlichung im Store einzutragen.</span>
-            <span class="en">Provided on request; to be filled in before store release.</span></dd>
+        <dd><span class="de">Wird auf Anfrage mitgeteilt.</span>
+            <span class="en">Provided on request.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Kontakt</span><span class="en">Contact</span></dt>
@@ -421,10 +438,10 @@ footer a{color:var(--muted)}
 
 <footer class="wrap">
   <p>
-    <span class="de">BitDM ist quelloffen unter GPL-3.0 —
+    <span class="de">BitDM ist quelloffen unter AGPL-3.0 —
       <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>.
       Google Play und das Google-Play-Logo sind Marken von Google LLC.</span>
-    <span class="en">BitDM is open source under GPL-3.0 —
+    <span class="en">BitDM is open source under AGPL-3.0 —
       <a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>.
       Google Play and the Google Play logo are trademarks of Google LLC.</span>
   </p>

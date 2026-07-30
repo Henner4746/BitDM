@@ -26,29 +26,83 @@ STATE=/var/lib/bitdm-relay
 USER=bitdm-relay
 PORT=8465
 
-[[ $EUID -eq 0 ]] || { echo "Als root ausfuehren."; exit 1; }
-[[ -d "$SRC" ]]   || { echo "Quellen fehlen: $SRC"; exit 1; }
+# Wohin der UnifiedPush-Anstoss geht. Der Client nennt die oeffentliche
+# Adresse (https://push.bitdm.net/up...), hinaus geht sie nicht: der Relay
+# uebernimmt nur den PFAD und haengt ihn hier an. push.bitdm.net liegt auf
+# derselben Maschine, es braucht also keine Tuer nach draussen — siehe
+# IPAddressDeny weiter unten.
+#
+# HIER STEHT ABSICHTLICH KEINE ZAHL. Der Loopback-Port des Push-Servers ist
+# nirgends im Repo hinterlegt, und eine geratene Zahl waere ein leerer POST an
+# irgendeinen anderen lokalen Dienst. Nachsehen und dann setzen:
+#
+#   grep -E 'listen-http|base-url' /etc/ntfy/server.yml
+#   ss -tlnp | grep -i ntfy
+#   curl -si -X POST -d '' http://127.0.0.1:<port>/upProbe     # muss 200 sein
+#   BITDM_PUSH_TARGET=http://127.0.0.1:<port> ./install-relay.sh <domain> <mail>
+#
+# Verlangt der Push-Server einen Token, gehoert der als weitere
+# Environment-Zeile in die Unit, nicht in den Quelltext.
+#
+# Bleibt es leer, verhaelt sich der Relay wie bisher (POST an den Endpunkt
+# selbst) — auf dieser Maschine scheitert das an IPAddressDeny, aber seit dem
+# 26.07.2026 nicht mehr stumm: im Journal steht dann "Anstoss geht nicht raus".
+PUSH_TARGET="${BITDM_PUSH_TARGET:-}"
+if [[ -n "$PUSH_TARGET" ]]; then
+    PUSH_ENV="Environment=BITDM_PUSH_TARGET=$PUSH_TARGET"
+else
+    PUSH_ENV="# BITDM_PUSH_TARGET nicht gesetzt — der Anstoss kommt nicht an."
+fi
+
+[[ $EUID -eq 0 ]] || { echo "Run as root."; exit 1; }
+[[ -d "$SRC" ]]   || { echo "Source missing: $SRC"; exit 1; }
+
+# ─────────────────────────── Precondition: is one already running here?
+#
+# APP, STATE, USER and the service name are FIXED. Only one relay can run per
+# machine — which is right for the intended case (someone runs one for
+# themselves and their people) and simpler than anything else. But without this
+# warning a second run with a DIFFERENT domain takes over the existing relay in
+# silence: same service, same nginx config, new name. Every phone pointing at
+# the old name loses its connection, and nobody saw it coming.
+LAEUFT=$(systemctl show -p FragmentPath --value bitdm-relay 2>/dev/null || true)
+if [[ -n $LAEUFT ]]; then
+  echo
+  echo "!! A BitDM relay is already set up on this machine."
+  echo "   This run will point it at $DOMAIN — same service, same directories."
+  echo "   Phones pointing at the old name will lose their connection."
+  echo
+  if [[ -z ${BITDM_TAKE_OVER:-} ]]; then
+    read -rp "   Take over the existing relay? (yes/no) [no]: " A </dev/tty || true
+    [[ ${A:-no} == yes ]] || { echo "   Stopped. Nothing changed."; exit 1; }
+  fi
+fi
 
 # ─────────────────────────────────────────────────── Vorbedingung: DNS
-echo "== DNS pruefen =="
+if [[ -n ${BITDM_DNS_CHECKED:-} ]]; then
+  echo "== DNS already checked by the installer =="
+else
+echo "== Checking DNS =="
 ZIEL=$(dig +short "$DOMAIN" A @1.1.1.1 | head -1)
 MEINE=$(curl -s --max-time 8 https://api.ipify.org || true)
-echo "   $DOMAIN -> ${ZIEL:-nichts}   (dieser Server: ${MEINE:-unbekannt})"
+echo "   $DOMAIN -> ${ZIEL:-nothing}   (this server: ${MEINE:-unknown})"
 if [[ -z "$ZIEL" ]]; then
-    echo "   FEHLER: kein A-Record. Erst in Cloudflare anlegen, GRAUE Wolke."
+    echo "   ERROR: no A record. Create one first, with the GREY cloud."
     exit 1
 fi
 if [[ "$ZIEL" != "$MEINE" ]]; then
-    echo "   WARNUNG: zeigt nicht auf diesen Server."
-    echo "   Beginnt die Adresse mit 104. oder 172.67., ist der"
-    echo "   Cloudflare-Proxy AN (orange Wolke). Das muss aus:"
-    echo "   Cloudflare saehe sonst zu jeder Verbindung, wer wann mit wem"
-    echo "   spricht — genau die Angabe, die diese App vermeidet."
+    echo "   WARNING: does not point at this server."
+    echo "   If the address starts with 104. or 172.67., the Cloudflare"
+    echo "   proxy is ON (orange cloud). It has to be off:"
+    echo "   otherwise Cloudflare would see, for every connection, who talks"
+    echo "   to whom and when — the very thing this app avoids."
     exit 1
 fi
 
 # ─────────────────────────────────────────────── Nutzer und Verzeichnisse
-echo "== Dienstnutzer und Verzeichnisse =="
+fi
+
+echo "== Service user and directories =="
 id "$USER" >/dev/null 2>&1 || useradd --system --no-create-home \
     --home-dir /nonexistent --shell /usr/sbin/nologin \
     --comment "BitDM Relay" "$USER"
@@ -59,13 +113,13 @@ install -d -o "$USER" -g "$USER" -m 0700 "$STATE"
 dpkg -l | grep -q "^ii  libsodium23" || apt-get install -y libsodium23
 
 # ─────────────────────────────────────────────────────────── Python
-echo "== Python-Umgebung =="
+echo "== Python environment =="
 [[ -d "$APP/venv" ]] || python3 -m venv "$APP/venv"
 "$APP/venv/bin/pip" install --quiet --upgrade pip
 "$APP/venv/bin/pip" install --quiet -r "$SRC/requirements.txt"
 
 # ────────────────────────────────────────────────────────── systemd
-echo "== systemd-Unit =="
+echo "== systemd unit =="
 cat > /etc/systemd/system/bitdm-relay.service <<UNIT
 [Unit]
 Description=BitDM Relay (verschluesselte Nachrichtenweiterleitung)
@@ -80,6 +134,7 @@ WorkingDirectory=$SRC
 Environment=BITDM_DB=$STATE/relay.db
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+$PUSH_ENV
 
 # NUR 127.0.0.1. Niemals 0.0.0.0 — das war am 12.07.2026 auf dieser Maschine
 # die Einbruchsursache. Erreichbar ist der Dienst ausschliesslich ueber nginx.
@@ -90,10 +145,21 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 # --forwarded-allow-ips: X-Forwarded-For wird nur von nginx auf demselben
 # Rechner geglaubt. Sonst koennte jeder seine Herkunft faelschen und die
 # Ratenbegrenzung aushebeln.
+#
+# --ws-max-size: uvicorns Vorgabe sind 16 MiB je WebSocket-Rahmen, und
+# `client_max_body_size` von nginx gilt dafuer NICHT — nach dem Upgrade ist
+# nginx ein reiner Tunnel. Ein einziger 16-MiB-Rahmen kostete den Dienst
+# gemessen 579 MiB Arbeitsspeicher und 2,1 s blockierten Event-Loop; bei
+# MemoryMax=512M wurde er vom cgroup-OOM erschlagen und riss alle
+# Verbindungen mit.
+# 256 KiB sind grosszuegig: der groesste echte Rahmen ist eine Nachricht mit
+# 64 KiB Chiffretext, base64-kodiert also rund 87 KiB. Registrierungen gehen
+# ueber HTTP, nicht hierueber.
 ExecStart=$APP/venv/bin/uvicorn relay_server:app \\
     --host 127.0.0.1 --port $PORT \\
     --no-access-log --log-level warning \\
     --proxy-headers --forwarded-allow-ips 127.0.0.1 \\
+    --ws-max-size 262144 \\
     --timeout-keep-alive 75
 
 Restart=on-failure
@@ -132,9 +198,16 @@ SystemCallFilter=~@privileged @resources @obsolete @debug @mount @swap @reboot @
 
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
-# HIER. Der Relay ruft von sich aus NIEMANDEN an — kein Update, kein Webhook,
-# keine Telemetrie. Wer ihn uebernimmt, sitzt in einem Raum ohne Tuer nach
-# draussen: kein Nachladen, kein Miner-Pool, kein Abfliessen.
+# HIER. Der Relay ruft niemanden AUSSERHALB DIESER MASCHINE an — kein Update,
+# kein Webhook, keine Telemetrie. Wer ihn uebernimmt, sitzt in einem Raum ohne
+# Tuer nach draussen: kein Nachladen, kein Miner-Pool, kein Abfliessen.
+#
+# Die einzige ausgehende Verbindung ist der UnifiedPush-Anstoss, und der
+# verlaesst den Rechner nicht: er geht ueber 127.0.0.1 an den Push-Server, der
+# hier ohnehin laeuft (BITDM_PUSH_TARGET oben). Deshalb steht hier NICHT die
+# oeffentliche IP von push.bitdm.net — die waere eine echte Tuer, und sie
+# oeffnete nicht einen Pfad, sondern alle Ports dieser IP; auf derselben
+# Maschine haengen zwanzig Domains.
 IPAddressDeny=any
 IPAddressAllow=localhost
 
@@ -285,7 +358,7 @@ cat > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh <<'HOOK'
 #!/bin/sh
 set -eu
 if ! nginx -t >/dev/null 2>&1; then
-    echo "nginx-Konfiguration fehlerhaft — KEIN Reload" >&2
+    echo "nginx configuration is broken — NOT reloading" >&2
     exit 1
 fi
 systemctl reload nginx
@@ -327,16 +400,21 @@ sleep 3
 
 # ────────────────────────────────────────────────────────── pruefen
 echo
-echo "════════════════ Abnahme ════════════════"
+echo "════════════════ Acceptance ════════════════"
 p() { printf "%-38s " "$1"; }
-p "Dienst laeuft";           systemctl is-active bitdm-relay
-p "startet nach Reboot";     systemctl is-enabled bitdm-relay
-p "lauscht nur lokal";       ss -tlnH "( sport = :$PORT )" | grep -q "127.0.0.1:$PORT" && echo ja || echo NEIN
-p "unprivilegierter Nutzer"; ps -o user= -p "$(systemctl show -p MainPID --value bitdm-relay)"
-p "kein offener Port";       ufw status 2>/dev/null | grep -q "$PORT" && echo "NEIN!" || echo ja
-p "Haertungsnote";           systemd-analyze security bitdm-relay 2>/dev/null | tail -1 | grep -oE "[0-9.]+ [A-Z]+"
-p "/health gesperrt";        curl -s -o /dev/null -w "%{http_code}\n" --max-time 8 "https://$DOMAIN/health"
-p "unbekannter Pfad";        curl -s -o /dev/null -w "%{http_code}\n" --max-time 8 "https://$DOMAIN/admin"
+p "service running";           systemctl is-active bitdm-relay
+p "starts after reboot";     systemctl is-enabled bitdm-relay
+p "listens on loopback only";       ss -tlnH "( sport = :$PORT )" | grep -q "127.0.0.1:$PORT" && echo yes || echo NO
+p "unprivileged user"; ps -o user= -p "$(systemctl show -p MainPID --value bitdm-relay)"
+p "no port opened";       ufw status 2>/dev/null | grep -q "$PORT" && echo "NO!" || echo yes
+p "hardening score";           systemd-analyze security bitdm-relay 2>/dev/null | tail -1 | grep -oE "[0-9.]+ [A-Z]+"
+p "/health blocked";        curl -s -o /dev/null -w "%{http_code}\n" --max-time 8 "https://$DOMAIN/health"
+p "unknown path";        curl -s -o /dev/null -w "%{http_code}\n" --max-time 8 "https://$DOMAIN/admin"
+p "push target";            echo "${PUSH_TARGET:-NOT SET (push will not arrive)}"
 echo
-echo "Vollstaendiger Test (ueber nginx, TLS und WebSocket):"
+echo "Full test (through nginx, TLS and WebSocket):"
 echo "  cd $SRC && BITDM_TEST_BASE=https://$DOMAIN $APP/venv/bin/python test_relay.py"
+echo
+echo "Push now reports itself when it fails to arrive. This line must stay"
+echo "EMPTY in normal operation:"
+echo "  journalctl -u bitdm-relay --since -24h | grep 'Anstoss geht nicht raus'"

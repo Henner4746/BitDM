@@ -13,15 +13,22 @@ IPAddressDeny=any
 IPAddressAllow=localhost
 ```
 
-Der Relay ist ein reiner Server. Er ruft von sich aus niemanden an: kein
-Update, kein Webhook, keine Telemetrie. Also darf man ihm jede ausgehende
-Verbindung verbieten.
+Der Relay ist ein reiner Server. Nach draussen ruft er niemanden an: kein
+Update, kein Webhook, keine Telemetrie. Genau eine ausgehende Verbindung gibt
+es, und die verlaesst diese Maschine nicht — der UnifiedPush-Anstoss geht ueber
+127.0.0.1 an den Push-Server, der hier ohnehin laeuft. Alles andere bleibt
+verboten.
 
 Wer diesen Dienst uebernimmt, sitzt damit in einem Raum ohne Tuer nach
 draussen — er kann keinen Schadcode nachladen, keinen Miner-Pool erreichen und
 nichts abfliessen lassen. Am 12.07.2026 wurde auf genau dieser Maschine ein
 Dienst gekapert und lud einen Kryptominer nach. Mit dieser Zeile waere daraus
 nichts geworden.
+
+Der naheliegende andere Weg waere gewesen, die oeffentliche IP von
+`push.bitdm.net` freizugeben. Sie zeigt auf genau diesen Rechner — es waere
+also eine echte Tuer nach draussen gewesen, um ins Nachbarzimmer zu kommen,
+und sie haette nicht einen Pfad geoeffnet, sondern alle Ports dieser IP.
 
 Nachpruefbar:
 
@@ -30,7 +37,18 @@ systemd-run --property=User=bitdm-relay \
   --property=IPAddressDeny=any --property=IPAddressAllow=localhost \
   --pipe --wait /usr/bin/curl -s --max-time 5 https://api.ipify.org
 # muss fehlschlagen
+
+# Und der Anstoss geht trotzdem raus — auf dieser Maschine, ueber das
+# Loopback. Diese Zeile muss LEER bleiben:
+journalctl -u bitdm-relay --since -24h | grep 'Anstoss geht nicht raus'
 ```
+
+Das Ziel des Anstosses steht in der Unit, nicht im Quelltext:
+`Environment=BITDM_PUSH_TARGET=http://127.0.0.1:<port>`. `install-relay.sh`
+setzt die Zeile nur, wenn beim Aufruf `BITDM_PUSH_TARGET=...` mitgegeben wird —
+den Loopback-Port des Push-Servers muss man nachsehen (`ss -tlnp | grep -i
+ntfy`), nicht raten. Ohne die Zeile bleibt der Anstoss aus; still tut er es
+seit dem 26.07.2026 nicht mehr.
 
 ## Was NICHT protokolliert wird, und warum
 

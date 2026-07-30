@@ -1,0 +1,294 @@
+<!doctype html>
+<!--
+  Datenschutzerklaerung + Impressum.
+
+  Google Play verlangt eine Datenschutzerklaerung unter einer oeffentlich
+  erreichbaren, nicht geoblockten, nicht-PDF-URL, die den Entwickler oder die
+  App namentlich nennt, und sie muss zum Data-Safety-Formular in der Play
+  Console passen. Diese Seite erfuellt das.
+
+  Sie erbt die Nocturne-Welt der Startseite, tritt aber im Lese-Modus auf:
+  eine Spalte, ruhige Rhythmik, keine Anzeigen. Ein Geraetefeld gehoert auf die
+  Startseite; ein Beipackzettel ist ein Beipackzettel.
+-->
+<html lang="de" data-lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Datenschutz & Impressum — BitDM</title>
+<meta name="description" content="BitDM ohne fremden Server betreiben: Relay und Zwischenlager auf der eigenen Maschine.">
+<meta name="theme-color" content="#0b0c12">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
+
+<style>
+@font-face{font-family:'Doto';src:url('fonts/Doto.ttf') format('truetype');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Chivo Mono';src:url('fonts/ChivoMono.ttf') format('truetype');font-weight:100 900;font-display:swap}
+
+:root{
+  --ground:#0b0c12; --panel:#161826; --panel-2:#12141f;
+  --line:#3f424d; --line-soft:#272a38;
+  --lit-hi:#d2cefd; --lit:#b5abfc; --lit-mid:#9184d9;
+  --unlit:#5d5294; --unlit-deep:#423a6a; --dim:#8a80c2;
+  --ink:#f3f5fe; --body:#cfd3e5; --muted:#9397ab;
+  --r-lg:14px; --r:8px; --r-sm:4px; --r-pill:99px;
+  --rail:clamp(18px,4vw,56px);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0; background:var(--ground); color:var(--body);
+  font:400 16px/1.7 'Chivo Mono',ui-monospace,monospace; -webkit-font-smoothing:antialiased}
+
+/* !important: Sprachsichtbarkeit ist querschnittlich und darf von keiner
+   Bauteil-Regel ueberstimmt werden. Ohne das gewinnt `header.page .screen
+   {display:block}` bei gleicher Spezifitaet durch spaetere Position. */
+html[data-lang="de"] .en{display:none!important}
+html[data-lang="en"] .de{display:none!important}
+
+.screen{font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--muted)}
+.screen-lit{color:var(--lit-mid)}
+
+h1,h2{font-family:'Doto',monospace; font-weight:700; letter-spacing:.02em;
+  text-transform:uppercase; color:var(--ink); margin:0; line-height:1.1}
+a{color:var(--lit)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
+
+.wrap{max-width:760px; margin:0 auto; padding:0 var(--rail)}
+
+.bezel{position:sticky; top:0; z-index:40;
+  background:linear-gradient(180deg,#0d0e16 0%,rgba(11,12,18,.92) 100%);
+  border-bottom:1px solid var(--line-soft); backdrop-filter:saturate(140%) blur(8px)}
+.bezel-in{display:flex; align-items:center; gap:20px; height:58px;
+  max-width:1180px; margin:0 auto; padding:0 var(--rail)}
+.mark{display:flex; align-items:baseline; gap:10px; margin-right:auto; text-decoration:none}
+.mark-name{font-family:'Doto',monospace; font-weight:700; font-size:21px;
+  letter-spacing:.04em; color:var(--ink); text-transform:uppercase}
+.back{color:var(--muted); text-decoration:none;
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s}
+.back:hover{color:var(--lit)}
+.toggle{display:flex; border:1px solid var(--line); border-radius:var(--r-pill);
+  padding:2px; background:var(--panel-2)}
+.toggle button{appearance:none; border:0; background:transparent; cursor:pointer;
+  padding:5px 11px; border-radius:var(--r-pill); color:var(--muted);
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s, background .18s}
+.toggle button:hover{color:var(--body)}
+.toggle button[aria-pressed="true"]{background:var(--unlit-deep); color:var(--lit-hi)}
+
+header.page{padding:clamp(44px,7vw,80px) 0 clamp(22px,3vw,32px)}
+header.page .screen{display:block; margin-bottom:15px}
+header.page h1{font-size:clamp(24px,4.6vw,38px)}
+header.page .stamp{margin:20px 0 0; font-size:12.5px; color:var(--muted)}
+
+section{padding:clamp(28px,4vw,42px) 0; border-top:1px solid var(--line-soft)}
+section h2{font-size:clamp(16px,2.6vw,21px); margin-bottom:18px}
+section p{margin:0 0 15px; max-width:68ch}
+section p:last-child{margin-bottom:0}
+section ul{margin:0 0 15px; padding-left:20px; max-width:68ch}
+section li{margin-bottom:9px}
+strong{color:var(--lit-hi); font-weight:600}
+
+/* Die eine Aussage, um die es hier eigentlich geht */
+.headline-claim{
+  border:1px solid var(--line); border-left:1px solid var(--line);
+  border-radius:var(--r-lg); background:var(--panel);
+  padding:clamp(20px,3vw,28px); margin:0 0 26px;
+}
+.headline-claim p{margin:0; font-size:clamp(15px,2vw,17px); line-height:1.65; color:var(--lit-hi)}
+
+.plate{border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden; margin:0 0 15px}
+.plate-row{display:grid; grid-template-columns:minmax(130px,.8fr) 1.4fr;
+  border-bottom:1px solid var(--line-soft)}
+.plate-row:last-child{border-bottom:0}
+.plate-row dt{padding:14px 16px; background:var(--panel-2); border-right:1px solid var(--line-soft);
+  font:600 10.5px/1.5 'Chivo Mono',monospace; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted)}
+.plate-row dd{margin:0; padding:14px 16px; background:var(--panel); font-size:14px; line-height:1.6}
+@media (max-width:560px){
+  .plate-row{grid-template-columns:1fr}
+  .plate-row dt{border-right:0; border-bottom:1px solid var(--line-soft)}
+}
+
+/* footer.wrap UND NICHT NUR footer — sonst greift nichts davon.
+   `.wrap` setzt `margin:0 auto` und `padding:0 var(--rail)`, beides
+   Kurzschreibweisen: sie setzen also auch margin-top und padding-top auf 0.
+   Eine Klasse sticht ein Element-Kennzeichen unabhaengig von der Reihenfolge,
+   damit gewann `.wrap`. Ergebnis: der Strich klebte oben am Text (gemessen
+   1 Pixel Abstand statt 38 bis 58) und stand zugleich ohne Luft unter dem
+   letzten Abschnitt.
+
+   ZWEITER PUNKT, beim Nachmessen aufgefallen: der Strich lag am Fuss über
+   die ganze Breite, waehrend der Strich der Fussnote — und jede andere Linie
+   der Seite — um den Rand eingerueckt ist. Zwei Striche im selben Block auf
+   verschiedenen Fluchten. Der Rahmen sitzt deshalb jetzt an .foot-grid, also
+   INNERHALB des Randes, und beide liegen auf einer Linie. */
+footer.wrap{padding:0 var(--rail) 44px; margin:34px auto 0}
+/* Der Fuss dieser Seite ist nur ein Absatz, kein .foot-grid wie auf der
+   Startseite — die Linie gehoert deshalb HIER hin. Der erste Versuch
+   traf .foot-grid und liess sie damit ganz verschwinden. */
+footer.wrap > p{border-top:1px solid var(--line-soft); padding-top:34px}
+footer p{margin:0; font-size:11.5px; line-height:1.7; color:var(--muted)}
+footer a{color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important; transition-duration:.01ms!important}
+}
+</style>
+</head>
+
+<body>
+
+<header class="bezel">
+  <div class="bezel-in">
+    <a class="mark" href="/"><span class="mark-name">BitDM</span></a>
+    <a class="back" href="/">
+      <span class="de">← Zurück</span><span class="en">← Back</span>
+    </a>
+    <div class="toggle" role="group" aria-label="Sprache / Language">
+      <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
+      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <header class="page">
+    <span class="screen screen-lit de">Betrieb</span>
+    <span class="screen screen-lit en">Operations</span>
+    <h1><span class="de">Den Server selbst betreiben</span><span class="en">Run the server yourself</span></h1>
+    <p class="stamp">
+      <span class="de">BitDM braucht zwei Dienste: einen <strong>Relay</strong> und ein <strong>Zwischenlager</strong>. Beide liegen im Quelltext, beide laufen auf einer eigenen Maschine. Stand: 29.&nbsp;Juli 2026.</span>
+      <span class="en">BitDM needs two services: a <strong>relay</strong> and a <strong>blob store</strong>. Both are in the source, both run on a machine of your own. Last updated: 29&nbsp;July 2026.</span>
+    </p>
+  </header>
+
+  <section>
+    <h2><span class="de">Das Wichtigste zuerst</span><span class="en">First things first</span></h2>
+    <div class="headline-claim">
+      <p class="de"><strong>Alle Beteiligten brauchen denselben Relay.</strong> Zwei Leute auf verschiedenen Servern können sich nicht schreiben — es gibt keine Weiterleitung zwischen Instanzen. Wer umsteigt, muss die Gegenseite mitnehmen.</p>
+      <p class="en"><strong>Everyone involved needs the same relay.</strong> Two people on different servers cannot message each other — there is no federation between instances. If you switch, the other side has to switch with you.</p>
+    </div>
+    <p>
+      <span class="de">Das ist die häufigste Enttäuschung bei dieser Einstellung, deshalb steht sie hier oben und nicht in einer Fußnote.</span>
+      <span class="en">This is the most common disappointment with this setting, which is why it is up here and not in a footnote.</span>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="de">Ein Befehl</span><span class="en">One command</span></h2>
+    <p>
+      <span class="de">Auf einem frischen Debian oder Ubuntu genügt das. Das Skript fragt nach dem Namen und einer E-Mail, prüft ob der Name wirklich auf die Maschine zeigt, installiert was fehlt und richtet Zertifikat, nginx und Dienst ein. Es ist keine Konfigurationsdatei anzufassen.</span>
+      <span class="en">On a fresh Debian or Ubuntu this is all it takes. The script asks for the domain and an email, checks that the domain really points at the machine, installs what is missing and sets up the certificate, nginx and the service. There is no config file to touch.</span>
+    </p>
+    <pre><code>curl -fsSL https://bitdm.net/install.sh | sudo bash</code></pre>
+    <p>
+      <span class="de">Ein Skript ungelesen in eine Shell zu leiten ist eine Vertrauensfrage, und die richtige Antwort darauf ist Misstrauen. Wer erst lesen will:</span>
+      <span class="en">Piping an unread script into a shell is a question of trust, and the right answer to it is suspicion. To read it first:</span>
+    </p>
+    <pre><code>curl -fsSLO https://bitdm.net/install.sh
+less install.sh &amp;&amp; sudo bash install.sh</code></pre>
+    <p>
+      <span class="de">Wiederholtes Ausführen ist gefahrlos: das Skript ändert nichts an bestehenden Diensten und öffnet keinen Port ausser 80 und 443, die nginx ohnehin hat.</span>
+      <span class="en">Running it again is safe: it touches no existing service and opens no port beyond 80 and 443, which nginx already has.</span>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="de">Wozu das gut ist</span><span class="en">What this buys you</span></h2>
+    <p>
+      <span class="de">Um <em>Inhalte</em> geht es nicht — die sind Ende-zu-Ende verschlüsselt, und kein Server kann sie lesen, auch unser eigener nicht. Es geht um <strong>Verkehrsdaten</strong>: wer wann online war, wie viele Umschläge in welche Richtung gingen, wie groß sie waren. Der Relay sieht das zwangsläufig. Wer ihn selbst betreibt, teilt es mit niemandem.</span>
+      <span class="en">This is not about <em>content</em> — that is end-to-end encrypted, and no server can read it, not even ours. It is about <strong>traffic data</strong>: who was online when, how many envelopes went which way, how large they were. The relay necessarily sees this. Run it yourself and you share it with nobody.</span>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="de">Was du brauchst</span><span class="en">What you need</span></h2>
+    <ul>
+      <li><span class="de">Einen Rechner, der ständig läuft und aus dem Netz erreichbar ist. Ein kleiner virtueller Server genügt.</span>
+        <span class="en">A machine that runs continuously and is reachable from the internet. A small virtual server is enough.</span></li>
+      <li><span class="de">Einen Namen darauf und ein Zertifikat. BitDM spricht <code>wss://</code>, und dafür braucht es TLS.</span>
+        <span class="en">A domain name pointing at it and a certificate. BitDM speaks <code>wss://</code>, which needs TLS.</span></li>
+      <li><span class="de">Python. Der Relay ist eine einzelne Datei plus ein systemd-Dienst.</span>
+        <span class="en">Python. The relay is a single file plus a systemd unit.</span></li>
+    </ul>
+    <p>
+      <span class="de">Die technischen Schritte stehen in <code>deploy/README.md</code> im Quelltext, samt Installationsskript. Diese Seite erklärt, was du entscheidest — nicht, welchen Befehl du tippst.</span>
+      <span class="en">The technical steps live in <code>deploy/README.md</code> in the source, with an install script. This page explains what you decide — not which command to type.</span>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="de">Das Zwischenlager nicht vergessen</span><span class="en">Do not forget the blob store</span></h2>
+    <p>
+      <span class="de">Anhänge gehen <strong>nicht</strong> über den Relay. Sie werden verschlüsselt in ein zweites, getrenntes Zwischenlager gelegt; der Relay trägt nur die Anleitung zum Abholen. Wer den Relay aufsetzt und das Lager vergisst, hat einen Messenger, in dem Anhänge scheitern — mit einer Meldung, die nach einem Netzproblem aussieht.</span>
+      <span class="en">Attachments do <strong>not</strong> go through the relay. They are stored encrypted in a second, separate blob store; the relay only carries the instructions to fetch them. Set up the relay and forget the store, and you get a messenger where attachments fail — with an error that looks like a network problem.</span>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="de">In der App eintragen</span><span class="en">Point the app at it</span></h2>
+    <p>
+      <span class="de">Einstellungen &rsaquo; Empfangen &rsaquo; Serveradresse. Das Feld nimmt <code>wss://</code> für den Relay; das Lager wird daneben eingetragen. Leeres Feld und übernehmen bringt dich jederzeit zur Voreinstellung zurück.</span>
+      <span class="en">Settings &rsaquo; Receiving &rsaquo; server address. The field takes <code>wss://</code> for the relay; the store goes next to it. Clearing the field and applying returns you to the default at any time.</span>
+    </p>
+    <p>
+      <span class="de"><code>http://</code> und <code>ws://</code> lässt die App nur im eigenen Netz zu. Nicht aus Bevormundung: ohne TLS liest jeder auf dem Weg mit, wer wann mit wem spricht — und genau das wolltest du ja vermeiden.</span>
+      <span class="en">The app allows <code>http://</code> and <code>ws://</code> only on your own network. Not to be paternalistic: without TLS anyone on the path can read who talks to whom and when — which is the very thing you wanted to avoid.</span>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="de">Die Umzugsfalle</span><span class="en">The migration trap</span></h2>
+    <p>
+      <span class="de">Bestehende Unterhaltungen laufen nach einem Wechsel weiter — die Schlüssel liegen auf den Geräten, nicht auf dem Server. Aber ein <em>neuer</em> Kontakt findet dich nur, wenn er beim selben Relay ist. Wer umzieht, sollte das mit allen abstimmen, mit denen er noch schreiben will.</span>
+      <span class="en">Existing conversations keep working after a switch — the keys live on the devices, not on the server. But a <em>new</em> contact can only find you if they are on the same relay. If you migrate, agree it with everyone you still want to message.</span>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="de">Warum wir das anbieten müssen</span><span class="en">Why we owe you this</span></h2>
+    <p>
+      <span class="de">BitDM steht unter der AGPL-3.0. Deren Netzwerk-Klausel verlangt, dass jeder, der mit dem Server spricht, an dessen Quelltext kommt. Ein Messenger, der Metadaten vermeiden will, seine Nutzer aber praktisch auf einen fremden Server zwingt, verlangt genau das Vertrauen, das er zu ersparen verspricht.</span>
+      <span class="en">BitDM is licensed under AGPL-3.0. Its network clause requires that anyone talking to the server can get its source. A messenger that sets out to avoid metadata but in practice forces its users onto someone else’s server is asking for exactly the trust it promises to make unnecessary.</span>
+    </p>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <p>
+    <span class="de">BitDM ist quelloffen unter AGPL-3.0 —
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>.
+      Google Play und das Google-Play-Logo sind Marken von Google LLC.</span>
+    <span class="en">BitDM is open source under AGPL-3.0 —
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>.
+      Google Play and the Google Play logo are trademarks of Google LLC.</span>
+  </p>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var root = document.documentElement;
+  function setLang(l){
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l);
+    document.querySelectorAll('[data-set-lang]').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.setLang === l));
+    });
+    try{ localStorage.setItem('bitdm-lang', l); }catch(e){}
+  }
+  document.querySelectorAll('[data-set-lang]').forEach(function(b){
+    b.addEventListener('click', function(){ setLang(b.dataset.setLang); });
+  });
+  var saved = null;
+  try{ saved = localStorage.getItem('bitdm-lang'); }catch(e){}
+  setLang(saved || ((navigator.language||'de').slice(0,2) === 'de' ? 'de' : 'en'));
+})();
+</script>
+</body>
+</html>
