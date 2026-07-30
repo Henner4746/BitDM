@@ -3,7 +3,7 @@
 **An encrypted messenger with no phone number, no username, and no account.
 Your address *is* your public key.**
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](secure-messenger/LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.5.1-6f62a8)
 ![Platform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows-6f62a8)
 
@@ -383,7 +383,7 @@ concerned. Two separate bugs in this project had that single root cause.
 
 ## License
 
-**AGPL-3.0** — [LICENSE](secure-messenger/LICENSE).
+**AGPL-3.0** — [LICENSE](LICENSE).
 
 Not GPL, deliberately. The GPL triggers on *distributing* a program. Someone
 who modifies the relay and merely operates it distributes nothing and would

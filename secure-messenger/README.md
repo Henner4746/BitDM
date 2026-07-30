@@ -37,7 +37,7 @@ Schlüssel, und die "lange Nummer" zum Hinzufügen ist dein *öffentlicher* Schl
 - **App:** Flutter (eine Codebasis, cleanes GUI); Krypto via **`libsignal_protocol_dart` 0.8.2** — echtes Signal-Protokoll, **Double Ratchet + Forward Secrecy von Anfang an**.
 - **Server:** Python-Relay auf dem VPS, erreichbar über **Hostnamen** (nie über die rohe IP — sonst wäre jeder Umzug ein Zwangsupdate).
 - **Umfang v1:** 1:1-Textchat, ein Gerät je Identität.
-- **Lizenz:** **AGPL-3.0** (Volltext in [LICENSE](LICENSE), festgelegt am 26.07.2026) — quelloffen ist bei einem Sicherheitsversprechen Voraussetzung, nicht Beiwerk. Vertrieb später über F-Droid *und* Play.
+- **Lizenz:** **AGPL-3.0** (Volltext in [LICENSE](../LICENSE), festgelegt am 26.07.2026) — quelloffen ist bei einem Sicherheitsversprechen Voraussetzung, nicht Beiwerk. Vertrieb später über F-Droid *und* Play.
 
   Warum AGPL statt GPL: dieses Projekt besteht nicht nur aus einer App, sondern auch aus dem Relay in `server/`. Die GPL greift erst beim *Verteilen* von Programmen — wer einen abgewandelten Relay bloß betreibt, verteilt nichts und müsste seine Änderungen nie herausgeben. Genau das ist hier der Fall, der zählt: der Server sieht, wer wann online ist. Die AGPL schließt diese Lücke und passt damit zu dem Versprechen, dass jeder seinen eigenen Server betreiben kann und niemand eine geschlossene Abwandlung davon anbieten darf.
 
