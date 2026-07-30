@@ -64,6 +64,9 @@ enum PayloadKind {
   }
 }
 
+/// Wie eine Nachrichtenkennung aussehen darf. Siehe [Payload.fromBytes].
+final _kennungTaugt = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
+
 class Payload {
   final PayloadKind kind;
 
@@ -196,8 +199,24 @@ class Payload {
 
     final id = j['id'];
     final t = j['t'];
-    if (id is! String || id.isEmpty) {
-      throw const PayloadFormatException('Kennung fehlt');
+    // DIE KENNUNG KOMMT VON DRAUSSEN und landet spaeter in einem DATEINAMEN:
+    // real_messenger_core baut den Zielpfad eines Anhangs als
+    // "<ordner>/<kennung>_<name>". Eine Kennung "../evil" schreibt die Datei
+    // damit AUSSERHALB des Anhangordners — mit Bytes, die die Gegenstelle
+    // bestimmt, an einem Ort, den sie bestimmt. Eine zweite Bauart
+    // ("../anhaenge/<schon vergebene Kennung>") umgeht sogar den eindeutigen
+    // Index und ueberschreibt eine Datei, die der Nutzer schon geoeffnet hat.
+    //
+    // HIER GEPRUEFT UND NICHT ERST DORT: das ist die Stelle, an der alles
+    // Fremde ankommt, und daneben stehen schon die Pruefungen fuer Zeitstempel
+    // und Lebensdauer. Wer es erst beim Dateinamen abfaengt, muss daran bei
+    // jeder kuenftigen Verwendung erneut denken.
+    //
+    // Das Muster ist das der eigenen Kennungen: _neueId() liefert base64Url
+    // ohne Polster. Was nicht so aussieht, ist keine, die diese App vergeben
+    // haben koennte.
+    if (id is! String || !_kennungTaugt.hasMatch(id)) {
+      throw const PayloadFormatException('Kennung fehlt oder taugt nicht');
     }
     if (t is! int) throw const PayloadFormatException('Zeitstempel fehlt');
 

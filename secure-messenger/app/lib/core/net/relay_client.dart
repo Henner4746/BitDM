@@ -41,12 +41,23 @@ sealed class RelayEvent {
 }
 
 /// Ein Umschlag fuer uns. [ciphertext] ist noch verschluesselt.
+///
+/// [q] ist die Kennung der Warteschlangenzeile beim Relay und steht nur bei
+/// GEPUFFERTEN Nachrichten. Wer sie hat, muss sie nach dem Speichern an
+/// [RelayClient.bestaetigeEmpfang] geben — sonst schickt der Relay die
+/// Nachricht beim naechsten Verbinden wieder. Null heisst entweder live
+/// zugestellt oder ein Relay, der den Nachweis nicht kennt; in beiden Faellen
+/// ist nichts zu tun.
 class RelayMessage extends RelayEvent {
   final String from;
   final Uint8List ciphertext;
   final DateTime at;
+  final int? q;
   const RelayMessage(
-      {required this.from, required this.ciphertext, required this.at});
+      {required this.from,
+      required this.ciphertext,
+      required this.at,
+      this.q});
 }
 
 /// Der Vorrat an One-Time-Prekeys geht zur Neige.
@@ -242,7 +253,20 @@ class RelayClient {
           identity.keyPair.getPrivateKey(),
           Uint8List.fromList(nonce),
         );
-        _ws?.add(jsonEncode({'signature': base64.encode(sig)}));
+        // Das Koennen steht im SELBEN Rahmen wie die Signatur — der muss
+        // ohnehin raus, und damit liegt es dem Relay VOR der ersten
+        // Zustellung vor. Alles Spaetere haelfe der ersten Ladung nicht, und
+        // genau die ist die gefaehrdete.
+        //
+        // Ein Relay, der das Feld nicht kennt, ignoriert es und schickt kein
+        // `q` — dann wird hier auch nie bestaetigt, und es bleibt beim
+        // bisherigen Verhalten. Gemessen gegen den unveraenderten Server:
+        // die Anmeldung mit dem Zusatzfeld beantwortet er mit
+        // {'type': 'auth_result', 'ok': True}.
+        _ws?.add(jsonEncode({
+          'signature': base64.encode(sig),
+          'empfangsnachweis': true,
+        }));
 
       case 'auth_result':
         if (m['ok'] == true) {
@@ -260,6 +284,10 @@ class RelayClient {
           at: DateTime.fromMillisecondsSinceEpoch(
               (((m['ts'] as num?) ?? 0) * 1000).round(),
               isUtc: true),
+          // `as num?` und nicht `as int?`: ein JSON-Wert darf auch als
+          // double ankommen, und ein Wurf hier verschluckte den ganzen
+          // Rahmen — die Nachricht selbst waere weg, nicht nur ihre Kennung.
+          q: (m['q'] as num?)?.toInt(),
         ));
 
       case 'prekeys_low':
@@ -435,6 +463,34 @@ class RelayClient {
       'type': 'push_endpoint',
       'endpoint': endpunkt ?? '',
     }));
+  }
+
+  /// Meldet dem Relay, dass die Warteschlangenzeile [q] dauerhaft bei uns
+  /// liegt. Darauf loescht er sie.
+  ///
+  /// NUR NACH DEM SPEICHERN AUFRUFEN. Von hier aus liesse sich das nicht
+  /// pruefen — deshalb ruft diese Schicht sich NICHT selbst, sondern die
+  /// Schicht, die schreibt (real_messenger_core._verarbeiteEingang).
+  ///
+  /// EIN NACHWEIS JE NACHRICHT und kein Buendel: kein Zeitgeber, kein
+  /// Fenster, in dem ein halbes Buendel verlorengeht. Die Menge ist
+  /// unkritisch — bei den hoechstens 500 Zeilen je Adresse sind das rund
+  /// 20 KB nach oben.
+  ///
+  /// Wirft nicht, wenn die Verbindung weg ist: ein Nachweis, der nicht
+  /// hinausgeht, ist kein Fehler. Die Zeile bleibt beim Relay liegen und
+  /// kommt noch einmal — genau die Richtung, in die der Irrtum fallen soll.
+  void bestaetigeEmpfang(int q) {
+    final ws = _ws;
+    if (ws == null || ws.readyState != WebSocket.open) return;
+    try {
+      ws.add(jsonEncode({
+        'type': 'empfangen',
+        'ids': [q],
+      }));
+    } on StateError {
+      // Zwischen der Pruefung und dem Schreiben kann die Leitung fallen.
+    }
   }
 
   Future<void> close() async {

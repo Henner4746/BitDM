@@ -30,6 +30,7 @@ import 'package:bitdm/core/store/signal_store.dart';
 import 'package:bitdm/core/store/signal_store_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 import '../support/relay_process.dart';
 
@@ -48,6 +49,18 @@ class Teilnehmer {
   final SignedPreKeyRecord signedPreKey;
 
   final _posteingang = <String>[];
+
+  /// Was nicht zu entschluesseln war — seit dem Empfangsnachweis vor allem
+  /// Wiederholungen, die der Ratchet abweist.
+  final verworfen = <Object>[];
+
+  /// Wie viele Umschlaege ueberhaupt hereinkamen, lesbar oder nicht.
+  ///
+  /// Der Posteingang taugt fuer die Frage "kam sie noch einmal" nicht: eine
+  /// wiederholte Nachricht laesst sich per Bauart nicht ein zweites Mal
+  /// entschluesseln und landet deshalb nie dort.
+  var rohEingang = 0;
+
   StreamSubscription<RelayEvent>? _abo;
 
   String get address => store.identity.address;
@@ -82,16 +95,47 @@ class Teilnehmer {
       ));
 
   /// Verbindet und entschluesselt alles, was hereinkommt.
-  Future<void> verbinden() async {
+  ///
+  /// [bestaetigen] steuert, ob der Empfangsnachweis hinausgeht. Er steht hier
+  /// als Schalter und nicht fest, weil die eine Haelfte des Nachweises nur
+  /// pruefbar ist, wenn sich auch das UNTERLASSEN nachstellen laesst — ohne
+  /// das koennte der Relay die Zeilen genauso gut wie frueher sofort loeschen
+  /// und alle Tests blieben gruen.
+  Future<void> verbinden({bool bestaetigen = true}) async {
     _abo = client.events.listen((e) async {
       if (e is! RelayMessage) return;
-      final umschlag = Envelope.fromBytes(e.ciphertext);
-      final klar = await umschlag.decrypt(
-          SessionCipher.fromStore(store, SignalProtocolAddress(e.from, 1)));
-      repo.commit(store);
-      _posteingang.add(utf8.decode(klar));
+      rohEingang++;
+      try {
+        final umschlag = Envelope.fromBytes(e.ciphertext);
+        final klar = await umschlag.decrypt(
+            SessionCipher.fromStore(store, SignalProtocolAddress(e.from, 1)));
+        repo.commit(store);
+        _posteingang.add(utf8.decode(klar));
+      } catch (fehler) {
+        // Seit der Relay auf den Nachweis wartet, ist die Wiederholung der
+        // Normalfall und nicht mehr die Ausnahme. Die Ratchet-Schicht weist
+        // sie ab; festgeschrieben wird trotzdem, weil der Ratchet auch bei
+        // einem Fehlschlag weitergerueckt sein kann.
+        repo.commit(store);
+        verworfen.add(fehler);
+      }
+      // ERST HIER, nach commit: der Relay loescht auf diesen Nachweis hin
+      // seine Zeile. Ginge er vorher hinaus, waere der Verlust nur von der
+      // Leitung in die App verschoben.
+      final q = e.q;
+      if (bestaetigen && q != null) client.bestaetigeEmpfang(q);
     });
     await client.connect();
+  }
+
+  /// Wartet, bis [anzahl] Umschlaege hereingekommen sind — lesbar oder nicht.
+  Future<int> warteAufUmschlaege(int anzahl,
+      {Duration frist = const Duration(seconds: 15)}) async {
+    final ende = DateTime.now().add(frist);
+    while (rohEingang < anzahl && DateTime.now().isBefore(ende)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    return rohEingang;
   }
 
   Future<void> trennen() async {
@@ -155,6 +199,43 @@ void main() {
 
   Future<Teilnehmer> teilnehmer(String name, {int otkAnzahl = 5}) =>
       Teilnehmer.neu(name, relay!.uri, pfad(name), otkAnzahl: otkAnzahl);
+
+  /// Wie viele Zeilen beim Relay fuer [empfaenger] noch offen sind.
+  ///
+  /// EIN BLICK IN DIE TABELLE und nicht bloss "es kam nichts mehr": das
+  /// Ausbleiben einer zweiten Zustellung waere auch dann wahr, wenn der Relay
+  /// die Zeile aus einem ganz anderen Grund losgeworden waere. Nur die Zahl
+  /// hier beantwortet, ob der Nachweis gewirkt hat.
+  ///
+  /// Schreibend geoeffnet, weil die Datenbank in WAL laeuft: lesend allein
+  /// koennte SQLite den -wal-Teil nicht einbeziehen, und dann staende hier der
+  /// Stand vor dem letzten Commit.
+  int offeneZeilen(String empfaenger) {
+    final db = sqlite3.open('${relay!.datenverzeichnis.path}/relay.db');
+    try {
+      final zeilen = db.select(
+          'SELECT COUNT(*) AS n FROM queue WHERE recipient = ?', [empfaenger]);
+      return zeilen.first['n'] as int;
+    } finally {
+      db.dispose();
+    }
+  }
+
+  /// Wartet, bis der Relay auf [erwartet] Zeilen gekommen ist.
+  ///
+  /// Der Nachweis geht ohne Antwort hinaus — es gibt also keinen Zeitpunkt,
+  /// an dem der Client wuesste, dass geloescht wurde. Deshalb nachsehen statt
+  /// warten auf etwas.
+  Future<int> warteAufZeilen(String empfaenger, int erwartet,
+      {Duration frist = const Duration(seconds: 10)}) async {
+    final ende = DateTime.now().add(frist);
+    var jetzt = offeneZeilen(empfaenger);
+    while (jetzt != erwartet && DateTime.now().isBefore(ende)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      jetzt = offeneZeilen(empfaenger);
+    }
+    return jetzt;
+  }
 
   test('Relay laeuft — sonst sagen die folgenden Tests nichts aus', () {
     expect(relay, isNotNull,
@@ -269,6 +350,65 @@ void main() {
       addTearDown(niemand.aufraeumen);
       // anmelden() wurde absichtlich NICHT aufgerufen.
       expect(niemand.verbinden(), throwsA(isA<RelayException>()));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('ohne Empfangsnachweis kommt die Nachricht noch einmal', () async {
+      // DER BEFUND, von der Clientseite aus. Vorher loeschte der Relay die
+      // Zeile, sobald der Rahmen im Schreibpuffer stand — was danach abriss,
+      // war weg, und der Absender hatte sein ack seit Tagen.
+      final alice = await teilnehmer('alice');
+      final bob = await teilnehmer('bob');
+      addTearDown(alice.aufraeumen);
+      addTearDown(bob.aufraeumen);
+
+      await alice.anmelden();
+      await bob.anmelden();
+      await alice.verbinden();
+      await alice.schreibeAn(bob.address, 'Das darf nicht verlorengehen.');
+
+      await bob.verbinden(bestaetigen: false);
+      expect(await bob.warteAufUmschlaege(1), 1);
+      expect(await bob.warteAufPost(1), ['Das darf nicht verlorengehen.']);
+      // Sie ist beim Client — und liegt trotzdem noch beim Relay, weil
+      // niemand bestaetigt hat.
+      expect(offeneZeilen(bob.address), 1);
+
+      await bob.trennen();
+      await bob.verbinden(bestaetigen: false);
+      expect(await bob.warteAufUmschlaege(2), 2,
+          reason: 'ohne Nachweis muss der Relay sie erneut zustellen');
+
+      // Und die Wiederholung behelligt niemanden: der Ratchet weist sie ab,
+      // im Verlauf steht sie weiterhin genau einmal.
+      expect(bob.verworfen, hasLength(1));
+      expect(await bob.warteAufPost(1), ['Das darf nicht verlorengehen.']);
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('mit Empfangsnachweis ist die Zeile beim Relay weg', () async {
+      // Das Gegenstueck. Ohne diesen Test bliebe die Warteschlange voll, und
+      // aus einem Datenverlust waere ein Dauerlauf geworden.
+      final alice = await teilnehmer('alice');
+      final bob = await teilnehmer('bob');
+      addTearDown(alice.aufraeumen);
+      addTearDown(bob.aufraeumen);
+
+      await alice.anmelden();
+      await bob.anmelden();
+      await alice.verbinden();
+      await alice.schreibeAn(bob.address, 'Angekommen ist angekommen.');
+      expect(offeneZeilen(bob.address), 1);
+
+      await bob.verbinden();
+      expect(await bob.warteAufPost(1), ['Angekommen ist angekommen.']);
+      expect(await warteAufZeilen(bob.address, 0), 0,
+          reason: 'der Nachweis muss die Zeile beim Relay loeschen');
+
+      await bob.trennen();
+      await bob.verbinden();
+      // Kurz Zeit lassen — eine Nachzustellung waere sofort da.
+      await Future<void>.delayed(const Duration(seconds: 2));
+      expect(bob.rohEingang, 1, reason: 'sie darf kein zweites Mal kommen');
+      expect(bob.verworfen, isEmpty);
     }, timeout: const Timeout(Duration(minutes: 2)));
 
     test('eine Adresse, die es nicht gibt, meldet 404', () async {

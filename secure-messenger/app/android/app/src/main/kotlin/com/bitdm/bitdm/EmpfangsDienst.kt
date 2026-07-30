@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
+import io.flutter.plugin.common.MethodChannel
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
@@ -39,6 +40,24 @@ class EmpfangsDienst : Service() {
 
     companion object {
         const val KANAL = "bitdm/empfang"
+
+        /**
+         * Der Draht zu Dart. Von MainActivity gesetzt, von dort auch wieder
+         * genullt.
+         *
+         * WARUM STATISCH: der Dienst ist ein eigenes Android-Bauteil und
+         * bekommt die Flutter-Maschine nicht in die Hand. Ein Weg zurueck
+         * braucht er trotzdem — sonst kann er nicht sagen, dass er aufgibt,
+         * und die Oberflaeche behauptet weiter "empfangsbereit".
+         *
+         * WARUM DAS HIER GEFAEHRLICH WAERE, wenn man es vergisst: ein
+         * statischer Verweis auf einen MethodChannel haelt die
+         * Flutter-Maschine und damit die ganze Activity am Leben. Deshalb
+         * setzt MainActivity ihn in onDestroy ausdruecklich auf null; siehe
+         * dort.
+         */
+        @Volatile
+        var melder: MethodChannel? = null
 
         private const val KANAL_ID = "bitdm_empfang"
         private const val MELDUNG_ID = 4711
@@ -79,13 +98,62 @@ class EmpfangsDienst : Service() {
         val titel = intent?.getStringExtra(EXTRA_TITEL) ?: "BitDM"
         val text = intent?.getStringExtra(EXTRA_TEXT) ?: "Empfangsbereit"
         legeKanalAn()
-        startForeground(MELDUNG_ID, baueMeldung(titel, text))
+
+        // IN try/catch, seit Android 12 unvermeidlich.
+        //
+        // startForeground wirft ForegroundServiceStartNotAllowedException,
+        // wenn der Dienst aus dem Hintergrund heraus gestartet werden soll und
+        // die App gerade keine Erlaubnis dafuer hat — etwa nach einem
+        // abgelaufenen Zeitfenster oder wenn der Nutzer die App eingeschraenkt
+        // hat. Ungefangen ist das kein Fehlschlag, sondern ein Prozessabbruch.
+        try {
+            startForeground(MELDUNG_ID, baueMeldung(titel, text))
+        } catch (e: Exception) {
+            sagDart("nichtErlaubt", e.javaClass.simpleName)
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         // NICHT START_STICKY: startet Android den Dienst nach einem Abschuss
         // von selbst neu, laeuft er ohne Flutter-Maschine weiter — eine
         // Benachrichtigung, hinter der nichts steht. Lieber weg als
         // vorgetaeuscht.
         return START_NOT_STICKY
+    }
+
+    /**
+     * Ab Android 15 ist nach sechs Stunden Schluss.
+     *
+     * Ein Vordergrunddienst vom Typ `dataSync` darf seit API 35 hoechstens
+     * sechs Stunden je 24-Stunden-Fenster laufen. Danach ruft das System
+     * onTimeout — und wer darauf nicht mit stopSelf antwortet, bekommt wenige
+     * Sekunden spaeter ein ANR: "A foreground service of type dataSync did
+     * not stop within its timeout".
+     *
+     * DAS IST EINE GRENZE UND KEIN FEHLER, und sie gehoert offen benannt:
+     * "staendig empfangen" heisst auf Android 15 und neuer "sechs Stunden am
+     * Tag empfangen". Wer es rund um die Uhr braucht, nimmt den
+     * Anstoss-Verteiler — der kostet keine Laufzeit, weil dabei gar nichts
+     * laeuft.
+     *
+     * Dart bekommt Bescheid, damit die Oberflaeche den Takt sichtbar
+     * zuruecknimmt. Still zu verstummen waere das Schlimmste: der Nutzer
+     * glaubte weiter, er sei empfangsbereit.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        sagDart("zeitAbgelaufen", null)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
+    }
+
+    /** Eine Meldung an Dart ueber den bestehenden Kanal. */
+    private fun sagDart(was: String, grund: String?) {
+        try {
+            melder?.invokeMethod(was, grund)
+        } catch (_: Exception) {
+            // Kein Kanal, weil Flutter schon weg ist. Dann gibt es auch
+            // niemanden mehr, dem es etwas nuetzen wuerde.
+        }
     }
 
     private fun legeKanalAn() {
