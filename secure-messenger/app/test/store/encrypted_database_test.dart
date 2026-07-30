@@ -113,13 +113,19 @@ void main() {
       final falsch = schluessel(0xAB);
       final hexDesSchluessels = 'ab' * 32;
 
+      // Der Wurf wird ausserhalb des try geprueft. Stuende `fail()` drin,
+      // finge der nackte `catch (e)` die TestFailure wieder ein, und deren
+      // Text enthaelt weder den Schluessel noch 'pragma key' — beide
+      // Erwartungen gingen durch, obwohl gar nichts geworfen wurde.
+      Object? geworfen;
       try {
         EncryptedDatabase.open(pfad, falsch);
-        fail('haette werfen muessen');
       } catch (e) {
-        expect('$e'.toLowerCase(), isNot(contains(hexDesSchluessels)));
-        expect('$e'.toLowerCase(), isNot(contains('pragma key')));
+        geworfen = e;
       }
+      expect(geworfen, isNotNull, reason: 'haette werfen muessen');
+      expect('$geworfen'.toLowerCase(), isNot(contains(hexDesSchluessels)));
+      expect('$geworfen'.toLowerCase(), isNot(contains('pragma key')));
     });
   });
 
@@ -172,6 +178,57 @@ void main() {
       expect(tabellen,
           containsAll(['meta', 'identities', 'pre_keys', 'signed_pre_keys', 'sessions']));
       expect(db.meta('schema_version'), '${EncryptedDatabase.schemaVersion}');
+    });
+
+    test('SCHRITT 6 SPERRT DIE LIEGENGEBLIEBENEN FUER DIE NAEHE', () {
+      // Was vor dieser Stufe liegengeblieben ist, stammt aus einer Fassung, in
+      // der der Nachversand ausschliesslich aus connect() heraus lief — es
+      // wartet ohnehin auf den Relay, und moeglicherweise war es dort auch
+      // schon. Mit der 0 duerfte die erste dieser Nachrichten nach dem Update
+      // ueber die Naehe hinausgehen, obwohl sie drueben liegen kann. Von den
+      // beiden Irrtuemern ist dieser der teure.
+      //
+      // NACHGESTELLT WIRD DIE ALTE DATEI, nicht bloss die Abfrage: Spalte weg,
+      // Fassung zurueck auf 5. Genau so sieht die Datei einer bestehenden
+      // Installation aus.
+      const spalten = '(id, chat_id, sender_id, body, kind, is_mine, sent_at, '
+          'status, ueber_naehe, schon_beim_relay)';
+      final pfad = neuerPfad();
+      final db = EncryptedDatabase.open(pfad, schluessel(0xA1));
+      db.transaction((raw) {
+        // status 0 = sending (liegengeblieben), 1 = sent (draussen).
+        raw.execute('INSERT INTO messages $spalten '
+            "VALUES ('liegt','A','A','x',0,1,0,0,0,0)");
+        raw.execute('INSERT INTO messages $spalten '
+            "VALUES ('raus','A','A','y',0,1,0,1,0,0)");
+        raw.execute('INSERT INTO messages $spalten '
+            "VALUES ('fremd','A','B','z',0,0,0,0,0,0)");
+        raw.execute('ALTER TABLE messages DROP COLUMN schon_beim_relay');
+        // BEIDE Spalten weg, nicht nur die von Schritt 6.
+        //
+        // Die Fassung geht auf 5 zurueck, also laeuft beim Wiederoeffnen auch
+        // Schritt 7 noch einmal — und der legt `schon_in_der_naehe` an. Bleibt
+        // sie stehen, scheitert die Wanderung an "duplicate column name", und
+        // der Test misst das statt der Sache. Wer spaeter einen Schritt 8
+        // anlegt, muss diese Zeile mitziehen.
+        raw.execute('ALTER TABLE messages DROP COLUMN schon_in_der_naehe');
+        raw.execute("UPDATE meta SET value = '5' WHERE key = 'schema_version'");
+      });
+      db.close();
+
+      final wieder = EncryptedDatabase.open(pfad, schluessel(0xA1));
+      addTearDown(wieder.close);
+      int vermerk(String id) => wieder.raw
+          .select('SELECT schon_beim_relay s FROM messages WHERE id = ?', [id])
+          .first['s'] as int;
+
+      expect(vermerk('liegt'), 1,
+          reason: 'die wartet auf den Relay und kann dort schon liegen');
+      expect(vermerk('raus'), 0,
+          reason: 'sie ist durch — der Vermerk wuerde nie gelesen, und eine '
+              'pauschale 1 verwischte, wovon er handelt');
+      expect(vermerk('fremd'), 0,
+          reason: 'eine EMPFANGENE Nachricht wird nie nachversandt');
     });
 
     test('eine Datei aus einer NEUEREN App-Fassung wird abgelehnt', () {

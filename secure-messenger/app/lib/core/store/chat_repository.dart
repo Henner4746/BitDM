@@ -14,7 +14,7 @@
 // sie ist unwiederbringlich weg, weil sie sich kein zweites Mal entschluesseln
 // laesst. Dafuer gibt es [speichereEmpfangen].
 
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
 
 import '../models.dart';
 import 'encrypted_database.dart';
@@ -61,20 +61,23 @@ class ChatRepository {
     db.transaction((raw) => _schreibeKontakt(raw, c));
   }
 
-  static void _schreibeKontakt(Database raw, Contact c) {
+  static void _schreibeKontakt(CommonDatabase raw, Contact c) {
     raw.execute(
-      'INSERT INTO contacts (address, display_name, added_at, state, verified) '
-      'VALUES (?,?,?,?,?) '
+      'INSERT INTO contacts '
+      '(address, display_name, added_at, state, verified, zeigt_anwesenheit) '
+      'VALUES (?,?,?,?,?,?) '
       'ON CONFLICT(address) DO UPDATE SET '
-      '  display_name = excluded.display_name,'
-      '  state        = excluded.state,'
-      '  verified     = excluded.verified',
+      '  display_name      = excluded.display_name,'
+      '  state             = excluded.state,'
+      '  verified          = excluded.verified,'
+      '  zeigt_anwesenheit = excluded.zeigt_anwesenheit',
       [
         c.id,
         c.displayName,
         c.addedAt.toUtc().millisecondsSinceEpoch,
         c.state.index,
         c.verified ? 1 : 0,
+        c.zeigtAnwesenheit ? 1 : 0,
       ],
     );
   }
@@ -106,6 +109,10 @@ class ChatRepository {
             isUtc: true),
         state: ContactState.values[r['state'] as int],
         verified: (r['verified'] as int) != 0,
+        // Kein `?? true` als Rueckfall: die Spalte ist NOT NULL DEFAULT 1,
+        // und ein stiller Rueckfall wuerde einen Lesefehler in ein
+        // "zeigt sich allen" verwandeln — die falsche Richtung.
+        zeigtAnwesenheit: (r['zeigt_anwesenheit'] as int) != 0,
       );
 
   // ═══════════════════════════════════════════════════════════ Nachrichten
@@ -259,7 +266,8 @@ class ChatRepository {
     return betroffen;
   }
 
-  static void _schreibeAnhang(Database raw, AnhangEintrag a, String rezept) {
+  static void _schreibeAnhang(
+      CommonDatabase raw, AnhangEintrag a, String rezept) {
     raw.execute(
       'INSERT INTO anhaenge '
       '(chat_id, sender_id, message_id, name, groesse, rezept, zustand, pfad) '
@@ -313,7 +321,7 @@ class ChatRepository {
     store.markClean();
   }
 
-  static bool _schreibeNachricht(Database raw, Message m,
+  static bool _schreibeNachricht(CommonDatabase raw, Message m,
       {required bool empfangen, Duration? lebensdauer}) {
     // Der Verfallszeitpunkt wird EINMAL beim Speichern festgelegt, nicht bei
     // jeder Abfrage aus Alter plus Frist gerechnet. Sonst wuerde eine spaeter
@@ -325,8 +333,9 @@ class ChatRepository {
 
     raw.execute(
       'INSERT OR IGNORE INTO messages '
-      '(id, chat_id, sender_id, body, kind, is_mine, sent_at, received_at, status, expires_at) '
-      'VALUES (?,?,?,?,?,?,?,?,?,?)',
+      '(id, chat_id, sender_id, body, kind, is_mine, sent_at, received_at, '
+      ' status, expires_at, ueber_naehe, schon_beim_relay) '
+      'VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       [
         m.id,
         m.chatId,
@@ -338,6 +347,8 @@ class ChatRepository {
         empfangen ? DateTime.now().toUtc().millisecondsSinceEpoch : null,
         m.status.index,
         verfall,
+        m.ueberNaehe ? 1 : 0,
+        m.schonBeimRelay ? 1 : 0,
       ],
     );
     return raw.updatedRows > 0;
@@ -381,7 +392,7 @@ class ChatRepository {
   }
 
   static List<String> _anhangDateien(
-          Database raw, String abfrage, List<Object?> werte) =>
+          CommonDatabase raw, String abfrage, List<Object?> werte) =>
       raw
           .select(abfrage, werte)
           .map((r) => r['pfad'] as String?)
@@ -412,6 +423,13 @@ class ChatRepository {
       // Ab Werk AUS. Ein Messenger, der beim ersten Start nichts zustellt,
       // waere kaputt und nicht vorsichtig.
       nurNahbereich: lies('nur_nahbereich') == '1',
+      // Ebenfalls ab Werk aus, aber aus einem anderen Grund: Funk kostet Akku
+      // und zeigt Anwesenheit. Das schaltet man ein, wenn man es will.
+      naheAn: lies('nahe_an') == '1',
+      // `!= '0'` und nicht `== '1'`: dieser ist ab Werk AN, ein fehlender
+      // Eintrag muss also true ergeben. Bei den beiden darueber ist es
+      // umgekehrt, und die Schreibweise ist der einzige Unterschied.
+      autoScroll: lies('auto_scroll') != '0',
     );
   }
 
@@ -425,14 +443,91 @@ class ChatRepository {
       setze('lifetime_seconds', '${p.messageLifetime?.inSeconds ?? 0}');
       setze('block_screenshots', p.blockScreenshots ? '1' : '0');
       setze('nur_nahbereich', p.nurNahbereich ? '1' : '0');
+      setze('nahe_an', p.naheAn ? '1' : '0');
+      setze('auto_scroll', p.autoScroll ? '1' : '0');
     });
   }
 
+  /// [ueberNaehe] wird nur geschrieben, wenn es dasteht.
+  ///
+  /// Das COALESCE ist kein Zierrat: den Weg kennt genau EIN Aufrufer, naemlich
+  /// der, der gerade gesendet hat. Alle anderen — die eintreffenden
+  /// Quittungen etwa — setzen nur den Status. Stuende hier ein schlichtes
+  /// `ueber_naehe = ?` mit einem Standardwert, loeschte die erste eintreffende
+  /// Zustellbestaetigung das Zeichen wieder, das die Nachricht sich verdient
+  /// hat. Derselbe Kniff wie bei `pfad` in [setzeAnhangZustand].
   void setzeStatus(String chatId, String senderId, String messageId,
-      MessageStatus status) {
+      MessageStatus status, {bool? ueberNaehe}) {
+    // NUR VORWAERTS, NIE ZURUECK.
+    //
+    // Die Zustaende sind eine Reihenfolge: sending -> sent -> delivered ->
+    // read. Geschrieben wurde bisher bedingungslos, und das laesst ein
+    // Haekchen zurueckfallen:
+    //
+    //   Die Nachricht ist raus, die Gegenseite hat sie gelesen (read). Danach
+    //   laeuft der Nachversand noch einmal ueber dieselbe Nachricht — etwa
+    //   weil sie ueber beide Wege ging — und setzt "sent". Aus zwei Haken wird
+    //   wieder einer. Der Nutzer sieht eine gelesene Nachricht ungelesen
+    //   werden und hat keine Erklaerung dafuer.
+    //
+    // `failed` steht in der Reihenfolge zwar hinten, ist aber kein
+    // Fortschritt, sondern ein Abbruch — und umgekehrt darf ein spaeter doch
+    // gelungener Versand ein `failed` wieder ueberschreiben. Beide Richtungen
+    // sind hier also erlaubt; die Sperre gilt allein zwischen den vier
+    // Fortschrittsstufen.
+    //
+    // IN DERSELBEN TRANSAKTION GELESEN UND GESCHRIEBEN. Zwei getrennte
+    // Zugriffe waeren ein Wettlauf: zwischen Lesen und Schreiben koennte ein
+    // Lesehaken eintreffen, den der zweite Zugriff dann ueberschriebe — genau
+    // der Fehler, der hier behoben wird, nur seltener und schwerer zu finden.
+    db.transaction((raw) {
+      final vorher = raw.select(
+          'SELECT status FROM messages WHERE chat_id=? AND sender_id=? AND id=?',
+          [chatId, senderId, messageId]);
+      if (vorher.isEmpty) return;
+      final alt = MessageStatus.values[vorher.first['status'] as int];
+
+      final beideFortschritt =
+          alt != MessageStatus.failed && status != MessageStatus.failed;
+      final neu = beideFortschritt && status.index < alt.index ? alt : status;
+
+      raw.execute(
+          'UPDATE messages SET status = ?, '
+          'ueber_naehe = COALESCE(?, ueber_naehe) '
+          'WHERE chat_id=? AND sender_id=? AND id=?',
+          [
+            neu.index,
+            ueberNaehe == null ? null : (ueberNaehe ? 1 : 0),
+            chatId,
+            senderId,
+            messageId
+          ]);
+    });
+  }
+
+  /// Haelt fest, dass dieser Umschlag schon einmal beim Relay war.
+  ///
+  /// EIGENE METHODE UND KEIN WEITERES FELD AN [setzeStatus]: der Vermerk faellt
+  /// genau dann an, wenn der Status sich NICHT aendert — die Nachricht bleibt
+  /// auf "sending" liegen, nur ihr Weg hat sich verengt. Ihn an eine
+  /// Statusaenderung zu haengen hiesse, ihn im wichtigsten Fall nicht zu
+  /// schreiben.
+  ///
+  /// NUR VORWAERTS. Die Spalte faellt nie auf 0 zurueck; was einmal beim Relay
+  /// war, war es.
+  void merkeBeimRelay(String chatId, String senderId, String messageId) {
     db.transaction((raw) => raw.execute(
-        'UPDATE messages SET status = ? WHERE chat_id=? AND sender_id=? AND id=?',
-        [status.index, chatId, senderId, messageId]));
+        'UPDATE messages SET schon_beim_relay = 1 '
+        'WHERE chat_id=? AND sender_id=? AND id=?',
+        [chatId, senderId, messageId]));
+  }
+
+  /// Dasselbe fuer den anderen Weg — siehe [merkeBeimRelay].
+  void merkeInDerNaehe(String chatId, String senderId, String messageId) {
+    db.transaction((raw) => raw.execute(
+        'UPDATE messages SET schon_in_der_naehe = 1 '
+        'WHERE chat_id=? AND sender_id=? AND id=?',
+        [chatId, senderId, messageId]));
   }
 
   /// Setzt alle eigenen Nachrichten eines Gespraechs auf gelesen, sofern sie
@@ -473,5 +568,8 @@ class ChatRepository {
         timestamp: DateTime.fromMillisecondsSinceEpoch(r['sent_at'] as int,
             isUtc: true),
         status: MessageStatus.values[r['status'] as int],
+        ueberNaehe: (r['ueber_naehe'] as int) != 0,
+        schonInDerNaehe: (r['schon_in_der_naehe'] as int) != 0,
+        schonBeimRelay: (r['schon_beim_relay'] as int) != 0,
       );
 }

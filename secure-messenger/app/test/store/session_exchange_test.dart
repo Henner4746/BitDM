@@ -10,6 +10,18 @@
 // der Reihenfolge, Verhalten ohne One-Time-Prekey. Fehlt eine davon, ist das
 // Sicherheitsversprechen des Produkts nicht eingeloest — auch wenn Nachrichten
 // scheinbar ankommen.
+//
+// Wo geprueft wird, DASS etwas wirft, steht `fail()` nie im try-Block. Der
+// nackte `catch (e)` danach faengt die von fail() geworfene TestFailure
+// naemlich wieder ein; classify() ordnet sie keiner bekannten Klasse zu und
+// gibt unreadable zurueck, was weder isSilent noch shouldRebuildSession
+// setzt. Die folgenden Erwartungen gehen also durch, und der Test bleibt
+// gerade dann gruen, wenn gar nichts geworfen wurde — im Angriffsfall.
+// Nachgemessen: mit einer Fassung von _empfangen, die den Klartext einfach
+// zurueckgab, meldeten beide betroffenen Tests weiter "All tests passed".
+// Deshalb wird der geworfene Wert eingesammelt und AUSSERHALB des try
+// geprueft. Nackt gefangen wird trotzdem, denn libsignal wirft auch
+// AssertionError (siehe signal_errors.dart).
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -179,12 +191,15 @@ void main() {
 
       // Ein Angreifer, der eine mitgeschnittene Nachricht erneut einspielt,
       // darf sie nicht ein zweites Mal zugestellt bekommen.
+      Object? geworfen;
       try {
         await _empfangen(bob, alice, zweite);
-        fail('die Wiederholung haette abgelehnt werden muessen');
       } catch (e) {
-        expect(classify(e), SignalFailure.duplicate);
+        geworfen = e;
       }
+      expect(geworfen, isNotNull,
+          reason: 'die Wiederholung haette abgelehnt werden muessen');
+      expect(classify(geworfen!), SignalFailure.duplicate);
     });
 
     test('Nachrichten ausserhalb der Reihenfolge kommen trotzdem an', () async {
@@ -213,20 +228,42 @@ void main() {
           .processPreKeyBundle(bob.bundle());
       await _empfangen(bob, alice, await _senden(alice, bob, 'start'));
 
+      // BOB MUSS ANTWORTEN, sonst prueft dieser Test nichts.
+      //
+      // Solange Alice von Bob noch nichts empfangen hat, bleibt sie im
+      // Aufbau und schickt weiter PreKey-Nachrichten. `SignalMessage
+      // .fromSerialized` scheitert daran schon beim PARSEN — der Test warf
+      // also zuverlaessig, aber aus dem falschen Grund, und blieb auch dann
+      // gruen, wenn man das Bitkippen ganz wegliess. Gefunden von einem
+      // Widerlegungsagenten am 27.07.2026, nachdem die Reparatur des
+      // try/catch-Musters bereits als erledigt galt.
+      await _empfangen(alice, bob, await _senden(bob, alice, 'zurueck'));
+
       final echt = await _senden(alice, bob, 'unveraendert');
+      expect(echt.getType(), CiphertextMessage.whisperType,
+          reason: 'DIESE ZEILE HAELT DEN TEST AUFRECHT: bei einer '
+              'PreKey-Nachricht wuerde unten schon das Parsen scheitern, und '
+              'die Verfaelschung waere nie geprueft worden');
+
       final bytes = Uint8List.fromList(echt.serialize());
       bytes[bytes.length - 5] ^= 0x01; // ein Bit im Chiffretext kippen
 
+      Object? geworfen;
       try {
         final cipher = SessionCipher.fromStore(bob.store, alice.address);
         await cipher.decryptFromSignal(SignalMessage.fromSerialized(bytes));
-        fail('die Verfaelschung haette auffallen muessen');
       } catch (e) {
-        // Wichtig ist NICHT, dass es badMac ist, sondern dass es NICHT
-        // stillschweigend durchgeht und keinen Neuaufbau ausloest.
-        expect(classify(e).shouldRebuildSession, isFalse,
-            reason: 'sonst koennte ein Angreifer Sitzungen zuruecksetzen');
+        geworfen = e;
       }
+
+      // Diese Erwartung traegt den Test: geht die Verfaelschung glatt durch,
+      // faellt sie hier auf und nicht erst dem Nutzer.
+      expect(geworfen, isNotNull,
+          reason: 'die Verfaelschung haette auffallen muessen');
+      // Wichtig ist NICHT, dass es badMac ist, sondern dass es keinen
+      // Neuaufbau ausloest.
+      expect(classify(geworfen!).shouldRebuildSession, isFalse,
+          reason: 'sonst koennte ein Angreifer Sitzungen zuruecksetzen');
     });
 
     test('ein Dritter kann nicht mitlesen', () async {
@@ -237,12 +274,18 @@ void main() {
           .processPreKeyBundle(bob.bundle());
 
       final msg = await _senden(alice, bob, 'geheim');
+      Object? geworfen;
       try {
         await _empfangen(mallory, alice, msg);
-        fail('Mallory darf das nicht entschluesseln koennen');
       } catch (e) {
-        expect(classify(e).isSilent, isFalse);
+        geworfen = e;
       }
+
+      expect(geworfen, isNotNull,
+          reason: 'Mallory darf das nicht entschluesseln koennen');
+      // Und der Fehlschlag darf nicht als Normalfall durchgewinkt werden:
+      // isSilent hiesse, die Nachricht wird kommentarlos verworfen.
+      expect(classify(geworfen!).isSilent, isFalse);
     });
   });
 

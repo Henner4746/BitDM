@@ -8,7 +8,7 @@
 
 import 'dart:typed_data';
 
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
 
 import '../crypto/key_derivation.dart';
 import '../crypto/signal_identity.dart';
@@ -110,7 +110,7 @@ class SignalStoreRepository {
   /// einen Fehler gesehen haette.
   ///
   /// Siehe ChatRepository.speichereEmpfangen.
-  static void schreibeDelta(Database raw, BitdmSignalStore store) {
+  static void schreibeDelta(CommonDatabase raw, BitdmSignalStore store) {
     final delta = store.delta;
     if (delta.isEmpty) return;
     final state = store.state;
@@ -126,7 +126,7 @@ class SignalStoreRepository {
   }
 
   static void _schreibeText(
-    Database raw,
+    CommonDatabase raw,
     String tabelle,
     String schluesselSpalte,
     String wertSpalte,
@@ -158,7 +158,7 @@ class SignalStoreRepository {
   }
 
   static void _schreibeZahl(
-    Database raw,
+    CommonDatabase raw,
     String tabelle,
     String schluesselSpalte,
     String wertSpalte,

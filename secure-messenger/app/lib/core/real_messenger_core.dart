@@ -25,6 +25,7 @@ import 'dart:typed_data';
 
 import 'package:cryptography/dart.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:meta/meta.dart';
 
 import 'anhang/anhang_empfang.dart';
 import 'anhang/anhang_versand.dart';
@@ -36,15 +37,22 @@ import 'crypto/key_derivation.dart';
 import 'crypto/signal_errors.dart';
 import 'crypto/signal_identity.dart';
 import 'messenger_core.dart';
+import 'nah/funk.dart';
+import 'nah/leuchtfeuer.dart';
+import 'nah/nahbereich.dart';
+import 'nah/wegwahl.dart';
 import 'net/envelope.dart';
 import 'net/payload.dart';
 import 'net/prekey_bundle_bridge.dart';
+import 'net/relay_protocol.dart';
 import 'net/relay_client.dart';
 import 'secret_store.dart';
 import 'store/chat_repository.dart';
 import 'store/encrypted_database.dart';
 import 'store/signal_store.dart';
 import 'store/signal_store_repository.dart';
+import 'store/sqlite_zugang.dart';
+import 'verbindungstest.dart';
 
 class RealMessengerCore implements MessengerCore {
   RealMessengerCore({
@@ -53,9 +61,11 @@ class RealMessengerCore implements MessengerCore {
     required this.relayUri,
     Uri? lagerUri,
     RelayClient Function(Uri, SignalIdentity)? relayFactory,
+    Nahbereich Function()? nahFactory,
   })  : lagerUri = lagerUri ?? lagerAdresse(relayUri),
         _relayFactory = relayFactory ??
-            ((uri, id) => RelayClient(baseUri: uri, identity: id));
+            ((uri, id) => RelayClient(baseUri: uri, identity: id)),
+        _nahFactory = nahFactory ?? (() => Nahbereich(funk: Nahfunk()));
 
   final SecretStore secretStore;
   final String databasePath;
@@ -69,6 +79,17 @@ class RealMessengerCore implements MessengerCore {
   final Uri lagerUri;
   final RelayClient Function(Uri, SignalIdentity) _relayFactory;
 
+  /// Woher der Nahbereich kommt — hereingereicht wie [_relayFactory].
+  ///
+  /// ZWEI GRUENDE, und der erste ist der wichtigere: ohne diesen Haken laesst
+  /// sich der ganze Anschluss nur mit zwei Telefonen pruefen. Mit ihm reicht
+  /// ein Nahbereich ueber einer Funk-Attrappe, und die Wegwahl, der Eingang und
+  /// das Zeichen an der Nachricht sind am Schreibtisch zu messen.
+  ///
+  /// Der zweite: eine Fabrik statt eines fertigen Objekts, damit fuer jemanden,
+  /// der Bluetooth nie einschaltet, auch nichts Bluetooth-Foermiges entsteht.
+  final Nahbereich Function() _nahFactory;
+
   /// Wie viele One-Time-Prekeys vorgehalten werden.
   ///
   /// Jeder erlaubt genau einen Sitzungsaufbau mit der zusaetzlichen
@@ -79,13 +100,72 @@ class RealMessengerCore implements MessengerCore {
   static const int preKeyUntergrenze = 20;
 
   EncryptedDatabase? _db;
+
+  /// NUR FUER TESTS: die offene Datenbank.
+  ///
+  /// Damit ein Test einen Zustand herstellen kann, den es im Betrieb nur bei
+  /// einer Installation aus einer aelteren Fassung gibt — etwa einen
+  /// fehlenden Anmelde-Vermerk.
+  @visibleForTesting
+  EncryptedDatabase get datenbankFuerTest => _db!;
+
+  /// Die Ablage, um einen Zustand herzustellen, den der Kern selbst noch
+  /// nicht erzeugt — etwa eine Nachricht mit `ueberNaehe`, solange die
+  /// Wegwahl noch nicht am Nachrichtenweg haengt.
+  @visibleForTesting
+  ChatRepository get ablageFuerTest => _chats!;
+
   SignalStoreRepository? _signalRepo;
   ChatRepository? _chats;
   BitdmSignalStore? _store;
   RelayClient? _relay;
   StreamSubscription<RelayEvent>? _relayAbo;
 
+  Nahbereich? _nah;
+  StreamSubscription<NahUmschlag>? _nahAbo;
+  StreamSubscription<NahSonderpost>? _nahPostAbo;
+  StreamSubscription<String>? _nahDaAbo;
+
+  /// Das X25519-Geheimnis je Kontakt, einmal gerechnet.
+  ///
+  /// Es haengt an zwei Identitaeten, und die aendern sich nicht. Es bei jedem
+  /// Aufsetzen neu zu rechnen hiesse, bei vierzig Kontakten vierzig
+  /// Kurvenmultiplikationen zu machen, nur weil jemand einen Kontakt
+  /// hinzugefuegt hat.
+  final _nahGeheimnisse = <String, Uint8List>{};
+
+  /// Die Warteschlange fuer das Auf- und Abbauen des Nahbereichs.
+  ///
+  /// Zwei Aenderungen kurz hintereinander — Kontakt hinzufuegen, gleich darauf
+  /// Anwesenheit umschalten — wuerden sonst ineinanderlaufen: `starte` haelt
+  /// zuerst an und baut dann ueber mehrere Wartepunkte auf, und der zweite
+  /// Durchlauf raeumte dem ersten die Abonnements unter den Fuessen weg.
+  Future<void> _nahLauf = Future<void>.value();
+
+  /// Die Kontaktliste, mit der der Funk gerade laeuft.
+  ///
+  /// Der Vergleichspunkt in [_setzeNaheAuf]. Er steht HIER und nicht bei den
+  /// Aufrufern, weil sonst jeder von ihnen selbst wissen muesste, ob seine
+  /// Aenderung den Nahbereich ueberhaupt angeht — und der Empfangsweg weiss es
+  /// nicht: dort steht erst nach dem Schreiben fest, ob ein Kontakt
+  /// dazugekommen ist.
+  ///
+  /// null heisst "der Funk laeuft nicht", nicht "keine Kontakte". Der
+  /// Unterschied entscheidet, ob nach dem Aufschliessen wieder angefangen
+  /// wird; deshalb geht jedes Anhalten ueber [_haltNahe].
+  String? _nahStand;
+
+  /// Der Nachversand laeuft nacheinander, nie zweimal gleichzeitig.
+  ///
+  /// Tauchen zwei Kontakte im selben Augenblick auf, laesen zwei Laeufe
+  /// dieselbe Liste — beide sehen dieselbe Nachricht auf "sending" stehen, und
+  /// beide schicken sie. Dieselbe Kette wie bei [_nahLauf]: der zweite Lauf
+  /// faengt an, wenn der erste durch ist, und findet dann nur noch, was
+  /// wirklich liegengeblieben ist.
+  Future<void> _nachversandLauf = Future<void>.value();
+
   var _conn = ConnectionState.disconnected;
+
   AppPreferences _prefs = const AppPreferences();
   var _hatIdentitaet = false;
 
@@ -166,6 +246,10 @@ class RealMessengerCore implements MessengerCore {
   /// Datenbank oeffnen, Speicher aufbauen, Prekeys sicherstellen.
   Future<void> _oeffne(Uint8List entropie) async {
     final keys = await KeyDerivation.fromMnemonic(Bip39.entropyToMnemonic(entropie));
+    // Im Browser laedt das das WASM-Modul; auf der VM ist der Rumpf leer
+    // (sqlite_zugang_native.dart:21), Android sieht davon also nichts. Es muss
+    // hier stehen und nicht in EncryptedDatabase.open, weil open() synchron ist.
+    await sqliteVorbereiten();
     final db = EncryptedDatabase.open(databasePath, keys.databaseKey);
     final signalRepo = SignalStoreRepository(db);
     final store = signalRepo.openStore(keys);
@@ -181,6 +265,12 @@ class RealMessengerCore implements MessengerCore {
     _chats!.loescheAbgelaufene();
 
     _fuelleVorratAuf();
+
+    // STAND DER SCHALTER SCHON AUF AN, faengt der Funk hier an — nicht erst,
+    // wenn jemand die Einstellungen oeffnet und ihn noch einmal umlegt. Eine
+    // Ausfallsicherung, die man nach jedem Start von Hand scharf machen muss,
+    // ist keine.
+    await _richteNaheEin();
   }
 
   /// Legt fehlende Prekeys an. Tut nichts, wenn genug da sind.
@@ -254,16 +344,72 @@ class RealMessengerCore implements MessengerCore {
     final relay = _relayFactory(relayUri, store.identity);
     _relay = relay;
 
+    // DER LAUFZETTEL, und warum es ihn braucht.
+    //
+    // Zwischen hier und dem Ende dieser Methode liegen drei Wartepunkte: die
+    // Anmeldung, das Oeffnen der WebSocket, das Nonce. Waehrend die App dort
+    // wartet, kann alles Moegliche passieren — der Nutzer legt "nur in der
+    // Naehe" um, disconnect() laeuft durch, _relay wird null und der Zustand
+    // steht auf "getrennt".
+    //
+    // Der Ablauf hier weiss davon nichts. Er kommt aus dem Wartepunkt zurueck
+    // und macht weiter: oeffnet die Verbindung, signiert das Nonce, setzt den
+    // Zustand auf "online". Genau das, was der Schalter ausschliesst — die
+    // Pruefung darauf liegt oben und ist laengst vorbei. Zurueck bleibt eine
+    // angemeldete Verbindung, die niemand mehr kennt und die niemand mehr
+    // schliessen kann.
+    //
+    // Deshalb nach JEDEM Wartepunkt: bin ich noch der, der verbinden soll?
+    // Ein einziger Vergleich reicht: JEDES Abraeumen und jeder neue Versuch
+    // setzt _relay um — auf null oder auf ein anderes Objekt. Ein zweiter
+    // Zaehler stand hier zuerst daneben; ein Mutationstest zeigte, dass ihn
+    // wegzunehmen keinen einzigen Test rot macht. Was nichts kann, kommt weg.
+    //
+    // `identical` und nicht `==`: es geht um dieses eine Objekt.
+    bool ueberholt() => !identical(_relay, relay);
+
     try {
       await _meldeAnWennNoetig(relay);
+      if (ueberholt()) return _gibAuf(relay);
+
       _relayAbo = relay.events.listen(_verarbeiteRelayEreignis);
       await relay.connect();
+      if (ueberholt()) return _gibAuf(relay);
+
       _setzeVerbindung(ConnectionState.online);
-      unawaited(_sendeUnversandtes());
+      _stosseNachversandAn();
+      _wiederholeKontaktanfragen();
     } catch (_) {
       // Vertragsregel: Netzwerkprobleme werden nicht geworfen.
+      //
+      // Aber nur den EIGENEN Versuch abraeumen: wer inzwischen ueberholt
+      // wurde, wuerde sonst den Zustand eines fremden, laufenden Versuchs auf
+      // "Fehler" setzen.
+      if (ueberholt()) return _gibAuf(relay);
       await _raeumeVerbindungAb();
       _setzeVerbindung(ConnectionState.error);
+    }
+  }
+
+  /// Ein ueberholter Verbindungsversuch raeumt SICH auf und sonst nichts.
+  ///
+  /// Ohne den Verweis auf genau dieses Objekt wuerde er die inzwischen
+  /// aufgebaute Verbindung eines spaeteren Versuchs mit wegwerfen. Und ohne
+  /// jede Zustandsaenderung, weil der Zustand nicht mehr ihm gehoert.
+  ///
+  /// EHRLICH DAZU: das `dispose` hier ist heute ein zweites Netz und deckt
+  /// keinen erreichbaren Fall ab. Jeder Weg, der einen Versuch ueberholt,
+  /// laeuft ueber _raeumeVerbindungAb, und das entsorgt den alten Relay schon.
+  /// Ein Mutationstest zeigt das: nimmt man diese Zeile weg, wird kein Test
+  /// rot. Sie bleibt trotzdem — wer spaeter einen Weg baut, der _relay
+  /// umsetzt, OHNE abzuraeumen, laesst sonst eine angemeldete Verbindung
+  /// stehen, und das faellt erst im Betrieb auf. Ein Netz, das man begruenden
+  /// kann, ist kein toter Code.
+  Future<void> _gibAuf(RelayClient relay) async {
+    try {
+      await relay.dispose();
+    } catch (_) {
+      // Ein Versuch, den ohnehin niemand mehr braucht.
     }
   }
 
@@ -275,7 +421,23 @@ class RealMessengerCore implements MessengerCore {
     // ALLE One-Time-Prekeys durch die uebergebenen — sie ist damit zugleich
     // das Nachfuellen.
     final gemeldet = db.meta('relay_prekey_count');
-    if (gemeldet != null && int.tryParse(gemeldet) == store.preKeyCount) {
+
+    // WO wir angemeldet sind, nicht nur DASS.
+    //
+    // Ohne die zweite Zeile galt der Vermerk fuer JEDEN Server. Am 26.07.2026
+    // im Emulator beobachtet: nach einem Wechsel der Relay-Adresse hielt sich
+    // die App fuer angemeldet, kam beim neuen Server als Unbekannte an, und
+    // der schloss die Verbindung sofort wieder — ohne Fehler, ohne Meldung,
+    // ohne dass irgendetwas darauf hinwies.
+    //
+    // FEHLT DER EINTRAG, ist es dieser Relay. Das ist keine Vermutung: bis
+    // dahin kannte die App nur einen einzigen. Andernfalls meldete sich mit
+    // dem naechsten Update jede bestehende Installation noch einmal an — und
+    // jede Gegenstelle mit einem schon geholten Buendel liefe ins Leere.
+    final wo = db.meta('relay_angemeldet_bei');
+    if (gemeldet != null &&
+        int.tryParse(gemeldet) == store.preKeyCount &&
+        (wo == null || wo == relayUri.toString())) {
       return;
     }
     await _meldeAn(relay);
@@ -293,10 +455,71 @@ class RealMessengerCore implements MessengerCore {
       signedPreKey: spk,
       oneTimePreKeys: otk,
     ));
-    _db!.transaction((raw) => raw.execute(
-        'INSERT INTO meta (key, value) VALUES (?,?) '
-        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        ['relay_prekey_count', '${store.preKeyCount}']));
+    _db!.transaction((raw) {
+      void setze(String k, String v) => raw.execute(
+          'INSERT INTO meta (key, value) VALUES (?,?) '
+          'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+          [k, v]);
+      setze('relay_prekey_count', '${store.preKeyCount}');
+      setze('relay_angemeldet_bei', relayUri.toString());
+    });
+  }
+
+  /// Wartet, bis der Relay steht — hoechstens [dauer].
+  ///
+  /// Baut die Verbindung selbst auf, wenn keine da ist. Wirft erst, wenn es
+  /// wirklich nicht geht; dann ist es ein echter Netzfehler und kein
+  /// Wettlauf.
+  Future<RelayClient> _wartAufVerbindung(
+      {Duration dauer = const Duration(seconds: 15)}) async {
+    final r = _relay;
+    if (r != null && r.isConnected) return r;
+
+    // NICHT NUR WARTEN, SONDERN AUCH ANSTOSSEN: wer aus der Dateiauswahl
+    // zurueckkommt, hat vielleicht schon einen Wiederaufbau laufen — dann
+    // kehrt connect() sofort zurueck, weil es den Zustand kennt.
+    unawaited(connect());
+
+    final ende = DateTime.now().add(dauer);
+    while (DateTime.now().isBefore(ende)) {
+      final jetzt = _relay;
+      if (jetzt != null && jetzt.isConnected) return jetzt;
+      if (_conn == ConnectionState.error) break;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    throw const RelayException('nicht verbunden');
+  }
+
+  /// Was der Verbindungstest braucht, um die Kette nachzugehen.
+  ///
+  /// Der Kern gibt seine Innereien NICHT heraus — er reicht eine kleine
+  /// Ansicht darauf. So kann der Test denselben Relay und dasselbe Lager
+  /// benutzen wie der Betrieb, ohne dass irgendwo eine zweite Wahrheit
+  /// darueber entsteht, welcher Server gerade gilt.
+  TestUmgebung get testUmgebung => _KernUmgebung(this);
+
+  /// NUR FUER WERKZEUGE: der offene Relay.
+  ///
+  /// Damit tool/dicke_datei.dart den Anhang-Versand mit denselben Teilen
+  /// fahren kann wie der Betrieb, statt sie nachzubauen und dabei
+  /// moeglicherweise am Fehler vorbei.
+  @visibleForTesting
+  RelayClient get relayFuerTest {
+    final r = _relay;
+    if (r == null) throw const RelayException('nicht verbunden');
+    return r;
+  }
+
+  /// NUR FUER WERKZEUGE: eine Marke ueber die offene Verbindung holen.
+  ///
+  /// Damit tool/lager_durchstich.dart genau den Weg gehen kann, den die App
+  /// geht — ohne den ganzen Anhang-Versand nachzubauen und dabei
+  /// moeglicherweise am Fehler vorbei.
+  @visibleForTesting
+  Future<BlobMarke> markeFuerTest(String kennung, int groesse) {
+    final r = _relay;
+    if (r == null) throw const RelayException('nicht verbunden');
+    return r.holeMarke(kennung, groesse);
   }
 
   @override
@@ -338,42 +561,429 @@ class RealMessengerCore implements MessengerCore {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════ Nahbereich
+
+  /// Baut den Nahbereich neu auf — oder haelt ihn an.
+  ///
+  /// Aufzurufen, wann immer sich etwas aendert, wovon er abhaengt: der
+  /// Schalter, die Kontaktliste, die Anwesenheit eines Kontakts. Er wird dabei
+  /// wirklich neu aufgesetzt und nicht nachgebessert; das kostet, wer gerade
+  /// in Reichweite ist, und das ist der Preis dafuer, dass es genau EINEN Weg
+  /// gibt, auf dem dieser Zustand entsteht.
+  ///
+  /// Weil das Aufsetzen teuer ist, darf der Aufruf billig sein: [_setzeNaheAuf]
+  /// sieht nach, ob sich an der Kontaktliste ueberhaupt etwas geaendert hat.
+  /// Erst dadurch laesst sich diese Zeile auch dorthin stellen, wo man nicht
+  /// vorher weiss, ob sie noetig ist — auf den Empfangsweg.
+  Future<void> _richteNaheEin() =>
+      _nahLauf = _nahLauf.then((_) => _setzeNaheAuf());
+
+  /// Haelt den Funk an und vergisst, wofuer er lief.
+  ///
+  /// Beides gehoert zusammen: bliebe der Stand stehen, hielte der Kern nach
+  /// einem Aufschliessen die Kontaktliste fuer schon eingerichtet und liesse
+  /// den Funk aus.
+  Future<void> _haltNahe() async {
+    _nahStand = null;
+    await _nah?.halt();
+  }
+
+  Future<void> _setzeNaheAuf() async {
+    final store = _store;
+    if (store == null || !_prefs.naheAn) {
+      // Auch beim Sperren und beim Loeschen: ohne Schluessel kaeme keine
+      // eingehende Nachricht mehr durch, und weiterzufunken hiesse, die eigene
+      // Anwesenheit fuer nichts in die Gegend zu rufen.
+      await _haltNahe();
+      return;
+    }
+
+    final kontakte = _nahKontakte();
+    // NUR WAS WIRKLICH EINGEHT, nicht "irgendetwas an einem Kontakt ist
+    // anders": der Nahbereich sieht die Adressen und die daraus abgeleiteten
+    // Geheimnisse. Ein geaenderter Anzeigename oder ein gesetztes Haekchen
+    // "geprueft" aendern am Funk nichts — darauf neu aufzusetzen kostete
+    // jeden, der gerade in Reichweite ist.
+    //
+    // SORTIERT, UND NICHT IN DER REIHENFOLGE DER ABLAGE: `alleKontakte` ordnet
+    // nach dem Zeitpunkt des Hinzufuegens, und zwei Kontakte aus derselben
+    // Millisekunde koennen zwischen zwei Abfragen die Plaetze tauschen. Das
+    // waere ein Neuaufbau ohne jede Aenderung — verglichen wird, WER dabei
+    // ist, nicht in welcher Reihenfolge.
+    final stand = (kontakte.map((k) => k.adresse).toList()..sort()).join('\n');
+    if (_nahStand == stand) return;
+
+    final nah = _nah ??= _nahFactory();
+    // EINMAL abonnieren und nicht bei jedem Aufsetzen: der Strom des
+    // Nahbereichs ueberlebt sein `halt`, ein zweites Abonnement machte aus
+    // jeder ankommenden Nachricht zwei.
+    _nahAbo ??= nah.eingang.listen((u) => unawaited(_verarbeiteNaheEingang(u)));
+    // DAS SCHLUESSELBUENDEL UEBER FUNK.
+    //
+    // Ohne das hier bleibt die ERSTE Nachricht an einen neuen Kontakt mit
+    // "nur in der Naehe" fuer immer liegen: eine Sitzung braucht das Buendel
+    // der Gegenseite, und das holte die App bisher ausschliesslich vom Relay.
+    // Ein Messenger, der ohne Internet arbeiten soll, kam damit ohne Internet
+    // nie ins Gespraech.
+    _nahPostAbo ??=
+        nah.sonderpost.listen((p) => unawaited(_verarbeiteSonderpost(p)));
+    // DAS GEGENSTUECK ZU connect(): dort stoesst die stehende Verbindung den
+    // Nachversand an, hier tut es ein Kontakt, der wieder in Reichweite kommt.
+    // Ohne diese Zeile gibt es mit "nur in der Naehe" ueberhaupt keinen
+    // Nachversand — es gibt dort ja kein Verbinden.
+    _nahDaAbo ??= nah.neuInReichweite.listen((_) => _stosseNachversandAn());
+
+    try {
+      await nah.starte(
+        kontakte: kontakte,
+        eigenerOeffentlicher: store.identity.rawPublicKey,
+      );
+
+      // NACH DEM WARTEPUNKT NOCH EINMAL PRUEFEN — sonst funkt ein gesperrtes
+      // Telefon weiter.
+      //
+      // `starte` dauert: Leuchtfeuer rechnen, werben, suchen, Postfach
+      // oeffnen. Waehrenddessen kann der Nutzer sperren. `lock()` ruft
+      // `_haltNahe()` DIREKT und nicht ueber `_nahLauf` — es soll ja gerade
+      // nicht hinter einem laufenden Aufbau warten. Beides zusammen heisst:
+      // das Anhalten passiert MITTEN im Aufbauen, und der Aufbau schaltet
+      // danach alles wieder ein.
+      //
+      // Gemessen am 27.07.2026 von einem Widerlegungsagenten: nach `lock()`
+      // stand `suchtGerade` weiter auf true. Ein gesperrtes Geraet, das seine
+      // Anwesenheit weiter in die Gegend ruft — genau das, was der Naheteil
+      // sonst ueberall vermeidet.
+      //
+      // Kein Laufzettel noetig: die Bedingung, die hier gilt, ist dieselbe
+      // wie oben. Wer sie danach nicht mehr erfuellt, hat umgelegt.
+      if (_store == null || !_prefs.naheAn) {
+        await _haltNahe();
+        return;
+      }
+      // NUR EIN NICHTLEERER STAND GILT ALS EINGERICHTET.
+      //
+      // Bei leerer Kontaktliste kehrt `nah.starte` um, ohne etwas zu senden.
+      // Wer das trotzdem vermerkte, sperrte sich selbst aus: der Vergleich
+      // `_nahStand == stand` oben griffe beim naechsten Anlass nicht mehr,
+      // und der Funk bliebe fuer immer aus — genau der Zustand, in dem ein
+      // Telefon am 27.07. stundenlang stumm war, obwohl der Schalter an war.
+      _nahStand = stand.isEmpty ? null : stand;
+    } catch (_) {
+      // Dieselbe Vertragsregel wie beim Relay: kein Bluetooth ist ein Zustand,
+      // keine Ausnahme. Die Naehe ist die Ausfallsicherung — faellt sie aus,
+      // bleibt der Hauptweg, und die App laeuft weiter.
+      //
+      // UND KEIN STAND: ein misslungener Aufbau darf nicht als eingerichtet
+      // gelten, sonst versuchte es der naechste Anlass gar nicht mehr.
+      _nahStand = null;
+    }
+  }
+
+  /// Wie viele Kontakte zuletzt am Funk teilgenommen haben.
+  ///
+  /// Aus `_nahStand` gelesen und nicht neu gezaehlt: gefragt ist, womit der
+  /// Funk WIRKLICH laeuft, nicht was die Datenbank gerade hergibt. Weichen
+  /// die beiden voneinander ab, ist genau das der Fehler, den der
+  /// Verbindungstest zeigen soll.
+  int get _nahKontakteZahl {
+    final st = _nahStand;
+    if (st == null || st.isEmpty) return 0;
+    return st.split('\n').length;
+  }
+
+  /// Die Kontakte, die am Nahbereich teilnehmen.
+  ///
+  /// WER `zeigtAnwesenheit` AUSGESCHALTET HAT, IST GAR NICHT DABEI — weder
+  /// wird fuer ihn ein Leuchtfeuer ausgesendet noch eines von ihm erwartet.
+  /// Nur das eine von beiden hiesse: ihn nicht mehr finden, ihm aber weiter
+  /// zeigen, wo man ist.
+  List<NahKontakt> _nahKontakte() => [
+        for (final k in _chats!.alleKontakte())
+          if (k.zeigtAnwesenheit)
+            NahKontakt(
+              adresse: k.id,
+              identitaet: BitdmAddress.decode(k.id),
+              geheimnis: _nahGeheimnis(k.id),
+            ),
+      ];
+
+  /// Das gemeinsame Geheimnis mit einem Kontakt, aus seiner ADRESSE.
+  ///
+  /// Kein Server dafuer: die Adresse IST der oeffentliche Identitaetsschluessel
+  /// (siehe address.dart), und X25519 braucht sonst nur den eigenen privaten.
+  /// Ein Nahbereich, der erst beim Relay nachfragen muesste, waere kein
+  /// Nahbereich.
+  ///
+  /// Gerechnet wird ueber libsignal und nicht ueber das cryptography-Paket, weil
+  /// der eigene private Schluessel in libsignals Form vorliegt. Dass beide Wege
+  /// dieselben 32 Byte liefern, ist gemessen — test/nah/schluesselbruecke_test.
+  Uint8List _nahGeheimnis(String adresse) =>
+      _nahGeheimnisse.putIfAbsent(adresse, () {
+        // DAS TYPBYTE IST PFLICHT. `BitdmAddress.decode` liefert 32 nackte
+        // Bytes, `Curve.decodePoint` verlangt 33 mit vorangestelltem DJB_TYPE.
+        // Ohne es die bekannte 33-gegen-32-Falle aus signal_identity.dart.
+        final mitTyp = Uint8List(33)
+          ..[0] = 5
+          ..setRange(1, 33, BitdmAddress.decode(adresse));
+        return Uint8List.fromList(Curve.calculateAgreement(
+            Curve.decodePoint(mitTyp, 0),
+            _store!.identity.keyPair.getPrivateKey()));
+      });
+
+  /// NUR FUER TESTS: wartet, bis das Auf- und Abbauen durch ist.
+  ///
+  /// Die Kontaktwege stossen es an, ohne darauf zu warten — die Oberflaeche
+  /// soll nicht auf dem Funk stehen. Ein Test, der danach nachsieht, braucht
+  /// trotzdem einen Punkt, an dem er weiss, dass es fertig ist.
+  @visibleForTesting
+  Future<void> get nahRuhtFuerTest => _nahLauf;
+
+  /// NUR FUER TESTS: der Nahbereich, so wie der Kern ihn benutzt.
+  @visibleForTesting
+  Nahbereich? get nahFuerTest => _nah;
+
   // ═════════════════════════════════════════════════════════════════ Eingang
 
-  Future<void> _verarbeiteEingang(RelayMessage roh) async {
+  /// Ein Umschlag vom Relay.
+  ///
+  /// [RelayMessage.q] ist die Kennung der Zeile in der Warteschlange — nur der
+  /// Relay hat eine, und nur bei ihm wird am Ende bestaetigt.
+  Future<void> _verarbeiteEingang(RelayMessage roh) => _nimmUmschlag(
+        von: roh.from,
+        umschlag: roh.ciphertext,
+        ueberNaehe: false,
+        nachweisFuer: roh.q,
+      );
+
+  /// Ein Umschlag ueber die Naehe.
+  ///
+  /// DERSELBE WEG WIE OBEN, und das ist der ganze Punkt: die Entschluesselung,
+  /// der Umgang mit einem unbekannten Absender, das Ablegen im Verlauf und die
+  /// Behandlung eines Fehlschlags stehen genau einmal da. Ein zweites Mal
+  /// geschrieben waeren es zwei Fassungen, von denen die eine irgendwann
+  /// nachzieht und die andere nicht.
+  ///
+  /// Was NICHT gleich ist: es gibt keine Zeile beim Relay, also auch nichts zu
+  /// bestaetigen. Deshalb `nachweisFuer: null` — nicht als Sonderfall im
+  /// Verarbeiten, sondern als das, was es ist: ein fehlender Nachweis.
+  /// Beantwortet eine Buendel-Anfrage und verwertet eine Buendel-Antwort.
+  ///
+  /// NUR VON ERKANNTEN KONTAKTEN. Die Zuordnung kommt aus der Marke und damit
+  /// aus demselben X25519-Geheimnis wie die Erkennung — wer nicht in der
+  /// Kontaktliste steht, taucht hier gar nicht erst auf. Ohne das koennte
+  /// jeder in Reichweite Buendel einsammeln und den Vorrat leeren.
+  Future<void> _verarbeiteSonderpost(NahSonderpost post) async {
+    final store = _store;
+    if (store == null) return;
+    try {
+      switch (post.typ) {
+        case Nahtyp.buendelAnfrage:
+          await _schickeBuendelUeberFunk(post.von);
+        case Nahtyp.buendelAntwort:
+          await _nimmBuendelUeberFunk(post.von, post.nutzlast);
+        default:
+          // Ein Typ aus einer neueren Fassung. Nichts tun ist richtig:
+          // abstuerzen waere schlimmer, und raten gibt es hier nicht.
+          break;
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('BitDM-Nah: Sonderpost von ' + post.von +
+          ' (Typ ' + post.typ.toString() + ') gescheitert: ' + e.toString());
+    }
+  }
+
+  /// Wann zuletzt ein Buendel an wen ging. Gegen das Leerfragen des Vorrats.
+  final Map<String, DateTime> _buendelZuletzt = {};
+
+  /// Wie oft dieselbe Gegenstelle ein Buendel bekommen darf.
+  ///
+  /// EIN EINMALSCHLUESSEL JE ANFRAGE, und der ist danach weg — das ist
+  /// richtig so, aber es macht die Anfrage zu etwas, das Arbeit und Vorrat
+  /// kostet. Ohne Grenze koennte jedes Geraet in Reichweite den Vorrat leeren,
+  /// einfach indem es fragt. Danach bekaeme jeder neue Kontakt nur noch ein
+  /// Buendel OHNE Einmalschluessel: eine Sitzung geht dann zwar noch, aber die
+  /// zusaetzliche Absicherung fehlt — und niemand saehe, warum.
+  ///
+  /// Eine Minute ist reichlich fuer den echten Fall (man fragt einmal und baut
+  /// die Sitzung auf) und eng genug, dass Leerfragen nichts bringt.
+  /// KEIN `const`, DAMIT DER TEST IHN VERKUERZEN KANN. Eine Grenze, die sich
+  /// nur mit echtem Warten pruefen laesst, wird nicht geprueft — und eine
+  /// Sicherung ohne Test ist eine Vermutung.
+  Duration buendelAbstand = const Duration(minutes: 1);
+
+  /// Baut das eigene Buendel und schickt es ueber die Naehe.
+  Future<void> _schickeBuendelUeberFunk(String an) async {
     final store = _store!;
-    final chats = _chats!;
+    final nah = _nah;
+    if (nah == null) return;
+
+    final zuletzt = _buendelZuletzt[an];
+    final jetzt = DateTime.now().toUtc();
+    if (zuletzt != null && jetzt.difference(zuletzt) < buendelAbstand) {
+      // STILL ABLEHNEN, nicht mit einer Fehlermeldung antworten: wer hier
+      // fragt, ist ein erkannter Kontakt, und eine Antwort waere entweder
+      // nutzlos oder eine Einladung, es weiter zu versuchen.
+      return;
+    }
+    _buendelZuletzt[an] = jetzt;
+
+    final spk = await store.loadSignedPreKey(store.state.signedPreKeys.keys.first);
+    // GENAU EINEN EINMALSCHLUESSEL, UND ER IST DANACH VERBRAUCHT.
+    //
+    // Beim Relay bekommt jeder Abruf einen frischen; ueber Funk muss dieselbe
+    // Regel gelten, sonst bauen zwei Gegenstellen ihre Sitzung auf demselben
+    // auf — und dann ist er fuer beide keine zusaetzliche Absicherung mehr.
+    final ids = store.state.preKeys.keys.toList()..sort();
+    final einer = ids.isEmpty ? null : await store.loadPreKey(ids.first);
+
+    final b = PreKeyBundleBridge.toRelay(
+      identity: store.identity,
+      signedPreKey: spk,
+      oneTimePreKeys: einer == null ? const [] : [einer],
+    );
+    // Die Form von RelayBundleResponse, nicht die von RelayPreKeyBundle: die
+    // Gegenseite liest es mit `RelayBundleResponse.fromJson`, und dort heisst
+    // es EIN Schluessel statt einer Liste.
+    final karte = <String, Object?>{
+      'user_id': b.userId,
+      'identity_key': b.identityKey,
+      'registration_id': b.registrationId,
+      'signed_prekey_id': b.signedPreKeyId,
+      'signed_prekey': b.signedPreKey,
+      'signed_prekey_sig': b.signedPreKeySignature,
+      'one_time_prekey':
+          b.oneTimePreKeys.isEmpty ? null : b.oneTimePreKeys.first.toJson(),
+    };
+    await nah.schickeSonder(an, Nahtyp.buendelAntwort,
+        Uint8List.fromList(utf8.encode(jsonEncode(karte))));
+
+    if (einer != null) {
+      await store.removePreKey(einer.id);
+      _fuelleVorratAuf();
+    }
+  }
+
+  /// Baut aus einem ueber Funk gekommenen Buendel eine Sitzung.
+  Future<void> _nimmBuendelUeberFunk(String von, Uint8List roh) async {
+    final store = _store!;
+    final ziel = SignalProtocolAddress(von, 1);
+    if (await store.containsSession(ziel)) return;
+
+    final j = (jsonDecode(utf8.decode(roh)) as Map).cast<String, Object?>();
+    final antwort = RelayBundleResponse.fromJson(j);
+    // DIE ADRESSE MUSS ZUM ABSENDER PASSEN. Die Marke sagt, WER geschickt hat;
+    // das Buendel behauptet, WEM es gehoert. Stimmen die nicht ueberein,
+    // baute man eine Sitzung mit einer fremden Identitaet auf.
+    if (antwort.userId != von) {
+      throw StateError('Buendel von $von gehoert zu ${antwort.userId}');
+    }
+    await SessionBuilder.fromSignalStore(store, ziel)
+        .processPreKeyBundle(PreKeyBundleBridge.fromRelay(antwort));
+    // Und sofort nachholen, was darauf gewartet hat.
+    _stosseNachversandAn();
+  }
+
+  Future<void> _verarbeiteNaheEingang(NahUmschlag u) => _nimmUmschlag(
+        von: u.von,
+        umschlag: u.umschlag,
+        ueberNaehe: true,
+        nachweisFuer: null,
+      );
+
+  Future<void> _nimmUmschlag({
+    required String von,
+    required Uint8List umschlag,
+    required bool ueberNaehe,
+    required int? nachweisFuer,
+  }) async {
+    final store = _store;
+    final chats = _chats;
+    // Ein Umschlag, der eintrifft, waehrend gerade gesperrt oder geloescht
+    // wird. Ohne diese Zeile waere es ein Absturz aus einem `!` heraus, in
+    // einem unawaited-Ablauf, den niemand faengt.
+    if (store == null || chats == null) return;
 
     final Payload payload;
     try {
-      final umschlag = Envelope.fromBytes(roh.ciphertext);
-      final klar = await umschlag.decrypt(
-          SessionCipher.fromStore(store, SignalProtocolAddress(roh.from, 1)));
+      final huelle = Envelope.fromBytes(umschlag);
+      final klar = await huelle.decrypt(
+          SessionCipher.fromStore(store, SignalProtocolAddress(von, 1)));
       payload = Payload.fromBytes(klar);
     } catch (fehler) {
-      _behandleEingangsfehler(fehler, roh.from);
+      _behandleEingangsfehler(fehler, von);
+      // AUCH HIER bestaetigen. _behandleEingangsfehler schreibt den
+      // Sitzungsfortschritt fest; ab da laesst sich dieser Umschlag nie
+      // wieder entschluesseln, und ihn 14 Tage lang bei jedem Verbinden
+      // erneut zu schicken hilft niemandem. Wirft das Schreiben selbst,
+      // kommt diese Zeile nicht dran — dann bleibt die Zeile beim Relay
+      // liegen, und das ist richtig so.
+      _bestaetigeEmpfang(nachweisFuer);
       return;
     }
 
     switch (payload.kind) {
       case PayloadKind.text:
       case PayloadKind.contactRequest:
-        _legeEingangAb(roh.from, payload);
+        _legeEingangAb(von, payload, ueberNaehe);
       case PayloadKind.anhang:
-        _legeAnhangAb(roh.from, payload);
+        _legeAnhangAb(von, payload, ueberNaehe);
       case PayloadKind.contactAccept:
-        _bestaetigeKontakt(roh.from);
+        _bestaetigeKontakt(von);
       case PayloadKind.contactDecline:
-        _lehnteAb(roh.from);
+        _lehnteAb(von);
       case PayloadKind.deliveryReceipt:
-        _quittiere(roh.from, payload.refs, MessageStatus.delivered);
+        _quittiere(von, payload.refs, MessageStatus.delivered);
       case PayloadKind.readReceipt:
-        _quittiere(roh.from, payload.refs, MessageStatus.read);
+        _quittiere(von, payload.refs, MessageStatus.read);
     }
 
     // Steuernachrichten legen nichts in den Verlauf, veraendern aber trotzdem
     // den Ratchet. Ohne diese Zeile bliebe der Fortschritt im Arbeitsspeicher.
     chats.speichereNurSitzung(store);
+
+    // HIER KANN EIN KONTAKT ENTSTANDEN ODER VERSCHWUNDEN SEIN, und das geht
+    // den Nahbereich an: die erste Nachricht von jemand Unbekanntem legt ihn
+    // an, eine Absage nimmt ihn weg.
+    //
+    // Ohne diese Zeile kannte der Nahbereich ausgerechnet den zuletzt
+    // hinzugekommenen Kontakt nicht — den, neben dem man am ehesten steht. Bob
+    // fuegt Anna hinzu und findet sie; Annas App legt Bob auf dem Empfangsweg
+    // an, sendet kein Leuchtfeuer fuer ihn und erkennt seines nicht. Weil das
+    // Verfahren in beide Richtungen laeuft, findet dann auch Bob sie nicht
+    // mehr. Die ganze Schicht tat fuer dieses Paar stillschweigend nichts.
+    //
+    // EINE STELLE UND NICHT VIER: jeder Zweig oben, der einen Kontakt
+    // anfassen kann, kommt hier vorbei — auch ein kuenftiger. Dass daraus
+    // nicht bei jeder eingehenden Nachricht ein Neuaufbau wird, entscheidet
+    // _setzeNaheAuf: es vergleicht die Kontaktliste mit der, mit der der Funk
+    // laeuft. Ein Neuaufbau je Nachricht hielte den Funk staendig an und
+    // wieder an, und wer in Reichweite ist, waere nach jeder Nachricht wieder
+    // unbekannt.
+    unawaited(_richteNaheEin());
+
+    _bestaetigeEmpfang(nachweisFuer);
+  }
+
+  /// Sagt dem Relay, dass dieser Umschlag dauerhaft liegt.
+  ///
+  /// ERST NACH DEM SCHREIBEN. Der Relay loescht daraufhin seine Zeile; ein
+  /// Nachweis davor haette den Verlust nur von der Leitung in die App
+  /// verschoben. Der dauerhafte Punkt ist chat_repository —
+  /// speichereEmpfangen / speichereEmpfangenMitKontakt /
+  /// speichereNurSitzung sind synchrones sqlite3 in einer Transaktion, nach
+  /// deren Rueckkehr steht die Zeile auf der Platte.
+  ///
+  /// Ueber das AKTUELLE _relay und nicht ueber das, das die Nachricht
+  /// gebracht hat: sollte inzwischen neu verbunden worden sein, gehoert die
+  /// Verbindung derselben Adresse, und der Relay loescht ohnehin nur Zeilen
+  /// mit passendem Empfaenger. Nach einem Identitaetswechsel verpufft der
+  /// Nachweis wirkungslos.
+  void _bestaetigeEmpfang(int? q) {
+    // Ohne Kennung gibt es nichts zu bestaetigen: live zugestellt, ueber die
+    // Naehe gekommen, oder ein Relay, der den Nachweis nicht kennt.
+    if (q == null) return;
+    _relay?.bestaetigeEmpfang(q);
   }
 
   void _behandleEingangsfehler(Object fehler, String von) {
@@ -393,7 +1003,7 @@ class RealMessengerCore implements MessengerCore {
     // Gegenstelle — in keinem Fall etwas, das der Nutzer sehen sollte.
   }
 
-  void _legeEingangAb(String von, Payload p) {
+  void _legeEingangAb(String von, Payload p, bool ueberNaehe) {
     final chats = _chats!;
     final store = _store!;
 
@@ -429,6 +1039,7 @@ class RealMessengerCore implements MessengerCore {
       isMine: false,
       timestamp: p.sentAt,
       status: MessageStatus.delivered,
+      ueberNaehe: ueberNaehe,
     );
 
     // Die Lebensdauer kommt vom ABSENDER: er hat entschieden, wie lange seine
@@ -457,7 +1068,7 @@ class RealMessengerCore implements MessengerCore {
   /// jemandem, der noch gar kein Kontakt ist, waere es schlimmer als das. In
   /// den Verlauf kommt der Name, die Groesse und die Anleitung; das Holen
   /// stoesst die Oberflaeche an ([holeAnhang]).
-  void _legeAnhangAb(String von, Payload p) {
+  void _legeAnhangAb(String von, Payload p, bool ueberNaehe) {
     final chats = _chats!;
     final store = _store!;
 
@@ -495,6 +1106,10 @@ class RealMessengerCore implements MessengerCore {
       isMine: false,
       timestamp: p.sentAt,
       status: MessageStatus.delivered,
+      // Die ANKUENDIGUNG kam ueber die Naehe; die Datei selbst kommt trotzdem
+      // aus dem Zwischenlager. Das Zeichen sagt, wie die Nachricht gegangen
+      // ist, und das ist hier die Ankuendigung.
+      ueberNaehe: ueberNaehe,
     );
     final eintrag = AnhangEintrag(
       messageId: p.messageId,
@@ -526,7 +1141,10 @@ class RealMessengerCore implements MessengerCore {
       at: DateTime.now().toUtc()));
 
   Future<void> _sendeQuittung(String an, String messageId) async {
-    if (_conn != ConnectionState.online) return;
+    // ODER DIE NAEHE. Ohne den zweiten Teil bekaeme eine Nachricht, die ueber
+    // Bluetooth hereinkam, nie ein Haekchen — obwohl der Rueckweg offensteht,
+    // derselbe, auf dem sie gekommen ist.
+    if (_conn != ConnectionState.online && !(_nah?.bereit ?? false)) return;
     try {
       await _sendePayload(
           an,
@@ -583,6 +1201,37 @@ class RealMessengerCore implements MessengerCore {
     return _chats!.alleKontakte();
   }
 
+  /// Schickt Kontaktanfragen nach, die beim ersten Mal nicht rausgingen.
+  ///
+  /// WARUM ES DAS BRAUCHT — und das war ein echter Ausfall, gemessen am
+  /// 29.07.2026 auf zwei Telefonen:
+  ///
+  /// Eine Kontaktanfrage ist eine verschluesselte Nutzlast wie jede andere.
+  /// Sie braucht also eine Signal-Sitzung, und die braucht das Buendel der
+  /// Gegenseite vom Relay. Ist davon irgendetwas gerade nicht da — kein Netz,
+  /// Relay im Neustart, die Gegenseite noch nicht angemeldet —, scheitert sie.
+  ///
+  /// Und dann war sie WEG. `addContact` warf sie mit `unawaited` ab, der
+  /// Fehler verschwand darin, und weil eine Steuernutzlast keine eigene
+  /// Nachricht ist, kam sie in keine Warteschlange. Kein zweiter Versuch, kein
+  /// Hinweis — auf beiden Geraeten stand fuer immer "Request sent, waiting for
+  /// confirmation", waehrend die Gegenseite nie etwas erfahren hatte.
+  ///
+  /// Der Nachversand fuer Nachrichten gibt es laengst; hier ist sein
+  /// Gegenstueck. Ausgeloest beim Verbinden, denn genau dann ist der Grund
+  /// weggefallen, an dem es beim ersten Mal lag.
+  void _wiederholeKontaktanfragen() {
+    final chats = _chats;
+    if (chats == null) return;
+    for (final k in chats.alleKontakte()) {
+      if (k.state != ContactState.outgoingPending) continue;
+      unawaited(_versucheZuSenden(
+          k.id,
+          Payload.control(
+              PayloadKind.contactRequest, _neueId(), DateTime.now().toUtc())));
+    }
+  }
+
   @override
   Future<Contact> addContact(String address, {String? displayName}) async {
     if (_chats == null) throw const NotInitializedException();
@@ -604,6 +1253,9 @@ class RealMessengerCore implements MessengerCore {
       state: ContactState.outgoingPending,
     );
     _chats!.speichereKontakt(kontakt);
+    // Er soll sich sofort finden lassen und nicht erst nach einem Neustart.
+    // NICHT abgewartet: das Anlegen eines Kontakts darf nicht am Funk haengen.
+    unawaited(_richteNaheEin());
 
     unawaited(_versucheZuSenden(adresse,
         Payload.control(PayloadKind.contactRequest, _neueId(),
@@ -627,6 +1279,18 @@ class RealMessengerCore implements MessengerCore {
         Payload.control(PayloadKind.contactDecline, _neueId(),
             DateTime.now().toUtc())));
     _chats!.entferneKontakt(contactId);
+    // DASSELBE AUFRAEUMEN WIE IN removeContact, und aus demselben Grund.
+    //
+    // Eine Absage ist eine Entfernung — nur eine, die man nie bestaetigt hat.
+    // Ohne diese zwei Zeilen liefe das Leuchtfeuer fuer jemanden weiter, den
+    // man gerade weggeschickt hat: er saehe weiterhin, wann man im selben
+    // Raum ist. Von allen Kontakten ist das der, bei dem es am wenigsten
+    // hingehoert.
+    //
+    // Gefunden am 27.07.2026 von einem Widerlegungsagenten, nachdem die fuenf
+    // beauftragten Befunde schon behoben waren.
+    _nahGeheimnisse.remove(contactId);
+    await _richteNaheEin();
   }
 
   @override
@@ -641,6 +1305,10 @@ class RealMessengerCore implements MessengerCore {
     // dieser Gegenstelle weiterhin entschluesseln.
     await _store!.deleteAllSessions(contactId);
     _signalRepo!.commit(_store!);
+    // Sein Geheimnis mit, sonst leuchtete der Kern fuer einen Kontakt weiter,
+    // den es nicht mehr gibt — und ein entfernter Kontakt saehe, wo man ist.
+    _nahGeheimnisse.remove(contactId);
+    await _richteNaheEin();
   }
 
   @override
@@ -735,10 +1403,24 @@ class RealMessengerCore implements MessengerCore {
       throw const NurNahbereichException();
     }
 
-    final relay = _relay;
-    if (relay == null || !relay.isConnected) {
-      throw const RelayException('nicht verbunden');
-    }
+    // AUF DIE VERBINDUNG WARTEN, statt sofort abzubrechen.
+    //
+    // AM 26.07.2026 IM EMULATOR NACHGESTELLT: Anhaenge scheiterten mit
+    // "RelayException — nicht verbunden", waehrend der Verbindungstest
+    // unmittelbar daneben alles gruen meldete, den Weg ins Zwischenlager
+    // eingeschlossen.
+    //
+    // Die Ursache ist die Dateiauswahl selbst. Sie gehoert Android und legt
+    // sich VOR die App; BitDM zaehlt als weggelegt, trennt die Verbindung und
+    // schaltet auf Hintergrundempfang. Kommt der Nutzer mit seiner Datei
+    // zurueck, laeuft der Wiederaufbau noch — er dauert rund eine Sekunde,
+    // ein Netzweg hin und zurueck. Der Versand griff genau in dieser Luecke
+    // zu. Wer eine Datei auswaehlte, sorgte damit selbst dafuer, dass sie
+    // nicht abgeschickt werden konnte.
+    //
+    // Deshalb wird hier gewartet und notfalls neu verbunden. Eine Nachricht
+    // geht nicht verloren, nur weil die Leitung eine Sekunde lang stand.
+    final relay = await _wartAufVerbindung();
 
     final id = _neueId();
     final angezeigt =
@@ -814,6 +1496,19 @@ class RealMessengerCore implements MessengerCore {
     }
     if (eintrag.zustand == AnhangZustand.da) return eintrag;
 
+    // DERSELBE SCHALTER WIE BEIM VERSCHICKEN, und aus demselben Grund: die
+    // Stuecke liegen im Zwischenlager, und das ist ein Server. Dass die
+    // Ankuendigung ueber die Naehe hereinkam, aendert daran nichts — geholt
+    // wird jetzt, und der Schalter gilt jetzt.
+    //
+    // ERST NACH DER ABKUERZUNG DARUEBER. Was schon auf dem Geraet liegt,
+    // herauszugeben fasst nichts an; ein Schalter, der eine laengst geladene
+    // Datei nicht mehr oeffnen liesse, verspraeche nichts, sondern naehme nur
+    // etwas weg.
+    if (_prefs.nurNahbereich) {
+      throw const NurNahbereichException();
+    }
+
     final text = chats.rezeptText(contactId, contactId, messageId);
     if (text == null) throw StateError('keine Anleitung zu $messageId');
     final rezept = Rezept.ausText(text);
@@ -824,7 +1519,14 @@ class RealMessengerCore implements MessengerCore {
     // hier liegt, gehoert zu einer Unterhaltung und verschwindet mit ihr.
     final ordner = Directory('${File(databasePath).parent.path}/anhaenge');
     await ordner.create(recursive: true);
-    final ziel = File('${ordner.path}/${messageId}_${eintrag.name}');
+    // BEIDE TEILE GESAEUBERT, obwohl payload.dart die Kennung schon prueft.
+    // Der Name wurde beim Ablegen gesaeubert, die Kennung beim Empfang — aber
+    // hier laufen sie zu einem PFAD zusammen, und ein Pfad ist die Stelle, an
+    // der ein Fehler nicht wehtut, sondern ausbricht. Wer diese Zeile spaeter
+    // mit einer Kennung aus einer anderen Quelle bedient, soll nicht darauf
+    // angewiesen sein, dass zwei Dateien weiter oben jemand mitgedacht hat.
+    final sicherId = AnhangEmpfang.sichererName(messageId);
+    final ziel = File('${ordner.path}/${sicherId}_${eintrag.name}');
 
     try {
       final fertig = await AnhangEmpfang(lager: _lager()).hole(
@@ -881,11 +1583,49 @@ class RealMessengerCore implements MessengerCore {
   }
 
   @override
+  Future<void> setContactPresence(String contactId, bool zeigen) async {
+    // `_fordereKontakt` wirft UnknownContactException und prueft zugleich, ob
+    // ueberhaupt schon initialisiert wurde — derselbe Weg wie ueberall sonst
+    // in dieser Datei.
+    final kontakt = _fordereKontakt(contactId);
+    if (kontakt.zeigtAnwesenheit == zeigen) return;
+    _chats!.speichereKontakt(kontakt.copyWith(zeigtAnwesenheit: zeigen));
+
+    // SOFORT WIRKSAM, nicht beim naechsten Start. Wer die Anwesenheit
+    // abschaltet, will nicht mehr gesehen werden — und ein Leuchtfeuer, das
+    // danach noch eine Viertelstunde weiterlaeuft, waere genau das, was er
+    // gerade abgestellt hat.
+    await _richteNaheEin();
+
+    // KEIN ContactEvent. Der Strom traegt Anfragen, Zusagen, Absagen und
+    // Entfernungen — Dinge, die von der GEGENSTELLE kommen. Eine eigene
+    // Einstellung dort einzuwerfen hiesse, jeder Zuhoerer muesste kuenftig
+    // unterscheiden, ob gerade jemand geantwortet hat oder ob man selbst
+    // einen Schalter umgelegt hat. Die Oberflaeche weiss es ohnehin: sie hat
+    // den Schalter umgelegt.
+  }
+
+  @override
   Future<void> setPreferences(AppPreferences prefs) async {
     if (_chats == null) throw const NotInitializedException();
     final vorher = _prefs.nurNahbereich;
+    final vorherFunk = _prefs.naheAn;
     _prefs = prefs;
     _chats!.speichereEinstellungen(prefs);
+
+    // Nur beim WECHSEL. Ohne den Vergleich riefe jedes Speichern der
+    // Einstellungen — auch das der Lesebestaetigungen — ein vollstaendiges
+    // Neuaufsetzen hervor, und wer gerade in Reichweite ist, waere danach
+    // wieder unbekannt.
+    //
+    // UND `await`, NICHT `unawaited`. Am 28.07.2026 habe ich das umgestellt,
+    // weil eine Einstellung nicht an ihrer Folge haengen sollte — der Gedanke
+    // stimmt, der Anlass war erfunden. Der Fehler, den es beheben sollte, gab
+    // es nicht (`_setzeNaheAuf` faengt selbst ab), die Mutationsprobe zeigte
+    // es, und der Umbau nahm dem Test "NIEMALS EIN SERVER" seine Wirkung: der
+    // haelt den Kern genau hier fest, um zu messen, dass kein Buendel geholt
+    // wird, WAEHREND ein Relay noch antworten wuerde.
+    if (prefs.naheAn != vorherFunk) await _richteNaheEin();
     // Eine geaenderte Lebensdauer wirkt NUR auf Neues. Bestehende Nachrichten
     // behalten ihren Verfall — sonst wuerde Ausschalten Geglaubt-Geloeschtes
     // wieder auftauchen lassen und Einschalten stillschweigend Verlauf
@@ -958,11 +1698,41 @@ class RealMessengerCore implements MessengerCore {
 
   /// Verschickt und meldet Fehler ueber den Status, nicht als Ausnahme.
   Future<void> _versucheZuSenden(String an, Payload p,
-      {String? eigeneNachricht}) async {
+      {String? eigeneNachricht,
+      bool schonBeimRelay = false,
+      bool schonInDerNaehe = false}) async {
     try {
-      await _sendePayload(an, p);
+      final bescheid =
+          await _sendePayload(an, p,
+              schonBeimRelay: schonBeimRelay,
+              schonInDerNaehe: schonInDerNaehe);
+      if (bescheid.weg == Weg.liegt) {
+        // DER VERMERK GEHOERT AUF DIE PLATTE, BEVOR IRGENDETWAS ANDERES
+        // PASSIERT. Er ist das Einzige, was Regel 2 ueber diesen Versuch
+        // hinaus traegt: die Wegwahl lebt nur einen Versand lang, der naechste
+        // Anlauf baut eine frische und waehlte ohne ihn wieder frei.
+        //
+        // Nur bei einer liegengebliebenen: bei einer, die draussen ist, liest
+        // ihn nie jemand — `unversandt()` sieht nur, was auf "sending" steht.
+        if (eigeneNachricht != null && bescheid.beimRelay && !schonBeimRelay) {
+          _chats?.merkeBeimRelay(an, myId, eigeneNachricht);
+        }
+        // Und dasselbe fuer den anderen Weg. Symmetrisch, weil beide Wege
+        // mehrdeutig scheitern koennen — die Naehe genauso wie der Relay: das
+        // letzte Haeppchen kann bestaetigt drueben liegen, waehrend hier die
+        // Verbindung schon weg ist.
+        if (eigeneNachricht != null && bescheid.inDerNaehe && !schonInDerNaehe) {
+          _chats?.merkeInDerNaehe(an, myId, eigeneNachricht);
+        }
+        _bleibtLiegen(an, eigeneNachricht);
+        return;
+      }
       if (eigeneNachricht != null) {
-        _chats!.setzeStatus(an, myId, eigeneNachricht, MessageStatus.sent);
+        // DAS ZEICHEN ENTSTEHT HIER und nirgends sonst: erst jetzt steht fest,
+        // welchen Weg genau diese Nachricht genommen hat. Beim Anlegen war es
+        // noch offen, und die Wegwahl kennt die Nachricht nicht.
+        _chats!.setzeStatus(an, myId, eigeneNachricht, MessageStatus.sent,
+            ueberNaehe: bescheid.weg == Weg.naehe);
         _status.add(MessageStatusUpdate(
             messageId: eigeneNachricht,
             chatId: an,
@@ -970,27 +1740,87 @@ class RealMessengerCore implements MessengerCore {
             at: DateTime.now().toUtc()));
       }
     } catch (_) {
-      if (eigeneNachricht != null) {
-        // BEWUSST NICHT auf failed setzen: `sending` ist der Zustand, den
-        // _sendeUnversandtes wieder aufgreift. Wer hier failed schriebe,
-        // muesste den Nutzer bitten, von Hand zu wiederholen — obwohl die App
-        // es beim naechsten Verbinden selbst kann.
-        _status.add(MessageStatusUpdate(
-            messageId: eigeneNachricht,
-            chatId: an,
-            status: MessageStatus.sending,
-            at: DateTime.now().toUtc()));
-      }
+      _bleibtLiegen(an, eigeneNachricht);
     }
   }
 
-  Future<void> _sendePayload(String an, Payload p) async {
-    final relay = _relay;
-    if (relay == null) throw const NotInitializedException();
-    final store = _store!;
+  /// Nichts ging raus — die Nachricht bleibt liegen.
+  ///
+  /// BEWUSST NICHT auf failed setzen: `sending` ist der Zustand, den
+  /// _sendeUnversandtes wieder aufgreift. Wer hier failed schriebe, muesste den
+  /// Nutzer bitten, von Hand zu wiederholen — obwohl die App es beim naechsten
+  /// Verbinden selbst kann. Das ist Regel 4 aus wegwahl.dart, und sie gilt
+  /// gleich, ob die Wegwahl `liegt` gesagt hat oder unterwegs etwas geworfen
+  /// hat.
+  void _bleibtLiegen(String an, String? eigeneNachricht) {
+    if (eigeneNachricht == null) return;
+    _status.add(MessageStatusUpdate(
+        messageId: eigeneNachricht,
+        chatId: an,
+        status: MessageStatus.sending,
+        at: DateTime.now().toUtc()));
+  }
+
+  /// Verschluesselt und gibt die Nachricht der Wegwahl.
+  ///
+  /// ═══════════════ WARUM DAS BUENDEL VOR DER WEGWAHL GEHOLT WIRD, UND MUSS
+  ///
+  /// Verschluesseln geht nur mit einer Sitzung, und die erste Sitzung mit
+  /// jemandem entsteht aus seinem Prekey-Buendel. Das Buendel liegt beim
+  /// Relay. Beides zusammen heisst: die Reihenfolge ist nicht frei waehlbar —
+  /// erst Sitzung, dann Chiffretext, dann die Frage, worueber er hinausgeht.
+  /// Der Weg kann also nicht entscheiden, ob ein Buendel geholt wird; das
+  /// Buendel ist da schon geholt.
+  ///
+  /// DIE FALLE DABEI: mit "nur in der Naehe" ginge fuer die allererste
+  /// Nachricht an einen neuen Kontakt trotzdem eine Anfrage an den Server —
+  /// hinter dem Ruecken eines Schalters, der genau das ausschliesst.
+  ///
+  /// DIE LOESUNG IST DIE ZEILE UNTEN, und sie ist eine Absage, keine
+  /// Umgehung: gibt es keine Sitzung und darf kein Server gefragt werden,
+  /// bleibt die Nachricht liegen. Nicht "gescheitert" — sie geht hinaus,
+  /// sobald der Schalter wieder aus ist. Ein Schluesselaustausch ueber die
+  /// Naehe waere der ehrliche Ausweg; den gibt es noch nicht, und ihn hier
+  /// vorzutaeuschen waere schlimmer als die Wartezeit.
+  ///
+  /// Wer schon einmal miteinander geschrieben hat, merkt davon nichts: die
+  /// Sitzung steht, und ab da braucht kein Weg mehr einen Server.
+  Future<Wegbescheid> _sendePayload(String an, Payload p,
+      {bool schonBeimRelay = false, bool schonInDerNaehe = false}) async {
+    final store = _store;
+    if (store == null) throw const NotInitializedException();
     final ziel = SignalProtocolAddress(an, 1);
 
     if (!await store.containsSession(ziel)) {
+      if (_prefs.nurNahbereich) {
+        // ERST FRAGEN, DANN LIEGENLASSEN.
+        //
+        // Ohne Sitzung kann hier nichts verschluesselt werden, und das
+        // Buendel dafuer kam bisher nur vom Relay — mit "nur in der Naehe"
+        // also nie. Die Nachricht blieb fuer immer stehen, und der Nutzer sah
+        // nur, dass nichts passiert.
+        //
+        // Jetzt geht eine Anfrage ueber den Funk hinaus. Sie kostet 7 Byte,
+        // und wenn die Gegenseite in Reichweite ist, kommt das Buendel
+        // zurueck; `_nimmBuendelUeberFunk` stoesst dann den Nachversand an
+        // und dieselbe Nachricht geht beim naechsten Anlauf raus.
+        //
+        // NICHT WARTEN, sondern liegenlassen und wiederkommen: warten hiesse,
+        // die Oberflaeche an eine Gegenstelle zu haengen, die vielleicht
+        // gerade weggeht.
+        final nahJetzt = _nah;
+        if (nahJetzt != null && nahJetzt.inReichweite.contains(an)) {
+          unawaited(nahJetzt
+              .schickeSonder(an, Nahtyp.buendelAnfrage, Uint8List(0))
+              .catchError((Object _) {}));
+        }
+        return const Wegbescheid(
+            Weg.liegt,
+            'nur in der Naehe, und mit diesem Kontakt gibt es noch keine '
+            'Sitzung — das erste Buendel kaeme vom Server');
+      }
+      final relay = _relay;
+      if (relay == null) throw const NotInitializedException();
       final antwort = await relay.fetchBundle(an);
       await SessionBuilder.fromSignalStore(store, ziel)
           .processPreKeyBundle(PreKeyBundleBridge.fromRelay(antwort));
@@ -998,17 +1828,92 @@ class RealMessengerCore implements MessengerCore {
 
     final ct = await SessionCipher.fromStore(store, ziel).encrypt(p.toBytes());
     _signalRepo!.commit(store);
-    await relay.send(an, Envelope.of(ct).toBytes());
+
+    return Wegwahl(
+      relay: _RelayAusgang(_relay),
+      naehe: _nah ?? const _KeinAusgang(),
+      nurNahbereich: _prefs.nurNahbereich,
+    ).schicke(an, Envelope.of(ct).toBytes(),
+        schonBeimRelay: schonBeimRelay, schonInDerNaehe: schonInDerNaehe);
   }
+
+  /// Was beim Nachversand wirklich hinausgeht.
+  ///
+  /// ZWEI FEHLER SASSEN HIER, beide unsichtbar bis beim Empfaenger — gefunden
+  /// von einem Suchagenten am 26.07.2026, nachdem sie monatelang niemandem
+  /// aufgefallen waren.
+  ///
+  /// ERSTENS DIE ART. Es stand `Payload.text` fuer ALLES. Ein Anhang, der
+  /// beim ersten Versuch liegengeblieben war, ging beim Nachversand als
+  /// gewoehnliche Textnachricht hinaus: der Empfaenger bekam die Anleitung
+  /// als sichtbaren Text in die Unterhaltung geschrieben statt eine Datei
+  /// angeboten — und die Anleitung enthaelt die Kennungen und Schluessel
+  /// aller Stuecke.
+  ///
+  /// ZWEITENS DIE FRIST. Ohne `lebensdauer` heisst "kein Verfall". Eine
+  /// Nachricht mit eingestellter Frist, die nachversandt wurde, blieb beim
+  /// Empfaenger FUER IMMER stehen, waehrend sie beim Absender verschwand.
+  /// Genau die Sorte Halbwahrheit, gegen die die Frist gebaut ist.
+  ///
+  /// ALS EIGENE FUNKTION, weil eine Regel, die man nicht aufrufen kann, auch
+  /// nicht geprueft werden kann: der erste Anlauf der Behebung stand mitten in
+  /// der Schleife, und ein Mutationstest zeigte, dass kein einziger Test rot
+  /// wurde, als man sie wieder zurueckdrehte.
+  @visibleForTesting
+  static Payload nachversand(Message m, Duration? frist) =>
+      m.kind == MessageKind.anhang
+          ? Payload.anhang(m.id, m.text, m.timestamp, lebensdauer: frist)
+          : Payload.text(m.id, m.text, m.timestamp, lebensdauer: frist);
+
+  /// Stellt einen Nachversand in die Reihe. Siehe [_nachversandLauf].
+  ///
+  /// ZWEI ANLAESSE, EIN WEG: die Verbindung steht wieder, oder jemand ist
+  /// wieder in Reichweite. Beide muenden hier, damit sie sich nicht
+  /// ueberholen — sonst laesen zwei Laeufe dieselbe Liste und schickten
+  /// dieselbe Nachricht zweimal.
+  void _stosseNachversandAn() {
+    _nachversandLauf = _nachversandLauf
+        .then((_) => _sendeUnversandtes())
+        // Sonst bliebe die Kette vergiftet: jeder spaetere Nachversand haengte
+        // sich an eine Zukunft, die schon mit einem Fehler abgeschlossen ist,
+        // und liefe nie.
+        .catchError((Object _) {});
+  }
+
+  /// Ob ueberhaupt noch ein Weg offen ist.
+  ///
+  /// Grob mit Absicht: welchen Weg eine EINZELNE Nachricht nimmt, entscheidet
+  /// die Wegwahl. Hier geht es nur darum, eine Liste nicht gegen zwei
+  /// geschlossene Tueren durchzuarbeiten.
+  bool get _einWegOffen =>
+      (_conn == ConnectionState.online && !_prefs.nurNahbereich) ||
+      (_nah?.bereit ?? false);
 
   /// Holt nach, was beim letzten Mal nicht rausging.
   Future<void> _sendeUnversandtes() async {
-    final offen = _chats!.unversandt();
-    for (final m in offen) {
-      if (_conn != ConnectionState.online) return;
+    final chats = _chats;
+    // Gesperrt oder geloescht, waehrend der Lauf in der Reihe stand.
+    if (chats == null) return;
+
+    for (final m in chats.unversandt()) {
+      // NICHT MEHR NUR "IST DER RELAY ONLINE".
+      //
+      // Der Abbruch soll verhindern, dass der Rest der Liste gegen eine tote
+      // Leitung laeuft. Mit "nur in der Naehe" ist die Leitung IMMER tot, und
+      // die Schleife kehrte um, bevor sie das erste Mal etwas versucht hatte —
+      // ausgerechnet in dem Modus, in dem die Naehe der einzige Weg ist. Eine
+      // Nachricht blieb dort fuer immer auf "sending", auch wenn der
+      // Empfaenger wieder danebenstand; von Hand nachhelfen konnte niemand,
+      // MessageStatus.failed wird nirgends gesetzt.
+      if (!_einWegOffen) return;
+
+      // Die Entscheidung, WAS nachgeschickt wird, steht in [nachversand].
+      // Womit es NICHT mehr gehen darf, steht an der Nachricht.
       await _versucheZuSenden(
-          m.chatId, Payload.text(m.id, m.text, m.timestamp),
-          eigeneNachricht: m.id);
+          m.chatId, nachversand(m, _prefs.messageLifetime),
+          eigeneNachricht: m.id,
+          schonBeimRelay: m.schonBeimRelay,
+          schonInDerNaehe: m.schonInDerNaehe);
     }
   }
 
@@ -1101,12 +2006,36 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<void> wipeEverything() async {
     await _raeumeVerbindungAb();
+    await _haltNahe();
+    // Die Geheimnisse sind aus der Identitaet gerechnet, die gleich faellt.
+    // Sie stehenzulassen hiesse, nach dem Loeschen im Arbeitsspeicher noch
+    // Werte zu haben, mit denen sich Kontakte wiedererkennen liessen.
+    _nahGeheimnisse.clear();
 
     _db?.close();
     _db = null;
     _store = null;
     _chats = null;
     _signalRepo = null;
+
+    // DIE ENTSCHLUESSELTEN ANHAENGE ZUERST, und zwar BEVOR die Entropie faellt.
+    //
+    // Fuer die Datenbankdateien gilt "ohne Schluessel sind sie Rauschen" —
+    // fuer diese hier gilt das GERADE NICHT. Ein heruntergeladener Anhang
+    // liegt im Klartext; er haengt an keinem Schluessel, den man wegnehmen
+    // koennte. Und weil mit der Datenbank auch die Spalte `pfad` verschwindet,
+    // findet ihn hinterher kein Aufraeumlauf mehr — er laege dort fuer immer.
+    //
+    // Die Oberflaeche verspricht "Identitaet, Kontakte und Nachrichten sofort
+    // und unwiderruflich loeschen". Der Anhang IST der Inhalt der Nachricht.
+    try {
+      final anhaenge =
+          Directory('${File(databasePath).parent.path}/anhaenge');
+      if (anhaenge.existsSync()) anhaenge.deleteSync(recursive: true);
+    } on FileSystemException {
+      // Weiter loeschen. Eine Datei, die sich nicht entfernen laesst, darf den
+      // Rest nicht aufhalten — der Rest ist wichtiger.
+    }
 
     await secretStore.delete();
 
@@ -1154,6 +2083,11 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<void> lock() async {
     await _raeumeVerbindungAb();
+    // Der Funk geht mit, aus demselben Grund wie die Verbindung: solange die
+    // App zu ist, koennte niemand eine ankommende Nachricht entschluesseln,
+    // und ein weiterlaufendes Leuchtfeuer waere nur ein Signal nach aussen,
+    // dass dieses Geraet gerade da ist.
+    await _haltNahe();
     _db?.close();
     _db = null;
     _store = null;
@@ -1168,6 +2102,15 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<void> dispose() async {
     await _raeumeVerbindungAb();
+    await _nahAbo?.cancel();
+    _nahAbo = null;
+    await _nahPostAbo?.cancel();
+    _nahPostAbo = null;
+    await _nahDaAbo?.cancel();
+    _nahDaAbo = null;
+    await _nah?.dispose();
+    _nah = null;
+    _nahStand = null;
     _db?.close();
     _db = null;
     _store = null;
@@ -1178,4 +2121,95 @@ class RealMessengerCore implements MessengerCore {
     await _status.close();
     await _contacts.close();
   }
+}
+
+
+/// Der Relay als Ausgang fuer die Wegwahl — eine duenne Huelle, sonst nichts.
+///
+/// [bereit] ist die einzige Aussage, die hier wirklich getroffen wird, und sie
+/// entscheidet, ob Regel 2 aus wegwahl.dart ueberhaupt greift: nur ein
+/// begonnener Versuch kann doppelt zustellen. Deshalb steht hier
+/// `isConnected` und nicht bloss "es gibt ein Objekt" — nach einem
+/// Leitungsabriss bleibt der Client stehen, und wer ihn dann fuer benutzbar
+/// hielte, verboete der Naehe fuer immer das Einspringen. Genau das, wofuer
+/// sie gebaut ist.
+class _RelayAusgang implements Ausgang {
+  const _RelayAusgang(this._relay);
+
+  final RelayClient? _relay;
+
+  @override
+  bool get bereit => _relay?.isConnected ?? false;
+
+  @override
+  Future<void> schicke(String an, Uint8List umschlag) =>
+      _relay!.send(an, umschlag);
+}
+
+/// Kein Weg. Fuer die Naehe, solange sie nicht laeuft.
+///
+/// Lieber das als ein `null` in der Wegwahl: sie haette dann zwei Faelle zu
+/// unterscheiden, wo es in Wirklichkeit nur einen gibt — dieser Weg ist nicht
+/// benutzbar.
+class _KeinAusgang implements Ausgang {
+  const _KeinAusgang();
+
+  @override
+  bool get bereit => false;
+
+  @override
+  Future<void> schicke(String an, Uint8List umschlag) =>
+      throw StateError('dieser Weg ist nie bereit');
+}
+
+/// Die Ansicht auf den Kern, die der Verbindungstest bekommt.
+class _KernUmgebung implements TestUmgebung {
+  _KernUmgebung(this._k);
+
+  final RealMessengerCore _k;
+
+  @override
+  Uri get relay => _k.relayUri;
+  @override
+  Uri get lager => _k.lagerUri;
+  @override
+  String? get eigeneAdresse => _k.isInitialized ? _k.myId : null;
+  @override
+  RelayClient? get relayClient => _k._relay;
+  @override
+  bool get nurNahbereich => _k._prefs.nurNahbereich;
+
+  @override
+  bool get naheAn => _k._prefs.naheAn;
+
+  /// LAEUFT er, nicht: soll er laufen.
+  ///
+  /// FRUEHER STAND HIER `_nahStand != null`, UND DAS WAR FALSCH. Ein leerer
+  /// Stand ist nicht null: wird der Nahbereich mit leerer Kontaktliste
+  /// aufgesetzt, kehrt sein `starte` sofort um (richtig so — eine Werbung aus
+  /// reinen Fuellbytes waere Funkverkehr fuer nichts), und `_setzeNaheAuf`
+  /// vermerkte trotzdem einen Stand. Die Diagnose meldete daraufhin "laeuft",
+  /// waehrend nachweislich keine einzige Werbung auf Sendung ging.
+  ///
+  /// Am 27.07.2026 auf einem echten Geraet genau so beobachtet — und der
+  /// Bildschirm, der den Fehler haette zeigen sollen, war es, der ihn
+  /// verdeckt hat.
+  ///
+  /// Gefragt wird jetzt den, der es weiss: den Nahbereich selbst.
+  @override
+  bool get naheLaeuft => _k._nah?.laeuft == true;
+
+  @override
+  int get naheKontakte => _k._nah == null ? 0 : _k._nahKontakteZahl;
+
+  @override
+  int get naheInReichweite => _k._nah?.inReichweite.length ?? 0;
+
+  @override
+  HttpClient httpClient() => HttpClient();
+
+  /// EIN EIGENER CLIENT je Lauf und nicht der des Kerns: der Test wirft ihn
+  /// am Ende weg, und ein laufender Anhang-Versand soll davon nichts merken.
+  @override
+  LagerClient lagerClient() => LagerClient(basis: _k.lagerUri);
 }

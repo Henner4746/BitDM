@@ -13,10 +13,15 @@
 // Unterschied zwischen 27 ms und 0,8 ms — auf einem Telefon bei jedem
 // Kaltstart.
 
-import 'dart:io';
+// KEIN dart:io und KEIN package:sqlite3/sqlite3.dart. Beides gibt es im
+// Browser nicht — der ffi-Import bricht schon den Bau, der File-Konstruktor
+// erst zur Laufzeit. Was plattformabhaengig ist, steht in sqlite_zugang.dart
+// und ist dort begruendet: sqliteLaufzeit, absoluterPfad, journalModus.
 import 'dart:typed_data';
 
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
+
+import 'sqlite_zugang.dart';
 
 /// Wird geworfen, wenn die geladene SQLite-Bibliothek gar nicht verschluesseln
 /// kann.
@@ -64,17 +69,17 @@ class StaleStateException implements Exception {
 class EncryptedDatabase {
   EncryptedDatabase._(this._db, this.pfad, this._generation);
 
-  final Database _db;
+  final CommonDatabase _db;
   final String pfad;
   int _generation;
 
   /// Aktueller Schreibstand der Datei. Siehe [transaction].
   int get generation => _generation;
 
-  Database get raw => _db;
+  CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 7;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -91,14 +96,17 @@ class EncryptedDatabase {
       throw ArgumentError('Datenbankschluessel muss 32 Bytes haben, '
           'hat ${databaseKey.length}');
     }
-    final absolut = File(pfad).absolute.path;
+    final absolut = absoluterPfad(pfad);
     if (!_offen.add(absolut)) {
       throw StateError('Datenbank ist in diesem Isolate bereits offen: $absolut');
     }
 
-    Database? db;
+    CommonDatabase? db;
     try {
-      db = sqlite3.open(pfad);
+      // Im Browser wirft das einen StateError, wenn sqliteVorbereiten() nicht
+      // abgewartet wurde. Auf der VM ist sqliteVorbereiten() ein leerer Future
+      // und diese Zeile dieselbe wie vorher.
+      db = sqliteLaufzeit.open(pfad);
 
       // Der Verschluesselungsteil MUSS vor allem anderen kommen. Sobald
       // irgendetwas die Datei liest, ist es zu spaet.
@@ -116,7 +124,7 @@ class EncryptedDatabase {
     }
   }
 
-  static void _entsperren(Database db, Uint8List key) {
+  static void _entsperren(CommonDatabase db, Uint8List key) {
     // Das Verfahren wird ausdruecklich festgenagelt statt dem Standard
     // ueberlassen. sqlite3mc kennt mehrere (chacha20, aes256cbc, sqlcipher,
     // ...) und waehlt eines davon als Standard. Aendert eine kuenftige Fassung
@@ -153,7 +161,7 @@ class EncryptedDatabase {
   /// Das ist eine Aussage ueber die BIBLIOTHEK, nicht ueber die Datei. Dass
   /// auch wirklich verschluesselt auf die Platte geschrieben wird, prueft
   /// test/store/encrypted_database_test.dart an den Rohbytes.
-  static void _pruefeVerschluesselung(Database db) {
+  static void _pruefeVerschluesselung(CommonDatabase db) {
     final ergebnis = db.select('PRAGMA cipher');
     if (ergebnis.isEmpty) throw const DatabaseNotEncryptedException();
   }
@@ -169,7 +177,7 @@ class EncryptedDatabase {
   /// Das Inhaltsverzeichnis zu zaehlen ist die billigste Abfrage, die
   /// tatsaechlich eine Seite entschluesseln muss. Bei einer noch leeren Datei
   /// gelingt sie und liefert 0 — richtig so, das ist der Erstlauf.
-  static void _pruefeSchluessel(Database db) {
+  static void _pruefeSchluessel(CommonDatabase db) {
     try {
       db.select('SELECT count(*) FROM sqlite_master');
     } on SqliteException catch (e) {
@@ -178,9 +186,11 @@ class EncryptedDatabase {
     }
   }
 
-  static void _grundeinstellungen(Database db) {
+  static void _grundeinstellungen(CommonDatabase db) {
     // WAL: weniger Schreibvorgaenge je Aenderung, und Lesen blockiert nicht.
-    db.execute('PRAGMA journal_mode = WAL');
+    // Im Browser steht hier DELETE, weil die WASM-VFS kein WAL kann — die
+    // Begruendung steht bei journalModus in sqlite_zugang_web.dart.
+    db.execute('PRAGMA journal_mode = $journalModus');
 
     // FULL, nicht NORMAL. NORMAL spart fsync-Aufrufe, kann bei Stromausfall
     // aber die zuletzt bestaetigten Transaktionen verlieren — also genau das
@@ -188,6 +198,12 @@ class EncryptedDatabase {
     // ein verbrauchter Prekey ohne die zugehoerige neue Sitzung. Eine
     // Nachricht je Sekunde ist kein Durchsatzproblem, ein toter Gespraechs-
     // faden schon.
+    //
+    // IM BROWSER VERSPRICHT FULL WENIGER. Das virtuelle Dateisystem schreibt
+    // nach IndexedDB "asynchronously ... without any durability guarantees"
+    // (package:sqlite3 3.5.0, src/wasm/vfs/indexed_db.dart:462) — ein
+    // bestaetigtes COMMIT kann den geschlossenen Tab also verlieren. Warum das
+    // so bleibt, steht bei sqliteVorbereiten() in sqlite_zugang_web.dart.
     db.execute('PRAGMA synchronous = FULL');
 
     // Zwischenergebnisse (Sortierungen, temporaere Tabellen) bleiben im
@@ -207,7 +223,7 @@ class EncryptedDatabase {
     db.execute('PRAGMA cache_size = -2000');
   }
 
-  static int _schemaAnlegen(Database db) {
+  static int _schemaAnlegen(CommonDatabase db) {
     db.execute('''
       CREATE TABLE IF NOT EXISTS meta (
         key   TEXT PRIMARY KEY NOT NULL,
@@ -243,6 +259,12 @@ class EncryptedDatabase {
             _schemaV3(db);
           case 4:
             _schemaV4(db);
+          case 5:
+            _schemaV5(db);
+          case 6:
+            _schemaV6(db);
+          case 7:
+            _schemaV7(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -260,7 +282,7 @@ class EncryptedDatabase {
     return int.parse(_metaLesen(db, 'generation') ?? '0');
   }
 
-  static void _schemaV1(Database db) {
+  static void _schemaV1(CommonDatabase db) {
     // Adressen sind BitDM-Adressen (Base32 des oeffentlichen Schluessels),
     // Sitzungsadressen zusaetzlich mit ":geraeteId". Sie sind damit selbst
     // schon der Schluessel — eine eigene ID waere nur eine Umleitung.
@@ -291,7 +313,7 @@ class EncryptedDatabase {
   }
 
   /// Kontakte und Nachrichten.
-  static void _schemaV2(Database db) {
+  static void _schemaV2(CommonDatabase db) {
     db.execute('''
       CREATE TABLE contacts (
         address      TEXT PRIMARY KEY NOT NULL,
@@ -346,7 +368,7 @@ class EncryptedDatabase {
   /// nicht bei jeder Abfrage aus Alter plus Frist — sonst wuerde eine spaeter
   /// geaenderte Einstellung rueckwirkend Nachrichten loeschen oder
   /// wiederauferstehen lassen.
-  static void _schemaV3(Database db) {
+  static void _schemaV3(CommonDatabase db) {
     db.execute('ALTER TABLE messages ADD COLUMN expires_at INTEGER');
     db.execute(
         'CREATE INDEX idx_messages_verfall ON messages(expires_at) '
@@ -366,7 +388,7 @@ class EncryptedDatabase {
   /// Telefon vorliegt, und reisen nie mit. Auf einem wiederhergestellten
   /// Geraet steht dort wieder "angekuendigt", und das ist richtig so: die
   /// Datei liegt dort ja auch nicht.
-  static void _schemaV4(Database db) {
+  static void _schemaV4(CommonDatabase db) {
     db.execute('''
       CREATE TABLE anhaenge (
         chat_id    TEXT NOT NULL,
@@ -386,12 +408,95 @@ class EncryptedDatabase {
     // wird.
   }
 
-  static String? _metaLesen(Database db, String key) {
+  /// In der Naehe.
+  ///
+  /// ZWEI SPALTEN, ZWEI GANZ VERSCHIEDENE DINGE — auch wenn sie zusammen
+  /// kommen:
+  ///
+  /// `contacts.zeigt_anwesenheit` ist eine ENTSCHEIDUNG des Nutzers: wem er
+  /// sich zeigt. Standard 1, weil eine Ausfallsicherung, die man erst je
+  /// Kontakt einschalten muss, keine ist. Wer sie fuer jemanden abschaltet,
+  /// sendet fuer ihn kein Leuchtfeuer mehr aus und erwartet auch keines —
+  /// beides zusammen, sonst wuerde man ihn zwar nicht mehr finden, ihm aber
+  /// weiter zeigen, wo man ist.
+  ///
+  /// `messages.ueber_naehe` ist eine TATSACHE ueber eine einzelne Nachricht:
+  /// sie ging direkt von Geraet zu Geraet. Standard 0, und alles, was vor
+  /// dieser Stufe geschrieben wurde, ist ueber den Relay gegangen — die 0
+  /// stimmt also auch rueckwirkend und ist nicht bloss ein Platzhalter.
+  static void _schemaV5(CommonDatabase db) {
+    db.execute('ALTER TABLE contacts '
+        'ADD COLUMN zeigt_anwesenheit INTEGER NOT NULL DEFAULT 1');
+    db.execute('ALTER TABLE messages '
+        'ADD COLUMN ueber_naehe INTEGER NOT NULL DEFAULT 0');
+    // KEIN Index auf ueber_naehe. Danach wird nie gesucht, es wird nur
+    // angezeigt; ein Index waere Schreibarbeit bei jeder Nachricht fuer eine
+    // Abfrage, die es nicht gibt.
+  }
+
+  /// War dieser Umschlag schon einmal beim Relay?
+  ///
+  /// WARUM UEBERHAUPT EINE SPALTE. Regel 2 aus wegwahl.dart — nie beide Wege
+  /// fuer dieselbe Nachricht — galt bisher nur innerhalb eines einzigen
+  /// Versandversuchs. Der Nachversand baut eine frische Wegwahl, die frei
+  /// waehlt: gemessen ging eine Nachricht, deren Relay-Versuch geworfen hatte,
+  /// beim naechsten Anlauf ueber die Naehe hinaus — moeglicherweise ein
+  /// zweites Mal, und mit dem Zeichen "kein Server war beteiligt".
+  ///
+  /// WARUM NICHT IM ARBEITSSPEICHER. Die Frage wird genau dann gestellt, wenn
+  /// der Arbeitsspeicher weg ist: `unversandt()` liest nach einem Neustart aus
+  /// der Datei, was liegengeblieben ist. Ein Vermerk, der den Neustart nicht
+  /// ueberlebt, fehlte in genau dem Fall, fuer den es ihn gibt.
+  ///
+  /// WARUM AN messages UND NICHT IN EINER EIGENEN TABELLE. Ein Bit, das zu
+  /// genau einer Zeile gehoert, hoechstens einmal geschrieben und nur von der
+  /// einen Abfrage gelesen wird, die diese Zeile ohnehin holt. Eine
+  /// Nebentabelle waere ein JOIN in der einzigen Abfrage, die es je braucht —
+  /// und ein zweiter Ort, an dem etwas fehlen kann.
+  ///
+  /// KEIN INDEX, aus demselben Grund wie bei ueber_naehe.
+  ///
+  /// DIE BESTEHENDEN LIEGENGEBLIEBENEN BEKOMMEN DIE 1, nicht die 0. Sie sind
+  /// aus einer Fassung, in der der Nachversand ausschliesslich aus `connect()`
+  /// heraus lief — sie warten also ohnehin auf den Relay, und die 1 nimmt
+  /// ihnen nichts. Mit der 0 duerfte die erste davon nach dem Update ueber die
+  /// Naehe gehen, obwohl sie moeglicherweise schon drueben liegt. Von den
+  /// beiden Irrtuemern ist dieser der teure.
+  static void _schemaV6(CommonDatabase db) {
+    db.execute('ALTER TABLE messages '
+        'ADD COLUMN schon_beim_relay INTEGER NOT NULL DEFAULT 0');
+    // 0 ist MessageStatus.sending. Die Reihenfolge des Enums ist Teil des
+    // Datenbankformats (models.dart sagt das ausdruecklich), sie steht fest.
+    db.execute(
+        'UPDATE messages SET schon_beim_relay = 1 WHERE is_mine = 1 AND status = 0');
+  }
+
+  /// Die Gegenrichtung von Schritt 6.
+  ///
+  /// Schritt 6 hielt fest, dass ein Umschlag schon beim Relay war, und
+  /// sperrte danach die Naehe. Die Umkehrung fehlte: was ueber die Naehe
+  /// mehrdeutig gescheitert war, durfte anschliessend ueber den Relay — und
+  /// kam moeglicherweise zweimal an.
+  ///
+  /// KEIN UPDATE FUER BESTEHENDE ZEILEN, anders als bei Schritt 6.
+  ///
+  /// Dort war die 1 richtig, weil liegengebliebene Nachrichten aus einer
+  /// Fassung stammten, in der es nur den Relay gab — sie warteten also
+  /// nachweislich auf ihn. Hier ist es umgekehrt: vor diesem Schritt konnte
+  /// nichts ueber die Naehe hinausgegangen sein, was nicht schon zugestellt
+  /// waere. Eine 1 fuer alles wuerde bestehende Liegengebliebene grundlos vom
+  /// Relay aussperren.
+  static void _schemaV7(CommonDatabase db) {
+    db.execute('ALTER TABLE messages '
+        'ADD COLUMN schon_in_der_naehe INTEGER NOT NULL DEFAULT 0');
+  }
+
+  static String? _metaLesen(CommonDatabase db, String key) {
     final r = db.select('SELECT value FROM meta WHERE key = ?', [key]);
     return r.isEmpty ? null : r.first['value'] as String;
   }
 
-  static void _metaSchreiben(Database db, String key, String value) {
+  static void _metaSchreiben(CommonDatabase db, String key, String value) {
     db.execute(
       'INSERT INTO meta (key, value) VALUES (?, ?) '
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
@@ -417,7 +522,7 @@ class EncryptedDatabase {
   ///
   /// Hier wird daraus ein lautes [StaleStateException] statt eines stillen
   /// Datenverlusts.
-  T transaction<T>(T Function(Database db) arbeit) {
+  T transaction<T>(T Function(CommonDatabase db) arbeit) {
     _db.execute('BEGIN IMMEDIATE');
     try {
       final inDatei = int.parse(_metaLesen(_db, 'generation') ?? '0');
