@@ -199,6 +199,9 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
         ergebnis.error("schnittstelle", "Keine FIDO-Schnittstelle gefunden", null)
     }
 
+    /** Beim Beenden der Activity: Schnittstelle wieder hergeben. */
+    fun schliesseAlles() = schliesse()
+
     private fun schliesse() {
         schnittstelle?.let { verbindung?.releaseInterface(it) }
         verbindung?.close()

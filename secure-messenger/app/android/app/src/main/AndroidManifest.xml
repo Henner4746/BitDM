@@ -8,6 +8,32 @@
          jemand den Scan-Knopf drueckt, nie beim Start. -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
+    <!-- ══════════════════════════════════════════ "In der Naehe" (Bluetooth)
+         Nachrichten zwischen zwei Telefonen ohne Internet.
+
+         WAS HIER NICHT STEHT, IST DER PUNKT: kein ACCESS_FINE_LOCATION.
+         Unterhalb von Android 12 haelt das System eine BLE-Suche fuer eine
+         Standortbestimmung und verlangt die Berechtigung zusaetzlich — ohne
+         sie werden Treffer stillschweigend verworfen. In einem Messenger, der
+         Metadaten vermeidet, waere der Standortzugriff die invasivste
+         Berechtigung ueberhaupt. Deshalb die Entscheidung: der Naheteil
+         verlangt Android 12, statt dass die App nach dem Standort fragt. Die
+         App selbst laeuft weiter ab Android 9, dort fehlt nur diese Funktion.
+         NahfunkKanal.kt weist Aufrufe darunter mit "ZU_ALT" ab.
+
+         neverForLocation ist deshalb keine Kosmetik, sondern die Zusage, auf
+         der das beruht. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+
+    <!-- required=false: ohne das schliesst der Play Store jedes Geraet ohne
+         BLE aus — wegen einer Funktion, die eine Ausfallsicherung ist. -->
+    <uses-feature android:name="android.hardware.bluetooth_le"
+        android:required="false"/>
+
     <!-- Fuer den Sicherheitsschluessel per NFC.
          Das nfc_manager-Plugin deklariert sie NICHT selbst — ohne diese Zeile
          schlaegt das Auslesen zur Laufzeit fehl, und zwar erst auf dem Geraet.

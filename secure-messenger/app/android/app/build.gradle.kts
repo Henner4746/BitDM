@@ -236,4 +236,15 @@ dependencies {
     // vorgesehene Weg und braucht eine echte FragmentActivity, die es hier
     // gibt. Siehe SchluesselfachKanal.kt.
     implementation("androidx.biometric:biometric:1.1.0")
+
+    // NUR FUER DIE JVM-TESTS, nicht in der App.
+    //
+    // Sie pruefen KryptoKanal gegen Vektoren, die die Dart-Fassung erzeugt hat
+    // (app/tool/krypto_vektoren.dart). Das geht auf der JVM, weil javax.crypto
+    // dort dasselbe AES/GCM/NoPadding kennt wie auf Android — und ist damit
+    // die Antwort auf die Frage, wie man nativen Krypto-Code ueberhaupt
+    // pruefen kann, ohne bei jedem Lauf ein Telefon zu brauchen.
+    //
+    //   gradlew :app:testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }

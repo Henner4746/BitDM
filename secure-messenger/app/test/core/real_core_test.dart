@@ -242,6 +242,40 @@ void main() {
       expect(bob.eingang.single.text, 'aus dem Funkloch');
     }, timeout: const Timeout(Duration(minutes: 3)));
 
+
+    test('EINE KONTAKTANFRAGE IM FUNKLOCH GEHT SPAETER RAUS', () async {
+      // DER FEHLER, DEN ES HIERHER GEBRACHT HAT
+      //
+      // Am 29.07.2026 auf zwei echten Telefonen: beide tragen die Adresse des
+      // anderen ein, beide sind online, beide starten neu — und auf keinem
+      // erscheint eine eingehende Anfrage. Auf beiden steht fuer immer
+      // "Request sent, waiting for confirmation".
+      //
+      // Der Grund: eine Kontaktanfrage ist eine verschluesselte Nutzlast und
+      // braucht eine Sitzung, also das Buendel der Gegenseite vom Relay. War
+      // das gerade nicht zu haben, scheiterte sie — und `addContact` warf sie
+      // mit `unawaited` ab. Der Fehler verschwand darin, und weil eine
+      // Steuernutzlast keine eigene Nachricht ist, kam sie in keine
+      // Warteschlange. Kein zweiter Versuch, kein Hinweis.
+      //
+      // Fuer NACHRICHTEN gab es den Nachversand laengst (der Fall darueber).
+      // Fuer die Anfrage, mit der ueberhaupt alles anfaengt, nicht.
+      await beideBereit();
+      await alice.core.disconnect();
+
+      await alice.core.addContact(bob.core.myId);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(bob.kontaktEreignisse, isEmpty,
+          reason: 'ohne Verbindung kann sie nicht angekommen sein — sonst '
+              'prueft der Test darunter nichts');
+
+      await alice.core.connect();
+      expect(await Nutzer.warteBis(() => bob.kontaktEreignisse.isNotEmpty),
+          isTrue,
+          reason: 'die Anfrage wurde nie wiederholt: Bob erfaehrt nie, dass '
+              'ihn jemand hinzufuegen will');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
     test('beide Seiten sehen dieselbe Pruefnummer', () async {
       await beideBereit();
       await alice.core.addContact(bob.core.myId);

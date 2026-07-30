@@ -133,6 +133,38 @@ class Message {
   final DateTime timestamp; // UTC, authored time
   final MessageStatus status;
 
+  /// Diese Nachricht ging direkt von Geraet zu Geraet, ohne Server.
+  ///
+  /// Sie bekommt dafuer ein Zeichen in der Unterhaltung. Das ist die EINZIGE
+  /// Stelle, an der die Naehe sichtbar wird — es gibt bewusst keine Anzeige,
+  /// wer gerade in Reichweite ist (siehe docs/NAHBEREICH.md). Der Unterschied
+  /// ist wichtig: hier steht, wie eine Nachricht gegangen IST; eine
+  /// Anwesenheitsanzeige verriete, wo jemand gerade IST.
+  final bool ueberNaehe;
+
+  /// Dieser Umschlag war schon einmal beim Relay — und ist trotzdem
+  /// liegengeblieben.
+  ///
+  /// NICHT dasselbe wie "zugestellt": RelayClient.send schreibt erst in die
+  /// Leitung und wartet dann auf die Bestaetigung. Laeuft die Wartezeit ab,
+  /// ist der Umschlag draussen und nur der Ack fehlt. Deshalb darf dieselbe
+  /// Nachricht danach nicht mehr ueber die Naehe — sie kaeme sonst
+  /// moeglicherweise zweimal an, und sie truege das Zeichen [ueberNaehe],
+  /// dessen Zusage "kein Server war beteiligt" dann nicht mehr stimmte.
+  ///
+  /// Das Gegenstueck zu [ueberNaehe]: dort steht, welchen Weg sie GENOMMEN
+  /// hat, hier, welcher ihr verschlossen ist.
+  final bool schonBeimRelay;
+
+  /// Und dasselbe fuer den anderen Weg.
+  ///
+  /// Zwei Felder statt eines, obwohl sie dieselbe Sache in zwei Richtungen
+  /// sagen: welcher Weg VERSCHLOSSEN ist, haengt daran, welcher schon
+  /// benutzt wurde, und beide koennen mehrdeutig scheitern. Ein einzelnes
+  /// "schon versucht" wuesste nicht, WELCHER — und liesse dann beide zu oder
+  /// keinen.
+  final bool schonInDerNaehe;
+
   const Message({
     required this.id,
     required this.chatId,
@@ -142,9 +174,13 @@ class Message {
     required this.timestamp,
     this.kind = MessageKind.text,
     this.status = MessageStatus.sent,
+    this.ueberNaehe = false,
+    this.schonBeimRelay = false,
+    this.schonInDerNaehe = false,
   });
 
-  Message copyWith({MessageStatus? status, String? text}) => Message(
+  Message copyWith({MessageStatus? status, String? text, bool? ueberNaehe}) =>
+      Message(
         id: id,
         chatId: chatId,
         senderId: senderId,
@@ -153,6 +189,9 @@ class Message {
         isMine: isMine,
         timestamp: timestamp,
         status: status ?? this.status,
+        ueberNaehe: ueberNaehe ?? this.ueberNaehe,
+        schonBeimRelay: schonBeimRelay,
+        schonInDerNaehe: schonInDerNaehe,
       );
 }
 
@@ -163,20 +202,42 @@ class Contact {
   final ContactState state;
   final bool verified; // true once the user compared the SafetyNumber
 
+  /// Ob diesem Kontakt gegenueber die eigene Anwesenheit gezeigt wird.
+  ///
+  /// Standard an, je Kontakt abschaltbar. Der Grund ist konkret: wer jemanden
+  /// in den Kontakten hat, dem er nicht mehr begegnen will, verriete ihm sonst
+  /// jedes Mal seine Anwesenheit, wenn beide im selben Cafe sitzen. Ein
+  /// Messenger ohne Telefonnummer, der stattdessen Anwesenheit verraet, haette
+  /// an der falschen Stelle gespart.
+  ///
+  /// Praktisch heisst "aus": fuer diesen Kontakt wird KEIN Leuchtfeuer
+  /// ausgesendet und keines von ihm erwartet. Beides zusammen — sonst
+  /// wuerde man ihn zwar nicht mehr finden, ihm aber weiter zeigen, wo man
+  /// ist. Nachrichten an ihn nehmen dann immer den Relay.
+  final bool zeigtAnwesenheit;
+
   const Contact({
     required this.id,
     required this.addedAt,
     this.displayName,
     this.state = ContactState.active,
     this.verified = false,
+    this.zeigtAnwesenheit = true,
   });
 
-  Contact copyWith({String? displayName, ContactState? state, bool? verified}) => Contact(
+  Contact copyWith({
+    String? displayName,
+    ContactState? state,
+    bool? verified,
+    bool? zeigtAnwesenheit,
+  }) =>
+      Contact(
         id: id,
         addedAt: addedAt,
         displayName: displayName ?? this.displayName,
         state: state ?? this.state,
         verified: verified ?? this.verified,
+        zeigtAnwesenheit: zeigtAnwesenheit ?? this.zeigtAnwesenheit,
       );
 }
 
@@ -235,21 +296,51 @@ class AppPreferences {
   /// kein Anstoss-Endpunkt, kein Zwischenlager. Auf der Leitung ist nichts
   /// zu sehen, weil nichts gesendet wird.
   ///
-  /// WAS ER (NOCH) NICHT TUT: Nachrichten ueber die Naehe zustellen. Dieser
-  /// Weg — BLE finden, Wi-Fi Direct uebertragen — ist noch nicht gebaut
-  /// (siehe docs/NAHBEREICH.md). Solange bleiben Nachrichten LIEGEN, und die
-  /// Oberflaeche sagt das auch. Ein Schalter, der still nichts zustellt,
-  /// waere schlimmer als keiner.
+  /// OHNE [naheAn] BLEIBEN NACHRICHTEN LIEGEN. Dieser Schalter verbietet nur
+  /// den Server; er baut keinen zweiten Weg. Wer beides will, braucht beide —
+  /// und die Oberflaeche sagt das, statt still nichts zuzustellen.
   ///
   /// Ausdruecklich KEIN Flugmodus-Ersatz: andere Apps sind davon unberuehrt.
   /// Dieser Schalter spricht nur fuer BitDM.
   final bool nurNahbereich;
+
+  /// Bluetooth benutzen, um Kontakte in Reichweite zu erreichen.
+  ///
+  /// ZWEI SCHALTER, NICHT EINER, und der Unterschied ist keine Spitzfindigkeit:
+  ///
+  ///   [naheAn]         — "nimm auch den Nahweg, wenn der Relay nicht geht".
+  ///                      Ausfallsicherung. Der Relay bleibt der Hauptweg.
+  ///   [nurNahbereich]  — "nimm NIEMALS einen Server". Eine Einschraenkung,
+  ///                      kein Weg.
+  ///
+  /// Sie liessen sich zu einem zusammenlegen, und dann haette man entweder
+  /// eine Ausfallsicherung, die niemand ohne Funk haben kann, oder einen
+  /// Spurlos-Modus, den man nicht ohne Bluetooth bekommt. Beides waere falsch.
+  ///
+  /// STANDARD AUS. Funk kostet Akku und zeigt Anwesenheit — das schaltet man
+  /// ein, wenn man es will, nicht ungefragt.
+  final bool naheAn;
+
+  /// Bei einer neuen Nachricht ans Ende der Unterhaltung springen.
+  ///
+  /// STANDARD AN, anders als die beiden Schalter darueber. Die sind aus, weil
+  /// sie etwas kosten (Akku, Zustellbarkeit); dieser kostet nichts und ist das,
+  /// was jeder von einem Messenger erwartet.
+  ///
+  /// WAS ER NICHT TUT: den Leser wegreissen. Wer nach oben gescrollt hat und
+  /// alte Nachrichten liest, bleibt dort — sonst waere jede eingehende
+  /// Nachricht ein Sprung mitten im Satz. Nur wer ohnehin unten steht, wird
+  /// mitgenommen. Eigene Nachrichten springen immer, denn wer schreibt, will
+  /// sehen, was er geschrieben hat.
+  final bool autoScroll;
 
   const AppPreferences({
     this.readReceipts = true,
     this.messageLifetime,
     this.blockScreenshots = true,
     this.nurNahbereich = false,
+    this.naheAn = false,
+    this.autoScroll = true,
   });
 
   AppPreferences copyWith({
@@ -258,6 +349,8 @@ class AppPreferences {
     bool loescheLebensdauer = false,
     bool? blockScreenshots,
     bool? nurNahbereich,
+    bool? naheAn,
+    bool? autoScroll,
   }) =>
       AppPreferences(
         readReceipts: readReceipts ?? this.readReceipts,
@@ -265,6 +358,8 @@ class AppPreferences {
             loescheLebensdauer ? null : (messageLifetime ?? this.messageLifetime),
         blockScreenshots: blockScreenshots ?? this.blockScreenshots,
         nurNahbereich: nurNahbereich ?? this.nurNahbereich,
+        naheAn: naheAn ?? this.naheAn,
+        autoScroll: autoScroll ?? this.autoScroll,
       );
 }
 

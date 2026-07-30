@@ -223,6 +223,18 @@ abstract class MessengerCore {
   /// believed were gone, and turning it on would silently delete history.
   Future<void> setPreferences(AppPreferences prefs);
 
+  /// Ob diesem Kontakt gegenueber die eigene Anwesenheit gezeigt wird.
+  ///
+  /// WIRKT IN BEIDE RICHTUNGEN, und das ist keine Bequemlichkeit: mit `false`
+  /// wird fuer ihn kein Leuchtfeuer mehr ausgesendet UND keines von ihm mehr
+  /// erwartet. Nur eine der beiden Richtungen abzuschalten waere die
+  /// schlechtere Haelfte von beidem — man faende ihn nicht mehr, zeigte ihm
+  /// aber weiter, wo man ist.
+  ///
+  /// Nachrichten an ihn nehmen danach immer den Relay. Das ist die Folge, die
+  /// die Oberflaeche mitsagen muss.
+  Future<void> setContactPresence(String contactId, bool zeigen);
+
   /// Delete every message whose time is up. Returns how many went.
   ///
   /// Call on start and whenever the app comes back to the foreground. Cheap

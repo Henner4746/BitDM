@@ -91,10 +91,34 @@ class _QrScanScreenState extends State<QrScanScreen> {
     }
   }
 
+  /// Wann zuletzt gerechnet wurde. Siehe [_pruefeBild].
+  DateTime _zuletzt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Hoechstens so oft je Sekunde rechnen.
+  ///
+  /// Ein QR-Code laeuft nicht weg. Fuenf Versuche je Sekunde fuehlen sich
+  /// unmittelbar an, und jedes Bild darueber hinaus ist ein vollstaendiger
+  /// Durchlauf des Lesers in Dart — bei 30 Bildern je Sekunde also das
+  /// Sechsfache an Rechenarbeit fuer keinen erkennbaren Gewinn.
+  ///
+  /// WAS DAZU GEMESSEN IST UND WAS NICHT: im Emulator lag die App beim
+  /// Scannen bei 141 bis 189 % CPU, mit und ohne diese Drossel. Die Last
+  /// steckt dort also NICHT im Lesen, sondern im Kamerabild, das der Emulator
+  /// mit swiftshader in Software rendert. Auf einem Telefon mit echter GPU
+  /// faellt dieser Teil weg; wie viel die Drossel dort spart, ist offen. Sie
+  /// bleibt trotzdem: mehr als fuenf Versuche je Sekunde koennen nichts
+  /// verbessern, weil kein Nutzer eine Kamera so schnell ruhig haelt.
+  static const _abstand = Duration(milliseconds: 200);
+
   void _pruefeBild(CameraImage bild) {
     // Nur ein Bild gleichzeitig. Ohne diese Sperre stapeln sich die Aufrufe,
     // weil die Kamera schneller liefert als Dart rechnet.
     if (_amLesen || _fertig) return;
+
+    final jetzt = DateTime.now();
+    if (jetzt.difference(_zuletzt) < _abstand) return;
+    _zuletzt = jetzt;
+
     _amLesen = true;
 
     try {

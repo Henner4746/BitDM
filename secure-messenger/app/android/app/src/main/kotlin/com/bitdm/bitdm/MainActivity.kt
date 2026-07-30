@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 /**
@@ -38,6 +39,9 @@ class MainActivity : FlutterFragmentActivity() {
     private val kanal = "bitdm/fenster"
 
     private var dateiKanal: DateiKanal? = null
+    private var kryptoKanal: KryptoKanal? = null
+    private var nahfunk: NahfunkKanal? = null
+    private val usbKanal by lazy { UsbHidKanal(applicationContext) }
 
     /**
      * Die Antwort des Dateiwaehlers.
@@ -54,11 +58,44 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    /**
+     * Der Rueckweg der Rechteabfrage.
+     *
+     * Ohne ihn bleibt der Aufruf in Dart FUER IMMER haengen: `fordereRechte`
+     * gibt ein Future zurueck, das nur hier aufgeloest wird. Die Oberflaeche
+     * saehe dann dauerhaft "wird gefragt", waehrend der Dialog laengst
+     * weggetippt ist.
+     */
+    override fun onRequestPermissionsResult(
+        nummer: Int, rechte: Array<out String>, ergebnisse: IntArray
+    ) {
+        if (nahfunk?.rechteAntwort(nummer, ergebnisse) == true) return
+        super.onRequestPermissionsResult(nummer, rechte, ergebnisse)
+    }
+
     override fun onDestroy() {
         // Offene Dateikennungen schliessen. Davon hat ein Prozess nur eine
         // begrenzte Zahl, und ein abgebrochener Versand hinterlaesst sonst
         // eine.
         dateiKanal?.raeumeAuf()
+        // Der Rechenfaden der Verschluesselung. Er ist als Daemon angelegt und
+        // haelt den Prozess nicht auf, aber ihn stehen zu lassen waere ein
+        // Leck bei jedem Neuaufbau der Activity — und die wird bei jedem
+        // Drehen des Geraets neu gebaut.
+        kryptoKanal?.raeumeAuf()
+        // Der Stick. Ohne das bleibt die USB-Schnittstelle beansprucht, und
+        // beim naechsten Start meldet das Oeffnen, sie sei belegt — von der
+        // eigenen App, die es nicht mehr gibt.
+        usbKanal.schliesseAlles()
+        // Werbung, Suche und der GATT-Dienst laufen im Bluetooth-Stapel des
+        // Systems weiter, wenn man sie nicht abmeldet — die App ist dann weg
+        // und das Telefon funkt trotzdem. Das kostet Akku und verraet
+        // Anwesenheit, ohne dass irgendjemand etwas davon hat.
+        nahfunk?.raeumeAuf()
+        // Den statischen Draht kappen. Ein MethodChannel haelt die
+        // Flutter-Maschine, und die haelt diese Activity — ihn stehen zu
+        // lassen waere ein Leck, das genau so gross ist wie die ganze App.
+        EmpfangsDienst.melder = null
         super.onDestroy()
     }
 
@@ -74,9 +111,27 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // AUF EINER EIGENEN WARTESCHLANGE, nicht auf dem Haupt-Thread.
+        //
+        // `lies` wartet mit bulkTransfer bis zu fuenf Sekunden auf eine
+        // Antwort des Sticks. Beruehrt der Nutzer ihn nicht oder zieht ihn
+        // ab, laeuft diese Frist ganz ab — auf dem Haupt-Thread sind das
+        // fuenf Sekunden Stillstand am Stueck, und Android zeigt "BitDM
+        // reagiert nicht". Beim Einrichten eines Sticks passiert das zweimal
+        // hintereinander.
+        //
+        // makeBackgroundTaskQueue liefert eine SERIELLE Warteschlange. Das
+        // ist keine Nebensache: mit einem Stick spielt man Frage und Antwort,
+        // und zwei gleichzeitige bulkTransfer auf demselben Endpunkt wuerden
+        // sich die Pakete gegenseitig wegnehmen. Auf dieser Warteschlange
+        // darf `result` auch von dort gerufen werden — die Auflage gilt nur
+        // fuer den Haupt-Thread.
         MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger, UsbHidKanal.KANAL)
-            .setMethodCallHandler(UsbHidKanal(applicationContext))
+            flutterEngine.dartExecutor.binaryMessenger,
+            UsbHidKanal.KANAL,
+            io.flutter.plugin.common.StandardMethodCodec.INSTANCE,
+            flutterEngine.dartExecutor.binaryMessenger.makeBackgroundTaskQueue())
+            .setMethodCallHandler(usbKanal)
 
         // DIESER bekommt die Activity und NICHT den Application-Context. Ein
         // Anmeldedialog braucht sie; ohne sie erscheint auf manchen Geraeten
@@ -89,12 +144,51 @@ class MainActivity : FlutterFragmentActivity() {
         // Auch dieser bekommt die Activity: startActivityForResult gibt es
         // auf dem Application-Context nicht, und ein Auswahldialog ohne
         // Activity waere keiner.
+        // AES in der Hardware statt in Dart. Siehe KryptoKanal.kt: 16,6 MB/s
+        // gegen rund 90. Faellt der Kanal aus, rechnet Dart weiter — die
+        // Dart-Seite merkt es und sagt es im Verbindungstest.
+        kryptoKanal = KryptoKanal()
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, KryptoKanal.KANAL)
+            .setMethodCallHandler(kryptoKanal)
+
         dateiKanal = DateiKanal(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DateiKanal.KANAL)
             .setMethodCallHandler(dateiKanal)
 
+        // "In der Naehe". Auf einer eigenen Warteschlange, nicht auf dem
+        // Haupt-Thread: startScan und openGattServer gehen ueber den
+        // Bluetooth-Dienst, und ein Binder-Aufruf zu einem beschaeftigten
+        // Systemdienst kann hundert Millisekunden dauern. Die Warteschlange
+        // ist seriell — an- und abschalten duerfen sich nicht ueberholen.
+        //
+        // Die Ereignisse gehen den umgekehrten Weg und muessen es NICHT: der
+        // Kanal legt sie selbst auf den Haupt-Thread, weil die BLE-Rueckrufe
+        // von einem Binder-Thread kommen und ein EventSink das nicht mag.
+        // Die Activity, NICHT der Anwendungs-Context: ohne sie erscheint bei
+        // der Rechteabfrage kein Dialog. Fuer die Funkarbeit selbst nimmt der
+        // Kanal intern wieder den Anwendungs-Context — sonst haetten Werbung
+        // und GATT-Dienst die Lebensdauer eines Bildschirms.
+        nahfunk = NahfunkKanal(this)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            NahfunkKanal.KANAL,
+            io.flutter.plugin.common.StandardMethodCodec.INSTANCE,
+            flutterEngine.dartExecutor.binaryMessenger.makeBackgroundTaskQueue())
+            .setMethodCallHandler(nahfunk)
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger, NahfunkKanal.EREIGNISSE)
+            .setStreamHandler(nahfunk)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EmpfangsDienst.KANAL)
             .setMethodCallHandler { aufruf, ergebnis ->
+
+        // DER RUECKWEG. Der Dienst laeuft als eigenes Android-Bauteil und
+        // kommt sonst nicht an Dart heran — er muss aber sagen koennen, dass
+        // er aufgibt (ab Android 15 nach sechs Stunden, siehe
+        // EmpfangsDienst.onTimeout). Ohne diesen Draht verstummt der Empfang
+        // still, und die Oberflaeche behauptet weiter, sie sei bereit.
+        EmpfangsDienst.melder = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, EmpfangsDienst.KANAL)
                 when (aufruf.method) {
                     "starte" -> {
                         EmpfangsDienst.starte(

@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 
 int bitHash(String s) {
@@ -42,56 +41,17 @@ class Identicon extends StatelessWidget {
   }
 }
 
-// 25x25 fake-but-deterministic QR
-class QrView extends StatelessWidget {
-  final String seed;
-  final Color fg;
-  final Color bg;
-  final double cell;
-  const QrView(this.seed, this.fg, this.bg, {this.cell = 5, super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 25 * cell,
-      height: 25 * cell,
-      child: CustomPaint(painter: _QrPainter(seed, fg, bg)),
-    );
-  }
-}
-
-class _QrPainter extends CustomPainter {
-  final String seed;
-  final Color fg;
-  final Color bg;
-  _QrPainter(this.seed, this.fg, this.bg);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const n = 25;
-    final h = bitHash(seed);
-    final cw = size.width / n, ch = size.height / n;
-    final p = Paint();
-    for (int i = 0; i < n * n; i++) {
-      final r = i ~/ n, cc = i % n;
-      final corner = (r < 7 && cc < 7) || (r < 7 && cc > n - 8) || (r > n - 8 && cc < 7);
-      bool on;
-      if (corner) {
-        final rr = r < 7 ? r : n - 1 - r;
-        final ccc = cc < 7 ? cc : n - 1 - cc;
-        on = max((rr - 3).abs(), (ccc - 3).abs()) != 2;
-      } else {
-        on = ((((h ^ (i * 2654435761)) & 0xFFFFFFFF) >> 5) % 100) < 47;
-      }
-      p.color = on ? fg : bg;
-      canvas.drawRect(Rect.fromLTWH(cc * cw, r * ch, cw + 0.6, ch + 0.6), p);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _QrPainter old) =>
-      old.seed != seed || old.fg != fg || old.bg != bg;
-}
+// DER GEFAELSCHTE QR-CODE IST WEG.
+//
+// Hier stand ein `QrView` mit dem Kommentar "25x25 fake-but-deterministic QR":
+// drei Ecken wie bei einem QR-Code und dazwischen Rauschen aus einem Hash der
+// Adresse. Er sah ueberzeugend aus und enthielt nichts. Der Bildschirm "Meine
+// ID" forderte damit zum Scannen auf, und jeder Versuch — mit BitDM oder mit
+// einer beliebigen anderen App — musste scheitern.
+//
+// Ersetzt durch core/qr_bild.dart, das zxing2 zum Kodieren benutzt. Der Weg
+// vom gezeichneten Bild zurueck zur Adresse ist in test/core/qr_gemalt_test
+// nachgewiesen.
 
 // 16-bar voice waveform
 class WaveRow extends StatelessWidget {

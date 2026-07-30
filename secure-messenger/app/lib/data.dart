@@ -237,14 +237,70 @@ const Map<String, Map<String, String>> strings = {
     'attachAgain': 'Try again', 'attachOpen': 'Open', 'attachGone': 'No longer stored',
     'attachGoneWhy': 'Attachments are kept for 14 days, and vanish once fetched.',
     'attachHere': 'On this device',
-    'attachTooBig': 'That file is too large. BitDM carries up to 3 GB.',
+    'attachTooBig': 'That file is too large. BitDM carries up to 5 GB.',
     'attachFull': 'The storage is full right now. Try again later.',
     'attachQuota': "Today's limit is used up. Attachments are capped at 10 GB per day.",
     'attachBroken': "That file did not come through intact. Ask the sender to send it again.",
     'attachNet': 'That did not go through. Check the connection and try again.',
     'attachBusy': 'One file at a time — wait for the current one.',
-    'attachNote': 'Files travel encrypted, in pieces, and are deleted after 14 days.',
     'attachNoApp': 'No app on this device can open that kind of file.',
+
+    // ---- Verbindungstest ----
+    'connTest': 'Check connection',
+    'connTestSub': 'Goes through every link in the chain and says which one '
+        'does not hold.',
+    'connTestStart': 'Run the test',
+    'connTestAgain': 'Run again',
+    'connTestRunning': 'testing…',
+    'connLast': 'Last technical error',
+    'connTestRow': 'Check connection',
+    'connTestRowSub': 'Find out what exactly is not working.',
+    'pruefIdentitaet': 'Identity on this device',
+    'pruefNahbereich': '“Nearby only” is on',
+    'pruefNahbereichWas': 'That is why nothing below was tested — the switch '
+        'stops BitDM from touching any server at all.',
+    'pruefFunk': 'Nearby over Bluetooth',
+    'pruefRelay': 'Connection to the relay',
+    'pruefAngemeldet': 'The relay knows this address',
+    'pruefLager': 'Attachment storage, all the way',
+
+    // ---- Anleitung: nur in der Naehe ----
+    'nearGuide': 'Nearby only, step by step',
+    'nearGuideLink': 'How this works',
+    'nearGuideNotYet': 'DELIVERY OVER RADIO IS NOT BUILT YET. You can switch '
+        'this on today and nothing will leave the phone — that part is real. '
+        'But nothing arrives at the other end either. Everything below '
+        'describes what the switch does now, not what it will do later.',
+    'nearGuideWhat': 'What it does today',
+    'nearGuideWhatBody': 'BitDM stops talking to any server. No connection, no '
+        'sign-in, not even a lookup. Messages you write stay on this phone and '
+        'go out the moment you switch it off again — they are not lost, and '
+        'they are not sent either.',
+    'nearGuideSteps': 'What to do',
+    'nearStep1': 'Both of you switch it on',
+    'nearStep1Body': 'The switch only speaks for this phone. If one side has '
+        'it on and the other does not, the one with it on stays silent and the '
+        'other keeps using the server.',
+    'nearStep2': 'Add each other first — with the internet still on',
+    'nearStep2Body': 'A new contact needs one lookup at the relay. Do that '
+        'before you switch off, otherwise the two of you cannot start a '
+        'conversation at all.',
+    'nearStep3': 'Stay within a few metres',
+    'nearStep3Body': 'Bluetooth reaches about ten metres indoors, less through '
+        'walls. This is meant for the same room, not the same building.',
+    'nearStep4': 'Leave Bluetooth on',
+    'nearStep4Body': 'And location too — Android ties Bluetooth scanning to '
+        'the location permission. Without it the phones cannot find each other.',
+    'nearStep5': 'Do not expect attachments',
+    'nearStep5Body': 'They need the storage server. With the switch on they are '
+        'refused straight away, with a message that says so.',
+    'nearGuideBack': 'Switching it off again',
+    'nearGuideBackBody': 'Everything that was waiting goes out at once, in the '
+        'order you wrote it. Nothing needs to be repeated by hand.',
+    'nearGuideLimits': 'What it does not do',
+    'nearGuideLimitsBody': 'It is not a flight mode. Other apps are unaffected, '
+        'and this phone keeps its internet connection — only BitDM stops using '
+        'it. Someone watching your network sees that BitDM went quiet.',
 
     // ---- Nur in der Naehe ----
     // Der Text sagt zuerst, was der Schalter WIRKLICH tut (kein Server), und
@@ -253,12 +309,72 @@ const Map<String, Map<String, String>> strings = {
     'nearOnly': 'Nearby only',
     'nearOnlySub': 'BitDM contacts no server at all — not even to connect.',
     'nearOnlyNow': 'What that means right now',
-    'nearOnlyWarn': 'Nothing leaves this phone. Messages you write stay put and go '
-        'out the moment you switch this off again. '
-        'Delivery over Bluetooth is NOT built yet, so nothing arrives at the other '
-        'end either. Attachments are impossible — they need the storage server.',
+    'nearOnlyWarn': 'Nothing leaves this phone. With Bluetooth off there is no '
+        'way out at all: messages stay put and go the moment you switch one of '
+        'the two back on. Attachments are impossible — they need the storage '
+        'server.',
+    // Zweite Fassung fuer den Fall, dass Bluetooth AN ist. Ohne sie stuende
+    // "es gibt keinen Weg hinaus" direkt unter einem eingeschalteten
+    // Bluetooth-Schalter — beides zusammen liest sich wie ein Fehler, auch
+    // wenn jeder Satz fuer sich stimmt.
+    //
+    // Seit die Wegwahl am Nachrichtenweg haengt, traegt Bluetooth wirklich
+    // Nachrichten. Hier stand bis dahin, dass dieser letzte Schritt noch
+    // gebaut werde — ein Satz, der jetzt eine Zusage kleinredet, die die App
+    // einhaelt.
+    'nearOnlyWarnRadio': 'Nothing leaves this phone. Messages go straight '
+        'to contacts in Bluetooth range; everything else waits until you turn '
+        'this off again. That includes the very first message to a brand new '
+        'contact — the keys for it travel over the air, so the other side has '
+        'to be in range for a moment. Attachments do not work either way, they '
+        'need the storage server.',
     'nearOnlyNoAttach': 'Not while “nearby only” is on — an attachment needs the storage server.',
     'nearOnlyWaiting': 'Nearby only · messages are waiting',
+
+    // ---- Der Funk selbst ----
+    // Zwei Schalter, nicht einer: "Bluetooth benutzen" ist die
+    // Ausfallsicherung, "nur in der Naehe" die Einschraenkung. Der Text muss
+    // den Unterschied tragen, sonst legt jemand den falschen um.
+    'nearby': 'Nearby',
+    'autoScroll': 'Follow new messages',
+    'autoScrollSub': 'Jump to the newest message. Not while you are reading further up.',
+    'addContact': 'Add contact',
+    'removeContact': 'Remove contact',
+    'removeAsk': 'Remove this contact and the whole conversation? This cannot be undone.',
+    'removeDo': 'REMOVE',
+    'nearbyUse': 'Use Bluetooth',
+    'nearbyUseSub':
+        'Reach contacts in range directly when the relay cannot be reached.',
+    'nearbyTooOld': 'Needs Android 12. Below that, Android counts a Bluetooth '
+        'scan as locating you and demands location access — and that is one '
+        'permission BitDM will not ask for.',
+    'nearbyNoHardware': 'This phone has no Bluetooth LE.',
+    'nearbyBtOff': 'Bluetooth is switched off.',
+    'nearbyNoPerm': 'BitDM is not allowed to use Bluetooth yet.',
+    'nearbyAllow': 'Allow',
+    'nearbyBlocked': 'Denied, and Android will not ask again. Only the system '
+        'settings can change that now.',
+    'nearbyOpenSettings': 'Open settings',
+    // Was es KOSTET, nicht nur was es kann. Wer das erst hinterher merkt,
+    // schaltet es ab und traut der naechsten Zusage weniger.
+    'nearbyCost': 'Costs battery. Anyone in range can tell that some device is '
+        'broadcasting — but only people you have as contacts can tell it is you.',
+    'nearbyNeedsBoth': 'Switch this on too, or messages just wait.',
+
+    // ---- Das Zeichen an einer Nachricht ----
+    // Die EINZIGE Stelle, an der die Naehe sichtbar wird. Es gibt bewusst
+    // keine Anzeige, wer gerade in Reichweite ist: hier steht, wie eine
+    // Nachricht gegangen IST, nicht wo jemand gerade IST.
+    'viaNearby': 'Direct',
+    'viaNearbyTitle': 'Sent directly',
+    'viaNearbyWhat': 'This message went from phone to phone over Bluetooth. No '
+        'server was involved — not even one that would have seen that the two '
+        'of you wrote to each other at all.',
+
+    // ---- Anwesenheit je Kontakt ----
+    'presence': 'Show presence',
+    'presenceSub': 'Off: this contact cannot find you over Bluetooth, and you '
+        'cannot find them. Messages then always take the relay.',
 
     'hintShot': 'Screenshot protection on', 'hintEnc': 'End-to-end encrypted', 'hintEph': 'Messages delete after ',
   },
@@ -400,26 +516,129 @@ const Map<String, Map<String, String>> strings = {
     'attachAgain': 'Nochmal versuchen', 'attachOpen': 'Öffnen', 'attachGone': 'Nicht mehr da',
     'attachGoneWhy': 'Anhänge liegen 14 Tage und verschwinden, sobald sie geholt wurden.',
     'attachHere': 'Auf diesem Gerät',
-    'attachTooBig': 'Diese Datei ist zu groß. BitDM trägt bis zu 3 GB.',
+    'attachTooBig': 'Diese Datei ist zu groß. BitDM trägt bis zu 5 GB.',
     'attachFull': 'Der Speicher ist gerade voll. Versuch es später noch einmal.',
     'attachQuota': 'Das Tagespensum ist aufgebraucht. Anhänge sind auf 10 GB pro Tag begrenzt.',
     'attachBroken': 'Diese Datei ist nicht heil angekommen. Bitte die Gegenstelle, sie noch einmal zu schicken.',
     'attachNet': 'Das ging nicht durch. Prüf die Verbindung und versuch es noch einmal.',
     'attachBusy': 'Eine Datei nach der anderen — warte, bis die aktuelle durch ist.',
-    'attachNote': 'Dateien reisen verschlüsselt, in Stücken, und werden nach 14 Tagen gelöscht.',
     'attachNoApp': 'Keine App auf diesem Gerät kann diese Art Datei öffnen.',
+
+    // ---- Verbindungstest ----
+    'connTest': 'Verbindung prüfen',
+    'connTestSub': 'Geht jedes Glied der Kette einzeln durch und sagt, welches '
+        'nicht hält.',
+    'connTestStart': 'Test starten',
+    'connTestAgain': 'Nochmal prüfen',
+    'connTestRunning': 'wird geprüft …',
+    'connLast': 'Letzter technischer Fehler',
+    'connTestRow': 'Verbindung prüfen',
+    'connTestRowSub': 'Herausfinden, was genau nicht geht.',
+    'pruefIdentitaet': 'Identität auf diesem Gerät',
+    'pruefNahbereich': '„Nur in der Nähe“ ist an',
+    'pruefNahbereichWas': 'Deshalb wurde darunter nichts geprüft — der Schalter '
+        'hält BitDM davon ab, überhaupt einen Server anzusprechen.',
+    'pruefFunk': 'In der Nähe, über Bluetooth',
+    'pruefRelay': 'Verbindung zum Relay',
+    'pruefAngemeldet': 'Der Relay kennt diese Adresse',
+    'pruefLager': 'Anhang-Speicher, den ganzen Weg',
+
+    // ---- Anleitung: nur in der Naehe ----
+    'nearGuide': 'Nur in der Nähe, Schritt für Schritt',
+    'nearGuideLink': 'Wie das funktioniert',
+    'nearGuideNotYet': 'DIE ZUSTELLUNG ÜBER FUNK IST NOCH NICHT GEBAUT. Du '
+        'kannst den Schalter heute umlegen, und dann verlässt wirklich nichts '
+        'mehr dieses Telefon — dieser Teil stimmt. Es kommt beim Gegenüber '
+        'aber auch nichts an. Alles hier beschreibt, was der Schalter JETZT '
+        'tut, nicht was er später tun wird.',
+    'nearGuideWhat': 'Was er heute tut',
+    'nearGuideWhatBody': 'BitDM spricht keinen Server mehr an. Keine '
+        'Verbindung, keine Anmeldung, nicht einmal eine Abfrage. Was du '
+        'schreibst, bleibt auf diesem Telefon liegen und geht raus, sobald du '
+        'ihn wieder ausschaltest — es ist weder verloren noch versendet.',
+    'nearGuideSteps': 'Was zu tun ist',
+    'nearStep1': 'Ihr schaltet ihn BEIDE ein',
+    'nearStep1Body': 'Der Schalter spricht nur für dieses Telefon. Hat ihn eine '
+        'Seite an und die andere nicht, schweigt die eine und die andere '
+        'benutzt weiter den Server.',
+    'nearStep2': 'Fügt euch VORHER hinzu, mit Internet',
+    'nearStep2Body': 'Ein neuer Kontakt braucht eine einzige Abfrage beim '
+        'Relay. Macht das, bevor ihr abschaltet — sonst könnt ihr gar keine '
+        'Unterhaltung anfangen.',
+    'nearStep3': 'Bleibt ein paar Meter beieinander',
+    'nearStep3Body': 'Bluetooth reicht drinnen etwa zehn Meter, durch Wände '
+        'weniger. Das ist für denselben Raum gedacht, nicht für dasselbe Haus.',
+    'nearStep4': 'Lasst Bluetooth an',
+    'nearStep4Body': 'Und die Ortung ebenfalls — Android hängt die '
+        'Bluetooth-Suche an die Ortungsfreigabe. Ohne sie finden sich die '
+        'Telefone nicht.',
+    'nearStep5': 'Rechnet nicht mit Anhängen',
+    'nearStep5Body': 'Die brauchen den Speicherserver. Mit dem Schalter an '
+        'werden sie sofort abgelehnt, mit einer Meldung, die das auch sagt.',
+    'nearGuideBack': 'Wieder ausschalten',
+    'nearGuideBackBody': 'Alles, was gewartet hat, geht auf einmal raus, in der '
+        'Reihenfolge, in der du es geschrieben hast. Von Hand wiederholen musst '
+        'du nichts.',
+    'nearGuideLimits': 'Was er nicht tut',
+    'nearGuideLimitsBody': 'Er ist kein Flugmodus. Andere Apps sind unberührt, '
+        'und dieses Telefon behält seine Internetverbindung — nur BitDM '
+        'benutzt sie nicht mehr. Wer dein Netz beobachtet, sieht, dass BitDM '
+        'still geworden ist.',
 
     // ---- Nur in der Naehe ----
     'nearOnly': 'Nur in der Nähe',
     'nearOnlySub': 'BitDM spricht überhaupt keinen Server an — auch nicht zum Verbinden.',
     'nearOnlyNow': 'Was das gerade heißt',
-    'nearOnlyWarn': 'Nichts verlässt dieses Telefon. Was du schreibst, bleibt liegen '
-        'und geht raus, sobald du das hier wieder ausschaltest. '
-        'Die Zustellung über Bluetooth ist NOCH NICHT gebaut — es kommt also auch '
-        'beim Gegenüber nichts an. Anhänge gehen gar nicht, die brauchen den '
-        'Speicherserver.',
+    'nearOnlyWarn': 'Nichts verlässt dieses Telefon. Mit ausgeschaltetem Bluetooth '
+        'gibt es überhaupt keinen Weg hinaus: was du schreibst, bleibt liegen und '
+        'geht raus, sobald du einen der beiden Schalter wieder umlegst. Anhänge '
+        'gehen gar nicht, die brauchen den Speicherserver.',
+    'nearOnlyWarnRadio': 'Nichts verlässt dieses Telefon. Nachrichten gehen direkt '
+        'an Kontakte in Bluetooth-Reichweite; alles andere bleibt liegen, bis du '
+        'das hier wieder ausschaltest. Auch die allererste Nachricht an einen ganz '
+        'neuen Kontakt geht so — die Schlüssel dafür werden über Funk getauscht, '
+        'dazu muss die Gegenseite kurz in Reichweite sein. Anhänge gehen so oder '
+        'so nicht, die brauchen den Speicherserver.',
     'nearOnlyNoAttach': 'Nicht solange „nur in der Nähe“ an ist — ein Anhang braucht den Speicherserver.',
     'nearOnlyWaiting': 'Nur in der Nähe · Nachrichten warten',
+
+    // ---- Der Funk selbst ----
+    'nearby': 'In der Nähe',
+    'autoScroll': 'Neuen Nachrichten folgen',
+    'autoScrollSub': 'Springt zur neuesten Nachricht. Nicht, waehrend du weiter oben liest.',
+    'addContact': 'Kontakt hinzufuegen',
+    'removeContact': 'Kontakt entfernen',
+    'removeAsk': 'Diesen Kontakt und die ganze Unterhaltung entfernen? Das laesst sich nicht rueckgaengig machen.',
+    'removeDo': 'ENTFERNEN',
+    'nearbyUse': 'Bluetooth benutzen',
+    'nearbyUseSub':
+        'Erreicht Kontakte in Reichweite direkt, wenn der Relay nicht geht.',
+    'nearbyTooOld': 'Braucht Android 12. Darunter hält Android eine '
+        'Bluetooth-Suche für eine Standortbestimmung und verlangt den '
+        'Standortzugriff — und das ist die eine Berechtigung, die BitDM nicht '
+        'abfragt.',
+    'nearbyNoHardware': 'Dieses Telefon hat kein Bluetooth LE.',
+    'nearbyBtOff': 'Bluetooth ist ausgeschaltet.',
+    'nearbyNoPerm': 'BitDM darf Bluetooth noch nicht benutzen.',
+    'nearbyAllow': 'Erlauben',
+    'nearbyBlocked': 'Abgelehnt, und Android fragt nicht mehr. Das lässt sich '
+        'nur noch in den Systemeinstellungen ändern.',
+    'nearbyOpenSettings': 'Einstellungen öffnen',
+    'nearbyCost': 'Kostet Akku. Wer in Reichweite ist, sieht, dass da ein Gerät '
+        'funkt — aber nur wer dich als Kontakt hat, erkennt, dass du es bist.',
+    'nearbyNeedsBoth': 'Schalte das hier mit ein, sonst warten Nachrichten nur.',
+
+    // ---- Das Zeichen an einer Nachricht ----
+    'viaNearby': 'Direkt',
+    'viaNearbyTitle': 'Direkt übertragen',
+    'viaNearbyWhat': 'Diese Nachricht ging von Telefon zu Telefon über '
+        'Bluetooth. Kein Server war beteiligt — auch keiner, der gesehen '
+        'hätte, dass ihr überhaupt miteinander geschrieben habt.',
+
+    // ---- Anwesenheit je Kontakt ----
+    'presence': 'Anwesenheit zeigen',
+    'presenceSub': 'Aus: dieser Kontakt findet dich nicht über Bluetooth, und '
+        'du ihn nicht. Nachrichten nehmen dann immer den Relay.',
 
     'hintShot': 'Screenshot-Schutz aktiv', 'hintEnc': 'Ende-zu-Ende verschlüsselt', 'hintEph': 'Nachrichten löschen sich nach ',
   },

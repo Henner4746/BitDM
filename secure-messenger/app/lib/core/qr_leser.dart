@@ -35,13 +35,30 @@ class _YEbene extends LuminanceSource {
   /// ignoriert, liest ein schraeg verzerrtes Bild und findet nie einen Code.
   final int _zeilenbreite;
 
+  /// Ein Bildpunkt, so wie zxing ihn erwartet.
+  ///
+  /// DAS BITMUSTER BLEIBT, WIE ES IST. Hier stand einmal `- 128`, mit der
+  /// plausibel klingenden Begruendung, ZXing rechne mit vorzeichenbehafteten
+  /// Bytes. Das ist falsch herum: die Binarisierer holen den Wert mit
+  /// `array[i] & 0xff` zurueck — so steht es im Vertrag von LuminanceSource.
+  /// Ein Abzug von 128 ist ein XOR mit 0x80, das Bild kam also UMGEKEHRT und
+  /// mit einem Fuenftel des Kontrasts an. Der Leser hat nie einen Code
+  /// gefunden, auch keinen fremden.
+  ///
+  /// EINE STELLE FUER BEIDE Methoden, weil nur getMatrix() vom
+  /// 2D-Leser benutzt wird: eine Aenderung in getRow allein faellt in keinem
+  /// Test auf, und genau so waere der Fehler wiedergekommen.
+  ///
+  /// Die Zuweisung an eine Int8List schneidet von sich aus auf acht Bit: aus
+  /// 235 wird -21, und `-21 & 0xff` ist wieder 235.
+  int _punkt(int i) => _bytes[i];
+
   @override
   Int8List getRow(int y, Int8List? row) {
     final ziel = (row == null || row.length < width) ? Int8List(width) : row;
     final start = y * _zeilenbreite;
     for (var x = 0; x < width; x++) {
-      // ZXing rechnet mit vorzeichenbehafteten Bytes; 0..255 wird zu -128..127.
-      ziel[x] = _bytes[start + x] - 128;
+      ziel[x] = _punkt(start + x);
     }
     return ziel;
   }
@@ -53,10 +70,11 @@ class _YEbene extends LuminanceSource {
       final quelle = y * _zeilenbreite;
       final ziel = y * width;
       for (var x = 0; x < width; x++) {
-        out[ziel + x] = _bytes[quelle + x] - 128;
+        out[ziel + x] = _punkt(quelle + x);
       }
     }
     return out;
+
   }
 }
 

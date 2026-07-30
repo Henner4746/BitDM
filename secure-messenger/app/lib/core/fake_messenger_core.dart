@@ -388,6 +388,13 @@ class FakeMessengerCore implements MessengerCore {
   Future<void> setPreferences(AppPreferences prefs) async => _prefs = prefs;
 
   @override
+  Future<void> setContactPresence(String contactId, bool zeigen) async {
+    final k = _contacts[contactId];
+    if (k == null) throw UnknownContactException(contactId);
+    _contacts[contactId] = k.copyWith(zeigtAnwesenheit: zeigen);
+  }
+
+  @override
   Future<int> purgeExpiredMessages() async => 0;
 
   @override

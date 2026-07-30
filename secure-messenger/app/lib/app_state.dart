@@ -36,6 +36,9 @@ import 'core/lock/vault_store.dart';
 import 'core/net/relay_client.dart' show RelayException;
 import 'core/push.dart';
 import 'core/messenger_core.dart';
+import 'core/nah/funk.dart';
+import 'core/real_messenger_core.dart';
+import 'core/verbindungstest.dart';
 
 class AppState extends ChangeNotifier {
   AppState(this.core,
@@ -321,6 +324,19 @@ class AppState extends ChangeNotifier {
   /// wieder im Schluesselspeicher. Das ist Absicht: eine App, die sich nach
   /// dem Entfernen des letzten Faktors gar nicht mehr oeffnen liesse, waere
   /// eine Falle.
+  /// Entfernt einen Kontakt samt Verlauf.
+  ///
+  /// ES GAB DAFUER KEINEN WEG IN DER OBERFLAECHE. `removeContact` steht seit
+  /// jeher im Kern, gerufen hat es niemand — wer eine falsche Adresse
+  /// eintippte, wurde sie nie wieder los. Bei 56 Zeichen ist das kein
+  /// Randfall.
+  Future<void> entferneKontakt(String id) async {
+    await core.removeContact(id);
+    kontakte.removeWhere((k) => k.id == id);
+    verlaeufe.remove(id);
+    notifyListeners();
+  }
+
   Future<void> entferneFaktor(String slotId) async {
     final t = tresor;
     if (t == null) throw const LockUnavailableException('nicht verfuegbar');
@@ -915,6 +931,7 @@ class AppState extends ChangeNotifier {
       letzterFehler = 'lagerVoll';
     } catch (e) {
       letzterFehler = _anhangFehler(e);
+      _merkeTechnisch(e);
     } finally {
       fortschritt.remove(schwebendeKennung);
       schwebendeKennung = null;
@@ -933,6 +950,7 @@ class AppState extends ChangeNotifier {
       // Blase sagt es selbst. Eine zweite Meldung darueber waere Laerm.
     } catch (e) {
       letzterFehler = _anhangFehler(e);
+      _merkeTechnisch(e);
     } finally {
       anhaenge[chatId] = await core.getAnhaenge(chatId);
       notifyListeners();
@@ -949,6 +967,58 @@ class AppState extends ChangeNotifier {
   String? schwebendeKennung;
   String? schwebenderName;
   String? schwebenderChat;
+
+  /// Der laufende Verbindungstest: was bisher geprueft wurde.
+  ///
+  /// Waechst waehrend des Laufs, damit der Nutzer sieht, dass etwas passiert —
+  /// bei einer Zeitgrenze von zwoelf Sekunden je Schritt waere ein Bildschirm,
+  /// der eine halbe Minute nichts tut, nicht von einem haengengebliebenen zu
+  /// unterscheiden.
+  final List<Schritt> testSchritte = [];
+  bool testLaeuft = false;
+
+  Future<void> verbindungPruefen() async {
+    if (testLaeuft) return;
+    testLaeuft = true;
+    testSchritte.clear();
+    notifyListeners();
+
+    final k = core;
+    if (k is! RealMessengerCore) {
+      testLaeuft = false;
+      notifyListeners();
+      return;
+    }
+    try {
+      await Verbindungstest(k.testUmgebung).lauf(beiSchritt: (s) {
+        testSchritte.add(s);
+        notifyListeners();
+      });
+    } finally {
+      testLaeuft = false;
+      notifyListeners();
+    }
+  }
+
+  /// Was zuletzt technisch schiefging — unuebersetzt, zum Weitergeben.
+  ///
+  /// WARUM DAS GEBRAUCHT WIRD: die uebersetzten Meldungen fassen sehr
+  /// verschiedene Ursachen zu einem Satz zusammen. "That did not go through"
+  /// steht sowohl fuer einen Verbindungsabbruch als auch fuer einen Fehler
+  /// beim Lesen der Datei. Der Nutzer soll den einen Satz sehen; wer den
+  /// Fehler beheben will, braucht den Rest. Er steht im Verbindungstest.
+  ///
+  /// NUR DIE ART UND DIE MELDUNG, keine Kennungen, keine Adressen, keine
+  /// Dateinamen: der Bildschirm wird abfotografiert und weitergeschickt.
+  String? letzteTechnischeMeldung;
+
+  void _merkeTechnisch(Object e) {
+    final art = e.runtimeType.toString();
+    var text = e.toString();
+    if (text.startsWith('$art: ')) text = text.substring(art.length + 2);
+    if (text.length > 160) text = '${text.substring(0, 160)}…';
+    letzteTechnischeMeldung = '$art — $text';
+  }
 
   /// Bringt einen Fehler in eine Form, die die Oberflaeche uebersetzen kann.
   ///
@@ -969,7 +1039,18 @@ class AppState extends ChangeNotifier {
     if (sauber.isEmpty) return;
     try {
       final m = await core.sendMessage(id, sauber);
-      verlaeufe.putIfAbsent(id, () => []).add(m);
+      // NICHT `.add(...)` AUF DIE LISTE DES KERNS.
+      //
+      // Was in `verlaeufe` liegt, kommt aus `core.history(...)` — und ob das
+      // eine wachsende Liste ist, entscheidet der Kern, nicht diese Stelle.
+      // Gibt er eine unveraendlerliche zurueck (was ein Kern durchaus tun
+      // darf, und die Attrappe tut es), scheitert das Anhaengen mit einem
+      // Fehler, der weder gefangen noch angezeigt wird: die Nachricht ist
+      // gesendet, aber der Verlauf zeigt sie nicht.
+      //
+      // Eine neue Liste zu bauen kostet bei Chatlaengen nichts und macht die
+      // Annahme ueberfluessig.
+      verlaeufe[id] = [...?verlaeufe[id], m];
       notifyListeners();
     } on MessageTooLargeException {
       letzterFehler = 'zuLang';
@@ -1018,6 +1099,78 @@ class AppState extends ChangeNotifier {
     einstellungen = neu;
     await Fenster.screenshotSperre(neu.blockScreenshots);
     notifyListeners();
+  }
+
+  // ══════════════════════════════════════════════════════════ In der Naehe
+
+  /// Null in Tests und ueberall dort, wo es kein Bluetooth gibt.
+  ///
+  /// Nachtraeglich gesetzt statt im Konstruktor verlangt: `flutter test` hat
+  /// keine Plattformkanaele, und ein Pflichtfeld haette jeden Zustandstest an
+  /// Bluetooth gebunden.
+  Nahfunk? funk;
+
+  /// Was das Geraet ueber Bluetooth sagt. Null, solange nicht gefragt wurde.
+  ///
+  /// Wird bei jedem Oeffnen der Einstellungen neu geholt: Bluetooth laesst
+  /// sich ausserhalb der App umschalten, und eine gemerkte Antwort waere
+  /// spaetestens beim zweiten Hinsehen falsch.
+  Funkzustand? funkzustand;
+
+  /// Ob Android die Rechteabfrage dauerhaft dichtgemacht hat.
+  ///
+  /// Getrennt vom Zustand, weil es sich nur durch eine ABFRAGE herausfinden
+  /// laesst — `checkSelfPermission` sagt bloss "fehlt", nicht "fehlt und wird
+  /// nie wieder gefragt". Die Oberflaeche muss den Unterschied kennen, sonst
+  /// bietet sie einen Knopf an, bei dem sichtbar nichts passiert.
+  bool rechteEndgueltigWeg = false;
+
+  Future<void> pruefeFunk() async {
+    final f = funk;
+    if (f == null) return;
+    try {
+      funkzustand = await f.zustand();
+    } on FunkFehler {
+      funkzustand = null;
+    }
+    notifyListeners();
+  }
+
+  /// Fragt die Bluetooth-Rechte ab und aktualisiert den Zustand.
+  ///
+  /// Gibt zurueck, ob es jetzt geht — der Aufrufer schaltet nur dann den
+  /// Schalter um. Einen Schalter umzulegen, dessen Voraussetzung fehlt, waere
+  /// eine Einstellung ohne Wirkung.
+  Future<bool> erlaubeFunk() async {
+    final f = funk;
+    if (f == null) return false;
+    try {
+      final lage = await f.fordereRechte();
+      rechteEndgueltigWeg = lage == Rechtelage.dauerhaftAbgelehnt;
+      await pruefeFunk();
+      return lage == Rechtelage.erteilt;
+    } on FunkFehler {
+      return false;
+    }
+  }
+
+  /// Ob dieser Kontakt einen sieht — und man ihn.
+  Future<void> setzeAnwesenheit(String kontaktId, bool zeigen) async {
+    await core.setContactPresence(kontaktId, zeigen);
+    // Die Liste selbst neu holen statt den einen Eintrag zu ersetzen: sonst
+    // stehen hier zwei Wahrheiten, und beim naechsten Nachladen gewinnt die
+    // aus der Datenbank ohnehin.
+    kontakte = await core.getContacts();
+    notifyListeners();
+  }
+
+  Future<void> oeffneSystemeinstellungen() async {
+    try {
+      await funk?.oeffneEinstellungen();
+    } on FunkFehler {
+      // Kein Grund, irgendetwas anzuhalten: es gibt Geraete ohne diesen
+      // Bildschirm, und der Nutzer findet ihn dann von Hand.
+    }
   }
 
   /// Raeumt Abgelaufenes weg und meldet, ob sich etwas geaendert hat.
