@@ -1,4 +1,7 @@
 import 'dart:async';
+// Nur fuer File in der Weiche unten. dart:io uebersetzt fuer Web mit — die
+// Stellen, die dort nicht gehen, werfen erst beim Aufruf (io_patch.dart).
+import 'dart:io' show File;
 
 import 'package:flutter/foundation.dart'
     show kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
@@ -54,21 +57,44 @@ Future<void> main() async {
 
   // Ein Verzeichnis, das dem Betriebssystem gehoert und nicht in Sicherungen
   // oder in den Dateimanager wandert.
-  final verzeichnis = await getApplicationSupportDirectory();
+  //
+  // IM BROWSER GIBT ES DAS NICHT, und der Versuch war bis zum 30.07.2026 der
+  // Grund, warum die Web-Fassung nur eine weisse Seite war. path_provider hat
+  // keine Web-Umsetzung — path_provider_web steht nicht in pubspec.lock —, und
+  // in Chrome kam an dieser Zeile wortwoertlich:
+  //   MissingPluginException(No implementation found for method
+  //   getApplicationSupportDirectory on channel plugins.flutter.io/path_provider)
+  // Gemessen war zu dem Zeitpunkt: <flutter-view> stand da, aber 0 <canvas>,
+  // kein <flt-scene-host>, `indexedDB.databases()` leer und sqlite3mc.wasm nie
+  // angefragt — main() starb vor dem ersten Bildaufbau.
+  //
+  // Der leere Weg ist im Browser kein Notbehelf, sondern das Richtige: der
+  // Datenbankpfad ist dort nur ein NAME im virtuellen Dateisystem von
+  // package:sqlite3 (siehe Kopf von core/store/sqlite_zugang_web.dart — das
+  // VFS liegt in IndexedDB, nicht auf einer Platte).
+  final String ablageWeg =
+      kIsWeb ? '' : (await getApplicationSupportDirectory()).path;
 
   // Solange kein Faktor eingerichtet ist, liegt die Entropie im
   // Schluesselspeicher des Geraets und die App oeffnet ohne Rueckfrage. Mit
   // dem ersten Faktor wandert sie in ein Schluesselfach und ist ohne ihn nicht
   // mehr zu haben — auch nicht mit Root, auch nicht mit der Datei in der Hand.
   final tresor = VaultSecretStore(
-    datei: vaultDateiIn(verzeichnis.path),
+    // File() direkt und NICHT vaultDateiIn() im Browser: das setzt den Pfad mit
+    // `Platform.pathSeparator` zusammen (vault_store.dart:301), und der ist auf
+    // Web ein UnsupportedError("Platform._pathSeparator") — nachgelesen am
+    // 30.07.2026 in dart-sdk/lib/_internal/js_runtime/lib/io_patch.dart:242.
+    // Der reine Name wirft nicht; erst LESEN oder SCHREIBEN wuerde es (dieselbe
+    // Datei, Zeile 115: File._exists). Der Browser kommt also so weit wie ohne
+    // Fachdatei, nicht weiter.
+    datei: kIsWeb ? File(vaultDateiname) : vaultDateiIn(ablageWeg),
     basis: DeviceSecretStore(),
     jetzt: () => DateTime.now().millisecondsSinceEpoch,
   );
 
   final core = RealMessengerCore(
     secretStore: tresor,
-    databasePath: '${verzeichnis.path}/bitdm.db',
+    databasePath: kIsWeb ? 'bitdm.db' : '$ablageWeg/bitdm.db',
     relayUri: Uri.parse(relayBasis),
   );
 
@@ -84,11 +110,15 @@ Future<void> main() async {
     stickZugang: (weg) => stickOeffner(weg)(),
     // Die Fachschluessel liegen neben der Fachdatei, verschluesselt mit
     // einem Schluessel aus dem gesicherten Bereich des Geraets.
+    //
+    // Im Browser bleibt der Weg leer und dieser Rueckruf ungenutzt: er gilt nur
+    // fuer Geraetesperre und Biometrie, und [_faktorGehtHier] laesst dort nur
+    // 'pw' durch — beide Faktoren sind an [_nurAufAndroid] gebunden.
     ablagen: (art) => GeraeteFach(
       art == UnlockFactorKind.deviceCredential
           ? GeraeteArt.geraetesperre
           : GeraeteArt.biometrie,
-      verzeichnis: verzeichnis.path,
+      verzeichnis: ablageWeg,
     ),
   )
     ..empfangsDienst = EmpfangsDienst()
@@ -96,7 +126,17 @@ Future<void> main() async {
     // verlangt, weil sie in Tests fehlt: `flutter test` hat keine
     // Plattformkanaele, und ein Pflichtfeld haette jeden Zustandstest an
     // Bluetooth gebunden.
-    ..funk = (Nahfunk()..horcheAuf());
+    //
+    // IM BROWSER GAR NICHT: `horcheAuf()` legt sich auf den EventChannel
+    // bitdm/nahfunk_ereignisse, und den gibt es dort nicht. Gemessen am
+    // 30.07.2026 in Chrome, wortwoertlich in der Konsole bei jedem Start:
+    // "MissingPluginException(No implementation found for method listen on
+    // channel bitdm/nahfunk_ereignisse)". Toedlich war das nicht — der Wurf
+    // kommt aus einem unbeobachteten Future und die App baute trotzdem auf —,
+    // aber nachbaubar ist Nahfunk im Browser eben auch nicht: Web Bluetooth
+    // kennt kein Werben und kein Lauschen. `funk` bleibt also null, und alle
+    // Aufrufer pruefen darauf (app_state.dart:1129, 1145, 1169).
+    ..funk = kIsWeb ? null : (Nahfunk()..horcheAuf());
 
   // Die Rueckrufe des Verteilers MUESSEN bei jedem Start stehen, nicht erst
   // wenn der Nutzer etwas einstellt: ein Anstoss kann kommen, bevor er die App
