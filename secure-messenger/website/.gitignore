@@ -1,0 +1,14 @@
+# Die auslieferbaren Binaerdateien liegen in diesem Verzeichnis, WEIL die Seite
+# sie ausliefert: bitdm.net/bitdm-1.5.1.apk und bitdm.net/bitdm-windows-1.5.1.zip
+# sind genau diese Dateien. Ins Repo gehoeren sie trotzdem nicht.
+#
+# Die APK war schon draussen — `*.apk` steht in der .gitignore der Wurzel
+# (Zeile 36, geprueft mit `git check-ignore -v website/bitdm-1.5.1.apk`).
+# Das Windows-Zip war es NICHT: `git check-ignore -v
+# website/bitdm-windows-1.5.1.zip` gab am 30.07.2026 keine Zeile zurueck, das
+# Zip waere also beim naechsten `git add -A` mit 15 419 797 Byte in die
+# Geschichte gewandert und daraus nie wieder herausgekommen. Darum diese Datei.
+#
+# Ausgeliefert wird ohnehin nicht ueber git — sonst waere die APK auf bitdm.net
+# nicht erreichbar, obwohl sie seit Langem ignoriert ist.
+*.zip

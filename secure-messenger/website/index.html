@@ -250,8 +250,11 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 .lamp.on{background:var(--lit); box-shadow:0 0 10px rgba(181,171,252,.75)}
 .slot p{margin:0; font-size:13.5px; line-height:1.6; color:var(--muted)}
 .slot .act{margin-top:auto}
-/* Der Download ist der einzige echte Knopf hier und traegt zwei 64-Zeichen-
-   Hashes. In einer Spalte streckt er die Platzhalter daneben ins Leere. */
+/* Die beiden echten Downloads — Android und Windows — tragen Prueftexte von
+   64 Zeichen. In einer Spalte streckt so ein Kasten die Platzhalter daneben
+   ins Leere, darum laeuft er ueber die ganze Breite.
+   BIS ZUM 30.07.2026 STAND HIER "der einzige echte Knopf": es gab nur die APK.
+   Seit dem Windows-Bau sind es zwei, und beide Kaesten tragen .slot-breit. */
 .slot-breit{grid-column:1/-1}
 .slot-breit .act{margin-top:0}
 @media(min-width:720px){.pruef{display:grid; grid-template-columns:1fr 1fr;
@@ -545,11 +548,19 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   <!-- ═══════════ Bedienleiste ═══════════ -->
   <section class="wrap rail" aria-label="App beziehen" data-en-aria-label="Get the app">
 
+    <!-- WAS DIE LAMPE IN DIESER LEISTE BEDEUTET: es gibt jetzt eine Datei, die
+         man laden kann. Sie brennt bei Android und bei Windows und bleibt bei
+         Google Play, F-Droid, Linux, macOS und der Web-App dunkel. ("Bescheid
+         bekommen" brennt weiter, das Formular tut ja etwas.)
+         VORHER WAR SIE HIER DUNKEL, und mit dem Windows-Kasten daneben waere
+         daraus eine Aussage geworden, die nicht stimmt: die APK liegt genauso
+         bereit und ist die aeltere der beiden. Wer eine neue Zeile ergaenzt,
+         entscheidet an dieser Regel und nicht nach Gefuehl. -->
     <div class="slot slot-breit">
       <div class="slot-head">
-        <span class="lamp" aria-hidden="true"></span>
-        <span class="screen de">Direkter Download</span>
-        <span class="screen en">Direct download</span>
+        <span class="lamp on" aria-hidden="true"></span>
+        <span class="screen screen-lit de">Android — direkter Download</span>
+        <span class="screen screen-lit en">Android — direct download</span>
       </div>
       <p class="de">Version 1.5.1, 66 MB, für arm64 und arm32. Android wird beim
         Installieren warnen — es warnt bei jeder App, deren Zertifikat Google
@@ -624,6 +635,178 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
     </div>
 
+    <!-- WINDOWS. Der zweite Kasten mit einem echten Knopf, darum .slot-breit.
+         GEMESSEN AM 30.07.2026, damit spaeter niemand raten muss:
+           Datei    releases/bitdm-windows-1.5.1.zip, 15 419 797 Byte
+                    (`stat -c%s`) = 14,7 MiB, hier als "15 MB" wie die APK
+                    daneben, die mit 69 097 776 Byte als "66 MB" steht.
+           Entpackt 37 026 435 Byte ueber 27 Eintraege, gemessen mit
+                    System.IO.Compression.ZipFile ueber Entries.Length.
+           sha256   08299da6… aus `sha256sum releases/bitdm-windows-1.5.1.zip`.
+         WICHTIG BEIM NEU BAUEN: der Wert gilt fuer GENAU diese Datei. Das Zip
+         entstand um 02:26; im Bauverzeichnis lag um 14:15 schon ein neuerer
+         Stand (app.so 8 061 840 statt 8 258 448 Byte). Wer ein neues Zip
+         hierher legt, MUSS den Wert oben neu messen — sonst behauptet die
+         Seite eine Pruefsumme, die nicht zur Datei gehoert, und das ist genau
+         der Fehler, den dieser Kasten verhindern soll. -->
+    <div class="slot slot-breit">
+      <div class="slot-head">
+        <span class="lamp on" aria-hidden="true"></span>
+        <span class="screen screen-lit de">Windows</span>
+        <span class="screen screen-lit en">Windows</span>
+      </div>
+      <p class="de">Version 1.5.1 für x64, ein Zip mit 15 MB, entpackt 35 MB.
+        Einen Installer gibt es nicht: entpacken, <code>bitdm.exe</code> starten,
+        fertig. Das Skript für einen richtigen Installer liegt im Quellcode unter
+        <code>windows/bitdm.iss</code>, ausgeführt hat es noch niemand.</p>
+      <p class="en">Version 1.5.1 for x64, a 15 MB zip, 35 MB unpacked. There is
+        no installer: unpack it, start <code>bitdm.exe</code>, done. The script
+        for a proper installer sits in the source at
+        <code>windows/bitdm.iss</code>, but nobody has run it yet.</p>
+      <p class="de">Windows wird beim Start warnen, und zwar aus demselben Grund
+        wie Android bei der APK: die Datei ist nicht signiert. Ein
+        Authenticode-Zertifikat kostet jährlich Geld, und der Android-Schlüssel
+        taugt dafür nicht. SmartScreen prüft ohnehin nicht den Inhalt, sondern
+        wie bekannt eine Signatur ist. Den Inhalt prüft der Wert darunter.</p>
+      <p class="en">Windows will warn you when you start it, for the same reason
+        Android warns about the APK: the file is not signed. An Authenticode
+        certificate costs money every year, and the Android key is no substitute.
+        SmartScreen does not check the contents anyway, it checks how well known
+        a signature is. The contents are what the value below covers.</p>
+
+      <div class="act">
+        <a class="btn btn-primary" href="bitdm-windows-1.5.1.zip" download>
+          <span class="de">Zip herunterladen</span><span class="en">Download zip</span>
+        </a>
+      </div>
+
+      <dl class="pruef">
+        <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
+        <dd><code>08299da651e3d39e83c8c368727a9043795acd2174f6900be312527ff5187782</code>
+          — <code>certutil -hashfile bitdm-windows-1.5.1.zip SHA256</code></dd>
+      </dl>
+
+      <p class="hint">
+        <span class="de">Hier steht ein Wert und nicht zwei: der gilt nur für
+          diese eine Datei. Einen zweiten, der über alle künftigen Versionen
+          gleich bleibt, gibt es unter Windows erst mit einer Signatur — auf
+          Android leistet das der Schlüssel im Kasten oben. Was auf dem Desktop
+          anders läuft als am Telefon, steht <a href="#desktop">weiter
+          unten</a>.</span>
+        <span class="en">One value here, not two: it covers this one file only.
+          A second one that stays the same across future versions needs a
+          signature on Windows — on Android the signing key above does that job.
+          What behaves differently on the desktop is spelled out
+          <a href="#desktop">further down</a>.</span>
+      </p>
+    </div>
+
+    <!-- LINUX. Kein Paket, und der Kasten sagt genau das.
+         GEMESSEN AM 30.07.2026: app/linux/ ist vorhanden, app/build/linux/
+         nicht (`ls app/build/linux/` -> "No such file or directory"). Es ist
+         also nie ein Bau gelaufen.
+         DER LINK AUF DIE ANLEITUNG FEHLT ABSICHTLICH, UND ZWAR HEUTE NOCH.
+         secure-messenger/docs/LINUX.md ist waehrend dieser Arbeit entstanden
+         (die Datei war um 14:10 noch nicht da, um 14:40 schon) — aber
+         `git status --short docs/LINUX.md` sagt "?? docs/LINUX.md" und
+         `git log -- docs/LINUX.md` ist leer: die Datei ist NICHT eingecheckt und
+         steht damit auch nicht auf GitHub. Ein Link darauf waere heute ein 404,
+         und ein toter Link ist auf dieser Seite schlimmer als kein Link.
+         SOBALD SIE GEPUSHT IST, hier eintragen — die Adresse steht fertig da:
+         https://github.com/Henner4746/BitDM/blob/main/secure-messenger/docs/LINUX.md
+         Inhaltlich passt der Kasten schon zu ihr: LINUX.md sagt in der eigenen
+         Ueberschrift "es ist nie ein Linux-Bau gelaufen" und nennt GTK 3 und
+         libsecret als die Systemteile, die ueber Flutter hinausgehen. -->
+
+    <div class="slot">
+      <div class="slot-head">
+        <span class="lamp" aria-hidden="true"></span>
+        <span class="screen de">Linux</span>
+        <span class="screen en">Linux</span>
+      </div>
+      <p class="de">Der Linux-Teil ist im Quellcode enthalten, gebaut wurde er
+        hier aber noch nie — es gibt kein Verzeichnis <code>build/linux</code>
+        und darum auch nichts zum Herunterladen. Selbst bauen geht:
+        <code>flutter build linux --release</code>, dazu die
+        Entwicklungspakete von GTK 3 und libsecret. Gestartet hat das Ergebnis
+        niemand, die Angaben zu Windows gelten dafür also nicht. Die
+        Schritt-für-Schritt-Anleitung samt Paketnamen je Distribution liegt im
+        Quellcode unter <code>docs/LINUX.md</code>.</p>
+      <p class="en">The Linux part is in the source, but it has never been built
+        here — there is no <code>build/linux</code> directory and therefore
+        nothing to download. Building it yourself works:
+        <code>flutter build linux --release</code>, plus the development
+        packages for GTK 3 and libsecret. Nobody has launched the result, so
+        what is said about Windows does not carry over. The step-by-step guide
+        with package names per distribution is in the source at
+        <code>docs/LINUX.md</code>.</p>
+      <div class="act">
+        <span class="btn" aria-disabled="true">
+          <span class="de">Kein Paket</span><span class="en">No package</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-head">
+        <span class="lamp" aria-hidden="true"></span>
+        <span class="screen de">macOS</span>
+        <span class="screen en">macOS</span>
+      </div>
+      <p class="de">Im Quellcode gibt es kein <code>macos</code>-Verzeichnis.
+        Flutter würde eines anlegen, angelegt hat es niemand: nicht gebaut, nicht
+        gestartet, nicht geprüft. Zum Prüfen fehlt in diesem Projekt ein Mac, und
+        ohne Gerät zum Nachsehen wäre jede Angabe dazu geraten.</p>
+      <p class="en">There is no <code>macos</code> directory in the source.
+        Flutter would create one, but nobody has: not built, not launched, not
+        checked. This project has no Mac to check it on, and without a device to
+        look at, any statement about it would be guesswork.</p>
+      <div class="act">
+        <span class="btn" aria-disabled="true">
+          <span class="de">Nicht gebaut</span><span class="en">Not built</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- WEB-APP: KEIN LINK, UND DAS IST DER PUNKT.
+         Der Uebersetzer endet mit 0, im Browser steht die Seite trotzdem weiss.
+         Ein Link darauf waere das Schlimmste, was diese Seite tun kann.
+         WAS HIER ABSICHTLICH NICHT STEHT — am 30.07.2026 selbst nachgesehen,
+         weil parallel daran gearbeitet wird und zwei aeltere Gruende inzwischen
+         WEG sind:
+           * "sqlite3mc.wasm fehlt" waere falsch: `find app/web -name "*.wasm"`
+             findet die Datei (784 171 Byte, 14:02 Uhr).
+           * "path_provider bricht ab" waere falsch: lib/main.dart:76 steht jetzt
+             `kIsWeb ? '' : (await getApplicationSupportDirectory()).path`.
+         Was noch steht und darum im Text genannt wird: lib/core/net/relay_client.dart
+         benutzt dart:io — `WebSocket.connect` in Zeile 197 und `HttpClient()` in
+         Zeile 522 —, und die acht Plattformkanaele (`grep -rno "bitdm/[a-z_]*"
+         app/lib` -> bitdm/dateien, empfang, fenster, krypto, nahfunk,
+         nahfunk_ereignisse, schluesselfach, usb_hid) haben im Browser keine
+         Gegenseite. Der Text bleibt bewusst knapp: je genauer die Liste, desto
+         schneller ist sie ueberholt. -->
+    <div class="slot">
+      <div class="slot-head">
+        <span class="lamp" aria-hidden="true"></span>
+        <span class="screen de">Web-App</span>
+        <span class="screen en">Web app</span>
+      </div>
+      <p class="de">In Arbeit. Der Bau läuft durch, im Browser bleibt die Seite
+        aber weiß — der Netzcode der App steckt auf <code>dart:io</code>, das es
+        im Browser nicht gibt, und die Kanäle zum Betriebssystem haben dort keine
+        Gegenseite. Ein Link kommt hierher, sobald die Seite etwas anzeigt; bis
+        dahin führte er auf ein weißes Feld.</p>
+      <p class="en">In progress. The build completes, but in the browser the page
+        stays blank — the app's networking sits on <code>dart:io</code>, which
+        browsers do not have, and the channels to the operating system have no
+        counterpart there. A link will appear here as soon as the page shows
+        something; until then it would lead to a blank panel.</p>
+      <div class="act">
+        <span class="btn" aria-disabled="true">
+          <span class="de">Läuft noch nicht</span><span class="en">Not running yet</span>
+        </span>
+      </div>
+    </div>
 
     <div class="slot">
       <div class="slot-head">
@@ -660,11 +843,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </h2>
       <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Inhalt. Sie schützt
         nicht, <em>dass</em> du geschrieben hast. Wer das verschweigt, verkauft
-        Sicherheit, statt sie zu liefern. Deshalb steht es hier und nicht im
+        Sicherheit, statt sie zu liefern — deshalb steht es hier und nicht im
         Kleingedruckten.</p>
       <p class="en">End-to-end encryption protects the content. It does not
         protect the fact <em>that</em> you wrote. Hiding that means selling
-        security instead of delivering it. So it stands here, not in the fine print.</p>
+        security instead of delivering it, so it stands here rather than in the
+        fine print.</p>
     </div>
 
     <div class="split">
@@ -862,10 +1046,9 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </h2>
       <p class="de">Ohne Konto gibt es niemanden, der dich zurücklassen könnte.
         Deshalb bekommst du beim ersten Start zwölf Wörter. Sie sind der einzige
-        Weg zurück. Einen zweiten gibt es nicht, auch nicht für uns.</p>
+        Weg zurück; einen zweiten haben auch wir nicht.</p>
       <p class="en">Without an account, there is nobody who could let you back
-        in. So on first launch you get twelve words. They are the only way back.
-        There is no second one, not even for us.</p>
+        in. So on first launch you get twelve words. They are the only way back; we do not have a second one either.</p>
     </div>
     <div class="words" aria-label="Beispiel einer Wiederherstellungsphrase" data-en-aria-label="Example of a recovery phrase">
       <div class="word"><i>01</i><span>village</span></div>
@@ -1044,6 +1227,90 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </div>
   </section>
 
+  <!-- ═══════════ Desktop ═══════════
+       STEHT VOR "GRENZEN" UND NICHT DANACH: das Typenschild darunter gilt fuer
+       alle Plattformen, dieser Abschnitt fuer eine. Erst der Sonderfall, dann
+       die Liste, die immer gilt.
+       ALLE ZEILEN AM 30.07.2026 IM QUELLCODE NACHGESEHEN, Fundstellen je Zeile
+       im Kommentar ueber der Liste. -->
+  <section class="wrap mod" id="desktop">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Desktop</span>
+      <span class="screen screen-lit en">Module — desktop</span>
+      <h2>
+        <span class="de">Am PC fehlen drei Dinge</span>
+        <span class="en">Three things are missing on the PC</span>
+      </h2>
+      <p class="de">Ein Teil von BitDM steckt vollständig in Android-Code und hat
+        auf Windows keine Gegenseite: der Nahbereich über Bluetooth, der
+        Weckdienst für Push und jede Sperre außer dem App-Passwort. Am PC werden
+        sie deshalb gar nicht erst angeboten. Das ist eine Entscheidung und keine
+        halbe Arbeit — lieber etwas weglassen, als es anbieten und daran
+        scheitern.</p>
+      <p class="en">Part of BitDM lives entirely in Android code and has no
+        counterpart on Windows: the nearby exchange over Bluetooth, the push
+        wake-up, and every lock factor except the app password. On the PC they
+        are not offered at all. That is a decision rather than unfinished work —
+        better to leave something out than to offer it and fail at it.</p>
+    </div>
+
+    <p>
+      <span class="de">Wie es aussieht, wenn man es anders macht, stand am
+        30. Juli 2026 kurz auf dem Bildschirm: der erste Windows-Bau bot vier
+        Sperren an, von denen drei nicht funktionieren konnten. Ein Druck darauf
+        endete in einer Fehlermeldung des Systems, und eine davon erklärte auf
+        einem Schreibtisch-PC ernsthaft <em>„the PIN, pattern or password of this
+        phone“</em>. Eine Liste, in der die Hälfte der Einträge nichts tut, lässt
+        an der anderen Hälfte genauso zweifeln.</span>
+      <span class="en">What the other approach looks like was briefly on screen
+        on 30 July 2026: the first Windows build offered four locks, three of
+        which could not work. Pressing them ended in a system error, and one of
+        them seriously explained <em>“the PIN, pattern or password of this
+        phone”</em> on a desktop computer. A list where half the entries do
+        nothing makes a reader doubt the other half just as much.</span>
+    </p>
+
+    <!-- Fundstellen zu den Zeilen, in der Reihenfolge der Liste:
+         1 Nachrichten     — dart:io-Netz, laeuft am PC: core/net/relay_client.dart
+         2 Datenbank       — sqlite3mc.dll liegt im Windows-Bau (2 129 920 Byte)
+         3 App-Passwort    — main.dart:2680 `k == 'pw' || _nurAufAndroid`
+         4 Drei Sperren    — dieselbe Zeile, plus Kanal bitdm/schluesselfach
+                             (core/lock/geraete_fach.dart:82) und bitdm/usb_hid
+                             (core/fido/usb_hid_geraet.dart:39)
+         5 Push            — main.dart:3791, Takt '-2' nur wenn _nurAufAndroid
+         6 Nahbereich      — main.dart:3837 `if (_nurAufAndroid)`, Kanal
+                             bitdm/nahfunk (core/nah/funk.dart:166)
+         7 QR scannen      — main.dart:2888, Knopf nur wenn _nurAufAndroid
+         8 Anhaenge        — Kanal bitdm/dateien (core/dateien.dart:103). Der
+                             Knopf in main.dart:3359 ist NICHT abgeschaltet, und
+                             `waehlen()` faengt die MissingPluginException in
+                             core/dateien.dart:121 ab und gibt null zurueck: am
+                             PC oeffnet sich also nichts. Das gehoert genannt,
+                             solange es so ist. -->
+    <ul class="sees">
+      <li class="yes"><span class="what de">Schreiben, empfangen, Verlauf</span><span class="what en">Writing, receiving, history</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
+      <li class="yes"><span class="what de">Verschlüsselte Datenbank auf der Platte</span><span class="what en">Encrypted database on disk</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
+      <li class="yes"><span class="what de">App-Passwort als Sperre</span><span class="what en">App password as a lock</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
+      <li class="no"><span class="what de">Fingerabdruck, Gerätesperre, Sicherheitsschlüssel</span><span class="what en">Fingerprint, device lock, security key</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+      <li class="no"><span class="what de">Push als Weckdienst</span><span class="what en">Push as a wake-up service</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+      <li class="no"><span class="what de">Nahbereich über Bluetooth</span><span class="what en">Nearby exchange over Bluetooth</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+      <li class="no"><span class="what de">Einen QR-Code scannen</span><span class="what en">Scanning a QR code</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+      <li class="no"><span class="what de">Anhänge aussuchen und öffnen</span><span class="what en">Choosing and opening attachments</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+    </ul>
+
+    <p class="hint">
+      <span class="de">Ohne Push bleibt am PC die Verbindung offen, solange die
+        App läuft — ein Weckdienst von außen wird dort nicht gebraucht. Beim
+        Anhang ist die Lage unschöner: der Knopf ist noch zu sehen, und am PC
+        öffnet sich beim Druck darauf kein Auswahlfenster. Solange das so ist,
+        steht es hier.</span>
+      <span class="en">Without push, the connection on the PC stays open as long
+        as the app runs, so no external wake-up is needed there. Attachments are
+        the uglier case: the button is still visible, and on the PC pressing it
+        opens no file dialog. As long as that is true, it is stated here.</span>
+    </p>
+  </section>
+
   <!-- ═══════════ Grenzen ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
@@ -1061,8 +1328,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     <dl class="plate">
       <div class="plate-row">
         <dt><span class="de">Metadaten</span><span class="en">Metadata</span></dt>
-        <dd><span class="de">Der Relay sieht, wer wann mit wem schreibt. Verschlüsselung ändert daran nichts.</span>
-            <span class="en">The relay sees who writes to whom and when. Encryption does not change that.</span></dd>
+        <dd><span class="de">Der Relay sieht, wer wann mit wem schreibt; daran ändert die Verschlüsselung nichts.</span>
+            <span class="en">The relay sees who writes to whom and when, and encryption does not change that.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Geräte</span><span class="en">Devices</span></dt>
@@ -1071,8 +1338,18 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Umfang</span><span class="en">Scope</span></dt>
-        <dd><span class="de">Einzelchats mit Text und Anhängen bis 3 GB. Keine Gruppen, keine Anrufe.</span>
-            <span class="en">One-to-one chats with text and attachments up to 3 GB. No groups, no calls.</span></dd>
+        <!-- HIER STANDEN 3 GB, und das widersprach der eigenen Seite: der
+             Kasten "5 GB" unter Nachprüfbarkeit und der Anhang-Abschnitt sagten
+             etwas anderes. Am 30.07.2026 an den beiden Stellen gemessen, die
+             die Grenze durchsetzen: app/lib/core/anhang/anhang_versand.dart:126
+             `hoechstGroesse = 5 * 1024 * 1024 * 1024` und server/blob_server.py:84
+             `MAX_BYTES = int(os.getenv("BITDM_BLOB_MAX", str(5 * 1024**3)))`.
+             Es sind 5 GB. (Das geschützte Leerzeichen vor "GB" ist dabei mit
+             weggefallen — es war die einzige Stelle der Datei mit einem, und ein
+             unsichtbares Zeichen, das nur an einer Stelle steht, kostet beim
+             nächsten Nachmessen mehr, als es an Umbruch spart.) -->
+        <dd><span class="de">Einzelchats mit Text und Anhängen bis 5 GB. Keine Gruppen, keine Anrufe.</span>
+            <span class="en">One-to-one chats with text and attachments up to 5 GB. No groups, no calls.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
@@ -1081,8 +1358,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Prüfung</span><span class="en">Audit</span></dt>
-        <dd><span class="de">Kein externes Sicherheitsaudit. Der Quellcode liegt offen. Das ersetzt kein Audit, macht eines aber möglich.</span>
-            <span class="en">No external security audit. The source is open. That does not replace an audit, but it makes one possible.</span></dd>
+        <dd><span class="de">Kein externes Sicherheitsaudit. Der Quellcode liegt offen und macht ein Audit möglich, ersetzt aber keines.</span>
+            <span class="en">No external security audit. The source is open, which makes an audit possible without replacing one.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Reife</span><span class="en">Maturity</span></dt>
@@ -1130,8 +1407,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="fact">
         <span class="num">0</span>
-        <p class="de">Anfragen an Dritte. Die App lädt weder Schriften noch Zählpixel nach. Diese Seite auch nicht.</p>
-        <p class="en">Third-party requests. The app loads neither fonts nor trackers, and neither does this page.</p>
+        <p class="de">Anfragen an Dritte. Die App lädt weder Schriften noch Zählpixel nach, und diese Seite ebenso wenig.</p>
+        <p class="en">Third-party requests. The app loads neither fonts nor trackers, and the same holds for this page.</p>
       </div>
       <div class="fact">
         <span class="num">256</span>
@@ -1168,7 +1445,13 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="de">Impressum</span><span class="en">Imprint</span></a>
     </div>
     <div class="foot-col">
-      <span class="screen de">Kontakt</span><span class="en">Contact</span>
+      <!-- `screen` MUSS an beiden stehen. Am englischen fehlte es, und
+           `.foot-col .screen{display:block}` griff darum nur auf Deutsch: die
+           Spaltenueberschrift "Contact" stand inline und ohne den Abstand
+           darunter, den "Projekt" und "Rechtliches" haben. Aufgefallen beim
+           Abzaehlen der Sprachbloecke am 30.07.2026 — 16 `screen de` gegen 15
+           `screen en`. -->
+      <span class="screen de">Kontakt</span><span class="screen en">Contact</span>
       <!-- email_off / Cloudflare: OHNE diese Klammer ersetzt Cloudflares
            "Email Address Obfuscation" (Scrape Shield) den Text durch
            "[email geschuetzt]" und den Link durch einen eigenen /cdn-cgi/-Pfad.
@@ -1406,8 +1689,19 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   /* ── Das Zaehlwerk für die ganze Seite ────────────────────────────────
 
      Beim Sprachwechsel rattert nicht nur die Adresse, sondern jeder Text,
-     der gerade zu sehen ist. 134 Blöcke je Sprache — genug, dass die Seite
+     der gerade zu sehen ist. 184 Blöcke je Sprache — genug, dass die Seite
      einmal komplett durchlaeuft, und wenig genug, dass es kurz bleibt.
+
+     DIE ZAHL WAR STEHENGEBLIEBEN. Hier stand dreimal 134; das galt fuer eine
+     kuerzere Fassung der Seite. Am 30.07.2026 nachgezaehlt mit
+       grep -o 'class="[^"]*\bde\b[^"]*"' index.html | wc -l
+     und dasselbe fuer `en`: 184 gegen 184, aufgeteilt in 122 blanke, 19
+     `screen`, 14 `screen screen-lit`, 14 `what`, 14 `verdict` und 1
+     `mark-rev` je Sprache. VOR den Desktop-Kaesten waren es 148 — die Zahl
+     hatte also schon zwei Ausbauten verpasst. Wer hier wieder Bloecke
+     hinzufuegt, zaehlt mit demselben Befehl nach; er trifft genau das, was
+     der Selektor unten einsammelt (`.de` bzw. `.en`, ohne Ansehen der
+     weiteren Klassen).
 
      ═══════════════════════════════════════════════ VIER ENTSCHEIDUNGEN
 
@@ -1425,9 +1719,9 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
 
      NUR WAS IM BILD IST. Wer unten auf der Seite steht, sieht nichts davon,
      dass oben etwas rattert — es kostet nur Rechenzeit. Ein einziger
-     Sichtbarkeitstest je Knoten spart bei 134 Blöcken das meiste davon.
+     Sichtbarkeitstest je Knoten spart bei 184 Blöcken das meiste davon.
 
-     EIN EINZIGER rAF FUER ALLES. 134 eigene Schleifen waeren 134 Aufrufe je
+     EIN EINZIGER rAF FUER ALLES. 184 eigene Schleifen waeren 184 Aufrufe je
      Bild; so ist es einer, der eine Liste abarbeitet.
 
      JEDER TEXT BEKOMMT SEINEN EIGENEN VERSATZ. Ein fester hätte einen langen
