@@ -4,7 +4,16 @@
          waeren dort dauerhaft im Manifest, nur um einmal etwas zu messen. -->
 
     <!-- Ab Android 12 -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
+    <!-- neverForLocation IST HIER NICHT KOSMETIK.
+         Ohne dieses Flag haelt Android eine BLE-Suche fuer eine Art, den
+         Standort zu bestimmen. Die App braucht dann ZUSAETZLICH
+         ACCESS_FINE_LOCATION, sonst werden die Treffer stillschweigend
+         verworfen: die Suche laeuft, onScanResult wird nie gerufen, und es
+         gibt weder Fehler noch Hinweis.
+         Am 26.07.2026 auf zwei Telefonen mit Android 16 genau so beobachtet —
+         beide sendeten aus, beide suchten, keiner fand den anderen. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"/>
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
 

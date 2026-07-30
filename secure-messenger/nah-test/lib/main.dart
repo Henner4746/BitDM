@@ -169,6 +169,51 @@ class _TestSeiteState extends State<TestSeite> {
                 onPressed: () => _ruf('wlanZustand'),
                 child: const Text('WLAN pruefen'),
               ),
+
+              // ── Zweite Runde ──────────────────────────────────────────
+              // Die drei Fragen, die der erste Durchgang offengelassen hat.
+              // Sie stehen hier unten, weil sie einzeln gefahren werden und
+              // nicht zum Ablauf 1a/1b/2/3 gehoeren.
+              FilledButton.tonal(
+                onPressed: () => _ruf('faehigkeiten'),
+                child: const Text('4  Faehigkeiten'),
+              ),
+              FilledButton.tonal(
+                onPressed: () => _ruf('packWerben', {'anzahl': 20}),
+                child: const Text('5a  20 Leuchtfeuer senden'),
+              ),
+              FilledButton.tonal(
+                onPressed: () => _ruf('packSuchen', {'allePhy': true}),
+                child: const Text('5b  gepackt suchen'),
+              ),
+              FilledButton.tonal(
+                onPressed: () => _ruf('packSuchen', {'allePhy': false}),
+                child: const Text('5g  suchen, nur 1M'),
+              ),
+              // Zum Auseinanderhalten: liegt die Auffindezeit an der
+              // ERWEITERTEN Werbung oder an der GROESSE des Pakets?
+              FilledButton.tonal(
+                onPressed: () =>
+                    _ruf('packWerben', {'anzahl': 3, 'alteArt': true}),
+                child: const Text('5c  3 Stueck, alte Art'),
+              ),
+              FilledButton.tonal(
+                onPressed: () =>
+                    _ruf('packWerben', {'anzahl': 4, 'alteArt': false}),
+                child: const Text('5d  4 Stueck, erweitert'),
+              ),
+              FilledButton.tonal(
+                onPressed: () => _ruf('packGrenze'),
+                child: const Text('5f  Grenze suchen'),
+              ),
+              FilledButton.tonal(
+                onPressed: () => _ruf('gattServer'),
+                child: const Text('6a  GATT annehmen'),
+              ),
+              FilledButton(
+                onPressed: () => _ruf('gattSenden'),
+                child: const Text('6b  700 Byte schicken'),
+              ),
               OutlinedButton(
                 onPressed: () => _ruf('stopp'),
                 child: const Text('Alles stoppen'),

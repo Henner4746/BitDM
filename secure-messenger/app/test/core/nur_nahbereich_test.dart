@@ -14,6 +14,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:bitdm/core/anhang/rezept.dart';
 import 'package:bitdm/core/messenger_core.dart';
 import 'package:bitdm/core/crypto/signal_identity.dart';
 import 'package:bitdm/core/net/relay_protocol.dart';
@@ -108,10 +109,54 @@ Future<String> fremdeAdresse() async {
   return adresse;
 }
 
+/// Ein angekuendigter Anhang, wie ihn der Empfangsweg hinterlaesst.
+///
+/// UEBER DIE ABLAGE UND NICHT UEBER EINE ECHTE ANKUENDIGUNG: die braeuchte eine
+/// Signal-Sitzung mit einer Gegenstelle, und geprueft werden soll hier nicht
+/// der Weg dorthin, sondern was `holeAnhang` daraus macht. Die Anleitung ist
+/// echt — sonst faellt der Test schon am Format durch und prueft die Pruefung
+/// gar nicht mehr.
+void legeAngekuendigtenAnhangAn(RealMessengerCore kern, String von,
+    {AnhangZustand zustand = AnhangZustand.angekuendigt}) {
+  final rezept = Rezept(
+    name: 'urlaub.zip',
+    gesamtGroesse: 100,
+    pruefsumme: Uint8List(32),
+    stuecke: [
+      Stueck(
+        kennung: 'a' * 52,
+        schluessel: Uint8List(32),
+        nonce: Uint8List(12),
+        klarGroesse: 100,
+      )
+    ],
+  );
+  kern.ablageFuerTest.speichereEigene(
+    Message(
+      id: 'anhang-1',
+      chatId: von,
+      senderId: von,
+      text: 'urlaub.zip',
+      kind: MessageKind.anhang,
+      isMine: false,
+      timestamp: DateTime.now().toUtc(),
+    ),
+    anhang: AnhangEintrag(
+      messageId: 'anhang-1',
+      chatId: von,
+      senderId: von,
+      name: 'urlaub.zip',
+      groesse: 100,
+      zustand: zustand,
+      pfad: zustand == AnhangZustand.da ? 'C:/nirgends/urlaub.zip' : null,
+    ),
+    rezept: rezept.alsText(),
+  );
+}
+
 void main() {
   late Directory ordner;
   late RealMessengerCore kern;
-  late BuchfuehrenderRelay relay;
 
   /// Wie oft ueberhaupt ein Relay-Client entstanden ist.
   ///
@@ -129,7 +174,7 @@ void main() {
       relayUri: Uri.parse('http://127.0.0.1:1'),
       relayFactory: (uri, id) {
         gebaut++;
-        return relay = BuchfuehrenderRelay(id);
+        return BuchfuehrenderRelay(id);
       },
     );
     await kern.initialize();
@@ -261,6 +306,50 @@ void main() {
 
       await expectLater(kern.sendeAnhang(anderer, datei),
           throwsA(isA<NurNahbereichException>()));
+    });
+
+    test('EIN ANHANG WIRD AUCH NICHT GEHOLT', () async {
+      // DIE ANDERE RICHTUNG, und sie war offen.
+      //
+      // Die Stuecke liegen im Zwischenlager, und das ist ein Server —
+      // derselbe Grund wie beim Verschicken. Dass die Ankuendigung schon da
+      // ist, aendert daran nichts: geholt wird jetzt, und der Schalter gilt
+      // jetzt. Ohne diese Pruefung baut ein Kontakt unter einem Schalter, der
+      // verspricht, dass NICHTS an einen Server geht, eine Verbindung zum
+      // Zwischenlager auf.
+      final anderer = await fremdeAdresse();
+      await kern.addContact(anderer);
+      legeAngekuendigtenAnhangAn(kern, anderer);
+      await kern.setPreferences(const AppPreferences(nurNahbereich: true));
+
+      await expectLater(kern.holeAnhang(anderer, 'anhang-1'),
+          throwsA(isA<NurNahbereichException>()));
+    });
+
+    test('ohne den Schalter geht er ins Lager — und scheitert dort', () async {
+      // DIE GEGENPROBE. Ohne sie bestuende der Test darueber auch dann, wenn
+      // holeAnhang aus einem ganz anderen Grund nie ans Lager kaeme. Das Lager
+      // steht hier auf Port 1; was zurueckkommt, ist ein NETZFEHLER — also
+      // genau der Beweis, dass der Weg dorthin sonst offensteht.
+      final anderer = await fremdeAdresse();
+      await kern.addContact(anderer);
+      legeAngekuendigtenAnhangAn(kern, anderer);
+
+      await expectLater(kern.holeAnhang(anderer, 'anhang-1'),
+          throwsA(isNot(isA<NurNahbereichException>())));
+    });
+
+    test('was schon auf dem Geraet liegt, gibt er trotzdem heraus', () async {
+      // Der Schalter verspricht, dass nichts an einen Server geht — er
+      // verspricht nicht, eine laengst geladene Datei wegzusperren. Das waere
+      // kein Schutz, sondern nur etwas weniger App.
+      final anderer = await fremdeAdresse();
+      await kern.addContact(anderer);
+      legeAngekuendigtenAnhangAn(kern, anderer, zustand: AnhangZustand.da);
+      await kern.setPreferences(const AppPreferences(nurNahbereich: true));
+
+      final e = await kern.holeAnhang(anderer, 'anhang-1');
+      expect(e.zustand, AnhangZustand.da);
     });
 
     test('und die Ausnahme ist KEINE RelayException', () async {

@@ -81,13 +81,25 @@ class Leuchtfeuer {
     required Uint8List senderOeffentlicher,
     required int fenster,
   }) async {
+    // DER KONTEXT GEHOERT IN DIE NACHRICHT, nicht in `aad`.
+    //
+    // Er stand als `aad: _kontext.codeUnits` daneben — und HMAC kennt kein
+    // AAD. Das Paket nimmt den Parameter an und verwirft ihn stillschweigend;
+    // gemessen am 29.07.2026 gegen eine unabhaengige Python-Rechnung:
+    // Dart lieferte fea3b561739f, dasselbe wie HMAC OHNE jeden Kontext.
+    // Die Trennung, die hier dastand, fand nicht statt.
+    //
+    // Keine Luecke — das Geheimnis ist ein X25519-Ergebnis und wird nirgends
+    // sonst als HMAC-Schluessel benutzt, es gab also nichts zu verwechseln.
+    // Aber ein Kommentar, der eine Zusicherung behauptet, die der Code nicht
+    // einhaelt, ist schlimmer als keiner.
     final mac = await Hmac.sha256().calculateMac(
       [
+        ..._kontext.codeUnits,
         ...senderOeffentlicher,
         ..._alsAchtBytes(fenster),
       ],
       secretKey: SecretKey(geheimnis),
-      aad: _kontext.codeUnits,
     );
     return Uint8List.fromList(mac.bytes.sublist(0, leuchtfeuerLaenge));
   }

@@ -73,12 +73,24 @@ class NahKanal(private val context: Context) : MethodChannel.MethodCallHandler {
     private var senke: EventChannel.EventSink? = null
     private val hauptfaden = Handler(Looper.getMainLooper())
 
+    /** Die zweite Runde: Packungsgrenze, GATT-Nachricht, BLE-5-Faehigkeiten.
+     *  Eigene Datei, damit dieser Wegwerfcode nicht zu einem Knaeuel wird. */
+    private val messung by lazy { Messung(context) { sag(it) } }
+
     fun setzeSenke(s: EventChannel.EventSink?) {
         senke = s
     }
 
-    /** Eine Zeile ins Protokoll der Oberflaeche. */
+    /** Eine Zeile ins Protokoll der Oberflaeche — UND nach logcat.
+     *
+     * Der Weg ueber logcat ist der wichtigere: so laesst sich das Ergebnis mit
+     * `adb logcat -s NAHTEST:I` vom Rechner auslesen, ohne dass jemand
+     * Bildschirmtexte abtippt oder abfotografiert. Bei einem Test, dessen
+     * ganzer Zweck Messwerte sind, ist das der Unterschied zwischen "ungefaehr
+     * ein paar Sekunden" und "1873 ms".
+     */
     private fun sag(text: String) {
+        android.util.Log.i("NAHTEST", text)
         hauptfaden.post { senke?.success(text) }
     }
 
@@ -453,8 +465,25 @@ class NahKanal(private val context: Context) : MethodChannel.MethodCallHandler {
                 sag("WLAN — ${wlanZustand()}")
                 ergebnis.success(true)
             }
+            // ── Zweite Runde ────────────────────────────────────────────
+            "faehigkeiten" -> { messung.faehigkeiten(); ergebnis.success(true) }
+            "packWerben" -> {
+                messung.werbenGepackt(
+                    aufruf.argument<Int>("anzahl") ?: 4,
+                    aufruf.argument<Boolean>("alteArt") ?: false)
+                ergebnis.success(true)
+            }
+            "packSuchen" -> {
+                messung.suchenGepackt(aufruf.argument<Boolean>("allePhy") ?: true)
+                ergebnis.success(true)
+            }
+            "packGrenze" -> { messung.grenzeSuchen(); ergebnis.success(true) }
+            "gattServer" -> { messung.gattServer(); ergebnis.success(true) }
+            "gattSenden" -> { messung.gattSenden(); ergebnis.success(true) }
+
             "stopp" -> {
                 allesStoppen()
+                messung.allesStoppen()
                 ergebnis.success(true)
             }
             else -> ergebnis.notImplemented()
