@@ -37,7 +37,9 @@ Schlüssel, und die "lange Nummer" zum Hinzufügen ist dein *öffentlicher* Schl
 - **App:** Flutter (eine Codebasis, cleanes GUI); Krypto via **`libsignal_protocol_dart` 0.8.2** — echtes Signal-Protokoll, **Double Ratchet + Forward Secrecy von Anfang an**.
 - **Server:** Python-Relay auf dem VPS, erreichbar über **Hostnamen** (nie über die rohe IP — sonst wäre jeder Umzug ein Zwangsupdate).
 - **Umfang v1:** 1:1-Textchat, ein Gerät je Identität.
-- **Lizenz:** **GPL-3.0** — quelloffen ist bei einem Sicherheitsversprechen Voraussetzung, nicht Beiwerk. Vertrieb später über F-Droid *und* Play.
+- **Lizenz:** **AGPL-3.0** (Volltext in [LICENSE](LICENSE), festgelegt am 26.07.2026) — quelloffen ist bei einem Sicherheitsversprechen Voraussetzung, nicht Beiwerk. Vertrieb später über F-Droid *und* Play.
+
+  Warum AGPL statt GPL: dieses Projekt besteht nicht nur aus einer App, sondern auch aus dem Relay in `server/`. Die GPL greift erst beim *Verteilen* von Programmen — wer einen abgewandelten Relay bloß betreibt, verteilt nichts und müsste seine Änderungen nie herausgeben. Genau das ist hier der Fall, der zählt: der Server sieht, wer wann online ist. Die AGPL schließt diese Lücke und passt damit zu dem Versprechen, dass jeder seinen eigenen Server betreiben kann und niemand eine geschlossene Abwandlung davon anbieten darf.
 
 > Vollständiges Entscheidungsprotokoll samt Begründungen, Sicherheitsbefunden und
 > Phasenplan: **[`../PLAN.md`](../PLAN.md)**
@@ -117,6 +119,18 @@ UI-only (Mock-Daten), Krypto/Backend werden später über das MessengerCore-Inte
 flutter build apk --release
 # → build/app/outputs/flutter-apk/app-release.apk (~69 MB)
 ```
+
+**Zwei Fallen beim Bauen unter Windows** — beide kosten sonst jedes Mal drei Anläufe:
+
+- **`Unable to delete directory … mergeReleaseAssets`.** Ein Gradle-Dämon hält
+  Dateien offen. Lösung: `cd android && ./gradlew --stop`, dann `rm -rf build`.
+  **Nicht** die Prozesse abschießen — dabei stirbt `adb` mit, und ein
+  angeschlossenes Telefon ist weg.
+- **`Package dev.flutter.plugins.integration_test ist nicht vorhanden`.** Wer
+  vorher einen Gerätetest gefahren hat (`flutter test integration_test/…`),
+  hat damit `GeneratedPluginRegistrant.java` mit dem Testplugin neu schreiben
+  lassen; im Release-Bau gibt es das Paket nicht. `flutter pub get` erzeugt
+  dieselbe Datei wieder — nur **`flutter clean`** hilft, danach baut es durch.
 Aufs Handy: APK am Handy von `http://<PC-LAN-IP>:8123/BitDM.apk` laden und installieren
 („Unbekannte Quellen/Apps installieren" erlauben). Toolchain: Flutter `C:\Users\Lennard\flutter`,
 JDK 17 (Temurin), Android-SDK `C:\Users\Lennard\Android\sdk`.

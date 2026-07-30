@@ -52,7 +52,7 @@ Tippfehlererkennung steigt von 16 auf 24 Bit.
 
 | Punkt | Festlegung |
 |---|---|
-| Standort | `henner` (77.90.4.46), aber **isoliert**: eigener unprivilegierter Nutzer, systemd-Härtung, Bindung nur auf `127.0.0.1`, nginx davor |
+| Standort | `henner` (`relay.bitdm.net`), aber **isoliert**: eigener unprivilegierter Nutzer, systemd-Härtung, Bindung nur auf `127.0.0.1`, nginx davor |
 | Adressierung | Client bekommt **Hostnamen**, nie eine rohe IP — sonst ist jeder Umzug ein Zwangsupdate |
 | Persistenz | SQLite. Kein Docker, ein Prozess |
 | Aufbewahrung | IPs anonymisiert, 7 Tage, DB separat verschlüsselt im Backup. **Umschaltbar per Konfiguration** auf strikte Datensparsamkeit vor dem öffentlichen Schritt |
@@ -244,7 +244,10 @@ Nativer Android-Code über Plattformkanäle. **Größter Einzelposten des Projek
   eingetippten Konstanten (`data.dart:4`).
 - `TEAM-PLAN.md:48` — die Ordner `lib/ui/` und `lib/state/` existieren nicht.
 - `DECISIONS.md:14` — „keine Recovery" ist durch die Seed-Phrase ersetzt.
-- `README.md:37`, `TEAM-PLAN.md:66` — rohe IP `77.90.4.46` → Hostname.
+- ~~`README.md:37`, `TEAM-PLAN.md:66` — rohe IP → Hostname.~~ Erledigt am
+  30.07.2026: überall `relay.bitdm.net`. Nicht als Geheimnis — die IP steht
+  ohnehin im öffentlichen DNS (graue Wolke ist Absicht, sonst kommt WebSocket
+  nicht durch) — sondern damit ein Serverumzug kein Zwangsupdate wird.
 - Rollenaufteilung — Lennard ist raus, das Interface ist nicht mehr eingefroren.
 
 ---

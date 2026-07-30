@@ -1,0 +1,5 @@
+# Shell-Skripte MUESSEN LF haben, sonst liest bash `set -euo pipefail\r`
+# als unbekannte Option. Am 29.07.2026 genau so passiert: Python schreibt auf
+# Windows mit write_text() standardmaessig \r\n, und das Skript war unbrauchbar.
+*.sh text eol=lf
+*.py text eol=lf
