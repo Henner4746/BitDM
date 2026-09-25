@@ -6,7 +6,7 @@ Diese Seite auf [Englisch](README.md).
 Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 
 [![Lizenz: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.6.0-6f62a8)
+![Version](https://img.shields.io/badge/version-1.6.1-6f62a8)
 ![Plattform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows-6f62a8)
 
 | Plattform | Zustand |
@@ -184,8 +184,8 @@ Grenzen es gibt: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSV
 ### Android
 
 ```bash
-curl -fsSLO https://bitdm.net/bitdm-1.5.1.apk
-sha256sum bitdm-1.5.1.apk
+curl -fsSLO https://bitdm.net/bitdm-1.6.1.apk
+sha256sum bitdm-1.6.1.apk
 ```
 
 Android warnt beim Installieren. Es warnt bei **jeder** App, deren Zertifikat
@@ -194,11 +194,11 @@ Werte sagen etwas, und sie sind nicht dasselbe:
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des APK) | `62027fc7cb2aceacd74d7150dcca1ff937861c30cc420fcd35f9055dc20ee72c` |
+| **Diese Datei** (sha256 des APK) | `c9ff2a9236d7733f41ba4a4fc7775cbc5b690db347e0b58dc83e9aed82b495b4` |
 | **Signierschlüssel** (Zertifikatsabdruck) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash
-apksigner verify --print-certs bitdm-1.5.1.apk
+apksigner verify --print-certs bitdm-1.6.1.apk
 ```
 
 Der erste Wert deckt nur diese eine Datei. Der zweite deckt jede künftige
@@ -213,12 +213,13 @@ Einreichungen bei Google Play und F-Droid sind vorbereitet, nicht erfolgt.
 
 ### Windows
 
-`secure-messenger/releases/bitdm-windows-1.5.1.zip` — 15.419.797 Byte,
+[`bitdm-windows-1.6.1.zip`](https://bitdm.net/bitdm-windows-1.6.1.zip) (auch am
+[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.6.1)) — 15.903.078 Byte,
 auspacken und `bitdm.exe` starten.
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des Zip) | `08299da651e3d39e83c8c368727a9043795acd2174f6900be312527ff5187782` |
+| **Diese Datei** (sha256 des Zip) | `26ef279fb29f561e38a2282896cd7fa36acd2e27672e7f1ce41339665af95f90` |
 
 SmartScreen wird davor warnen, und daran ist hier nichts zu ändern: das
 Signieren von Windows-Programmen braucht ein Authenticode-Zertifikat von einer
