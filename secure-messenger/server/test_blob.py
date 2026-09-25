@@ -22,6 +22,8 @@ import hashlib
 import hmac
 import importlib
 import os
+import re
+import threading
 import time
 
 import pytest
@@ -388,3 +390,155 @@ def test_verzeichnisse_werden_nicht_angefasst(kehrmaschine):
     k.kehre()
 
     assert unter.is_dir()
+
+
+# --------------------------------------------------------------------------- #
+#  Audit vom 25.09.2026
+# --------------------------------------------------------------------------- #
+
+def test_die_stueckgrenze_steht_ab_werk_bei_33_mib(tmp_path, monkeypatch):
+    """Die 5 GiB waren die Dateigrenze der App und erlaubten einem einzelnen
+    PUT, 5 GiB am Stueck zu schreiben. Die App laedt Stuecke zu 32 MiB."""
+    monkeypatch.setenv("BITDM_BLOB_DIR", str(tmp_path))
+    monkeypatch.setenv("BITDM_BLOB_SECRET", GEHEIMNIS)
+    monkeypatch.delenv("BITDM_BLOB_MAX", raising=False)
+    import blob_server
+
+    importlib.reload(blob_server)
+    assert blob_server.MAX_BYTES == 33 * 1024**2
+    assert blob_server.MAX_BYTES > 32 * 1024**2 + 16, "ein echtes Stueck muss durchpassen"
+
+
+def test_eine_marke_mit_fremden_zeichen_ist_403_und_kein_absturz(client):
+    """compare_digest nimmt nur ASCII-str; "\\xe9" in der Kopfzeile warf
+    TypeError, also 500 (proof_blob.py)."""
+    ablauf = int(time.time()) + 300
+    antwort = client.put(
+        f"/ablegen/{KENNUNG}", content=b"x",
+        headers={"X-Bitdm-Size": "1", "X-Bitdm-Expires": str(ablauf),
+                 "X-Bitdm-Token": "\xe9".encode("latin-1")},
+    )
+    assert antwort.status_code == 403
+
+
+def test_eine_kennung_mit_zeilenumbruch_ist_keine(client, lager):
+    """`^...$` mit .match() nahm "<52 Zeichen>\\n" an — `$` passt vor einem
+    letzten Zeilenumbruch."""
+    verzeichnis, _ = lager
+    mit_umbruch = KENNUNG + "\n"
+    antwort = client.put(f"/ablegen/{KENNUNG}%0A", content=b"y",
+                         headers=kopf(mit_umbruch, 1))
+    assert antwort.status_code in (400, 404)
+    assert list(verzeichnis.iterdir()) == []
+    assert client.delete(f"/wegwerfen/{KENNUNG}%0A").status_code in (400, 404)
+
+
+def test_eine_marke_gilt_nur_einmal(client, lager):
+    """Ablegen, wegwerfen, mit derselben Marke noch einmal ablegen — das ging
+    zwoelf Stunden lang beliebig oft."""
+    verzeichnis, _ = lager
+    kopfzeilen = kopf(KENNUNG, 3)
+    assert client.put(f"/ablegen/{KENNUNG}", content=b"AAA", headers=kopfzeilen).status_code == 200
+    assert client.delete(f"/wegwerfen/{KENNUNG}").status_code == 200
+    antwort = client.put(f"/ablegen/{KENNUNG}", content=b"BBB", headers=kopfzeilen)
+    assert antwort.status_code == 409
+    assert not (verzeichnis / KENNUNG).exists()
+
+
+def test_ein_abgebrochener_upload_verbraucht_die_marke_nicht(client, lager):
+    """Die Gegenprobe: wer wegen eines Funklochs neu ansetzt, darf das mit
+    derselben Marke."""
+    kopfzeilen = kopf(KENNUNG, 5000)
+    assert client.put(f"/ablegen/{KENNUNG}", content=b"x" * 100,
+                      headers=kopfzeilen).status_code == 400
+    assert client.put(f"/ablegen/{KENNUNG}", content=b"x" * 5000,
+                      headers=kopfzeilen).status_code == 200
+
+
+def test_der_letzte_schritt_ueberschreibt_nie(lager):
+    """Zwei gleichzeitige PUTs derselben Kennung schrieben frueher in DIESELBE
+    Nebendatei, und die zweite Umbenennung ueberschrieb die erste Datei."""
+    verzeichnis, blob_server = lager
+    ziel = verzeichnis / KENNUNG
+    ziel.write_bytes(b"der erste war schneller")
+    nebendatei = verzeichnis / f".{KENNUNG}.0123456789abcdef.teil"
+    nebendatei.write_bytes(b"der zweite")
+    with pytest.raises(FileExistsError):
+        blob_server._lege_endgueltig_ab(nebendatei, ziel)
+    assert ziel.read_bytes() == b"der erste war schneller"
+
+
+def test_jeder_upload_hat_seine_eigene_nebendatei(client, lager, monkeypatch):
+    verzeichnis, blob_server = lager
+    gesehen = []
+    echt = blob_server._schreibe
+
+    def merke(fd, stueck):
+        gesehen.extend(p.name for p in verzeichnis.glob(".*.teil"))
+        echt(fd, stueck)
+
+    monkeypatch.setattr(blob_server, "_schreibe", merke)
+    for kennung in ("c" * 52, "d" * 52):
+        assert client.put(f"/ablegen/{kennung}", content=b"x" * 10,
+                          headers=kopf(kennung, 10)).status_code == 200
+    assert len(set(gesehen)) == 2
+    assert all(re.fullmatch(r"\.[a-z2-7]{52}\.[0-9a-f]{16}\.teil", n) for n in gesehen)
+
+
+def test_geschrieben_wird_im_thread_und_nicht_auf_dem_loop(client, monkeypatch, lager):
+    _, blob_server = lager
+    threads = []
+    echt = blob_server._schreibe
+
+    def merke(fd, stueck):
+        threads.append(threading.current_thread().name)
+        echt(fd, stueck)
+
+    monkeypatch.setattr(blob_server, "_schreibe", merke)
+    assert client.put(f"/ablegen/{KENNUNG}", content=b"x" * 10,
+                      headers=kopf(KENNUNG, 10)).status_code == 200
+    assert threads and all("AnyIO worker" in t for t in threads), threads
+
+
+def test_laufende_uploads_zaehlen_beim_platz_mit(client, lager, monkeypatch):
+    """freier_platz() sieht nur, was schon auf der Platte liegt. Gleichzeitige
+    Uploads zaehlten denselben Platz jeder fuer sich."""
+    _, blob_server = lager
+    monkeypatch.setattr(blob_server, "MIN_FREI_BYTES", 1000)
+    monkeypatch.setattr(blob_server, "freier_platz", lambda: 1000 + 100)
+    monkeypatch.setattr(blob_server, "_reserviert", 50)   # ein anderer laeuft gerade
+    antwort = client.put(f"/ablegen/{KENNUNG}", content=b"x" * 60,
+                         headers=kopf(KENNUNG, 60))
+    assert antwort.status_code == 507
+
+    monkeypatch.setattr(blob_server, "_reserviert", 0)
+    antwort = client.put(f"/ablegen/{KENNUNG}", content=b"x" * 60,
+                         headers=kopf(KENNUNG, 60))
+    assert antwort.status_code == 200
+    assert blob_server._reserviert == 0, "die Reservierung wurde nicht zurueckgegeben"
+
+
+def test_die_reservierung_faellt_auch_beim_abbruch_zurueck(client, lager):
+    _, blob_server = lager
+    client.put(f"/ablegen/{KENNUNG}", content=b"x" * 5000, headers=kopf(KENNUNG, 100))
+    client.put(f"/ablegen/{KENNUNG}", content=b"x" * 10, headers=kopf(KENNUNG, 100))
+    assert blob_server._reserviert == 0
+
+
+def test_pfade_bleiben_im_lager(lager):
+    _, blob_server = lager
+    for boese in ("../ausbruch", "..", "unter/ordner"):
+        with pytest.raises(blob_server.HTTPException):
+            blob_server.pfad_im_lager(boese)
+
+
+def test_die_kehrmaschine_kennt_beide_namensformen_der_bruchstuecke(kehrmaschine):
+    verzeichnis, k = kehrmaschine
+    alt = verzeichnis / f".{'a' * 52}.teil"
+    neu = verzeichnis / f".{'b' * 52}.0123456789abcdef.teil"
+    for p in (alt, neu):
+        p.write_bytes(b"halb")
+        altere(p, k.TEIL_TTL_SEKUNDEN + 60)
+    assert k.kehre() == 0
+    assert not alt.exists() and not neu.exists()
+    assert not k.KENNUNG_MUSTER.fullmatch("a" * 52 + "\n")

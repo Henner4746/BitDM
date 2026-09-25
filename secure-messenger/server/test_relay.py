@@ -709,6 +709,9 @@ def relay(tmp_path, monkeypatch):
     monkeypatch.setattr(rs, "db", conn, raising=False)
     monkeypatch.setattr(rs, "_buckets", {})
     monkeypatch.setattr(rs, "_nonces", {})
+    monkeypatch.setattr(rs, "_nonce_zahl", 0)
+    monkeypatch.setattr(rs, "_schwerster", None)
+    monkeypatch.setattr(rs, "_ws_im_vorraum", 0)
     monkeypatch.setattr(rs, "connections", {})
     monkeypatch.setattr(rs, "nachweisfaehig", {})
     monkeypatch.setattr(rs, "_queue_zeilen", 0)
@@ -2910,8 +2913,15 @@ def test_die_tagesmenge_des_zwischenlagers_bleibt_an_der_adresse(relay):
 
 def test_tarnverkehr_wird_still_verworfen(relay):
     """Ein "geraeus"-Rahmen sieht aus wie eine Nachricht und darf nichts tun:
-    keine Antwort (ein ack oder error verriete ihn), keine Zeile in der
-    Warteschlange — und die Verbindung bleibt fuer echte Nachrichten offen."""
+    keine Zeile in der Warteschlange — und die Verbindung bleibt fuer echte
+    Nachrichten offen.
+
+    SEIT 25.09.2026 MIT ANTWORT: frueher hiess es hier "keine Antwort (ein ack
+    oder error verriete ihn)". Das Gegenteil stimmte — auf eine echte
+    Nachricht folgt ein `ack`, auf Tarnverkehr kam nichts, und genau das
+    Fehlen verriet ihn einem Beobachter der Leitung. Die Antwort ist jetzt ein
+    `ack` desselben Aufbaus; wie sie genau aussieht, prueft
+    test_tarnverkehr_bekommt_ein_ack_wie_eine_echte_nachricht."""
     rs = relay
     alice, bob = make_user(), make_user()
     _lege_an(rs, alice)
@@ -2920,8 +2930,563 @@ def test_tarnverkehr_wird_still_verworfen(relay):
         {"type": "geraeus", "to": bob["user_id"], "ciphertext": b64(os.urandom(600)), "id": "g1"},
         {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"x"), "id": "m1"},
     ])
-    assert not [m for m in raus if m.get("id") == "g1"], "der Relay hat auf Tarnverkehr geantwortet"
+    assert [m.get("type") for m in raus if m.get("id") == "g1"] == ["ack"], \
+        "Tarnverkehr bekam nicht genau ein ack"
     assert [m for m in raus if m.get("type") == "ack" and m.get("id") == "m1"]
     assert rs.db.execute(
         "SELECT COUNT(*) FROM queue WHERE recipient=?", (bob["user_id"],)
     ).fetchone()[0] == 1, "der Tarnrahmen landete in der Warteschlange"
+
+
+# --------------------------------------------------------------------------- #
+#  Audit vom 25.09.2026
+# --------------------------------------------------------------------------- #
+#
+# Je Befund mindestens ein Test, der ohne die Behebung rot ist. Die Nummern
+# sind die des Audits; die Beweisskripte des Pruefers haben dieselben Faelle
+# gegen einen echten uvicorn gefahren.
+
+
+class _Kopf:
+    """Eine Anfrage mit frei waehlbaren Kopfzeilen (klein geschrieben, wie
+    Starlette sie liefert)."""
+
+    def __init__(self, **kopfzeilen):
+        self.headers = {k.replace("_", "-"): v for k, v in kopfzeilen.items()}
+        self.client = None
+
+
+def _registriere_mit(rs, user, nonce, priv=None, geraet=None):
+    """/register mit einer Signatur ueber GENAU dieses Nonce."""
+    bundle = _bundle_mit(user, geraet)
+    sig = sign(priv or user["priv"],
+               nonce + hashlib.sha256(bundle.canonical_bytes()).digest())
+    return rs.register(rs.RegisterRequest(bundle=bundle, signature=b64(sig)),
+                       _Anfrage())
+
+
+# ---------------------------------------------- 1  Speicher der Nonces und Eimer
+
+def test_abgelaufene_nonces_und_volle_eimer_werden_weggeraeumt(relay):
+    """Frueher wuchsen _nonces und _buckets mit jeder /register/challenge fuer
+    eine erfundene Adresse, und nichts raeumte je auf (proof_mem.py: 50 000
+    Anfragen, 50 000 Eintraege je Tabelle, dauerhaft)."""
+    rs = relay
+    for _ in range(50):
+        rs.issue_nonce(encode_id(os.urandom(32)), 1)
+        rs.rate_limit_ok(f"chal:10.0.0.{os.urandom(1)[0]}")
+    assert rs._nonce_zahl == 50 and rs._buckets
+
+    spaeter = time.monotonic() + max(rs.NONCE_TTL_SECONDS,
+                                     rs.RATE_CAPACITY / rs.RATE_REFILL_PER_SEC) + 1
+    with rs._speichersperre:
+        rs._raeume_speicher_auf(spaeter)
+    assert rs._nonces == {} and rs._nonce_zahl == 0
+    assert rs._buckets == {}, "ein wieder voller Eimer ist von keinem nicht zu unterscheiden"
+
+
+def test_ein_halb_leerer_eimer_ueberlebt_das_aufraeumen(relay):
+    """Die Gegenprobe: wer gerade gebremst wird, bekommt durch das Aufraeumen
+    keinen frischen Eimer geschenkt."""
+    rs = relay
+    for _ in range(rs.OTK_CAPACITY):
+        rs.otk_limit_ok("ziel")
+    assert not rs.otk_limit_ok("ziel")
+    with rs._speichersperre:
+        rs._raeume_speicher_auf(time.monotonic() + 1)
+    assert not rs.otk_limit_ok("ziel"), "der leere Eimer wurde weggeraeumt"
+
+
+def test_am_speicherdach_antwortet_die_challenge_mit_503(relay, monkeypatch):
+    rs = relay
+    monkeypatch.setattr(rs, "SPEICHER_MAX", 5)
+    for _ in range(5):
+        rs.issue_nonce(encode_id(os.urandom(32)))
+    with pytest.raises(rs.HTTPException) as fehler:
+        rs.register_challenge(
+            rs.ChallengeRequest(user_id=encode_id(os.urandom(32))), _Anfrage())
+    assert fehler.value.status_code == 503
+    assert rs._nonce_zahl == 5, "am Dach darf nichts mehr dazukommen"
+
+
+# ---------------------------------------- 2/3  Deckel je Absender, kein Wegspuelen
+
+def test_ein_fremder_spuelt_die_wartende_post_anderer_nicht_weg(relay, monkeypatch):
+    """Der Befund: bei vollem Geraet fiel die aelteste Zeile, gleich von wem.
+    Ein Fremder spuelte so mit ein paar Rahmen alles weg, was echte Kontakte
+    dem abwesenden Opfer hinterlassen hatten (proof_ws.py P7)."""
+    rs = relay
+    monkeypatch.setattr(rs, "QUEUE_MAX_PER_USER", 5)
+    opfer, freund, fremder = make_user(), make_user(), make_user()
+    for u in (opfer, freund, fremder):
+        _lege_an(rs, u)
+    _puffere(rs, opfer["user_id"], freund["user_id"], n=2)
+
+    raus = _sitzung(rs, fremder, [
+        {"type": "message", "to": opfer["user_id"], "ciphertext": b64(b"spam")}
+        for _ in range(10)
+    ])
+    assert len([m for m in raus if m.get("type") == "ack"]) == 10
+    absender = [r[0] for r in rs.db.execute(
+        "SELECT sender FROM queue WHERE recipient=?", (opfer["user_id"],))]
+    assert absender.count(freund["user_id"]) == 2, "die Post des Freundes ist weg"
+    assert len(absender) == 5
+
+
+def test_voll_je_paar_faellt_nur_die_eigene_aelteste(relay, monkeypatch):
+    rs = relay
+    monkeypatch.setattr(rs, "QUEUE_MAX_JE_PAAR", 3)
+    opfer, freund, fremder = make_user(), make_user(), make_user()
+    for u in (opfer, freund, fremder):
+        _lege_an(rs, u)
+    _puffere(rs, opfer["user_id"], freund["user_id"], n=1)
+
+    _sitzung(rs, fremder, [
+        {"type": "message", "to": opfer["user_id"],
+         "ciphertext": b64(b"spam%d" % i)} for i in range(5)
+    ])
+    zeilen = rs.db.execute(
+        "SELECT sender, ciphertext FROM queue WHERE recipient=? ORDER BY id",
+        (opfer["user_id"],)).fetchall()
+    vom_fremden = [ct for s, ct in zeilen if s == fremder["user_id"]]
+    assert vom_fremden == [b"spam2", b"spam3", b"spam4"], "nicht die eigene aelteste"
+    assert [s for s, _ in zeilen].count(freund["user_id"]) == 1
+    assert rs._queue_zeilen == 4
+
+
+def test_ein_absender_hat_einen_eigenen_deckel(relay, monkeypatch):
+    rs = relay
+    monkeypatch.setattr(rs, "QUEUE_MAX_JE_ABSENDER", 3)
+    fremder = make_user()
+    ziele = [make_user() for _ in range(4)]
+    for u in [fremder] + ziele:
+        _lege_an(rs, u)
+    raus = _sitzung(rs, fremder, [
+        {"type": "message", "to": z["user_id"], "ciphertext": b64(b"x"), "id": f"m{i}"}
+        for i, z in enumerate(ziele)
+    ])
+    assert [m["id"] for m in raus if m.get("type") == "ack"] == ["m0", "m1", "m2"]
+    assert [m["id"] for m in raus if m.get("reason") == "Warteschlange voll"] == ["m3"]
+
+
+def test_am_dach_weicht_der_schwerste_absender_und_nicht_alle(relay, monkeypatch):
+    """Frueher wies das Dach JEDEN ab — ein einziger Flutender schaltete die
+    Offline-Zustellung fuer alle ab. Jetzt faellt dessen aelteste Zeile; er
+    selbst wird weiter abgewiesen."""
+    rs = relay
+    monkeypatch.setattr(rs, "QUEUE_MAX_TOTAL", 3)
+    fremder, opfer, anna, bob = (make_user() for _ in range(4))
+    for u in (fremder, opfer, anna, bob):
+        _lege_an(rs, u)
+    _puffere(rs, opfer["user_id"], fremder["user_id"], n=3)
+
+    raus = _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"echt"), "id": "a1"},
+    ])
+    assert [m["id"] for m in raus if m.get("type") == "ack"] == ["a1"]
+    assert rs.db.execute("SELECT COUNT(*) FROM queue WHERE sender=?",
+                         (fremder["user_id"],)).fetchone()[0] == 2
+    assert rs._queue_zeilen == 3
+
+    raus = _sitzung(rs, fremder, [
+        {"type": "message", "to": opfer["user_id"], "ciphertext": b64(b"x"), "id": "f1"},
+    ])
+    assert [m["id"] for m in raus if m.get("reason") == "Warteschlange voll"] == ["f1"]
+
+
+def test_die_warteschlange_hat_die_indizes_fuer_die_deckel(relay):
+    rs = relay
+    namen = {r[1] for r in rs.db.execute("PRAGMA index_list(queue)")}
+    assert {"idx_queue_paar", "idx_queue_absender", "idx_queue_ts"} <= namen
+    plan = " ".join(str(r) for r in rs.db.execute(
+        "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM queue WHERE recipient=?"
+        " AND recipient_device=? AND sender=?", ("a", 1, "b")))
+    assert "idx_queue_paar" in plan
+
+
+# ------------------------------------------------ 4  Laengen im Buendel
+
+@pytest.mark.parametrize("aenderung", [
+    {"signed_prekey": b64(os.urandom(100))},
+    {"signed_prekey": b64(b"\x07" + os.urandom(32))},
+    {"signed_prekey_sig": b64(os.urandom(65))},
+    {"signed_prekey": "!!!kein base64!!!"},
+    {"one_time_prekeys": [{"key_id": 1, "public_key": b64(os.urandom(190_000))}]},
+    {"one_time_prekeys": [{"key_id": 1, "public_key": b64(os.urandom(31))}]},
+])
+def test_falsche_schluessellaengen_werden_abgewiesen(relay, aenderung):
+    """Ohne Pruefung konnte jede Registrierung rund 190 KiB in identities und
+    one_time_prekeys ablegen — dauerhaft."""
+    rs = relay
+    henrik = make_user()
+    with pytest.raises(rs.HTTPException) as fehler:
+        _melde_an(rs, henrik, **aenderung)
+    assert fehler.value.status_code == 400
+    assert _geraete(rs, henrik["user_id"]) == []
+
+
+def test_serialisierte_schluessel_mit_typbyte_gehen_durch(relay):
+    """So schickt die App sie wirklich: 33 Byte, 0x05 vorn."""
+    rs = relay
+    henrik = make_user()
+    r = _melde_an(rs, henrik,
+                  signed_prekey=b64(b"\x05" + os.urandom(32)),
+                  one_time_prekeys=[{"key_id": i, "public_key": b64(b"\x05" + os.urandom(32))}
+                                    for i in range(3)])
+    assert r == {"ok": True, "one_time_prekeys": 3}
+
+
+def test_der_datenbankfehler_geht_nicht_an_den_client(relay):
+    """Frueher stand der SQLite-Text in der Antwort ("UNIQUE constraint
+    failed: one_time_prekeys...")."""
+    rs = relay
+    henrik = make_user()
+    doppelt = [{"key_id": 1, "public_key": b64(os.urandom(32))}] * 2
+    with pytest.raises(rs.HTTPException) as fehler:
+        _melde_an(rs, henrik, one_time_prekeys=doppelt)
+    assert fehler.value.status_code == 400
+    assert fehler.value.detail == "Bundle konnte nicht gespeichert werden"
+
+
+# ------------------------------------------------ 5  Mehrere offene Nonces
+
+def test_eine_fremde_challenge_nimmt_dem_opfer_sein_nonce_nicht(relay):
+    """proof_ws.py P6: das zweite /register/challenge ueberschrieb das erste."""
+    rs = relay
+    opfer = make_user()
+    eigenes = rs.issue_nonce(opfer["user_id"])
+    rs.issue_nonce(opfer["user_id"])          # der Stoerer
+    assert _registriere_mit(rs, opfer, eigenes)["ok"] is True
+
+
+def test_ein_fehlversuch_verbraucht_das_nonce_nicht(relay):
+    """Sonst liesse sich mit einem Unsinns-/register das Nonce eines Fremden
+    wegwerfen."""
+    rs = relay
+    opfer, stoerer = make_user(), make_user()
+    nonce = rs.issue_nonce(opfer["user_id"])
+    with pytest.raises(rs.HTTPException) as fehler:
+        _registriere_mit(rs, opfer, nonce, priv=stoerer["priv"])
+    assert fehler.value.status_code == 403
+    assert _registriere_mit(rs, opfer, nonce)["ok"] is True
+
+
+def test_jedes_nonce_gilt_weiterhin_genau_einmal(relay):
+    rs = relay
+    henrik = make_user()
+    nonce = rs.issue_nonce(henrik["user_id"])
+    assert _registriere_mit(rs, henrik, nonce)["ok"] is True
+    with pytest.raises(rs.HTTPException) as fehler:
+        _registriere_mit(rs, henrik, nonce)
+    assert fehler.value.status_code == 401
+
+
+def test_mehr_als_die_plaetze_verdraengen_das_aelteste_nonce(relay):
+    rs = relay
+    henrik = make_user()
+    ausgegeben = [rs.issue_nonce(henrik["user_id"]) for _ in range(rs.NONCE_PLAETZE + 1)]
+    offen = rs.offene_nonces(henrik["user_id"])
+    assert offen == ausgegeben[1:]
+    assert rs._nonce_zahl == rs.NONCE_PLAETZE
+
+
+# ------------------------------------------------ 6  Herkunft, Onion, Vorraum
+
+def test_ipv6_zaehlt_je_64er_netz(relay):
+    rs = relay
+    a = rs.limit_schluessel(_Kopf(x_forwarded_for="2001:db8:1:2:aaaa::1"))
+    b = rs.limit_schluessel(_Kopf(x_forwarded_for="2001:db8:1:2:bbbb:cccc:dddd:eeee"))
+    c = rs.limit_schluessel(_Kopf(x_forwarded_for="2001:db8:1:3::1"))
+    assert a == b == "2001:db8:1:2::/64"
+    assert c != a
+    assert rs.limit_schluessel(_Kopf(x_forwarded_for="203.0.113.7")) == "203.0.113.7"
+    assert rs.limit_schluessel(_Kopf(x_forwarded_for="::ffff:203.0.113.7")) == "203.0.113.7"
+
+
+def test_onion_nur_von_der_schleife(relay):
+    rs = relay
+    ueber_tor = _Kopf(x_bitdm_onion="1", x_forwarded_for="127.0.0.1")
+    gefaelscht = _Kopf(x_bitdm_onion="1", x_forwarded_for="203.0.113.7")
+    assert rs.kommt_ueber_onion(ueber_tor)
+    assert rs.limit_schluessel(ueber_tor) is None
+    assert not rs.kommt_ueber_onion(gefaelscht)
+    assert rs.limit_schluessel(gefaelscht) == "203.0.113.7"
+
+
+def test_tor_nutzer_teilen_sich_keine_ip_bremse(relay, monkeypatch):
+    """Ueber Tor kommen alle von 127.0.0.1. Eine Bremse je IP war dort eine
+    einzige Bremse fuer ALLE Tor-Nutzer."""
+    rs = relay
+    monkeypatch.setattr(rs, "RATE_CAPACITY", 1)
+    monkeypatch.setattr(rs, "RATE_REFILL_PER_SEC", 0.0)
+    ueber_tor = _Kopf(x_bitdm_onion="1", x_forwarded_for="127.0.0.1")
+    for _ in range(3):
+        rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))),
+                              ueber_tor)
+    oeffentlich = _Kopf(x_forwarded_for="203.0.113.7")
+    rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))),
+                          oeffentlich)
+    with pytest.raises(rs.HTTPException) as fehler:
+        rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))),
+                              oeffentlich)
+    assert fehler.value.status_code == 429
+
+
+def test_der_vorraum_ist_gedeckelt(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setattr(rs, "WS_VORRAUM_MAX", 0)
+    sock = _StummerSocket(henrik["user_id"], henrik["priv"])
+    asyncio.run(rs.ws_endpoint(sock))
+    assert sock.geschlossen == 1013
+    assert sock.gesendet == [], "am Deckel gibt es nicht einmal eine Challenge"
+
+
+def test_der_vorraum_zaehlt_wieder_runter(relay):
+    rs = relay
+    henrik, mallory = make_user(), make_user()
+    _lege_an(rs, henrik)
+    _sitzung(rs, henrik)
+    asyncio.run(rs.ws_endpoint(_StummerSocket(henrik["user_id"], mallory["priv"])))
+    asyncio.run(rs.ws_endpoint(_StummerSocket(encode_id(os.urandom(32)), mallory["priv"])))
+    assert rs._ws_im_vorraum == 0
+    assert rs.WS_ANMELDEFRIST <= 10
+
+
+def test_die_deploy_dateien_tragen_die_onion_riegel():
+    """Die Haelfte der Behebung steht in nginx und tor. Ein Textscan, mit allen
+    Grenzen eines Textscans — aber er faellt auf, wenn jemand die Zeilen
+    beim naechsten Umbau verliert."""
+    deploy = Path(__file__).resolve().parent.parent / "deploy"
+    onion = (deploy / "onion" / "relay-onion.nginx").read_text(encoding="utf-8")
+    torrc = (deploy / "onion" / "torrc.snippet").read_text(encoding="utf-8")
+    install = (deploy / "install-relay.sh").read_text(encoding="utf-8")
+    assert re.search(r'proxy_set_header\s+X-BitDM-Onion\s+"1"', onion)
+    assert "limit_conn " in onion and "limit_req " in onion
+    assert "HiddenServiceMaxStreams 20" in torrc
+    assert "HiddenServiceMaxStreamsCloseCircuit 1" in torrc
+    # Der oeffentliche vHost muss die Kopfzeile LEEREN — im Schnipsel und in
+    # der /ws-location, die den Schnipsel nicht einbindet.
+    assert len(re.findall(r'proxy_set_header\s+X-BitDM-Onion\s+""', install)) >= 2
+    assert "$bitdm_limit_key" in install
+
+
+# ------------------------------------------------ 7/12  Zwischenlager-Marken
+
+def test_marken_gelten_nur_fuer_stuecke(relay, monkeypatch):
+    rs = relay
+    if os.getenv("BITDM_BLOB_MAX") is None:
+        assert rs.BLOB_MAX_BYTES == 33 * 1024**2
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": "a" * 52, "groesse": rs.BLOB_MAX_BYTES + 1},
+        {"type": "blob_marke", "kennung": "b" * 52 + "\n", "groesse": 10},
+    ])
+    fehler = [m["reason"] for m in raus if m.get("type") == "error"]
+    assert fehler == ["Groesse ungueltig", "Kennung ungueltig"]
+
+
+def test_die_tagesmenge_des_ganzen_relays(relay, monkeypatch):
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    monkeypatch.setattr(rs, "BLOB_TAGESMENGE_GESAMT", 100)
+    alice = make_user()
+    _lege_an(rs, alice)
+    with rs.db:
+        rs.db.execute("INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+                      ("jemand-anderes", 90, time.time()))
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": "a" * 52, "groesse": 20},
+        {"type": "blob_marke", "kennung": "b" * 52, "groesse": 5},
+    ])
+    assert [m.get("kennung") for m in raus
+            if m.get("reason") == "Zwischenlager fuer heute ausgelastet"] == ["a" * 52]
+    assert [m["kennung"] for m in raus if m.get("type") == "blob_marke_ok"] == ["b" * 52]
+
+
+# ------------------------------------------------ 9  Strenges base64
+
+def test_muell_im_base64_geht_nicht_an_den_empfaenger(relay):
+    """proof_ws.py P5: 200 000 Zeichen Muell plus vier echte gingen an der
+    Groessengrenze vorbei und wurden ROH weitergereicht."""
+    rs = relay
+    alice, bob = make_user(), make_user()
+    _lege_an(rs, alice)
+    _lege_an(rs, bob)
+    horcher = _Zuhoerer()
+    _verbinde(rs, bob, horcher, nachweis=False)
+    muell = "!" * 200_000 + b64(b"tiny")
+    raus = _sitzung(rs, alice, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": muell, "id": "m1"},
+        {"type": "message", "to": bob["user_id"], "ciphertext": muell,
+         "fluechtig": True, "id": "m2"},
+    ])
+    assert [m["id"] for m in raus if m.get("reason") == "ciphertext ungueltig"] == ["m1", "m2"]
+    assert horcher.empfangen == []
+
+
+def test_weitergereicht_wird_die_neu_kodierte_form(relay):
+    rs = relay
+    alice, bob = make_user(), make_user()
+    _lege_an(rs, alice)
+    _lege_an(rs, bob)
+    horcher = _Zuhoerer()
+    _verbinde(rs, bob, horcher, nachweis=True)
+    inhalt = os.urandom(300)
+    _sitzung(rs, alice, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(inhalt)},
+    ])
+    assert [m["ciphertext"] for m in horcher.empfangen] == [b64(inhalt)]
+
+
+# ------------------------------------------------ 10  Kaputte Rahmen
+
+class _RohSocket(_StummerSocket):
+    """Wie _StummerSocket, nur dass ein Eintrag in den Antworten, der eine
+    Ausnahme ist, beim Lesen geworfen wird — so wirft Starlettes
+    receive_json bei einem binaeren Rahmen (KeyError 'text'), bei tief
+    verschachteltem JSON (RecursionError) und bei kaputtem JSON (ValueError).
+    [anmeldung] ersetzt die Antwort auf die Challenge."""
+
+    def __init__(self, *a, anmeldung=None, **kw):
+        super().__init__(*a, **kw)
+        self._anmeldung = anmeldung
+
+    async def send_json(self, obj):
+        await super().send_json(obj)
+        if obj.get("type") == "challenge" and self._anmeldung is not None:
+            self._antworten[0] = self._anmeldung
+
+    async def receive_json(self):
+        wert = await super().receive_json()
+        if isinstance(wert, BaseException):
+            raise wert
+        return wert
+
+
+@pytest.mark.parametrize("muell", [KeyError("text"), RecursionError(),
+                                   ValueError("kein JSON"), [], 5, "text"])
+def test_kaputte_anmeldung_endet_mit_4403_und_nicht_mit_traceback(relay, muell):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    sock = _RohSocket(henrik["user_id"], henrik["priv"], anmeldung=muell)
+    asyncio.run(rs.ws_endpoint(sock))
+    assert sock.geschlossen == 4403
+    assert rs._ws_im_vorraum == 0
+
+
+def test_kaputte_rahmen_nach_der_anmeldung_reissen_nichts_ab(relay):
+    """proof_ws.py P3/P4: eine Liste warf AttributeError an data.get, eine
+    Zahl als "to" AttributeError an .strip — beide rissen die Verbindung ab."""
+    rs = relay
+    alice, bob = make_user(), make_user()
+    _lege_an(rs, alice)
+    _lege_an(rs, bob)
+    sock = _RohSocket(alice["user_id"], alice["priv"], antworten=[
+        KeyError("text"), RecursionError(), ValueError("kaputt"), [], 5, None,
+        {"type": "message", "to": 123, "ciphertext": b64(b"x"), "id": "zahl"},
+        {"type": "message", "to": bob["user_id"], "ciphertext": 7, "id": "ct"},
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"x"), "id": "gut"},
+    ])
+    asyncio.run(rs.ws_endpoint(sock))
+    gruende = {m.get("id"): m.get("reason") for m in sock.gesendet if m.get("type") == "error"}
+    assert gruende == {"zahl": "Zieladresse ungueltig", "ct": "ciphertext ungueltig"}
+    assert [m["id"] for m in sock.gesendet if m.get("type") == "ack"] == ["gut"]
+
+
+# ------------------------------------------------ 15  Fremde Leitung reisst nicht mit
+
+class _ToteLeitung:
+    async def send_json(self, obj):
+        raise RuntimeError("Leitung weg")
+
+
+def test_tote_empfaengerleitung_mit_nachweis_kostet_den_absender_nichts(relay):
+    rs = relay
+    alice, bob = make_user(), make_user()
+    _lege_an(rs, alice)
+    _lege_an(rs, bob)
+    _verbinde(rs, bob, _ToteLeitung(), nachweis=True)
+    raus = _sitzung(rs, alice, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"a"), "id": "m1"},
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"b"), "id": "m2"},
+    ])
+    assert [m["id"] for m in raus if m.get("type") == "ack"] == ["m1", "m2"]
+    assert rs.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 2
+
+
+def test_tote_alte_empfaengerleitung_wird_gepuffert_statt_verloren(relay):
+    rs = relay
+    alice, bob = make_user(), make_user()
+    _lege_an(rs, alice)
+    _lege_an(rs, bob)
+    _verbinde(rs, bob, _ToteLeitung(), nachweis=False)
+    raus = _sitzung(rs, alice, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"a"), "id": "m1"},
+    ])
+    assert [m["id"] for m in raus if m.get("type") == "ack"] == ["m1"]
+    assert rs.db.execute("SELECT ciphertext FROM queue").fetchall() == [(b"a",)]
+
+
+def test_der_alte_live_weg_hat_eine_eigene_bremse(relay, monkeypatch):
+    rs = relay
+    monkeypatch.setattr(rs, "LIVE_CAPACITY", 2)
+    monkeypatch.setattr(rs, "LIVE_REFILL_PER_SEC", 0.0)
+    alice, bob = make_user(), make_user()
+    _lege_an(rs, alice)
+    _lege_an(rs, bob)
+    horcher = _Zuhoerer()
+    _verbinde(rs, bob, horcher, nachweis=False)
+    raus = _sitzung(rs, alice, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"x"), "id": f"m{i}"}
+        for i in range(3)
+    ])
+    assert len(horcher.empfangen) == 2
+    assert [m["id"] for m in raus if m.get("reason") == "zu viele Nachrichten"] == ["m2"]
+
+
+# ------------------------------------------------ 16  Rahmenbudget
+
+def test_das_rahmenbudget_gilt_fuer_jede_art(relay, monkeypatch):
+    """Auch Rahmen, an denen keine andere Bremse haengt, kosten."""
+    rs = relay
+    monkeypatch.setattr(rs, "RAHMEN_BURST", 3)
+    monkeypatch.setattr(rs, "RAHMEN_REFILL_PER_SEC", 0.0)
+    alice = make_user()
+    _lege_an(rs, alice, n_otk=30)
+    sock = _StummerSocket(alice["user_id"], alice["priv"], antworten=[
+        {"type": "empfangen", "ids": [1]}, {"type": "unbekannt"}, [],
+        {"type": "geraeus", "to": "a" * 56, "ciphertext": "", "id": "g1"},
+    ])
+    asyncio.run(rs.ws_endpoint(sock))
+    assert sock.geschlossen == 4429
+    assert not [m for m in sock.gesendet if m.get("id") == "g1"]
+    assert rs.connections == {}
+
+
+# ------------------------------------------------ Tarnverkehr sieht aus wie echt
+
+def test_tarnverkehr_bekommt_ein_ack_wie_eine_echte_nachricht(relay):
+    """Fehlte die Antwort auf "geraeus", zaehlte ein Beobachter der Leitung
+    einfach die kleinen Rahmen zurueck und wusste, welche Rahmen echt waren."""
+    rs = relay
+    alice, bob = make_user(), make_user()
+    _lege_an(rs, alice)
+    _lege_an(rs, bob)
+    tarn_an = "".join(chr(0x61 + os.urandom(1)[0] % 26) for _ in range(56))
+    raus = _sitzung(rs, alice, [
+        {"type": "geraeus", "id": "7-123", "to": tarn_an, "ciphertext": b64(os.urandom(400))},
+        {"type": "message", "id": "7-124", "to": bob["user_id"], "ciphertext": b64(b"x")},
+    ])
+    acks = [m for m in raus if m.get("type") == "ack"]
+    assert len(acks) == 2
+    tarn, echt = acks
+    # Dieselben Felder in derselben Reihenfolge, gleich lange Werte.
+    assert list(tarn) == list(echt) == ["type", "to", "id"]
+    assert len(json.dumps(tarn)) == len(json.dumps(echt))
+    assert tarn == {"type": "ack", "to": tarn_an, "id": "7-123"}
+    assert rs.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 1

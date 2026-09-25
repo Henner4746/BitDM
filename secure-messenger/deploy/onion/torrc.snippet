@@ -2,4 +2,13 @@
 # bleibt wie ausgeliefert auf 127.0.0.1:9050.
 HiddenServiceDir /var/lib/tor/bitdm_relay/
 HiddenServicePort 80 127.0.0.1:8470
+# 443 mit TLS (relay.bitdm.net-Zertifikat), siehe relay-onion.nginx.
+HiddenServicePort 443 127.0.0.1:8471
 HiddenServiceEnableIntroDoSDefense 1
+# Hoechstens 20 gleichzeitige Streams je Circuit — eine App braucht einen fuer
+# die WebSocket und kurzzeitig ein paar fuer /prekey und /register. Wer mehr
+# oeffnet, flutet: dann wird der ganze Circuit geschlossen, statt nur den
+# einen Stream abzuweisen (seit 25.09.2026; vorher war ein einziger Tor-Client
+# unbegrenzt, und fuer nginx und den Relay kam alles von 127.0.0.1).
+HiddenServiceMaxStreams 20
+HiddenServiceMaxStreamsCloseCircuit 1

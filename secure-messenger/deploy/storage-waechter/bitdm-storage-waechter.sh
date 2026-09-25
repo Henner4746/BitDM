@@ -16,7 +16,13 @@ set -u
 : "${NTFY_TOPIC:?NTFY_TOPIC fehlt (in /etc/bitdm/waechter.env)}"
 NTFY_URL="${NTFY_URL:-http://127.0.0.1:2586}"
 STORAGE_HOST="${STORAGE_HOST:-5.231.234.142}"
-SSH_KEY="${SSH_KEY:-/root/.ssh/storage_transfer}"
+# Eigener Schluessel und eigener Nutzer auf beiden Seiten (seit 25.09.2026,
+# siehe README.md). Der Schluessel darf auf dem Storage-VPS NUR den curl auf
+# /health ausfuehren — das erzwingt dort authorized_keys (command=...,restrict),
+# der Befehl unten ist nur noch die Beschreibung dessen, was ohnehin laeuft.
+SSH_KEY="${SSH_KEY:-/etc/bitdm/waechter_ssh/id_ed25519}"
+SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS:-/etc/bitdm/waechter_ssh/known_hosts}"
+SSH_USER="${SSH_USER:-bitdm-waechter}"
 MIN_FREI_GB="${MIN_FREI_GB:-80}"
 STATE_DIR="${STATE_DIRECTORY:-/var/lib/bitdm-waechter}"
 mkdir -p "$STATE_DIR"
@@ -27,8 +33,11 @@ melde() { # titel, text, prioritaet, tags
 }
 
 fehler=""
-health=$(ssh -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=10 \
-             -o StrictHostKeyChecking=yes "root@$STORAGE_HOST" \
+health=$(ssh -F /dev/null -i "$SSH_KEY" -o IdentitiesOnly=yes \
+             -o BatchMode=yes -o ConnectTimeout=10 \
+             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSH_KNOWN_HOSTS" \
+             -o GlobalKnownHostsFile=/dev/null \
+             "$SSH_USER@$STORAGE_HOST" \
              'curl -fsS -m 10 http://127.0.0.1:8081/health' 2>&1) \
   || fehler="Storage-VPS nicht erreichbar oder Dienst bitdm-blob steht (${health:0:120})"
 

@@ -1,7 +1,7 @@
 # Das Zwischenlager — große Anhänge, wenn niemand online ist
 
-Stand: 25.07.2026. Server steht und ist geprüft; die App-Seite fehlt noch
-(Aufgabe 19).
+Stand: 25.07.2026, Grenzen und Sichtbarkeit korrigiert am 25.09.2026 (Audit).
+Server steht und ist geprüft.
 
 ## Wofür es da ist
 
@@ -45,11 +45,18 @@ die nur Absender und Empfänger kennen, weil sie verschlüsselt übertragen
 wurden. Wer sie hat, bekommt einen Block, den er ohne den Schlüssel nicht
 lesen kann.
 
-### Die Kennung wählt der Client, der Relay unterschreibt sie blind
+### Die Kennung wählt der Client — der Relay sieht sie, speichert sie aber nicht
 
-Der Relay könnte sie genauso gut würfeln. Dann wüsste er aber, welche Datei im
-Lager zu welcher Adresse gehört. So weiß er es nicht — und das ist umsonst zu
-haben.
+Bis zum 25.09.2026 stand hier „der Relay unterschreibt sie blind“. Das stimmte
+nie: die Kennung steht im Klartext im `blob_marke`-Rahmen, und der Relay muss
+sie in die Marke rechnen. Was stimmt: er **schreibt sie nirgends hin** — die
+Marken-Tabelle hat keine Spalte dafür, und protokolliert wird sie auch nicht.
+Wer den laufenden Relay-Prozess beobachten kann (also wer den Server
+übernommen hat), sieht die Verbindung Adresse → Kennung trotzdem.
+
+Würfelte der Relay die Kennung selbst, wüsste er sie auf jeden Fall und müsste
+sie zurückschicken. Der Unterschied ist also nur, dass nichts davon liegen
+bleibt — das ist wenig, aber umsonst zu haben.
 
 ## Die Marke
 
@@ -78,18 +85,51 @@ fällt aus. `durchstich_zwischenlager.py` ist genau dafür da.
 
 | Was | Wert | Wo |
 |---|---|---|
-| Größte Datei | 3 GiB | `BITDM_BLOB_MAX`, beidseitig |
-| Tagesmenge je Adresse | 10 GiB | `BITDM_BLOB_QUOTA`, Relay |
-| Gültigkeit einer Marke | 12 h | `BITDM_BLOB_MARKE_TTL`, Relay |
+| Größtes **Stück** je Marke/PUT | 33 MiB | `BITDM_BLOB_MAX`, beidseitig (Relay **und** Lager) |
+| Größte Datei | 5 GiB | nur in der App (`AnhangVersand.hoechstGroesse`), 160 Stücke zu 32 MiB |
+| Tagesmenge je Adresse | 25 GiB | `BITDM_BLOB_QUOTA`, Relay |
+| Tagesmenge des ganzen Relays | 200 GiB | `BITDM_BLOB_QUOTA_TOTAL`, Relay |
+| Gültigkeit einer Marke | 12 h, **einmal** benutzbar | `BITDM_BLOB_MARKE_TTL`, Relay |
 | Aufbewahrung | 14 Tage | `BITDM_BLOB_TTL`, Kehrmaschine |
 | Bruchstücke | 1 Tag | `BITDM_BLOB_TEIL_TTL`, Kehrmaschine |
-| Mindestens frei | 50 GiB | `BITDM_BLOB_MIN_FREE`, Lager |
+| Mindestens frei | 50 GiB (inkl. laufender Uploads) | `BITDM_BLOB_MIN_FREE`, Lager |
+
+**Die Grenze gilt je Stück, nicht je Datei** (seit 25.09.2026). Eine Marke
+erlaubt genau ein Stück; die App zerlegt jede Datei in Stücke zu 32 MiB und
+holt je Stück eine Marke. Bis dahin stand `BITDM_BLOB_MAX` auf 5 GiB — die
+Dateigrenze der App, an der falschen Stelle: ein einzelner PUT durfte 5 GiB
+am Stück schreiben. 33 MiB lassen ein MiB Luft über dem echten Stück
+(32 MiB + 16 Byte GCM-Anhang). **Steht in einer der beiden Units noch ein
+`BITDM_BLOB_MAX=…` von früher, gilt der alte Wert weiter** — dann dort
+entfernen, auf beiden Seiten.
+
+**Eine Marke gilt genau einmal.** Früher ließ sie sich wiederverwenden:
+ablegen, löschen (braucht keine Marke), mit derselben Marke noch einmal
+ablegen — zwölf Stunden lang. Das Lager merkt sich jetzt jede benutzte Marke
+bis zu ihrem Ablauf und antwortet danach mit 409. Grenze: die Liste lebt im
+Arbeitsspeicher; nach einem Neustart des Lagers ist eine Marke, deren Datei
+schon wieder gelöscht war, bis zu ihrem Ablauf noch einmal benutzbar.
+
+**Gleichzeitige Uploads unterschreiten den Mindestplatz nicht mehr.** Jeder
+Upload reserviert seine angesagte Größe, bevor er anfängt, und zwei PUTs
+derselben Kennung schreiben in getrennte Nebendateien — der zweite bekommt
+409, statt die Datei des ersten zu überschreiben.
 
 **Die Tagesmenge ist die eigentliche Verteidigung, nicht die Marke.** Die Marke
 hält Fremde draußen — aber eine Adresse anzulegen kostet nichts als ein
 Schlüsselpaar. Ohne Mengengrenze könnte sich jemand ein paar Adressen machen
-und die Platte in einer Nacht füllen. Sie gilt **je Adresse**; eine globale
-Grenze wäre aus einer Mengengrenze eine Abschaltung geworden.
+und die Platte in einer Nacht füllen.
+
+Sie gilt **je Adresse** (25 GiB) — und seit 25.09.2026 zusätzlich für den
+**ganzen Relay** (200 GiB). Die zweite Grenze ist, was hier früher abgelehnt
+wurde: eine globale Grenze macht aus einer Mengengrenze eine Abschaltung für
+alle, sobald jemand sie ausschöpft. Ohne sie reichten aber vierzig Adressen für
+1 TiB am Tag, und die Platte (rund 940 GB frei) wäre in einer Nacht voll — dann
+weist das Lager mit 507 ab, ebenfalls für alle, und zwar bis die Kehrmaschine
+aufräumt. Deshalb steht sie hoch: 200 GiB am Tag lassen der Platte mindestens
+vier Tage, und der Storage-Waechter meldet schon bei 80 GB frei. Wer sie
+erreicht, bekommt `Zwischenlager fuer heute ausgelastet` statt
+`Tagesmenge erschoepft`.
 
 Gezählt wird beim **Ausstellen**, nicht beim Hochladen — der Relay erfährt nie,
 ob wirklich hochgeladen wurde. Wer sich Marken holt und verfallen lässt,
@@ -150,11 +190,11 @@ angeschlossen** (siehe unten).
 | `anhang_versand.dart` | Zerlegen, verschlüsseln, Marken holen, ablegen |
 | `anhang_empfang.dart` | Holen, entschlüsseln, zusammensetzen, prüfen |
 
-**Stückgröße 16 MiB.** Nach unten begrenzt, weil die Anleitung in einen
-64-KiB-Umschlag passen muss; nach oben, weil ein Stück beim Verschlüsseln im
-Arbeitsspeicher liegt und ein Abbruch verlorene Übertragung ist. Bei 16 MiB
-braucht die größte erlaubte Datei 192 Stücke — das passt in die 256, die eine
-Anleitung fassen darf, und kostet rund 23 KB.
+**Stückgröße 32 MiB** (bis 26.07.2026 16 MiB). Nach unten begrenzt, weil die
+Anleitung in einen 64-KiB-Umschlag passen muss; nach oben, weil ein Stück beim
+Verschlüsseln im Arbeitsspeicher liegt und ein Abbruch verlorene Übertragung
+ist. Bei 32 MiB braucht die größte erlaubte Datei (5 GiB) 160 Stücke — das
+passt in die 256, die eine Anleitung fassen darf, und kostet rund 21 KB.
 
 **Je Stück ein eigener Zufallsschlüssel.** Nicht aus Übervorsicht: AES-GCM ist
 *gebrochen*, sobald ein Schlüssel zweimal mit demselben Nonce benutzt wird —
@@ -204,6 +244,16 @@ ssh -i ~/.ssh/<dein-schlüssel> root@dateien.bitdm.net \
 ```
 
 ```bash
+# Aktualisieren (Storage-VPS). Dienst und Kehrmaschine laufen aus /opt/bitdm-blob.
+# VORHER: steht in der Unit ein BITDM_BLOB_MAX von früher, gilt die neue
+# Stückgrenze (33 MiB) nicht — die Zeile entfernen, auf dem Relay ebenso.
+systemctl cat bitdm-blob | grep -n BITDM_BLOB_MAX
+# blob_server.py und blob_kehrmaschine.py aus dem Repo nach /opt/bitdm-blob kopieren, dann:
+systemctl restart bitdm-blob
+curl -sS http://127.0.0.1:8081/health
+```
+
+```bash
 # Das Lager selbst prüfen (auf dem Haupt-VPS)
 bash /opt/bitdm/secure-messenger/server/abnahme_zwischenlager.sh
 ```
@@ -224,12 +274,13 @@ kennt, ist eine Waffe, die auf das eigene Verzeichnis zeigt.
 |---|---|---|
 | Inhalt | nein (verschlüsselt) | nein (verschlüsselt) |
 | Schlüssel | nein (reist als Nachricht) | nein |
-| Kennung | **nein** (blind unterschrieben) | ja |
+| Kennung | **ja, im Rahmen** — aber nicht gespeichert | ja |
 | Wer ablegt | ja | nein |
 | Wie groß, wann | ja | ja |
 
 Die Kennung steht bewusst **nicht** in der Marken-Tabelle des Relays. Sie wäre
 die Verbindung zwischen einer Adresse und einer bestimmten Datei — und genau
-die soll er nicht haben. Für eine Mengenrechnung reicht, wie viel wann. Die
+die soll er nicht aufbewahren. Sehen muss er sie, um die Marke zu rechnen
+(siehe oben). Für eine Mengenrechnung reicht, wie viel wann. Die
 Zeilen fallen nach 24 Stunden weg; ein Protokoll, das länger lebt, als es
 gebraucht wird, ist ein Protokoll.

@@ -4,20 +4,46 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-# root, weil der Schluessel /root/.ssh/storage_transfer root gehoert und nur
-# root den Storage-VPS erreicht. Dafuer eng eingezaeunt:
+# SEIT 25.09.2026 NICHT MEHR ROOT. Frueher lief der Waechter als root und
+# meldete sich mit /root/.ssh/storage_transfer als root auf dem Storage-VPS an —
+# ein Einbruch in dieses kleine Skript waere root auf BEIDEN Rechnern gewesen.
+# Jetzt: eigener Nutzer hier, eigener Schluessel, eigener Nutzer drueben, und
+# der Schluessel darf dort per authorized_keys NUR den einen curl auf /health
+# ausfuehren (command=...,restrict). Einrichtung: README.md.
+User=bitdm-waechter
+Group=bitdm-waechter
 EnvironmentFile=/etc/bitdm/waechter.env
 ExecStart=/usr/local/sbin/bitdm-storage-waechter
 StateDirectory=bitdm-waechter
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=yes
+UMask=0077
+
+# ══════ Haertung ══════
+# Der Waechter braucht: ssh und curl nach aussen, curl an ntfy auf 127.0.0.1,
+# Lesen von /etc/bitdm/waechter_ssh, Schreiben in seinem StateDirectory.
+# Alles andere ist zu.
 NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
+ProtectKernelLogs=yes
 ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @mount @swap @reboot @module @raw-io @debug @obsolete @cpu-emulation
 TimeoutStartSec=90

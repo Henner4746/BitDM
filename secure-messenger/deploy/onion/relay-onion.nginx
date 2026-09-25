@@ -2,30 +2,106 @@
 # Tor reicht die Verbindungen hierher weiter; nginx hoert NUR auf 127.0.0.1.
 # Dieselbe Positivliste wie relay.bitdm.net — aber /health GANZ gesperrt:
 # ueber Tor kommt alles von 127.0.0.1, "nur lokal" hiesse hier "fuer jeden".
+
+# ── Deckel fuer den ganzen Onion-Dienst (seit 25.09.2026) ──────────────────
+#
+# Die Zonen stehen HIER und nicht in conf.d, damit diese Datei fuer sich allein
+# aufspielbar bleibt: sites-enabled wird innerhalb von http {} eingebunden, dort
+# duerfen *_zone stehen.
+#
+# SCHLUESSEL IST $server_port, also EIN gemeinsamer Eimer fuer den ganzen
+# Dienst. Ueber Tor kommt jede Verbindung von 127.0.0.1 — ein Schluessel je IP
+# waere ohnehin nur einer. Das ist bewusst ein Deckel fuer den DIENST und keine
+# Bremse je Nutzer: die sitzen im Relay (je Adresse, siehe limit_schluessel in
+# relay_server.py) und in tor selbst (HiddenServiceMaxStreams je Circuit, siehe
+# torrc.snippet). Frueher gab es hier gar nichts, und ein einziger Tor-Client
+# konnte den Relay mit Verbindungen fluten, die jedes Limit je IP verfehlten.
+limit_req_zone  $server_port zone=bitdm_onion_req:1m rate=30r/s;
+limit_conn_zone $server_port zone=bitdm_onion_conn:1m;
+
 server {
     listen 127.0.0.1:8470;
+    # TLS IM ONION-DIENST (seit 25.09.2026, App ab 1.8.1). Tor verschluesselt
+    # bis hierher; TLS schuetzt den Weg davor — den Klartext-Socket zwischen
+    # App und Orbot auf 127.0.0.1:9050, den auf Android jede andere App
+    # belegen kann, wenn Orbot nicht laeuft. Das Zertifikat ist das von
+    # relay.bitdm.net; die App prueft genau diesen Namen
+    # (Netzweg.zertifikatsName). Port 80 bleibt fuer die Fassungen bis 1.8.0.
+    listen 127.0.0.1:8471 ssl http2;
+    ssl_certificate     /etc/letsencrypt/live/relay.bitdm.net/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/relay.bitdm.net/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
     server_name _;
     access_log off;
-    error_log  /var/log/nginx/relay-onion.error.log warn;
+    # crit und nicht warn: bei einem Fehler des Upstreams (502/504) oder einer
+    # Abweisung durch limit_req schreibt nginx auf Stufe "error" die Anfragezeile
+    # mit — und die ist bei /prekey/<adresse> die Adresse des
+    # Gespraechspartners. Siehe deploy/README.md, "Was NICHT protokolliert wird".
+    error_log  /var/log/nginx/relay-onion.error.log crit;
     server_tokens off;
     client_max_body_size 256k;
     client_body_timeout  20s;
     client_header_timeout 20s;
+
+    # Offene Verbindungen insgesamt. Jede angemeldete App haelt EINE WebSocket;
+    # 512 sind weit ueber dem, was ueber Tor heute verbunden ist, und weit unter
+    # dem, was der Relay an Dateideskriptoren hat (LimitNOFILE in der Unit).
+    limit_conn bitdm_onion_conn 512;
+    limit_req_status  429;
+    limit_conn_status 429;
+
+    error_page 429 = @zu_schnell;
+    location @zu_schnell {
+        default_type application/json;
+        return 429 '{"detail":"zu viele Anfragen"}';
+    }
+    # nginx' eigene 502/504 (Relay steht) als JSON, wie ueberall sonst.
+    error_page 502 504 = @relay_weg;
+    location @relay_weg {
+        default_type application/json;
+        return 503 '{"detail":"Relay voruebergehend nicht erreichbar"}';
+    }
+
     add_header X-Content-Type-Options "nosniff"     always;
     add_header Referrer-Policy        "no-referrer" always;
+
+    # DIE KENNZEICHNUNG "kam ueber Tor". Der Relay nimmt dafuer die Bremse je
+    # IP heraus (ueber Tor waere sie EINE Bremse fuer alle Tor-Nutzer) — aber
+    # nur, wenn zusaetzlich die Herkunft 127.0.0.1 ist. Der oeffentliche vHost
+    # setzt die Kopfzeile ausdruecklich leer.
+    #
+    # Hier auf server-Ebene fuer die HTTP-locations. NICHT ueber
+    # /etc/nginx/snippets/bitdm-relay-proxy.conf: der Schnipsel leert genau
+    # diese Kopfzeile, und zweimal proxy_set_header fuer dieselbe Kopfzeile
+    # schickt sie zweimal.
+    proxy_set_header Host              $host;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-BitDM-Onion "1";
+    proxy_http_version 1.1;
+    proxy_read_timeout 30s;
+    proxy_connect_timeout 5s;
+
     location = /ws {
+        # Neue Verbindungen je Sekunde; eine bestehende kostet danach nichts.
+        limit_req zone=bitdm_onion_req burst=60 nodelay;
         proxy_pass http://127.0.0.1:8465;
+        # Eine location mit EIGENEM proxy_set_header erbt KEINEN von oben —
+        # deshalb hier alles noch einmal.
         proxy_http_version 1.1;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host       $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-BitDM-Onion "1";
         proxy_read_timeout  1h;
         proxy_send_timeout  1h;
         proxy_buffering     off;
     }
-    location = /register/challenge { proxy_pass http://127.0.0.1:8465; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
-    location = /register           { proxy_pass http://127.0.0.1:8465; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
-    location ^~ /prekey/           { proxy_pass http://127.0.0.1:8465; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
+    location = /register/challenge { limit_req zone=bitdm_onion_req burst=60 nodelay; proxy_pass http://127.0.0.1:8465; }
+    location = /register           { limit_req zone=bitdm_onion_req burst=60 nodelay; proxy_pass http://127.0.0.1:8465; }
+    location ^~ /prekey/           { limit_req zone=bitdm_onion_req burst=120 nodelay; proxy_pass http://127.0.0.1:8465; }
     location = /health { return 404; }
     location / { return 404; }
 }

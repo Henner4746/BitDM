@@ -213,7 +213,11 @@ IPAddressAllow=localhost
 
 MemoryMax=512M
 TasksMax=64
-LimitNOFILE=4096
+# Jede WebSocket ist ein Dateideskriptor. 4096 reichten fuer die Nutzer, aber
+# nicht fuer eine Flut im Vorraum (bis BITDM_WS_PREAUTH_MAX = 1000) PLUS die
+# angemeldeten Verbindungen PLUS SQLite und Loopback — am Deckel scheiterte
+# dann accept() fuer alle, statt dass der Relay selbst ordentlich abweist.
+LimitNOFILE=16384
 LimitCORE=0
 UMask=0077
 
@@ -230,8 +234,27 @@ cat > /etc/nginx/conf.d/bitdm-relay-limits.conf <<'LIM'
 # aussperren (Carrier-Grade-NAT) und die elegante Loesung des Relays aushebeln,
 # der bei einem Drain-Versuch das Bundle OHNE Einmalschluessel liefert statt
 # abzuweisen. Gemessen: bei 20 r/s fielen 8 von 40 echten Anfragen durch.
-limit_req_zone  $binary_remote_addr zone=bitdm_relay_req:10m rate=100r/s;
-limit_conn_zone $binary_remote_addr zone=bitdm_relay_conn:10m;
+#
+# IPv6 JE /64 (seit 25.09.2026). Ein Anschluss bekommt mindestens ein /64, und
+# jede Adresse darin ist frei waehlbar — je voller Adresse gezaehlt war das Limit
+# fuer IPv6 praktisch abgeschaltet. Die map schneidet die ersten vier Gruppen
+# heraus; steht ein "::" schon in den ersten vier, sind die fehlenden Gruppen
+# (fast immer) Nullen. Der seltene Fall, dass "::" dort nur EINE Gruppe
+# verschluckt, legt zwei /64 zusammen — das trifft hoechstens den, der so
+# adressiert, und ist nie grosszuegiger als vorher. IPv4 bleibt je Adresse.
+map $remote_addr $bitdm_limit_key {
+    "~*^([0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4}):"  $1;
+    "~*^([0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4})::"               $1:0;
+    "~*^([0-9a-f]{1,4}:[0-9a-f]{1,4})::"                             $1:0:0;
+    "~*^([0-9a-f]{1,4})::"                                           $1:0:0:0;
+    default $binary_remote_addr;
+}
+# NEUE ZONENNAMEN (…64), nicht die alten mit neuem Schluessel: nginx verweigert
+# beim reload eine bestehende Zone, deren Schluessel sich geaendert hat
+# ("uses the ... key while previously it used ..."), und `nginx -t` merkt das
+# NICHT vorher — der reload scheitert dann erst im laufenden Betrieb.
+limit_req_zone  $bitdm_limit_key zone=bitdm_relay_req64:10m rate=100r/s;
+limit_conn_zone $bitdm_limit_key zone=bitdm_relay_conn64:10m;
 limit_req_status  429;
 limit_conn_status 429;
 LIM
@@ -244,6 +267,12 @@ proxy_set_header Host              $host;
 proxy_set_header X-Forwarded-For   $remote_addr;
 proxy_set_header X-Forwarded-Proto $scheme;
 proxy_set_header X-Real-IP         $remote_addr;
+# LEEREN, nicht weglassen: der Relay nimmt fuer Anfragen mit
+# "X-BitDM-Onion: 1" die Bremse je IP heraus (Onion-Weg, siehe
+# deploy/onion/). Ohne diese Zeile reichte nginx eine vom Client mitgeschickte
+# Kopfzeile unveraendert durch. Der Relay prueft zusaetzlich die Herkunft —
+# das hier ist die erste der beiden Sicherungen.
+proxy_set_header X-BitDM-Onion     "";
 proxy_http_version 1.1;
 proxy_read_timeout 30s;
 proxy_connect_timeout 5s;
@@ -299,13 +328,19 @@ server {
     # des GESPRAECHSPARTNERS — ein Protokoll waere eine fortlaufende Liste,
     # wer wann mit wem Kontakt aufgenommen hat.
     access_log off;
-    error_log  /var/log/nginx/$DOMAIN.error.log warn;
+    # crit und nicht warn (seit 25.09.2026). Auf Stufe "error" schreibt nginx
+    # bei jedem Fehler des Upstreams (502/504) und bei jeder Abweisung durch
+    # limit_req die Client-IP UND die Anfragezeile mit — bei /prekey/<adresse>
+    # also genau die Liste "wer fragte wann nach wem", die access_log off
+    # verhindern soll. Zum Fehlersuchen voruebergehend auf warn stellen und
+    # danach das Protokoll loeschen.
+    error_log  /var/log/nginx/$DOMAIN.error.log crit;
 
     server_tokens off;
     client_max_body_size 256k;
     client_body_timeout  20s;
     client_header_timeout 20s;
-    limit_conn bitdm_relay_conn 128;
+    limit_conn bitdm_relay_conn64 128;
 
     # Fehler als JSON. Der Client erwartet ueberall JSON und stolperte sonst
     # ueber eine HTML-Seite.
@@ -314,13 +349,24 @@ server {
         default_type application/json;
         return 429 '{"detail":"zu viele Anfragen"}';
     }
+    # nginx' EIGENE 502/504 (Relay steht oder antwortet nicht) ebenfalls als
+    # JSON. Eine 503 des Relays selbst (Speicherdach) geht unveraendert durch —
+    # error_page greift ohne proxy_intercept_errors nur fuer nginx' eigene.
+    # "@" OHNE Backslash: in diesem Heredoc (<<CONF, ungequotet) bleibt ein
+    # Backslash vor "@" stehen, und nginx liest "\@..." als gewoehnlichen Pfad
+    # statt als benannte location.
+    error_page 502 504 = @relay_weg;
+    location @relay_weg {
+        default_type application/json;
+        return 503 '{"detail":"Relay voruebergehend nicht erreichbar"}';
+    }
 
     add_header X-Content-Type-Options "nosniff"     always;
     add_header Referrer-Policy        "no-referrer" always;
     add_header X-Frame-Options        "DENY"        always;
 
     location = /ws {
-        limit_req zone=bitdm_relay_req burst=100 nodelay;
+        limit_req zone=bitdm_relay_req64 burst=100 nodelay;
         proxy_pass http://127.0.0.1:$PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade    \$http_upgrade;
@@ -328,6 +374,8 @@ server {
         proxy_set_header Host       \$host;
         proxy_set_header X-Forwarded-For   \$remote_addr;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        # Diese location bindet den Schnipsel nicht ein — also auch hier leeren.
+        proxy_set_header X-BitDM-Onion     "";
         # Eine ruhende Verbindung darf nicht nach 60 s abgeraeumt werden —
         # staendiges Neuverbinden kostet auf einem Telefon Akku.
         proxy_read_timeout  1h;
@@ -335,9 +383,9 @@ server {
         proxy_buffering     off;
     }
 
-    location = /register/challenge { limit_req zone=bitdm_relay_req burst=100 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
-    location = /register           { limit_req zone=bitdm_relay_req burst=100 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
-    location ^~ /prekey/           { limit_req zone=bitdm_relay_req burst=200 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
+    location = /register/challenge { limit_req zone=bitdm_relay_req64 burst=100 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
+    location = /register           { limit_req zone=bitdm_relay_req64 burst=100 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
+    location ^~ /prekey/           { limit_req zone=bitdm_relay_req64 burst=200 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
 
     # /health verraet Nutzerzahl und wie viele gerade online sind. Auch das
     # ist eine Angabe, die niemanden ausser dem Betreiber etwas angeht.

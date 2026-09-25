@@ -34,6 +34,14 @@ S6  MEHRGERAETE (30.07.2026, docs/MEHRGERAETE.md). Alles, was frueher an einer
     Client, der nichts davon weiss, merkt keinen Unterschied. Was beim
     Aufspielen mit einer bestehenden Datenbank passiert, steht bei
     wandere_auf_geraete().
+S7  AUDIT vom 25.09.2026. Speicherdach und Aufraeumen fuer Nonces und Eimer,
+    Deckel je Absender statt "die aelteste Zeile faellt" (schaffe_platz),
+    mehrere offene Nonces je Geraet, Laengenpruefung im Buendel, IPv6 je /64
+    und keine IP-Bremse ueber Tor, gedeckelter Vorraum fuer WebSockets,
+    Rahmenbudget je Verbindung, strenges base64, kaputte Rahmen ohne
+    Traceback, Marken nur noch je Stueck (33 MiB) plus Tagesmenge des ganzen
+    Relays, Tarnverkehr bekommt ein ack. Das Protokoll fuer die Apps 1.6 bis
+    1.8 ist unveraendert; neu sind nur Antworten, die sie schon kennen.
 
 Ausserdem: Adressformat auf 56 Zeichen umgestellt (3-Byte-Pruefsumme statt 2),
 damit Base32 glatt aufgeht und kein Padding abgeschnitten werden muss.
@@ -45,6 +53,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -76,6 +85,43 @@ MAX_CIPHERTEXT_BYTES = int(os.getenv("BITDM_MAX_CT", 64 * 1024))        # 64 KiB
 
 # Ein Challenge-Nonce ist kurzlebig und nur einmal verwendbar.
 NONCE_TTL_SECONDS = 120
+
+# Wie viele offene Nonces EIN (Adresse, Geraet)-Paar gleichzeitig haben darf.
+#
+# Frueher war es genau eines, und ein neues /register/challenge ueberschrieb
+# das alte. Das war ein Hebel gegen FREMDE: die Adresse ist oeffentlich, also
+# konnte jeder zwischen Challenge und /register des Opfers selbst eine
+# Challenge fuer dieselbe Adresse holen — das Nonce des Opfers war weg, seine
+# Registrierung scheiterte mit 401. Mit acht Plaetzen muss ein Stoerer acht
+# Challenges in genau das Fenster zwischen den beiden Anfragen des Opfers
+# legen (meist unter einer Sekunde), und zwar bei jedem Versuch neu.
+NONCE_PLAETZE = int(os.getenv("BITDM_NONCE_SLOTS", 8))
+
+# ── Speicherdeckel fuer die beiden Tabellen im Arbeitsspeicher ────────────
+#
+# _nonces und _buckets wuchsen frueher unbegrenzt: /register/challenge nimmt
+# JEDE gueltige Adresse an (die Pruefsumme rechnet sich jeder selbst), und
+# jede Anfrage legte einen Nonce-Eintrag und einen Eimer an, die nie wieder
+# verschwanden. Gemessen am 25.09.2026 (tracemalloc, 50 000 Anfragen): rund
+# 600 Byte je Paar aus Nonce und Eimer — bei MemoryMax=512M keine Million
+# Anfragen bis zum OOM-Kill, und der erschlaegt alle Verbindungen mit.
+#
+# Deshalb zweierlei: regelmaessig aufraeumen (abgelaufene Nonces, wieder volle
+# Eimer — ein voller Eimer ist von einem fehlenden nicht zu unterscheiden) und
+# ein festes Dach. Am Dach antwortet /register/challenge mit 503: das ist
+# keine Bremse gegen EINEN, sondern ein Relay unter Last, und so soll es der
+# Client auch verstehen.
+#
+# 200 000 Eintraege je Tabelle sind nach derselben Messung im schlechtesten
+# Fall rund 120 MB zusammen — unter MemoryMax, weit ueber jedem ehrlichen
+# Betrieb.
+SPEICHER_MAX = int(os.getenv("BITDM_MEM_ENTRIES_MAX", 200_000))
+# Spaetestens so oft wird aufgeraeumt (Sekunden) ...
+AUFRAEUM_TAKT = 60.0
+# ... und zusaetzlich, sobald eine Tabelle so gross wird — aber hoechstens
+# einmal je Sekunde, sonst wuerde das Aufraeumen unter einer Flut selbst zur
+# Last (jeder Lauf geht ueber die ganze Tabelle).
+AUFRAEUM_AB = int(os.getenv("BITDM_MEM_PRUNE_AT", 50_000))
 
 # Ratenbegrenzung, zweistufig.
 #
@@ -128,6 +174,61 @@ MSG_REFILL_PER_SEC = float(os.getenv("BITDM_MSG_REFILL", 6.0))
 # trifft also keinen ehrlichen Betrieb, sondern nur die Flut. Sie gehoert an
 # die Platte des jeweiligen Relays angepasst.
 QUEUE_MAX_TOTAL = int(os.getenv("BITDM_QUEUE_MAX_TOTAL", 200_000))
+
+# ── Deckel JE ABSENDER (Audit vom 25.09.2026) ─────────────────────────────
+#
+# QUEUE_MAX_PER_USER allein war eine Waffe: stand ein Geraet an seinem Deckel,
+# fiel die aelteste Zeile weg — gleichgueltig, von wem sie war. Ein Fremder,
+# der die Adresse kennt, konnte so mit 500 Rahmen alles wegspuelen, was
+# echte Kontakte dem abwesenden Opfer hinterlassen hatten. Und QUEUE_MAX_TOTAL
+# liess sich von EINEM Absender allein fuellen, der damit die Offline-
+# Zustellung fuer alle anderen abstellte.
+#
+# QUEUE_MAX_JE_PAAR: so viele Zeilen darf EIN Absender bei EINEM Zielgeraet
+# liegen haben. Darueber faellt SEINE eigene aelteste Zeile weg, nie die
+# eines anderen. 100 ungelesene Nachrichten von einer Person an ein Geraet
+# sind viel; wer mehr schreibt, verdraengt nur sich selbst.
+#
+# QUEUE_MAX_JE_ABSENDER: so viele Zeilen darf ein Absender insgesamt liegen
+# haben, ueber alle Empfaenger. Darueber wird er abgewiesen ("Warteschlange
+# voll", derselbe Wortlaut, den aeltere Clients schon kennen). 2000 sind 20
+# volle Paare — weit ueber jedem ehrlichen Gebrauch, und 100 solcher
+# Absender braucht es, um QUEUE_MAX_TOTAL zu fuellen statt einen.
+QUEUE_MAX_JE_PAAR = int(os.getenv("BITDM_QUEUE_MAX_PAIR", 100))
+QUEUE_MAX_JE_ABSENDER = int(os.getenv("BITDM_QUEUE_MAX_SENDER", 2000))
+
+# ── Die WebSocket vor und nach der Anmeldung ──────────────────────────────
+#
+# Vor der Anmeldung kostet eine Verbindung den Angreifer nichts ausser einer
+# gueltigen Adresse (die ist oeffentlich). Frueher durfte sie 30 s lang
+# offen stehen, ohne Obergrenze — ueber Tor, wo alle von 127.0.0.1 kommen,
+# griff auch kein nginx-Limit je IP. Ein Client braucht fuer die Antwort auf
+# die Challenge eine Signatur, also Millisekunden; 10 s decken auch eine
+# zaehe Tor-Strecke.
+WS_ANMELDEFRIST = float(os.getenv("BITDM_WS_AUTH_TIMEOUT", 10.0))
+# Wie viele Verbindungen gleichzeitig im Vorraum stehen duerfen. Darueber
+# wird sofort geschlossen (1013 "try again later"); ein ehrlicher Client
+# verbindet nach seiner Wartezeit neu.
+WS_VORRAUM_MAX = int(os.getenv("BITDM_WS_PREAUTH_MAX", 1000))
+
+# Rahmen-Budget JE VERBINDUNG, fuer JEDE Art von Rahmen — auch die, die an
+# keiner anderen Bremse haengen (empfangen, geraeus, unbekannte Arten,
+# kaputtes JSON). Grosszuegig: nach dem Verbinden bestaetigt ein Client
+# seinen ganzen Rueckstand (bis QUEUE_MAX_PER_USER = 500 Rahmen am Stueck),
+# und Fanout vervielfacht jede Nutzernachricht. Wer es trotzdem leert, wird
+# mit 4429 getrennt und darf neu verbinden.
+RAHMEN_BURST = float(os.getenv("BITDM_FRAME_BURST", 1000))
+RAHMEN_REFILL_PER_SEC = float(os.getenv("BITDM_FRAME_REFILL", 50.0))
+
+# Bremse fuer das LIVE-Durchreichen an eine Gegenstelle ohne Empfangsnachweis
+# (alte App). Bewusst NICHT msg_limit_ok: das ist die Bremse fuer die Platte,
+# und eine laufende Unterhaltung darf sie nicht treffen
+# (test_bremse_trifft_das_puffern_und_nicht_die_unterhaltung). Ungebremst
+# war dieser Weg aber ein Verstaerker — jeder Rahmen des Absenders ging
+# unbesehen in die Leitung des Empfaengers. Der eigene Eimer ist deshalb
+# weiter als msg_limit_ok und haengt ebenfalls am Absender.
+LIVE_CAPACITY = int(os.getenv("BITDM_LIVE_BURST", 600))
+LIVE_REFILL_PER_SEC = float(os.getenv("BITDM_LIVE_REFILL", 20.0))
 
 # ── Der ZWEITE Weg auf die Platte ─────────────────────────────────────────
 #
@@ -210,14 +311,25 @@ GERAET_TTL = int(os.getenv("BITDM_GERAET_TTL", 30 * 24 * 3600))
 #
 # WAS DIESER SERVER DABEI NICHT SIEHT: den Inhalt (verschluesselt), den
 # Schluessel (reist als gewoehnliche Nachricht) und die Datei selbst (liegt auf
-# einem anderen Rechner). Er sieht: wer wann wie viele Bytes ablegen will.
+# einem anderen Rechner). Er sieht: wer wann wie viele Bytes ablegen will —
+# und die Kennung des Stuecks, im Klartext im Rahmen, weil er sie in die Marke
+# rechnen muss. Er SPEICHERT sie nicht (siehe blob_marken), aber "blind" ist
+# das nicht; hier stand bis zum 25.09.2026 das Gegenteil.
 
 BLOB_BASIS = os.getenv("BITDM_BLOB_BASE", "https://dateien.bitdm.net")
 
-# Muss zu MAX_BYTES in blob_server.py passen. Steht hier trotzdem noch einmal:
-# eine Marke fuer mehr auszustellen, als das Lager annimmt, hiesse den Client
-# erst laden zu lassen und ihn dann abzuweisen.
-BLOB_MAX_BYTES = int(os.getenv("BITDM_BLOB_MAX", 5 * 1024**3))
+# Groesstes STUECK, fuer das eine Marke ausgestellt wird. Muss zu MAX_BYTES in
+# blob_server.py passen: eine Marke fuer mehr auszustellen, als das Lager
+# annimmt, hiesse den Client erst laden zu lassen und ihn dann abzuweisen.
+#
+# SEIT 25.09.2026 33 MiB STATT 5 GiB. Eine Marke gilt fuer EIN Stueck, nicht
+# fuer eine Datei: die App zerlegt jede Datei in Stuecke zu 32 MiB
+# (anhang_versand.dart, standardStueckGroesse) und holt je Stueck eine Marke;
+# hochgeladen wird das Stueck mit seinem 16-Byte-GCM-Anhang. Die 5 GiB waren
+# die Obergrenze fuer die ganze DATEI (hoechstGroesse in der App) und hier
+# falsch verortet — sie erlaubten einem einzelnen PUT, 5 GiB am Stueck zu
+# schreiben. 33 MiB lassen ein MiB Luft ueber dem echten Stueck.
+BLOB_MAX_BYTES = int(os.getenv("BITDM_BLOB_MAX", 33 * 1024**2))
 
 # Wie lange eine Marke gilt. Grosszuegig, und das ist vertretbar: sie gilt fuer
 # GENAU EINE Kennung und GENAU EINE Groesse, und eine schon belegte Kennung
@@ -233,11 +345,31 @@ BLOB_MARKE_TTL = int(os.getenv("BITDM_BLOB_MARKE_TTL", 12 * 3600))
 # Schluesselpaar. Ohne diese Grenze koennte sich jemand ein paar Adressen
 # machen und die Platte in einer Nacht fuellen.
 # Seit dem 26.07.2026 auf 25 GiB: bei einer Obergrenze von 5 GiB je Datei
-# waeren 10 GiB genau zwei Dateien am Tag, und die zweite haette schon
-# scheitern koennen, weil eine verfallene Marke ihr Kontingent behaelt.
+# (die gilt in der App weiter) waeren 10 GiB genau zwei Dateien am Tag, und
+# die zweite haette schon scheitern koennen, weil eine verfallene Marke ihr
+# Kontingent behaelt. 25 GiB sind rund 775 Stuecke zu 33 MiB.
 BLOB_TAGESMENGE = int(os.getenv("BITDM_BLOB_QUOTA", 25 * 1024**3))
 
-BLOB_KENNUNG_MUSTER = re.compile(r"^[a-z2-7]{52}$")
+# Wie viel der GANZE Relay pro Tag an Marken ausstellt, ueber alle Adressen.
+#
+# Die Menge je Adresse haelt einen Einzelnen auf, aber eine Adresse kostet
+# nichts: mit vierzig Adressen waeren es 1 TiB am Tag, die Platte des Lagers
+# (rund 940 GB frei) waere in einer Nacht voll. Das Lager weist dann zwar mit
+# 507 ab (MIN_FREI_BYTES), aber ab da fuer ALLE bis zur Kehrmaschine.
+#
+# DER PREIS ist bekannt: diese Grenze ist eine Abschaltung fuer alle, sobald
+# jemand sie ausschoepft — genau das, was docs/ZWISCHENLAGER.md gegen eine
+# globale Grenze einwendet. Deshalb steht sie hoch: 200 GiB am Tag lassen
+# der vollen Platte mindestens vier Tage, und der Storage-Waechter meldet
+# schon bei 80 GB frei. Sie begrenzt die GESCHWINDIGKEIT, mit der sich die
+# Platte fuellen laesst, nicht den ehrlichen Betrieb.
+BLOB_TAGESMENGE_GESAMT = int(os.getenv("BITDM_BLOB_QUOTA_TOTAL", 200 * 1024**3))
+
+# fullmatch und kein `$`: `^...$` mit .match() nimmt auch eine Kennung mit
+# angehaengtem Zeilenumbruch an ("a"*52 + "\n"), weil `$` VOR einem letzten
+# \n passt. Beim Lager wurde daraus ein anderer Dateiname als der, den die
+# Marke meinte.
+BLOB_KENNUNG_MUSTER = re.compile(r"[a-z2-7]{52}")
 
 
 def blob_geheimnis() -> bytes:
@@ -267,6 +399,15 @@ def blob_menge_heute(user_id: str) -> int:
     return db.execute(
         "SELECT COALESCE(SUM(groesse), 0) FROM blob_marken WHERE user_id=? AND ts > ?",
         (user_id, seit),
+    ).fetchone()[0]
+
+
+def blob_menge_heute_gesamt() -> int:
+    """Was der ganze Relay in den letzten 24 Stunden ausgestellt hat."""
+    seit = time.time() - 24 * 3600
+    return db.execute(
+        "SELECT COALESCE(SUM(groesse), 0) FROM blob_marken WHERE ts > ?",
+        (seit,),
     ).fetchone()[0]
 
 
@@ -301,7 +442,17 @@ def decode_id(address: str) -> bytes:
 
 
 def b64d(s: str) -> bytes:
-    return base64.b64decode(s)
+    """Strenges base64. Wirft ValueError (binascii.Error) bei allem anderen.
+
+    validate=True ist hier nicht Pedanterie. Ohne es wirft b64decode alles
+    weg, was nicht im Alphabet steht, und dekodiert den Rest — aus
+    200 000 Ausrufezeichen und vier echten Zeichen wurden drei Byte. Die
+    Groessengrenze (MAX_CIPHERTEXT_BYTES) sah nur diese drei Byte, und
+    weitergereicht wurde danach die ROHE Zeichenkette: 200 KB Muell pro Rahmen
+    in die Leitung des Empfaengers (Audit 25.09.2026). Weitergereicht wird
+    deshalb seither das neu kodierte Ergebnis, nie die Eingabe.
+    """
+    return base64.b64decode(s, validate=True)
 
 
 def b64e(b: bytes) -> str:
@@ -508,9 +659,29 @@ def init_db(path: Path) -> sqlite3.Connection:
     # Der alte Index auf `recipient` allein faellt weg: jede Abfrage der
     # Warteschlange fragt ab jetzt nach (Adresse, Geraet), und ein zweiter
     # Index auf die Praefixspalte kostet nur Schreibarbeit.
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_empfaenger "
-                 "ON queue(recipient, recipient_device)")
     conn.execute("DROP INDEX IF EXISTS idx_queue_recipient")
+
+    # Die Deckel je Absender (schaffe_platz) zaehlen je (Empfaenger, Geraet,
+    # Absender) und je Absender. Ohne diese beiden Indizes liefe jede
+    # gepufferte Nachricht ueber die ganze Tabelle — genau unter der Flut,
+    # gegen die die Deckel gebaut sind.
+    #
+    # idx_queue_paar ersetzt idx_queue_empfaenger: dessen Spalten sind sein
+    # Praefix, jede Abfrage nach (recipient, recipient_device) nimmt ihn
+    # genauso, und ein zweiter Index kostet nur Schreibarbeit. ERST anlegen,
+    # DANN den alten wegwerfen — dazwischen darf es keinen Moment ohne Index
+    # geben. Beides ist auf der laufenden Datenbank unbedenklich: CREATE INDEX
+    # IF NOT EXISTS ist bei jedem Start ein Nichts, und beim ersten Start nach
+    # dem Update dauert es bei einigen tausend Zeilen Millisekunden.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_paar "
+                 "ON queue(recipient, recipient_device, sender)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_absender "
+                 "ON queue(sender)")
+    conn.execute("DROP INDEX IF EXISTS idx_queue_empfaenger")
+    # Fuer die Tagesmenge des ganzen Relays (blob_menge_heute_gesamt). Der
+    # bestehende Index beginnt mit user_id und hilft dort nicht.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_blob_marken_ts "
+                 "ON blob_marken(ts)")
 
     conn.commit()
     wandere_auf_geraete(conn)
@@ -687,21 +858,103 @@ def purge_expired() -> int:
 
 
 # --------------------------------------------------------------------------- #
-#  Ratenbegrenzung  (Token-Bucket je IP)
+#  Ratenbegrenzung  (Token-Bucket je IP-Gruppe bzw. je Adresse)
 # --------------------------------------------------------------------------- #
 
-_buckets: dict[str, tuple[float, float]] = {}
+# Schluessel -> (Marken, zuletzt, voll_ab).
+#
+# `voll_ab` ist der Zeitpunkt, ab dem der Eimer wieder randvoll waere. Ein
+# voller Eimer ist von einem fehlenden nicht zu unterscheiden (_take legt
+# einen fehlenden voll an) — ab `voll_ab` darf der Eintrag also weg, ohne
+# dass sich fuer irgendwen etwas aendert. So rechnet jede Familie ihre eigene
+# Frist: "msg:" ist nach 30 s wieder voll, "otk:" erst nach 100 s — genau die
+# Falle, vor der der Kommentar an msg_limit_ok warnt, faellt damit weg.
+_buckets: dict[str, tuple[float, float, float]] = {}
+
+# Schuetzt _buckets und _nonces. Die HTTP-Endpunkte laufen im Threadpool, die
+# WebSocket-Seite auf dem Event-Loop; ein Aufraeumlauf, der ueber die Tabelle
+# geht, waehrend ein anderer Thread einfuegt, liefe sonst in "dictionary
+# changed size during iteration". NICHT die schreibsperre: die gehoert der
+# Datenbank, und eine Verschachtelung der beiden waere eine Verklemmung auf
+# Vorrat. Kein await darunter, dieselbe Regel wie dort.
+_speichersperre = threading.Lock()
+_zuletzt_geraeumt = 0.0
+
+
+def _raeume_speicher_auf(jetzt: float) -> None:
+    """Wirft abgelaufene Nonces und wieder volle Eimer weg.
+
+    Ruft NUR auf, wer _speichersperre haelt.
+    """
+    global _zuletzt_geraeumt, _nonce_zahl
+    _zuletzt_geraeumt = jetzt
+    for k in [k for k, v in _buckets.items() if v[2] <= jetzt]:
+        del _buckets[k]
+    zahl = 0
+    for paar in list(_nonces):
+        offen = [e for e in _nonces[paar] if e[1] > jetzt]
+        if offen:
+            _nonces[paar] = offen
+            zahl += len(offen)
+        else:
+            del _nonces[paar]
+    _nonce_zahl = zahl
+
+
+def _vielleicht_aufraeumen(jetzt: float) -> None:
+    """Aufraeumen, wenn der Takt um ist oder eine Tabelle gross wird.
+
+    Ruft NUR auf, wer _speichersperre haelt.
+    """
+    seit = jetzt - _zuletzt_geraeumt
+    if seit >= AUFRAEUM_TAKT or (
+            seit >= 1.0
+            and (len(_buckets) >= AUFRAEUM_AB or _nonce_zahl >= AUFRAEUM_AB)):
+        _raeume_speicher_auf(jetzt)
+
+
+def raeume_speicher_auf() -> None:
+    """Fuer den Hintergrundtakt im lifespan: raeumt auch ohne Verkehr auf."""
+    with _speichersperre:
+        _raeume_speicher_auf(time.monotonic())
+
+
+def speicher_hat_platz() -> bool:
+    """Ob beide Tabellen noch unter SPEICHER_MAX liegen (nach dem Aufraeumen)."""
+    with _speichersperre:
+        jetzt = time.monotonic()
+        _vielleicht_aufraeumen(jetzt)
+        if len(_buckets) < SPEICHER_MAX and _nonce_zahl < SPEICHER_MAX:
+            return True
+        # Am Dach NOCH EINMAL aufraeumen, auch wenn der letzte Lauf keine
+        # Sekunde her ist — aber nur hier, am seltenen Rand, nicht bei jeder
+        # Anfrage.
+        _raeume_speicher_auf(jetzt)
+        return len(_buckets) < SPEICHER_MAX and _nonce_zahl < SPEICHER_MAX
 
 
 def _take(key: str, capacity: float, refill: float, cost: float) -> bool:
-    now = time.monotonic()
-    tokens, last = _buckets.get(key, (capacity, now))
-    tokens = min(capacity, tokens + (now - last) * refill)
-    if tokens < cost:
-        _buckets[key] = (tokens, now)
-        return False
-    _buckets[key] = (tokens - cost, now)
-    return True
+    with _speichersperre:
+        now = time.monotonic()
+        _vielleicht_aufraeumen(now)
+        eintrag = _buckets.get(key)
+        if eintrag is None:
+            # AM DACH GIBT ES KEINEN NEUEN EIMER. Abweisen ist die einzige
+            # Antwort, die den Speicher nicht weiter fuellt; bestehende Eimer
+            # (also die Nutzer, die schon da waren) arbeiten unveraendert
+            # weiter. Nach dem naechsten Aufraeumen ist wieder Platz.
+            if len(_buckets) >= SPEICHER_MAX:
+                return False
+            tokens, last = capacity, now
+        else:
+            tokens, last, _ = eintrag
+        tokens = min(capacity, tokens + (now - last) * refill)
+        ok = tokens >= cost
+        if ok:
+            tokens -= cost
+        voll_ab = (now + (capacity - tokens) / refill) if refill > 0 else float("inf")
+        _buckets[key] = (tokens, now, voll_ab)
+        return ok
 
 
 def rate_limit_ok(key: str, cost: float = 1.0) -> bool:
@@ -725,13 +978,18 @@ def msg_limit_ok(user_id: str) -> bool:
     am Absender: gepuffert wird auf seine Veranlassung, und der Empfaenger, den
     er sich aussucht, kostet ihn nichts.
 
-    Der Eintrag heisst "msg:<adresse>". Wer _buckets einmal aufraeumt, muss die
-    Frist JE FAMILIE rechnen — hier ist der Eimer nach
-    MSG_CAPACITY/MSG_REFILL_PER_SEC Sekunden wieder voll, bei "otk:" dauert es
-    ein Vielfaches davon. Pauschal die kuerzeste Frist zu nehmen, schenkte
-    einem Angreifer nach kurzer Pause einen frischen vollen Eimer.
+    Der Eintrag heisst "msg:<adresse>". Aufgeraeumt wird er erst, wenn er
+    wieder voll waere (`voll_ab` in _buckets) — die Frist rechnet sich also je
+    Familie von selbst, und niemand bekommt nach kurzer Pause einen frischen
+    Eimer geschenkt.
     """
     return _take(f"msg:{user_id}", float(MSG_CAPACITY), MSG_REFILL_PER_SEC, 1.0)
+
+
+def live_limit_ok(user_id: str) -> bool:
+    """Bremse fuer das Live-Durchreichen an eine alte Gegenstelle. Siehe
+    LIVE_CAPACITY — warum ein eigener Eimer und nicht msg_limit_ok."""
+    return _take(f"live:{user_id}", float(LIVE_CAPACITY), LIVE_REFILL_PER_SEC, 1.0)
 
 
 def client_ip(request: Request) -> str:
@@ -744,6 +1002,75 @@ def client_ip(request: Request) -> str:
     if fwd:
         return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unbekannt"
+
+
+def _ist_schleife(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip).is_loopback
+    except ValueError:
+        return False
+
+
+def kommt_ueber_onion(request: Request) -> bool:
+    """Kam diese Anfrage ueber den Onion-vHost (deploy/onion/relay-onion.nginx)?
+
+    ZWEI BEDINGUNGEN, und erst beide zusammen zaehlen:
+
+    1. Die Kopfzeile `X-BitDM-Onion: 1`. Sie setzt NUR der Onion-vHost; der
+       oeffentliche vHost setzt sie ausdruecklich leer (bitdm-relay-proxy.conf
+       und die /ws-location in install-relay.sh), damit ein Client sie nicht
+       selbst mitschicken kann.
+    2. Die Herkunft ist die Schleife. Ueber Tor kommt JEDE Verbindung von
+       127.0.0.1 (tor reicht an nginx auf dem Loopback weiter, nginx traegt
+       $remote_addr als X-Forwarded-For ein). Ueber den oeffentlichen vHost
+       steht dort die echte IP des Clients — die ist nie 127.0.0.1.
+
+    Die zweite Bedingung haelt also auch dann, wenn die erste einmal versagt
+    (vergessenes Leeren in einer neuen location): wer von aussen die
+    Kopfzeile faelscht, bringt trotzdem seine eigene IP mit.
+    """
+    if request.headers.get("x-bitdm-onion") != "1":
+        return False
+    return _ist_schleife(client_ip(request))
+
+
+def limit_schluessel(request: Request) -> str | None:
+    """Wonach die Bremse je Herkunft zaehlt — oder None fuer "gar nicht".
+
+    IPv6 JE /64. Ein Anschluss bekommt vom Anbieter mindestens ein /64,
+    meist ein /56 oder /48; jede einzelne Adresse darin ist frei waehlbar.
+    Je voller Adresse gezaehlt hatte ein Angreifer damit 2**64 frische
+    Eimer — die Bremse war fuer IPv6 praktisch abgeschaltet und fuellte
+    obendrein _buckets. Ein /64 ist die kleinste Einheit, die ein Anschluss
+    nicht beliebig vervielfachen kann.
+
+    ONION: None. Ueber Tor kommen ALLE von 127.0.0.1, eine Bremse je IP waere
+    dort eine einzige gemeinsame Bremse fuer alle Tor-Nutzer — ein Stoerer
+    sperrte damit alle anderen aus. Stattdessen greifen dort die Grenzen je
+    Adresse (otk_limit_ok, msg_limit_ok, NONCE_PLAETZE), die Grenzen im
+    Onion-vHost (limit_req/limit_conn), das Speicherdach (SPEICHER_MAX) und
+    die Grenzen in tor selbst (HiddenServiceMaxStreams).
+    """
+    if kommt_ueber_onion(request):
+        return None
+    ip = client_ip(request)
+    try:
+        adresse = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if adresse.version == 6:
+        if adresse.ipv4_mapped is not None:
+            return str(adresse.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{adresse}/64", strict=False))
+    return str(adresse)
+
+
+def herkunft_ok(request: Request, familie: str, cost: float = 1.0) -> bool:
+    """Die Bremse je Herkunft fuer einen HTTP-Endpunkt. Onion: immer ja."""
+    schluessel = limit_schluessel(request)
+    if schluessel is None:
+        return True
+    return rate_limit_ok(f"{familie}:{schluessel}", cost)
 
 
 # --------------------------------------------------------------------------- #
@@ -760,22 +1087,85 @@ def client_ip(request: Request) -> str:
 #
 # Ein Client, der kein Geraet nennt, bekommt den Schluessel (Adresse, None) und
 # kollidiert damit nie mit einem neuen.
-_nonces: dict[tuple[str, int | None], tuple[bytes, float]] = {}
+#
+# JE PAAR EINE LISTE von bis zu NONCE_PLAETZE offenen Nonces, jedes mit eigenem
+# Ablauf (seit 25.09.2026, Begruendung bei NONCE_PLAETZE). Der Client schickt
+# sein Nonce bei /register NICHT zurueck — das ist so ausgeliefert und bleibt
+# so. register() probiert die Signatur deshalb gegen jedes offene Nonce des
+# Paares; bei acht Plaetzen sind das hoechstens acht Pruefungen.
+_nonces: dict[tuple[str, int | None], list[tuple[bytes, float]]] = {}
+# Wie viele Nonces insgesamt in _nonces stehen — mitgefuehrt, damit das Dach
+# nicht bei jeder Anfrage ueber alle Listen zaehlen muss.
+_nonce_zahl = 0
+
+
+class Ueberlastet(Exception):
+    """Der Speicherdeckel ist erreicht; die Anfrage bekommt 503."""
 
 
 def issue_nonce(user_id: str, device_id: int | None = None) -> bytes:
+    global _nonce_zahl
     nonce = secrets.token_bytes(32)
-    _nonces[(user_id, device_id)] = (nonce, time.monotonic() + NONCE_TTL_SECONDS)
+    with _speichersperre:
+        jetzt = time.monotonic()
+        _vielleicht_aufraeumen(jetzt)
+        schluessel = (user_id, device_id)
+        alt = _nonces.get(schluessel, [])
+        offen = [e for e in alt if e[1] > jetzt]
+        _nonce_zahl -= len(alt) - len(offen)
+        # Nur ein NEUES Paar scheitert am Dach. Ein Paar, das schon da ist,
+        # tauscht hoechstens ein altes Nonce gegen ein neues und belegt damit
+        # nichts dazu.
+        if len(offen) < NONCE_PLAETZE and _nonce_zahl >= SPEICHER_MAX:
+            if offen:
+                _nonces[schluessel] = offen
+            else:
+                _nonces.pop(schluessel, None)
+            raise Ueberlastet()
+        # Voll: das AELTESTE faellt, nicht das neue. Das neue gehoert zu der
+        # Anfrage, die gerade laeuft — ein ehrlicher Client schickt gleich
+        # darauf sein /register.
+        while len(offen) >= NONCE_PLAETZE:
+            offen.pop(0)
+            _nonce_zahl -= 1
+        offen.append((nonce, jetzt + NONCE_TTL_SECONDS))
+        _nonce_zahl += 1
+        _nonces[schluessel] = offen
     return nonce
 
 
-def consume_nonce(user_id: str, device_id: int | None = None) -> bytes | None:
-    """Holt das Nonce und verbraucht es — jedes Nonce gilt genau einmal."""
-    entry = _nonces.pop((user_id, device_id), None)
-    if entry is None:
-        return None
-    nonce, expires = entry
-    return nonce if time.monotonic() < expires else None
+def offene_nonces(user_id: str, device_id: int | None = None) -> list[bytes]:
+    """Die noch gueltigen Nonces dieses Paares, OHNE sie zu verbrauchen."""
+    jetzt = time.monotonic()
+    with _speichersperre:
+        return [n for n, ablauf in _nonces.get((user_id, device_id), [])
+                if ablauf > jetzt]
+
+
+def verbrauche_nonce(user_id: str, device_id: int | None, nonce: bytes) -> bool:
+    """Nimmt GENAU DIESES Nonce heraus. False, wenn es nicht (mehr) da war.
+
+    Erst NACH einer gueltigen Signatur gerufen. Frueher wurde das Nonce vor
+    der Pruefung verbraucht — damit konnte jeder mit einem Unsinns-/register
+    fuer eine fremde Adresse deren offenes Nonce wegwerfen. Jetzt verbraucht
+    nur, wer es auch unterschreiben kann; jedes Nonce gilt weiterhin genau
+    einmal (zwei gleichzeitige /register mit derselben Signatur: nur einer
+    findet es hier noch vor).
+    """
+    global _nonce_zahl
+    jetzt = time.monotonic()
+    with _speichersperre:
+        liste = _nonces.get((user_id, device_id))
+        if not liste:
+            return False
+        for i, (n, ablauf) in enumerate(liste):
+            if n == nonce:
+                del liste[i]
+                _nonce_zahl -= 1
+                if not liste:
+                    del _nonces[(user_id, device_id)]
+                return ablauf > jetzt
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -945,11 +1335,21 @@ async def lifespan(app: FastAPI):
             except sqlite3.Error as exc:
                 print(f"[!] Aufraeumen fehlgeschlagen: {exc}")
 
+    async def speicherpflege():
+        # Eigener, kurzer Takt fuer _nonces und _buckets. Ohne ihn raeumten
+        # nur Anfragen auf — nach einer Flut, auf die kein Verkehr mehr folgt,
+        # bliebe der Speicher bis zur naechsten Anfrage belegt.
+        while True:
+            await asyncio.sleep(AUFRAEUM_TAKT)
+            raeume_speicher_auf()
+
     task = asyncio.create_task(janitor())
+    pflege = asyncio.create_task(speicherpflege())
     try:
         yield
     finally:
         task.cancel()
+        pflege.cancel()
         # Ein Worker kann noch mitten in einer Transaktion stehen; ohne die
         # Sperre bekaeme er "Cannot operate on a closed database".
         with schreibsperre:
@@ -1013,34 +1413,134 @@ def queue_zeilen_aendern(delta: int) -> None:
     _queue_zeilen = max(0, _queue_zeilen + delta)
 
 
-def verwirf_aelteste(to: str, geraet: int) -> int:
-    """Bei vollem Geraete-Deckel die AELTESTE Zeile dieses Geraets wegwerfen.
+# Der Absender mit den meisten Zeilen in der ganzen Tabelle, zwischengemerkt:
+# (absender, zeilen, monotonic-Zeitpunkt). Nur am Dach gebraucht.
+#
+# WARUM ZWISCHENGEMERKT: die Frage laeuft ueber den ganzen Index
+# idx_queue_absender, bei 200 000 Zeilen einige Millisekunden — synchron auf
+# dem Event-Loop. Am Dach steht der Relay genau dann, wenn jemand flutet, und
+# ein Riegel, der je Rahmen teuer wird, waere selbst der Angriff (dieselbe
+# Ueberlegung wie bei _queue_zeilen). Fuenf Sekunden alt darf die Antwort
+# sein: der Schwerste von vor fuenf Sekunden ist auch jetzt noch schwer.
+_schwerster: tuple[str, int, float] | None = None
+SCHWERSTER_FRIST = 5.0
 
-    WARUM WERFEN UND NICHT DEN ABSENDER ABWEISEN: die Warteschlange haengt seit
-    dem Mehrgeraete-Umbau am Geraet. Ein totes Telefon steht dauerhaft an
-    seinem Deckel (QUEUE_MAX_PER_USER = 500), und wiese der Server hier ab,
-    haenge eine lebende Unterhaltung an einem Geraet, das seit Wochen aus ist —
-    der Absender bekaeme "Warteschlange voll" fuer eine Adresse, deren
-    Telefon direkt daneben liegt. Bei EINER Schlange je Adresse fiel das
-    niemandem auf, je Geraet macht es die Adresse teilweise unbeschickbar.
 
-    Der Verlust trifft nur dieses eine Geraet; auf den anderen Geraeten
-    derselben Adresse liegt dieselbe Nachricht (der Absender faechert an alle).
+def _schwerster_absender() -> tuple[str, int] | None:
+    """Ruft NUR auf, wer die schreibsperre schon haelt."""
+    global _schwerster
+    jetzt = time.monotonic()
+    if _schwerster is not None and jetzt - _schwerster[2] < SCHWERSTER_FRIST:
+        return _schwerster[0], _schwerster[1]
+    zeile = db.execute(
+        "SELECT sender, COUNT(*) AS n FROM queue GROUP BY sender"
+        " ORDER BY n DESC LIMIT 1").fetchone()
+    _schwerster = (zeile[0], zeile[1], jetzt) if zeile else None
+    return (zeile[0], zeile[1]) if zeile else None
 
-    QUEUE_MAX_TOTAL weist WEITER AB, siehe die beiden Aufrufstellen: das Dach
-    ueber der ganzen Tabelle darf nicht nachgeben, sonst waere der Deckel je
-    Geraet beliebig oft zu haben — man braucht nur ein weiteres Zielgeraet.
 
-    Rueckgabe: wie viele Zeilen weggefallen sind (0 oder 1).
+def _wirf_aelteste(bedingung: str, werte: tuple) -> int:
+    """Die aelteste Zeile, auf die `bedingung` passt. Rueckgabe: 0 oder 1.
+
+    Ruft NUR auf, wer die schreibsperre und die Transaktion schon haelt.
     """
-    with schreibsperre, db:
-        cur = db.execute(
-            "DELETE FROM queue WHERE id = (SELECT id FROM queue"
-            " WHERE recipient=? AND recipient_device=? ORDER BY id LIMIT 1)",
-            (to, geraet),
-        )
-    queue_zeilen_aendern(-cur.rowcount)
-    return cur.rowcount
+    return db.execute(
+        f"DELETE FROM queue WHERE id = (SELECT id FROM queue WHERE {bedingung}"
+        f" ORDER BY id LIMIT 1)", werte).rowcount
+
+
+def schaffe_platz(to: str, geraet: int, absender: str) -> bool:
+    """Macht Platz fuer EINE neue Zeile von `absender` an (`to`, `geraet`).
+
+    Rueckgabe True: das INSERT darf folgen. False: "Warteschlange voll".
+
+    DER GRUNDSATZ (Audit vom 25.09.2026): fuer einen Absender faellt nie die
+    Zeile eines ANDEREN, der weniger liegen hat als er. Frueher fiel bei
+    vollem Geraet schlicht die aelteste Zeile — und ein Fremder, der die
+    Adresse kennt, spuelte mit 500 Rahmen alles weg, was echte Kontakte dem
+    abwesenden Opfer hinterlassen hatten.
+
+    Die Reihenfolge der Pruefungen ist Absicht:
+
+    1. PAAR VOLL (QUEUE_MAX_JE_PAAR): seine eigene aelteste Zeile an dieses
+       Geraet faellt. Er verdraengt nur sich selbst. Nicht abgewiesen, aus
+       demselben Grund, aus dem frueher geworfen statt abgewiesen wurde: ein
+       totes Telefon am Deckel darf eine lebende Unterhaltung mit den anderen
+       Geraeten derselben Adresse nicht mit "Warteschlange voll" stoeren.
+    2. ABSENDER VOLL (QUEUE_MAX_JE_ABSENDER): abgewiesen. Wer 2000 Zeilen
+       ueber alle Empfaenger liegen hat, flutet, und hier gibt es keine
+       eigene Zeile, deren Wegfall die Sache besser machte.
+    3. GERAET VOLL (QUEUE_MAX_PER_USER): es faellt die aelteste Zeile des
+       Absenders, der bei DIESEM Geraet am meisten liegen hat — ist das der
+       Absender selbst (oder hat er gleich viele), seine eigene. Ein
+       Kontakt mit drei wartenden Nachrichten verliert damit erst etwas,
+       wenn jeder andere Absender hoechstens drei liegen hat; dafuer
+       braeuchte ein Angreifer bei 500 Plaetzen ueber 160 Adressen.
+    4. TABELLE VOLL (QUEUE_MAX_TOTAL): ist ein ANDERER Absender schwerer als
+       dieser, faellt dessen aelteste Zeile; sonst wird abgewiesen. Frueher
+       wies das Dach JEDEN ab — ein einziger Flutender schaltete damit die
+       Offline-Zustellung fuer alle ab. Jetzt trifft das Dach den, der es
+       fuellt. Wer selbst der Schwerste ist, wird WEITER abgewiesen, sonst
+       waere das Dach fuer ihn keines
+       (test_das_dach_ueber_der_ganzen_tabelle_haelt).
+
+    Fall 1 und 3 werfen genau eine Zeile fuer genau eine neue — die Tabelle
+    waechst dabei nicht, deshalb stehen sie VOR dem Dach.
+    """
+    global _schwerster
+    weg = 0
+    try:
+        with schreibsperre, db:
+            paar = db.execute(
+                "SELECT COUNT(*) FROM queue WHERE recipient=?"
+                " AND recipient_device=? AND sender=?",
+                (to, geraet, absender)).fetchone()[0]
+            if paar >= QUEUE_MAX_JE_PAAR:
+                weg = _wirf_aelteste(
+                    "recipient=? AND recipient_device=? AND sender=?",
+                    (to, geraet, absender))
+                return True
+
+            eigene = db.execute("SELECT COUNT(*) FROM queue WHERE sender=?",
+                                (absender,)).fetchone()[0]
+            if eigene >= QUEUE_MAX_JE_ABSENDER:
+                return False
+
+            offen = db.execute(
+                "SELECT COUNT(*) FROM queue WHERE recipient=?"
+                " AND recipient_device=?", (to, geraet)).fetchone()[0]
+            if offen >= QUEUE_MAX_PER_USER:
+                schwer = db.execute(
+                    "SELECT sender, COUNT(*) AS n FROM queue"
+                    " WHERE recipient=? AND recipient_device=?"
+                    " GROUP BY sender ORDER BY n DESC, MIN(id) LIMIT 1",
+                    (to, geraet)).fetchone()
+                opfer = absender if schwer is None or paar >= schwer[1] else schwer[0]
+                weg = _wirf_aelteste(
+                    "recipient=? AND recipient_device=? AND sender=?",
+                    (to, geraet, opfer))
+                return True
+
+            if _queue_zeilen >= QUEUE_MAX_TOTAL:
+                schwer = _schwerster_absender()
+                if schwer is None or schwer[0] == absender or schwer[1] <= eigene:
+                    return False
+                weg = _wirf_aelteste("sender=?", (schwer[0],))
+                if weg == 0:
+                    # Der Zwischenstand war veraltet: der vermeintlich
+                    # Schwerste hat nichts mehr liegen. Beim naechsten Mal
+                    # neu fragen, diesmal abweisen — das Dach gibt im Zweifel
+                    # nicht nach.
+                    _schwerster = None
+                    return False
+                if _schwerster is not None:
+                    _schwerster = (_schwerster[0], _schwerster[1] - 1, _schwerster[2])
+                return True
+            return True
+    finally:
+        # AUSSERHALB der Sperre und nach dem Commit — dieselbe Regel wie bei
+        # den anderen Stellen, die den Zaehler fortschreiben.
+        queue_zeilen_aendern(-weg)
 
 
 @app.get("/health")
@@ -1067,13 +1567,44 @@ def health():
 @app.post("/register/challenge")
 def register_challenge(req: ChallengeRequest, request: Request):
     """Schritt 1 des Besitznachweises: Server gibt ein Einmal-Nonce aus."""
-    if not rate_limit_ok(f"chal:{client_ip(request)}"):
+    if not herkunft_ok(request, "chal"):
         raise HTTPException(429, "zu viele Anfragen")
     try:
         decode_id(req.user_id)
     except ValueError as exc:
         raise HTTPException(400, f"ungueltige Adresse: {exc}") from exc
-    return {"nonce": b64e(issue_nonce(req.user_id, req.device_id))}
+    # 503 und nicht 429: das ist keine Bremse gegen diesen Absender, sondern
+    # ein Relay am Speicherdach (SPEICHER_MAX). Ein Client soll es spaeter
+    # noch einmal versuchen, nicht an sich selbst zweifeln.
+    if not speicher_hat_platz():
+        raise HTTPException(503, "Relay ueberlastet, bitte spaeter erneut")
+    try:
+        nonce = issue_nonce(req.user_id, req.device_id)
+    except Ueberlastet as exc:
+        raise HTTPException(503, "Relay ueberlastet, bitte spaeter erneut") from exc
+    return {"nonce": b64e(nonce)}
+
+
+def oeffentlicher_schluessel_ok(roh: bytes) -> bool:
+    """Ist das ein Curve25519-Schluessel in einer der beiden ueblichen Formen?
+
+    libsignal serialisiert oeffentliche Schluessel MIT dem Typ-Byte 0x05, also
+    33 Byte — so schickt die App signed_prekey und die Einmalschluessel
+    (app/lib/core/net/relay_protocol.dart, Kopfkommentar). 32 rohe Bytes
+    bleiben erlaubt, weil sie in den Tests und bei eigenen Clients vorkommen
+    und fuer den Server ohnehin undurchsichtig sind.
+
+    WARUM UEBERHAUPT GEPRUEFT: der Server reicht diese Bloecke nur durch, aber
+    er SPEICHERT sie. Ohne Laengenpruefung trug jedes Feld, was nginx
+    durchliess (256 KiB Rumpf), und jede Registrierung konnte rund 190 KiB
+    belegen — dauerhaft, purge_expired ruehrt identities nicht an (Audit vom
+    25.09.2026).
+    """
+    return len(roh) == 32 or (len(roh) == 33 and roh[0] == 0x05)
+
+
+# Laenge einer XEdDSA-/Ed25519-Signatur.
+SIGNATUR_LAENGE = 64
 
 
 @app.post("/register")
@@ -1084,7 +1615,7 @@ def register(req: RegisterRequest, request: Request):
     kannte, das fremde Bundle ueberschreiben — Sessions brachen, der
     Prekey-Pool war weg.
     """
-    if not rate_limit_ok(f"reg:{client_ip(request)}", cost=5):
+    if not herkunft_ok(request, "reg", cost=5):
         raise HTTPException(429, "zu viele Anfragen")
 
     bundle = req.bundle
@@ -1098,21 +1629,51 @@ def register(req: RegisterRequest, request: Request):
     if encode_id(identity_key) != bundle.user_id:
         raise HTTPException(400, "user_id passt nicht zum identity_key")
 
-    # Das Nonce haengt am (Adresse, Geraet)-Paar. Ein Geraet kann sich damit
-    # nicht mit dem Nonce eines anderen anmelden, und zwei Geraete derselben
-    # Adresse nehmen sich ihre Nonces nicht mehr gegenseitig weg.
-    nonce = consume_nonce(bundle.user_id, bundle.device_id)
-    if nonce is None:
-        raise HTTPException(401, "kein gueltiges Nonce — erst /register/challenge")
+    # ALLE Laengen VOR dem Nonce und vor der Signaturpruefung — ein zu grosses
+    # Buendel kostet dann weder einen Nonce-Platz noch acht XEdDSA-Pruefungen.
+    # Die Anzahl der Einmalschluessel begrenzt schon das Modell
+    # (OTK_MAX_JE_BUENDEL, 422 vor diesem Code).
+    try:
+        signed_prekey = b64d(bundle.signed_prekey)
+        signed_prekey_sig = b64d(bundle.signed_prekey_sig)
+        otk_roh = [(k.key_id, b64d(k.public_key)) for k in bundle.one_time_prekeys]
+    except ValueError as exc:
+        raise HTTPException(400, "Bundle enthaelt ungueltiges base64") from exc
+    if not oeffentlicher_schluessel_ok(signed_prekey):
+        raise HTTPException(400, "signed_prekey muss 33 Byte (0x05 + 32) sein")
+    if len(signed_prekey_sig) != SIGNATUR_LAENGE:
+        raise HTTPException(400, "signed_prekey_sig muss 64 Byte sein")
+    if not all(oeffentlicher_schluessel_ok(roh) for _, roh in otk_roh):
+        raise HTTPException(400, "one_time_prekeys: Schluessel muss 33 Byte "
+                                 "(0x05 + 32) sein")
 
-    message = nonce + hashlib.sha256(bundle.canonical_bytes()).digest()
     try:
         signature = b64d(req.signature)
     except Exception as exc:
         raise HTTPException(400, "signature ist kein gueltiges base64") from exc
 
-    if not verify_signature(identity_key, message, signature):
+    # Das Nonce haengt am (Adresse, Geraet)-Paar. Ein Geraet kann sich damit
+    # nicht mit dem Nonce eines anderen anmelden, und zwei Geraete derselben
+    # Adresse nehmen sich ihre Nonces nicht mehr gegenseitig weg.
+    #
+    # Der Client schickt sein Nonce nicht mit (so ist er ausgeliefert, 1.6 bis
+    # 1.8). Also wird die Signatur gegen JEDES offene Nonce des Paares
+    # geprueft, und verbraucht wird nur das, zu dem sie passt — siehe
+    # verbrauche_nonce, warum erst danach.
+    kandidaten = offene_nonces(bundle.user_id, bundle.device_id)
+    if not kandidaten:
+        raise HTTPException(401, "kein gueltiges Nonce — erst /register/challenge")
+
+    inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
+    treffer = next((n for n in kandidaten
+                    if verify_signature(identity_key, n + inhalt, signature)), None)
+    if treffer is None:
         raise HTTPException(403, "Besitznachweis fehlgeschlagen")
+    if not verbrauche_nonce(bundle.user_id, bundle.device_id, treffer):
+        # Zwischen Pruefen und Verbrauchen hat ein gleichzeitiger Aufruf mit
+        # derselben Signatur das Nonce genommen (oder es ist gerade
+        # abgelaufen). Genau einmal heisst genau einmal.
+        raise HTTPException(401, "kein gueltiges Nonce — erst /register/challenge")
 
     # Die Sperre liegt eine Ebene ueber `with db:` und bleibt bis hinter den
     # COUNT offen. Sonst zaehlte die Antwort einen Stand, den inzwischen ein
@@ -1194,8 +1755,8 @@ def register(req: RegisterRequest, request: Request):
                     " signed_prekey_sig=excluded.signed_prekey_sig,"
                     " updated_at=excluded.updated_at",
                     (bundle.user_id, geraet, identity_key, bundle.registration_id,
-                     bundle.signed_prekey_id, b64d(bundle.signed_prekey),
-                     b64d(bundle.signed_prekey_sig), time.time()),
+                     bundle.signed_prekey_id, signed_prekey,
+                     signed_prekey_sig, time.time()),
                 )
                 # NUR die Einmalschluessel DIESES Geraets. Ohne das
                 # `AND device_id=?` raeumte jede Nachlieferung eines Geraets den
@@ -1208,8 +1769,8 @@ def register(req: RegisterRequest, request: Request):
                 db.executemany(
                     "INSERT INTO one_time_prekeys (user_id, device_id, key_id,"
                     " public_key) VALUES (?,?,?,?)",
-                    [(bundle.user_id, geraet, k.key_id, b64d(k.public_key))
-                     for k in bundle.one_time_prekeys],
+                    [(bundle.user_id, geraet, key_id, roh)
+                     for key_id, roh in otk_roh],
                 )
         except (sqlite3.Error, ValueError, OverflowError) as exc:
             # OverflowError gehoert dazu, seit die Kennungen im Rumpf keine
@@ -1220,7 +1781,14 @@ def register(req: RegisterRequest, request: Request):
             # nicht: jede Schranke wiese Werte ab, die heute sauber
             # durchgehen (das Fixture "grosse Zahlen" faehrt
             # signed_prekey_id=16777215 und registration_id=0).
-            raise HTTPException(400, f"Bundle konnte nicht gespeichert werden: {exc}") from exc
+            #
+            # OHNE den Text der Ausnahme in der Antwort. Frueher stand er drin
+            # ("UNIQUE constraint failed: one_time_prekeys.user_id, ..."), und
+            # das ist Auskunft ueber Schema und Datenbank an jeden, der ein
+            # kaputtes Buendel schickt. Der Client kann damit nichts anfangen;
+            # wer nachsehen muss, hat das Journal.
+            print(f"[!] /register: Bundle nicht gespeichert ({type(exc).__name__})")
+            raise HTTPException(400, "Bundle konnte nicht gespeichert werden") from exc
 
         # Zaehlt JE GERAET. Der Client leitet aus dieser Zahl ab, ob er
         # nachliefern muss — adressweit gezaehlt saehe ein leeres Zweitgeraet
@@ -1254,7 +1822,7 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
     der Aufruf, den der Client oft macht (Auffrischung der Geraeteliste), und
     er darf deshalb nichts verbrauchen.
     """
-    if not rate_limit_ok(f"pk:{client_ip(request)}"):
+    if not herkunft_ok(request, "pk"):
         raise HTTPException(429, "zu viele Anfragen")
 
     # Der SELECT gehoert in dieselbe Sperre wie das DELETE darunter, damit das
@@ -1477,8 +2045,63 @@ async def stosse_an(user_id: str, device_id: int) -> None:
         _push_ging_daneben(f"HTTP {antwort.status_code}")
 
 
-@app.websocket("/ws")
-async def ws_endpoint(ws: WebSocket):
+# Wie viele Verbindungen gerade im Vorraum stehen: angenommen, aber noch
+# nicht angemeldet. Nur auf dem Event-Loop veraendert, braucht also keine
+# Sperre. Siehe WS_VORRAUM_MAX.
+_ws_im_vorraum = 0
+
+# Steht fuer einen Rahmen, der kein JSON-Text war.
+KAPUTT = object()
+
+
+async def lies_rahmen(ws: WebSocket):
+    """Einen Rahmen lesen. Rueckgabe: der JSON-Wert oder KAPUTT.
+
+    Frueher ging jeder kaputte Rahmen als Ausnahme durch den ganzen Handler:
+    ein BINAERER Rahmen warf in Starlettes receive_json KeyError('text'),
+    tief verschachteltes JSON RecursionError, ungueltiges UTF-8 bzw. JSON
+    ValueError. Keiner davon stand in einer Fangliste — die Verbindung riss
+    ohne Close-Frame ab, und jeder Versuch schrieb einen Traceback ins
+    Journal, vor der Anmeldung ohne jede Bremse (Audit vom 25.09.2026,
+    proof_ws.py P1/P2).
+
+    WebSocketDisconnect und RuntimeError (Verbindung schon zu) laufen
+    unveraendert durch: das ist kein kaputter Rahmen, sondern das Ende.
+    """
+    try:
+        return await ws.receive_json()
+    except (KeyError, TypeError, ValueError, RecursionError):
+        return KAPUTT
+
+
+class Rahmenbudget:
+    """Token-Bucket JE VERBINDUNG fuer jeden Rahmen. Siehe RAHMEN_BURST.
+
+    Lebt in der Verbindung und nicht in _buckets: er stirbt mit ihr und kann
+    den Speicher deshalb nicht fuellen.
+    """
+
+    def __init__(self) -> None:
+        self.vorrat = RAHMEN_BURST
+        self.zuletzt = time.monotonic()
+
+    def nimm(self) -> bool:
+        jetzt = time.monotonic()
+        self.vorrat = min(RAHMEN_BURST,
+                          self.vorrat + (jetzt - self.zuletzt) * RAHMEN_REFILL_PER_SEC)
+        self.zuletzt = jetzt
+        if self.vorrat < 1.0:
+            return False
+        self.vorrat -= 1.0
+        return True
+
+
+async def _vorraum(ws: WebSocket):
+    """Annehmen, Challenge, Signatur pruefen.
+
+    Rueckgabe: (user_id, device_id, antwortrahmen) nach gelungener Anmeldung,
+    sonst None (die Verbindung ist dann schon beantwortet bzw. zu).
+    """
     await ws.accept()
     user_id = ws.query_params.get("user_id", "")
 
@@ -1515,13 +2138,21 @@ async def ws_endpoint(ws: WebSocket):
     nonce = secrets.token_bytes(32)
     await ws.send_json({"type": "challenge", "nonce": b64e(nonce)})
     try:
-        reply = await asyncio.wait_for(ws.receive_json(), timeout=30)
-    except (WebSocketDisconnect, asyncio.TimeoutError, json.JSONDecodeError, RuntimeError):
-        return
+        # 10 statt 30 Sekunden, siehe WS_ANMELDEFRIST.
+        reply = await asyncio.wait_for(lies_rahmen(ws), timeout=WS_ANMELDEFRIST)
+    except (WebSocketDisconnect, asyncio.TimeoutError, RuntimeError):
+        return None
 
+    # Kein JSON-Objekt (binaerer Rahmen, Liste, Zahl, kaputtes JSON): wie eine
+    # Antwort ohne Signatur behandeln. Das fuehrt in den ordentlichen
+    # Ausgang darunter — auth_result ok=False und 4403 — statt in einen
+    # Traceback.
+    if not isinstance(reply, dict):
+        reply = {}
+    roh_signatur = reply.get("signature", "")
     try:
-        signature = b64d(reply.get("signature", ""))
-    except Exception:
+        signature = b64d(roh_signatur) if isinstance(roh_signatur, str) else b""
+    except ValueError:
         signature = b""
 
     # WAS SIGNIERT WIRD, haengt daran, ob die Query eine Kennung TRUEG — nicht
@@ -1541,7 +2172,31 @@ async def ws_endpoint(ws: WebSocket):
     if not verify_signature(identity_key, erwartet, signature):
         await ws.send_json({"type": "auth_result", "ok": False})
         await ws.close(code=4403)
+        return None
+    return user_id, device_id, reply
+
+
+@app.websocket("/ws")
+async def ws_endpoint(ws: WebSocket):
+    global _ws_im_vorraum
+    # DER VORRAUM IST GEDECKELT. Vor der Anmeldung kostet eine Verbindung
+    # einen Angreifer nichts; ueber Tor greift auch kein Limit je IP. Am
+    # Deckel wird geschlossen, bevor irgendetwas anderes passiert — vor dem
+    # accept wird daraus bei uvicorn eine HTTP-Absage (403) ohne Upgrade.
+    if _ws_im_vorraum >= WS_VORRAUM_MAX:
+        try:
+            await ws.close(code=1013)
+        except Exception:
+            pass
         return
+    _ws_im_vorraum += 1
+    try:
+        angemeldet = await _vorraum(ws)
+    finally:
+        _ws_im_vorraum -= 1
+    if angemeldet is None:
+        return
+    user_id, device_id, reply = angemeldet
 
     # Ob die Gegenseite den Empfangsnachweis beherrscht. Steht im SELBEN
     # Rahmen wie die Signatur, weil er ohnehin kommen muss und weil die
@@ -1550,10 +2205,8 @@ async def ws_endpoint(ws: WebSocket):
     # auf einen Nachweis wartet, den ein altes Telefon nie schickt, waere
     # schlimmer als der Verlust, den das hier behebt.
     #
-    # isinstance und nicht einfach reply.get: `reply` ist irgendein
-    # JSON-Wert. Dass die Zeilen darueber damit durchkommen, liegt nur am
-    # `except Exception` um b64d herum.
-    nachweis = isinstance(reply, dict) and reply.get("empfangsnachweis") is True
+    # `reply` ist hier immer ein dict — _vorraum macht aus allem anderen {}.
+    nachweis = reply.get("empfangsnachweis") is True
 
     # Der Rueckspiegel ist reine Diagnose — aeltere Clients lesen aus
     # auth_result nur `ok` und ignorieren alles andere. Er macht im Test die
@@ -1681,8 +2334,26 @@ async def ws_endpoint(ws: WebSocket):
             await ws.send_json({"type": "prekeys_low", "remaining": otk_left})
 
         # ---- Hauptschleife: Umschlaege weiterleiten ----
+        budget = Rahmenbudget()
         while True:
-            data = await ws.receive_json()
+            data = await lies_rahmen(ws)
+
+            # JEDER Rahmen kostet, auch einer, der gleich verworfen wird —
+            # sonst waeren genau die Arten frei, an denen keine andere Bremse
+            # haengt (empfangen, geraeus, Unbekanntes, Kaputtes).
+            if not budget.nimm():
+                try:
+                    await ws.close(code=4429)
+                except Exception:
+                    pass
+                break
+
+            # Nur JSON-OBJEKTE sind Rahmen. Eine Liste, eine Zahl oder
+            # kaputtes JSON riss frueher mit AttributeError an data.get die
+            # Verbindung ab (proof_ws.py P3). Still verwerfen, wie eine
+            # unbekannte Art.
+            if not isinstance(data, dict):
+                continue
 
             # ── Empfangsnachweis ──────────────────────────────────────────
             #
@@ -1797,11 +2468,17 @@ async def ws_endpoint(ws: WebSocket):
 
             # ── Erlaubnis zum Ablegen im Zwischenlager ────────────────────
             #
-            # DIE KENNUNG SUCHT SICH DER CLIENT AUS, dieser Server
-            # unterschreibt sie blind. Er koennte sie genauso gut selbst
-            # wuerfeln — dann wuesste er aber, welche Datei im Lager zu
-            # welcher Adresse gehoert. So weiss er es nicht, und das ist
-            # umsonst zu haben.
+            # DIE KENNUNG SUCHT SICH DER CLIENT AUS. "Blind" unterschreibt
+            # dieser Server sie NICHT — sie steht im Klartext in diesem
+            # Rahmen, und er rechnet sie in die Marke. Er SPEICHERT sie nur
+            # nicht (blob_marken hat keine Spalte dafuer) und schreibt sie
+            # nirgends hin. Wer den laufenden Prozess beobachten kann, sieht
+            # die Verbindung Adresse -> Kennung trotzdem; bis zum 25.09.2026
+            # stand hier und in docs/ZWISCHENLAGER.md das Gegenteil.
+            #
+            # Wuerfelte er sie selbst, wuerde er sie auf jeden Fall kennen
+            # und muesste sie zurueckschicken — der Unterschied ist also nur,
+            # dass nichts davon liegen bleibt.
             #
             # Dass der Client sie waehlt, kostet nichts: eine schon belegte
             # Kennung weist das Lager mit 409 ab, und 32 Byte Zufall zu
@@ -1811,7 +2488,7 @@ async def ws_endpoint(ws: WebSocket):
                 groesse = data.get("groesse")
                 marken_ref = {"kennung": kennung} if isinstance(kennung, str) else {}
 
-                if not isinstance(kennung, str) or not BLOB_KENNUNG_MUSTER.match(kennung):
+                if not isinstance(kennung, str) or not BLOB_KENNUNG_MUSTER.fullmatch(kennung):
                     await ws.send_json({"type": "error", "reason": "Kennung ungueltig"})
                     continue
                 if not isinstance(groesse, int) or isinstance(groesse, bool) \
@@ -1840,6 +2517,19 @@ async def ws_endpoint(ws: WebSocket):
                         "type": "error",
                         "reason": "Tagesmenge erschoepft",
                         "frei": max(0, BLOB_TAGESMENGE - verbraucht),
+                        **marken_ref,
+                    })
+                    continue
+                # Und die Menge des GANZEN Relays, siehe BLOB_TAGESMENGE_GESAMT.
+                # Eigener Wortlaut: "Tagesmenge erschoepft" hiesse fuer den
+                # Nutzer "du warst es", und das stimmt hier nicht. Aeltere
+                # Clients zeigen den Text einfach an.
+                gesamt = blob_menge_heute_gesamt()
+                if gesamt + groesse > BLOB_TAGESMENGE_GESAMT:
+                    await ws.send_json({
+                        "type": "error",
+                        "reason": "Zwischenlager fuer heute ausgelastet",
+                        "frei": 0,
                         **marken_ref,
                     })
                     continue
@@ -1878,10 +2568,29 @@ async def ws_endpoint(ws: WebSocket):
                 continue
 
             # TARNVERKEHR ("geraeus", seit 25.09.2026): sieht von aussen aus
-            # wie eine Nachricht und wird hier ohne Antwort verworfen — kein
-            # Speichern, keine Bestaetigung, keine Bremse verbraucht. Ausdruecklich
-            # benannt, damit niemand spaeter "unbekannte Art" zu einem Fehler macht.
+            # wie eine Nachricht und wird hier verworfen — kein Speichern,
+            # keine Bremse ausser dem Rahmenbudget oben.
+            #
+            # ABER MIT EINER ANTWORT, die aussieht wie das `ack` auf eine
+            # echte Nachricht. Bis zum 25.09.2026 blieb sie aus, und genau das
+            # verriet ihn: auf eine echte Nachricht folgt nach wenigen
+            # Millisekunden ein kleiner Rahmen zurueck, auf Tarnverkehr nichts.
+            # Wer die Leitung beobachtet, zaehlte einfach die Antworten.
+            #
+            # DERSELBE AUFBAU WIE DAS ECHTE ACK: {"type","to","id"} in dieser
+            # Reihenfolge, `to` als 56 Zeichen (die App schickt eine
+            # Zufallsadresse aus demselben Alphabet), `id` nur, wenn es eine
+            # Zeichenkette ist. Die App ordnet ein `ack` ueber `id` einem
+            # wartenden Versand zu; fuer Tarnverkehr wartet keiner, das `ack`
+            # faellt dort still durch (relay_client.dart, _loeseAckAus).
             if data.get("type") == "geraeus":
+                tarn_an = data.get("to")
+                tarn_id = data.get("id")
+                await ws.send_json({
+                    "type": "ack",
+                    "to": tarn_an[:56] if isinstance(tarn_an, str) else "",
+                    **({"id": tarn_id} if isinstance(tarn_id, str) else {}),
+                })
                 continue
 
             if data.get("type") != "message":
@@ -1902,11 +2611,20 @@ async def ws_endpoint(ws: WebSocket):
             msg_id = data.get("id")
             ref = {"id": msg_id} if isinstance(msg_id, str) else {}
 
+            # isinstance vor dem Dekodieren: eine Zahl oder Liste an dieser
+            # Stelle ist genauso "ungueltig" wie kaputtes base64, und b64d
+            # soll nur Zeichenketten sehen.
             try:
+                if not isinstance(raw_ct, str):
+                    raise ValueError("ciphertext ist keine Zeichenkette")
                 ciphertext = b64d(raw_ct)
-            except Exception:
+            except ValueError:
                 await ws.send_json({"type": "error", "reason": "ciphertext ungueltig", **ref})
                 continue
+            # WEITERGEREICHT WIRD AB HIER NUR NOCH DIESE FORM, nie raw_ct.
+            # Siehe b64d: die Groessengrenze darunter gilt fuer die Bytes, und
+            # nur was wirklich diese Bytes sind, darf in fremde Leitungen.
+            ct_b64 = b64e(ciphertext)
 
             if not ciphertext or len(ciphertext) > MAX_CIPHERTEXT_BYTES:
                 await ws.send_json({"type": "error", "reason": "ciphertext zu gross", **ref})
@@ -1917,6 +2635,12 @@ async def ws_endpoint(ws: WebSocket):
                 # aber woertlich: connections.get(to) unten und recipient beim
                 # INSERT. Ohne diese Zeile quittiert der Server eine
                 # Schreibweise, die er nie zustellen kann.
+                #
+                # Eine Nicht-Zeichenkette ("to": 123) warf frueher in
+                # decode_id AttributeError an .strip und riss die Verbindung
+                # ab (proof_ws.py P4). Jetzt ist sie eine ungueltige Adresse.
+                if not isinstance(to, str):
+                    raise ValueError("Zieladresse ist keine Zeichenkette")
                 to = encode_id(decode_id(to))
             except ValueError:
                 await ws.send_json({"type": "error", "reason": "Zieladresse ungueltig", **ref})
@@ -1994,7 +2718,7 @@ async def ws_endpoint(ws: WebSocket):
                             "type": "message",
                             "from": user_id,
                             "from_device": device_id,
-                            "ciphertext": raw_ct,
+                            "ciphertext": ct_b64,
                             "ts": time.time(),
                         })
                     except Exception:
@@ -2037,17 +2761,13 @@ async def ws_endpoint(ws: WebSocket):
                         {"type": "error", "reason": "zu viele Nachrichten",
                          "to": to, **ref})
                     continue
-                if _queue_zeilen >= QUEUE_MAX_TOTAL:
+                # Alle Deckel (je Paar, je Absender, je Geraet, die ganze
+                # Tabelle) an EINER Stelle — siehe schaffe_platz.
+                if not schaffe_platz(to, ziel_geraet, user_id):
                     await ws.send_json(
                         {"type": "error", "reason": "Warteschlange voll",
                          "to": to, **ref})
                     continue
-                offen = db.execute(
-                    "SELECT COUNT(*) FROM queue WHERE recipient=?"
-                    " AND recipient_device=?", (to, ziel_geraet)
-                ).fetchone()[0]
-                if offen >= QUEUE_MAX_PER_USER:
-                    verwirf_aelteste(to, ziel_geraet)
 
                 with schreibsperre, db:
                     cur = db.execute(
@@ -2062,17 +2782,28 @@ async def ws_endpoint(ws: WebSocket):
                 # Das `q` ist der ganze Unterschied: damit weiss der
                 # Empfaenger, WAS er bestaetigen soll. Ohne es koennte er die
                 # Zeile nie loeschen lassen.
-                await target.send_json({
-                    "type": "message",
-                    "from": user_id,
-                    # Die Kennung der ANGEMELDETEN VERBINDUNG des Absenders,
-                    # nie ein Wert aus seinem Rahmen. Sonst koennte jeder
-                    # behaupten, von einem beliebigen Geraet zu schreiben.
-                    "from_device": device_id,
-                    "ciphertext": raw_ct,
-                    "ts": time.time(),
-                    "q": zeile,
-                })
+                #
+                # GEFANGEN: die Leitung des EMPFAENGERS darf die des Absenders
+                # nicht mitreissen. Frueher lief ein Fehler hier (Empfaenger
+                # gerade weg) als Ausnahme aus diesem Handler heraus — der
+                # Absender verlor seine Verbindung und sein `ack`, obwohl die
+                # Nachricht sicher in der Warteschlange liegt und beim
+                # naechsten Verbinden des Empfaengers zugestellt wird.
+                try:
+                    await target.send_json({
+                        "type": "message",
+                        "from": user_id,
+                        # Die Kennung der ANGEMELDETEN VERBINDUNG des
+                        # Absenders, nie ein Wert aus seinem Rahmen. Sonst
+                        # koennte jeder behaupten, von einem beliebigen Geraet
+                        # zu schreiben.
+                        "from_device": device_id,
+                        "ciphertext": ct_b64,
+                        "ts": time.time(),
+                        "q": zeile,
+                    })
+                except Exception:
+                    pass
                 # Das `ack` an den ABSENDER heisst weiterhin "der Server hat
                 # sie" — und das stimmt jetzt auch, denn sie liegt auf der
                 # Platte. Ein `ack` erst nach dem Nachweis des Empfaengers
@@ -2088,15 +2819,33 @@ async def ws_endpoint(ws: WebSocket):
                 # Nachricht weg. Schlechter als oben, aber besser als eine
                 # Warteschlange, die sich bei ihr nie leert — sie kennt den
                 # Nachweis ja nicht und wuerde ihn nie schicken.
-                await target.send_json({
-                    "type": "message",
-                    "from": user_id,
-                    "from_device": device_id,
-                    "ciphertext": raw_ct,
-                    "ts": time.time(),
-                })
-                await ws.send_json({"type": "ack", "to": to, **ref})
-                continue
+                #
+                # GEBREMST, aber mit dem eigenen Eimer (LIVE_CAPACITY) und
+                # nicht mit msg_limit_ok — Begruendung dort.
+                if not live_limit_ok(user_id):
+                    await ws.send_json(
+                        {"type": "error", "reason": "zu viele Nachrichten",
+                         "to": to, **ref})
+                    continue
+                try:
+                    await target.send_json({
+                        "type": "message",
+                        "from": user_id,
+                        "from_device": device_id,
+                        "ciphertext": ct_b64,
+                        "ts": time.time(),
+                    })
+                except Exception:
+                    # Die Leitung des Empfaengers ist tot, ihr Eintrag steht
+                    # nur noch nicht abgeraeumt da. NICHT die des Absenders
+                    # mitreissen (so war es bis zum 25.09.2026), sondern so
+                    # tun, als waere der Empfaenger offline: weiter unten
+                    # puffern. Dann kommt die Nachricht beim naechsten
+                    # Verbinden an, statt verloren zu gehen.
+                    target = None
+                else:
+                    await ws.send_json({"type": "ack", "to": to, **ref})
+                    continue
 
             # Empfaenger offline -> puffern, aber gedeckelt.
             #
@@ -2109,22 +2858,15 @@ async def ws_endpoint(ws: WebSocket):
                     {"type": "error", "reason": "zu viele Nachrichten", "to": to, **ref})
                 continue
 
-            if _queue_zeilen >= QUEUE_MAX_TOTAL:
-                # Bewusst derselbe Wortlaut wie beim Deckel je Empfaenger: der
-                # Absender soll nichts Neues lernen muessen, und aeltere
-                # Clients kennen diesen `reason` schon.
+            if not schaffe_platz(to, ziel_geraet, user_id):
+                # Bewusst derselbe Wortlaut fuer jeden Deckel: der Absender
+                # soll nichts Neues lernen muessen, und aeltere Clients kennen
+                # diesen `reason` schon.
                 await ws.send_json(
                     {"type": "error", "reason": "Warteschlange voll", "to": to, **ref})
                 continue
 
-            queued = db.execute(
-                "SELECT COUNT(*) FROM queue WHERE recipient=? AND recipient_device=?",
-                (to, ziel_geraet)
-            ).fetchone()[0]
-            if queued >= QUEUE_MAX_PER_USER:
-                verwirf_aelteste(to, ziel_geraet)
-
-            # Zwischen den beiden Zaehlungen oben und diesem INSERT steht kein
+            # Zwischen den Zaehlungen in schaffe_platz und diesem INSERT steht kein
             # await, und in `queue` schreibt sonst nur purge_expired — das
             # laeuft ebenfalls auf dem Event-Loop. Es kann sich also nichts
             # dazwischenschieben; die Sperre schuetzt hier gegen die Threads

@@ -3,6 +3,14 @@
 # Lokal hing der Bau an einem sudo in WSL, fuer das es ein Passwort braucht.
 # Hier hat der Runner sudo. Bei einem Versions-Tag (v*) landet das Paket am
 # Release; von Hand gestartet nur als Artefakt des Laufs.
+#
+# ZWEI AUFTRAEGE UND NUR EINER DARF SCHREIBEN (seit 25.09.2026). Bis dahin lief
+# der ganze Bau — fremde Aktion, `flutter pub get`, Bau-Hooks der Pakete — mit
+# einem Schluessel, der Release-Dateien ersetzen durfte (`--clobber`). Wer eine
+# dieser Stellen uebernimmt, haette das Linux-Paket gegen ein praepariertes
+# tauschen koennen. Jetzt baut `bauen` nur mit Leserecht; `anhaengen` holt das
+# fertige Paket, beglaubigt seine Herkunft (Sigstore, `gh attestation verify`)
+# und haengt es an — ohne Ueberschreiben.
 name: Linux
 
 on:
@@ -11,17 +19,23 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   bauen:
     runs-on: ubuntu-22.04
     timeout-minutes: 40
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: secure-messenger/app
+    outputs:
+      paket: ${{ steps.schnueren.outputs.paket }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Werkzeuge fuer den Linux-Bau
         run: |
           sudo apt-get update
@@ -36,17 +50,41 @@ jobs:
       - run: flutter pub get
       - run: flutter build linux --release
       - name: Paket schnueren
+        id: schnueren
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //; s/+.*//')
-          tar -C build/linux/x64/release/bundle -czf "$GITHUB_WORKSPACE/bitdm-linux-x64-$VERSION.tar.gz" .
-          sha256sum "$GITHUB_WORKSPACE/bitdm-linux-x64-$VERSION.tar.gz"
-          echo "PAKET=bitdm-linux-x64-$VERSION.tar.gz" >> "$GITHUB_ENV"
+          PAKET="bitdm-linux-x64-$VERSION.tar.gz"
+          mkdir -p "$GITHUB_WORKSPACE/aus"
+          tar -C build/linux/x64/release/bundle -czf "$GITHUB_WORKSPACE/aus/$PAKET" .
+          (cd "$GITHUB_WORKSPACE/aus" && sha256sum "$PAKET" | tee "$PAKET.sha256")
+          echo "paket=$PAKET" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ env.PAKET }}
-          path: ${{ github.workspace }}/${{ env.PAKET }}
+          name: linux-paket
+          path: ${{ github.workspace }}/aus/
+
+  anhaengen:
+    needs: bauen
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-paket
+          path: aus
+      - name: Pruefsumme nachrechnen
+        working-directory: aus
+        run: sha256sum -c "${{ needs.bauen.outputs.paket }}.sha256"
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: aus/${{ needs.bauen.outputs.paket }}
       - name: An den Release haengen
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" "$GITHUB_WORKSPACE/$PAKET" --clobber -R "$GITHUB_REPOSITORY"
+          PAKET: ${{ needs.bauen.outputs.paket }}
+        run: gh release upload "${GITHUB_REF_NAME}" "aus/$PAKET" "aus/$PAKET.sha256" -R "$GITHUB_REPOSITORY"

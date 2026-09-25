@@ -48,8 +48,16 @@ TTL_SEKUNDEN = int(os.getenv("BITDM_BLOB_TTL", str(14 * 24 * 3600)))
 # mehr.
 TEIL_TTL_SEKUNDEN = int(os.getenv("BITDM_BLOB_TEIL_TTL", str(24 * 3600)))
 
-KENNUNG_MUSTER = re.compile(r"^[a-z2-7]{52}$")
-TEIL_MUSTER = re.compile(r"^\.[a-z2-7]{52}\.teil$")
+# IMMER MIT fullmatch (siehe kehre). `^...$` mit .match() nahm auch einen
+# Namen mit angehaengtem Zeilenumbruch an, weil `$` VOR einem letzten
+# Zeilenumbruch passt.
+KENNUNG_MUSTER = re.compile(r"[a-z2-7]{52}")
+# Bruchstuecke heissen seit 25.09.2026 ".<kennung>.<16 hex>.teil" — jeder
+# Upload hat seine eigene Nebendatei, damit zwei gleichzeitige PUTs derselben
+# Kennung nicht in dieselbe schreiben (blob_server.py, _lege_endgueltig_ab).
+# Die alte Form ohne Zufallsteil bleibt erkannt: Reste aus der Zeit davor
+# sollen trotzdem weggeraeumt werden.
+TEIL_MUSTER = re.compile(r"\.[a-z2-7]{52}(\.[0-9a-f]{16})?\.teil")
 
 
 def kehre() -> int:
@@ -68,9 +76,9 @@ def kehre() -> int:
             # Fehler — genau dafuer ist der Loeschweg da.
             continue
 
-        if KENNUNG_MUSTER.match(p.name):
+        if KENNUNG_MUSTER.fullmatch(p.name):
             frist = TTL_SEKUNDEN
-        elif TEIL_MUSTER.match(p.name):
+        elif TEIL_MUSTER.fullmatch(p.name):
             frist = TEIL_TTL_SEKUNDEN
         else:
             fremd += 1
