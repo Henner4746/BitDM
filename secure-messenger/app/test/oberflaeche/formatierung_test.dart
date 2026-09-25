@@ -66,8 +66,26 @@ void main() {
     }
 
     expect(spoiler().style!.color, verdeckt, reason: 'der Spoiler ist lesbar');
+    expect(tester.getSemantics(find.byType(Text)).label, isNot(contains('Gaertner')),
+        reason: 'die Vorleseschrift verraet den Spoiler');
     await tester.tap(find.byType(Text));
     await tester.pump();
     expect(spoiler().style!.color, isNot(verdeckt));
+    expect(tester.getSemantics(find.byType(Text)).label, contains('Gaertner'));
+  });
+
+  group('schlicht — fuer Vorschau, Zitat und angeheftete Leiste', () {
+    test('ohne Auszeichnungszeichen', () {
+      expect(Formatierung.schlicht('Das ist *wichtig* und _neu_'), 'Das ist wichtig und neu');
+    });
+    test('der Spoiler bleibt verdeckt', () {
+      expect(Formatierung.schlicht('Der Moerder ist ||der Gaertner||'), 'Der Moerder ist ▒▒▒');
+    });
+    test('ein Spoiler mit Auszeichnung darin ist EINE Luecke', () {
+      expect(Formatierung.schlicht('||a *b* c||!'), '▒▒▒!');
+    });
+    test('gewoehnlicher Text bleibt, wie er ist', () {
+      expect(Formatierung.schlicht('2*3*4 und datei_name_neu'), '2*3*4 und datei_name_neu');
+    });
   });
 }

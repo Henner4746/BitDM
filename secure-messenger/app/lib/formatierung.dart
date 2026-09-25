@@ -125,6 +125,30 @@ class Formatierung {
     return null;
   }
 
+  /// Der Text ohne Auszeichnungszeichen, jeder Spoiler durch [spoiler]
+  /// ersetzt — fuer alles, was eine Nachricht EINZEILIG wiedergibt: die
+  /// Vorschau in der Chatliste, das Zitat einer Antwort, die Leiste der
+  /// angehefteten Nachricht, die Vorleseschrift.
+  ///
+  /// OHNE DAS stand der Spoiler dort im Klartext, mit "||" drumherum
+  /// (Emulatorlauf 25.09.2026): verdeckt war er nur in der Blase selbst.
+  static String schlicht(String text, {String spoiler = '▒▒▒'}) {
+    final teile = zerlege(text);
+    final aus = StringBuffer();
+    var imSpoiler = false;
+    for (final a in teile) {
+      if (a.spoiler) {
+        // Ein Spoiler aus mehreren Stuecken ("||a *b* c||") ist EINE Luecke.
+        if (!imSpoiler) aus.write(spoiler);
+        imSpoiler = true;
+      } else {
+        aus.write(a.text);
+        imSpoiler = false;
+      }
+    }
+    return aus.toString();
+  }
+
   static Abschnitt _setze(Abschnitt a, String marke) => Abschnitt('',
       fett: a.fett || marke == '*',
       kursiv: a.kursiv || marke == '_',
@@ -170,7 +194,12 @@ class _FormatierterTextState extends State<FormatierterText> {
       return Text(widget.text, style: widget.stil);
     }
     final hatSpoiler = teile.any((a) => a.spoiler);
-    final text = Text.rich(TextSpan(children: [
+    final text = Text.rich(
+        // Die Vorleseschrift liest sonst den verdeckten Text einfach vor.
+        semanticsLabel: hatSpoiler && !_aufgedeckt
+            ? Formatierung.schlicht(widget.text, spoiler: ' ▒▒▒ ')
+            : null,
+        TextSpan(children: [
       for (final a in teile)
         TextSpan(
           text: a.text,

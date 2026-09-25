@@ -161,10 +161,14 @@ void main() {
 
     expect(find.text('Pizza oder Pasta?'), findsOneWidget,
         reason: 'die Umfrage steht nicht im Verlauf');
-    expect(find.text('○'), findsNWidgets(2));
+    Finder wahl(String zustand) => find.byWidgetPredicate((w) =>
+        w.key is ValueKey<String> &&
+        (w.key! as ValueKey<String>).value.startsWith('wahl-') &&
+        (w.key! as ValueKey<String>).value.endsWith('-$zustand'));
+    expect(wahl('aus'), findsNWidgets(2));
     await tester.tap(find.text('Pasta'));
     await warte(tester);
-    expect(find.text('◉'), findsOneWidget, reason: 'die eigene Wahl ist nicht markiert');
+    expect(wahl('an'), findsOneWidget, reason: 'die eigene Wahl ist nicht markiert');
   });
 
   testWidgets('FREMDE NACHRICHTEN BIETEN WEDER BEARBEITEN NOCH FUER ALLE LOESCHEN',

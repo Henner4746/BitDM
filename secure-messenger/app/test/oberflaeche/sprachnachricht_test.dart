@@ -97,15 +97,15 @@ void main() {
     await warte(tester, 600);
 
     expect(st.spracheMoeglich, isTrue);
-    expect(find.text('🎤'), findsOneWidget, reason: 'kein Mikrofonknopf');
+    expect(find.byKey(const ValueKey('mikro-bereit')), findsOneWidget, reason: 'kein Mikrofonknopf');
 
-    await tester.tap(find.text('🎤'));
+    await tester.tap(find.byKey(const ValueKey('mikro-bereit')));
     await warte(tester);
     expect(aufrufe, containsAllInOrder(['rechte', 'starte']),
         reason: 'erst fragen, dann aufnehmen');
-    expect(find.textContaining('■'), findsOneWidget, reason: 'keine laufende Aufnahme zu sehen');
+    expect(find.byKey(const ValueKey('mikro-laeuft')), findsOneWidget, reason: 'keine laufende Aufnahme zu sehen');
 
-    await tester.tap(find.textContaining('■'));
+    await tester.tap(find.byKey(const ValueKey('mikro-laeuft')));
     // Der Versand wechselt zwischen echter Datei-Ein/Ausgabe (Laenge lesen)
     // und kuenstlicher Testzeit (die Fortschrittsschritte des Entwurfskerns).
     // Beides braucht seine eigenen Runden.

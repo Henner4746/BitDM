@@ -77,12 +77,15 @@ void main() {
   testWidgets('ANHEFTEN UND STUMMSCHALTEN ZEIGEN SICH AN DER ZEILE', (tester) async {
     await zurListe(tester);
     await menuePunkt(tester, 'Pin');
-    expect(find.textContaining('📌'), findsOneWidget);
+    expect(find.text('PINNED'), findsOneWidget);
     await menuePunkt(tester, 'Mute');
-    expect(find.textContaining('🔕'), findsOneWidget);
+    expect(find.text('MUTED'), findsOneWidget);
     // Und zurueck.
     await menuePunkt(tester, 'Unpin');
+    expect(find.text('PINNED'), findsNothing);
+    // Keine Farb-Emojis als Bedienzeichen — sie fallen aus dem Design.
     expect(find.textContaining('📌'), findsNothing);
+    expect(find.textContaining('🔕'), findsNothing);
   });
 
   testWidgets('ARCHIVIEREN NIMMT DIE ZEILE HERAUS, DAS ARCHIV HOLT SIE ZURUECK',
@@ -101,6 +104,20 @@ void main() {
     await warte(tester);
     expect(zeile(), findsWidgets);
     expect(textEgalWie('ARCHIVED'), findsNothing);
+  });
+
+  testWidgets('EIN ANGEHEFTETER KONTAKT STEHT UEBER EINER GRUPPE', (tester) async {
+    await zurListe(tester);
+    await tester.runAsync(
+        () => st.legeGruppeAn('Wanderung', [st.aktiveKontakte.first.id]));
+    await warte(tester);
+    double oben(Finder f) => tester.getTopLeft(f.first).dy;
+    expect(oben(find.text('Wanderung')), lessThan(oben(zeile())),
+        reason: 'Ausgangslage: Gruppen vor Kontakten');
+
+    await menuePunkt(tester, 'Pin');
+    expect(oben(zeile()), lessThan(oben(find.text('Wanderung'))),
+        reason: 'der angeheftete Kontakt steht noch unter der Gruppe');
   });
 
   testWidgets('EINE GRUPPE ANLEGEN, SCHREIBEN, AUSTRETEN', (tester) async {
@@ -144,5 +161,20 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'gibt es nicht');
     await warte(tester);
     expect(textEgalWie('Nothing found'), findsOneWidget);
+  });
+
+  testWidgets('EIN SUCHTREFFER IN EINER GRUPPE ZEIGT IHREN NAMEN, NICHT DEN SPOILER',
+      (tester) async {
+    await zurListe(tester);
+    final gid = (await tester.runAsync(
+        () => st.legeGruppeAn('Wanderung', [st.aktiveKontakte.first.id])))!;
+    await tester.runAsync(() => st.senden(gid, 'Treffpunkt ist ||am Bahnhof||'));
+    await warte(tester);
+
+    await tester.enterText(find.byType(TextField).first, 'Treffpunkt');
+    await warte(tester);
+    expect(find.text('Wanderung'), findsOneWidget, reason: 'statt des Namens steht die Kennung da');
+    expect(find.text('Treffpunkt ist ▒▒▒'), findsOneWidget);
+    expect(find.textContaining('Bahnhof'), findsNothing, reason: 'der Spoiler steht im Klartext da');
   });
 }

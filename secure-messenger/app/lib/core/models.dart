@@ -630,8 +630,10 @@ class AppPreferences {
   /// sehen, was er geschrieben hat.
   final bool autoScroll;
 
-  /// "Tippt gerade" zeigen und senden. Ab Werk AUS — wie die
-  /// Lesebestaetigungen: beides verraet, wann jemand die App offen hat.
+  /// "Tippt gerade" zeigen und senden. Ab Werk AUS: es verraet, wann jemand
+  /// die App offen hat. (Die Lesebestaetigungen sind dagegen ab Werk AN, wie
+  /// bei Signal — test/core/preferences_test.dart haelt das fest. Die
+  /// Einstellungsseite sagte bis 25.09.2026 faelschlich "Standard: aus".)
   final bool tippAnzeige;
 
   /// Die Kennung des PANIK-FACHS in der Fachdatei, oder null.

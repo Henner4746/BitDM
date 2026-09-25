@@ -54,6 +54,16 @@ const String relayBasis = String.fromEnvironment(
   defaultValue: 'https://relay.bitdm.net',
 );
 
+/// Wo die Anhaenge liegen, wenn es nicht aus dem Relay folgt.
+///
+/// Leer heisst: aus dem Relay ableiten (relay.X -> dateien.X), wie in jeder
+/// Freigabe. Gebraucht wird es fuer den Emulatorlauf gegen den eigenen
+/// Rechner: dort laufen Relay (8080) und Lager (8099) unter derselben Adresse
+/// auf zwei Ports, und aus 10.0.2.2:8080 laesst sich 8099 nicht erraten.
+///   flutter build apk --dart-define=BITDM_RELAY=http://10.0.2.2:8080
+///                     --dart-define=BITDM_LAGER=http://10.0.2.2:8099
+const String lagerBasis = String.fromEnvironment('BITDM_LAGER');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -98,6 +108,7 @@ Future<void> main() async {
     secretStore: tresor,
     databasePath: kIsWeb ? 'bitdm.db' : '$ablageWeg/bitdm.db',
     relayUri: Uri.parse(relayBasis),
+    lagerUri: lagerBasis.isEmpty ? null : Uri.parse(lagerBasis),
   );
 
   // Benachrichtigungen vorbereiten. Die ERLAUBNIS wird bewusst nicht hier
@@ -162,12 +173,144 @@ class BitApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'BitDM',
-      debugShowCheckedModeBanner: false,
-      home: Home(state: state),
+    return ValueListenableBuilder<String>(
+      valueListenable: anzeigeModus,
+      builder: (_, modus, _) => MaterialApp(
+        title: 'BitDM',
+        debugShowCheckedModeBanner: false,
+        theme: bitThema(modus == 'dark' ? palDark : palLight),
+        home: Home(state: state),
+      ),
     );
   }
+}
+
+/// Hell oder dunkel — Home schreibt, [BitApp] baut daraus das Thema.
+///
+/// Das Thema muss UEBER dem Navigator haengen: Dialoge und Blaetter sind
+/// eigene Routen, und `showDialog(context: context)` aus Home heraus sieht nur
+/// die Themen oberhalb von Home.
+final ValueNotifier<String> anzeigeModus = ValueNotifier('dark');
+
+/// Das Thema fuer alles, was Flutter selbst zeichnet: Dialoge, Blaetter,
+/// Textknoepfe, Eingabefelder, Kaestchen.
+///
+/// BIS 25.09.2026 GAB ES KEINES. Die App zeichnet ihre Bildschirme selbst
+/// und merkte es deshalb nicht — aber jeder AlertDialog kam in Roboto mit
+/// Material-Lila daher, mitten in einer Monoschrift-Oberflaeche (im
+/// Emulatorlauf an "Neue Gruppe" aufgefallen).
+ThemeData bitThema(Pal p) {
+  final dunkel = identical(p, palDark);
+  TextStyle m(double groesse, {FontWeight dicke = FontWeight.w400, Color? farbe, double? abstand}) =>
+      TextStyle(
+        fontFamily: 'Chivo Mono',
+        fontVariations: [FontVariation('wght', dicke.value.toDouble())],
+        fontSize: groesse,
+        fontWeight: dicke,
+        color: farbe,
+        letterSpacing: abstand,
+      );
+  final schema = ColorScheme.fromSeed(
+    seedColor: p.accent,
+    brightness: dunkel ? Brightness.dark : Brightness.light,
+  ).copyWith(
+    primary: p.accLight,
+    onPrimary: p.onAcc,
+    surface: p.surf,
+    onSurface: p.ink,
+    onSurfaceVariant: p.muted,
+    outline: p.line,
+    surfaceTint: Colors.transparent,
+  );
+  return ThemeData(
+    colorScheme: schema,
+    // KEIN fontFamily hier: das faende sich in jedem Text ohne eigene Schrift
+    // wieder, auch im Nachrichtentext der Blasen — der ist absichtlich in der
+    // Schrift des Systems gesetzt, weil sie sich in Saetzen besser liest.
+    scaffoldBackgroundColor: p.bg,
+    dialogTheme: DialogThemeData(
+      backgroundColor: p.surf,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14), side: BorderSide(color: p.line)),
+      titleTextStyle: m(15, dicke: FontWeight.w600, farbe: p.ink),
+      contentTextStyle: m(13, farbe: p.muted),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: p.accLight,
+        textStyle: m(12, dicke: FontWeight.w600, abstand: 0.8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: p.surf,
+      surfaceTintColor: Colors.transparent,
+      // Derselbe Griff wie am eigenen Blatt ([sheetCard]): 36 x 3 in p.line.
+      showDragHandle: true,
+      dragHandleColor: p.line,
+      dragHandleSize: const Size(36, 3),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      hintStyle: m(13, farbe: p.dim),
+      labelStyle: m(13, farbe: p.muted),
+      counterStyle: m(10, farbe: p.dim),
+      // KEIN enabledBorder/focusedBorder: die schlagen ein `border:
+      // InputBorder.none` am Feld und zogen eine Linie in die Schreibzeile.
+      // Die Farben der Unterstreichung im Dialog kommen aus dem Schema.
+    ),
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: p.accLight,
+      selectionColor: p.accent.withValues(alpha: 0.35),
+      selectionHandleColor: p.accLight,
+    ),
+    checkboxTheme: CheckboxThemeData(
+      side: BorderSide(color: p.muted, width: 1.4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+      fillColor: WidgetStateProperty.resolveWith(
+          (z) => z.contains(WidgetState.selected) ? p.accLight : Colors.transparent),
+      checkColor: WidgetStatePropertyAll(p.onAcc),
+    ),
+    // "Spaeter senden" fragt Tag und Uhrzeit mit Flutters eigenen Waehlern —
+    // ohne diese beiden Eintraege kamen sie hell und in Roboto.
+    datePickerTheme: DatePickerThemeData(
+      backgroundColor: p.surf,
+      surfaceTintColor: Colors.transparent,
+      headerBackgroundColor: p.surf,
+      headerForegroundColor: p.ink,
+      headerHeadlineStyle: m(26, dicke: FontWeight.w500, farbe: p.ink),
+      headerHelpStyle: m(11, dicke: FontWeight.w600, farbe: p.dim, abstand: 1.2),
+      weekdayStyle: m(12, farbe: p.dim),
+      dayStyle: m(13),
+      yearStyle: m(13),
+      dividerColor: p.line,
+      todayBorder: BorderSide(color: p.accLight),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14), side: BorderSide(color: p.line)),
+      cancelButtonStyle: TextButton.styleFrom(foregroundColor: p.muted),
+      confirmButtonStyle: TextButton.styleFrom(foregroundColor: p.accLight),
+    ),
+    timePickerTheme: TimePickerThemeData(
+      backgroundColor: p.surf,
+      helpTextStyle: m(11, dicke: FontWeight.w600, farbe: p.dim, abstand: 1.2),
+      hourMinuteColor: p.surf2,
+      hourMinuteTextColor: p.ink,
+      hourMinuteTextStyle: m(40, dicke: FontWeight.w500),
+      dayPeriodTextStyle: m(12, dicke: FontWeight.w600),
+      dayPeriodBorderSide: BorderSide(color: p.line),
+      dialBackgroundColor: p.surf2,
+      dialTextStyle: m(13),
+      entryModeIconColor: p.muted,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14), side: BorderSide(color: p.line)),
+      cancelButtonStyle: TextButton.styleFrom(foregroundColor: p.muted),
+      confirmButtonStyle: TextButton.styleFrom(foregroundColor: p.accLight),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: p.surf2,
+      contentTextStyle: m(12.5, farbe: p.ink),
+    ),
+  );
 }
 
 
@@ -984,6 +1127,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Future<void> send() async {
     final d = draftCtl.text.trim();
     if (d.isEmpty || chat == null) return;
+    _vergissPlanFehler();
     draftCtl.clear();
     final bearbeitet = _bearbeitungsZiel;
     final antwort = _antwortZiel;
@@ -1003,9 +1147,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   /// Fragt nach Tag und Uhrzeit und plant die Nachricht im Eingabefeld.
+  /// "Die Zeit ist schon vorbei" gilt fuer EINEN Versuch. Stehen blieb sie
+  /// sonst auch dann noch, als der naechste Versuch laengst geplant war
+  /// (Emulatorlauf 25.09.2026).
+  void _vergissPlanFehler() {
+    if (st.letzterFehler == 'geplantVorbei') st.vergissFehler();
+  }
+
   Future<void> _planeSenden() async {
     final d = draftCtl.text.trim();
     if (d.isEmpty || chat == null || _bearbeitungsZiel != null) return;
+    _vergissPlanFehler();
     final jetzt = DateTime.now();
     final tag = await showDatePicker(
         context: context,
@@ -1060,6 +1212,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     setState(() => _aufnahmeSeit = null);
     final a = await Sprache.stoppe();
     if (a == null) return; // zu kurz — nichts aufgenommen
+    // AUCH EINE SPRACHNACHRICHT IST "SELBST GESCHRIEBEN" — siehe
+    // [_haltUnten]. Ohne das galt sie als fremde, und weil ihre Blase hoeher
+    // ist als der Spielraum von 140 Punkten, blieb die Liste stehen: die
+    // eigene Sprachnachricht war abgeschickt und unsichtbar (Emulatorlauf
+    // 25.09.2026). Dasselbe fuer Umfrage und Anhang.
+    _selbstGeschrieben = true;
     await st.sendeSprachnachricht(cid, a);
   }
 
@@ -1079,7 +1237,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (m.kind == MessageKind.umfrage) {
       return '${t('poll')}: ${Umfrage.lies(m.text)?.frage ?? ''}';
     }
-    return m.text;
+    return Formatierung.schlicht(m.text);
   }
 
   /// Die Zeile, die zeigt, worauf die naechste Nachricht antwortet oder dass
@@ -1204,6 +1362,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                   return;
                 }
                 Navigator.pop(ctx);
+                _selbstGeschrieben = true;
                 await st.sendeUmfrage(cid, u);
               },
               child: Text(t('send')),
@@ -1240,6 +1399,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           selected: meine.contains(i),
           label: '${u.optionen[i]}, ${zaehler[i]}',
           child: GestureDetector(
+            // DIE GANZE ZEILE, nicht nur Text und Kreis. Ohne `opaque` traf
+            // nur, was gemalt ist — ein Tipp auf den Balken oder den
+            // Zwischenraum ging ins Leere (Emulatorlauf 25.09.2026: die
+            // Mitte der Zeile zaehlte nicht).
+            behavior: HitTestBehavior.opaque,
             onTap: () {
               final neu = meine.contains(i)
                   ? (List.of(meine)..remove(i))
@@ -1250,14 +1414,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  Text(meine.contains(i) ? (u.mehrfach ? '☑' : '◉') : (u.mehrfach ? '☐' : '○'),
-                      style: TextStyle(fontSize: 13, color: p.accLight)),
-                  const SizedBox(width: 6),
+                  wahlZeichen(meine.contains(i), u.mehrfach,
+                      ValueKey('wahl-${m.id}-$i-${meine.contains(i) ? 'an' : 'aus'}')),
+                  const SizedBox(width: 8),
                   Expanded(child: Text(u.optionen[i], style: TextStyle(fontSize: 13, color: p.ink))),
                   Text('${zaehler[i]}', style: mono(size: 11, color: p.muted)),
                 ]),
                 const SizedBox(height: 3),
-                fortschrittsBalken(gesamt == 0 ? 0 : zaehler[i] / gesamt),
+                // Ohne Prozentzeile: die Zahl steht rechts schon da.
+                fortschrittsBalken(gesamt == 0 ? 0 : zaehler[i] / gesamt, mitZahl: false),
               ]),
             ),
           ),
@@ -1285,7 +1450,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           decoration: BoxDecoration(
               color: p.surf2, border: Border(bottom: BorderSide(color: p.lineSoft))),
           child: Row(children: [
-            const Text('📌', style: TextStyle(fontSize: 12)),
+            marke(t('pinnedTag')),
             const SizedBox(width: 8),
             Expanded(
               child: Text(auszug(liste[i]), maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -1298,6 +1463,47 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       ),
     );
   }
+
+  /// Eine kleine Rahmen-Marke in Monoschrift — derselbe Aufbau wie die
+  /// Marke "VIA NEARBY" an einer Nachricht.
+  ///
+  /// STATT FARB-EMOJIS. Die App zeichnet ihre Zeichen als Text in ihrer
+  /// eigenen Schrift (‹, +, ✓✓, ◷); ein buntes 📌 oder 🔕 aus dem
+  /// Emoji-Satz des Telefons faellt darin heraus und sieht auf jedem
+  /// Hersteller anders aus.
+  Widget marke(String text) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: p.tintLine)),
+        child: Text(text.toUpperCase(),
+            style: mono(size: 8, weight: FontWeight.w600, color: p.accLight, spacing: 0.9)),
+      );
+
+  /// Die Wahl-Markierung einer Umfrage-Antwort: gezeichnet, nicht als
+  /// Unicode-Zeichen — Kreis fuer Einzelwahl, Kaestchen fuer Mehrfachwahl.
+  Widget wahlZeichen(bool gewaehlt, bool mehrfach, Key key) => Container(
+        key: key,
+        width: 14,
+        height: 14,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: mehrfach ? BoxShape.rectangle : BoxShape.circle,
+          borderRadius: mehrfach ? BorderRadius.circular(3) : null,
+          border: Border.all(color: p.accLight, width: 1.4),
+        ),
+        child: gewaehlt
+            ? Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: p.accLight,
+                  shape: mehrfach ? BoxShape.rectangle : BoxShape.circle,
+                  borderRadius: mehrfach ? BorderRadius.circular(1.5) : null,
+                ),
+              )
+            : null,
+      );
 
   /// Die sechs Reaktionen, die Signal zuerst anbietet.
   static const schnellReaktionen = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -1462,7 +1668,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Widget gruppenZeile(Gruppe g) {
     final list = st.verlaufVon(g.id);
     final letzte = list.isEmpty ? null : list.last;
-    final marken = [if (g.angeheftet) '📌', if (g.stumm) '🔕'].join(' ');
+    final marken = [if (g.angeheftet) t('pinnedTag'), if (g.stumm) t('mutedTag')];
     final zeit = letzte == null ? '' : zeitVon(letzte.timestamp);
     return InkWell(
       onTap: () => oeffneChat(g.id),
@@ -1487,7 +1693,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             ]),
           ),
           const SizedBox(width: 8),
-          Text(marken.isEmpty ? zeit : '$marken  $zeit', style: mono(size: 10.5, color: p.dim)),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text(zeit, style: mono(size: 10.5, color: p.dim)),
+            if (marken.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                for (final mk in marken) Padding(padding: const EdgeInsets.only(left: 4), child: marke(mk)),
+              ]),
+            ],
+          ]),
         ]),
       ),
     );
@@ -1539,7 +1753,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 final id = await st.legeGruppeAn(name.text, gewaehlt.toList());
                 if (mounted) oeffneChat(id);
               },
-              child: Text(t('create')),
+              child: Text(t('actCreate')),
             ),
           ],
         ),
@@ -1681,7 +1895,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               Navigator.pop(ctx);
               if (name.text.trim().isNotEmpty) await st.benenneGruppe(gid, name.text);
             },
-            child: Text(t('create')),
+            child: Text(t('actSave')),
           ),
         ],
       ),
@@ -1726,14 +1940,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
               child: Row(children: [
-                Identicon(m.chatId, 32, avp, 8),
+                // WIE IN DER CHATLISTE: eine Gruppe mit Namen und Mitgliederzahl,
+                // die Notizen als Notizen. Vorher stand hier fuer jede
+                // Unterhaltung die rohe Kennung, bei Gruppen also "G-XL…" statt
+                // des Namens — und der Text roh, mit Sternchen und dem Spoiler
+                // im Klartext (Emulatorlauf 25.09.2026).
+                if (st.gruppeZu(m.chatId) case final g?)
+                  Container(
+                    width: 32, height: 32, alignment: Alignment.center,
+                    decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
+                    child: Text('${g.mitglieder.length}', style: doto(size: 13, weight: FontWeight.w600, color: p.tintInk)),
+                  )
+                else
+                  Identicon(m.chatId, 32, avp, 8),
                 const SizedBox(width: 11),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(shortId(adresseFormatiert(m.chatId)),
+                    Text(
+                        st.gruppeZu(m.chatId)?.name ??
+                            (st.istNotizen(m.chatId) ? t('notes') : shortId(adresseFormatiert(m.chatId))),
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: doto(size: 13, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
                     const SizedBox(height: 2),
-                    Text(m.text, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    Text(auszug(m), maxLines: 2, overflow: TextOverflow.ellipsis,
                         style: mono(size: 12, color: p.muted)),
                   ]),
                 ),
@@ -3873,8 +4102,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           // Liste und musste annehmen, es habe nicht funktioniert.
           for (final k in st.eigeneAnfragen) wartendeAnfrage(k),
           ],
-          for (final g in sichtbareGruppen) gruppenZeile(g),
-          for (final k in sichtbareKontakte) contactRow(k.id),
+          // ANGEHEFTET HEISST GANZ OBEN — ueber beide Arten hinweg. Vorher
+          // standen erst alle Gruppen, dann alle Kontakte, und ein angehefteter
+          // Kontakt blieb unter jeder Gruppe (Emulatorlauf 25.09.2026).
+          for (final g in sichtbareGruppen.where((g) => g.angeheftet)) gruppenZeile(g),
+          for (final k in sichtbareKontakte.where((k) => k.angeheftet)) contactRow(k.id),
+          for (final g in sichtbareGruppen.where((g) => !g.angeheftet)) gruppenZeile(g),
+          for (final k in sichtbareKontakte.where((k) => !k.angeheftet)) contactRow(k.id),
           if (!_zeigeArchiv && !st.kontakte.any((k) => st.istNotizen(k.id)) && st.meineAdresse.isNotEmpty)
             InkWell(
               onTap: () async {
@@ -3994,9 +4228,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final last = letzte == null ? t('newContact') : auszug(letzte);
     final k = st.kontakte.where((c) => c.id == id).firstOrNull;
     final marken = [
-      if (k?.angeheftet ?? false) '📌',
-      if (k?.stumm ?? false) '🔕',
-    ].join(' ');
+      if (k?.angeheftet ?? false) t('pinnedTag'),
+      if (k?.stumm ?? false) t('mutedTag'),
+    ];
     final time = letzte == null ? '' : zeitVon(letzte.timestamp);
     // Ungelesen: die letzte Nachricht kam von der Gegenstelle und diese
     // Unterhaltung ist gerade nicht offen.
@@ -4028,8 +4262,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ),
           const SizedBox(width: 8),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(marken.isEmpty ? time : '$marken  $time', style: mono(size: 10.5, color: p.dim)),
+            Text(time, style: mono(size: 10.5, color: p.dim)),
             const SizedBox(height: 6),
+            if (marken.isNotEmpty) ...[
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                for (final mk in marken) Padding(padding: const EdgeInsets.only(left: 4), child: marke(mk)),
+              ]),
+              const SizedBox(height: 4),
+            ],
             Container(width: 8, height: 8, decoration: BoxDecoration(color: unread ? p.accent : Colors.transparent, shape: BoxShape.circle)),
           ]),
         ]),
@@ -4252,15 +4492,31 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               child: GestureDetector(
                 onTap: () => _aufnahmeSeit == null ? _starteAufnahme(cid) : _schickeAufnahme(cid),
                 child: Container(
+                  key: ValueKey(_aufnahmeSeit == null ? 'mikro-bereit' : 'mikro-laeuft'),
                   height: 36, alignment: Alignment.center,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  constraints: const BoxConstraints(minWidth: 36),
+                  padding: EdgeInsets.symmetric(horizontal: _aufnahmeSeit == null ? 0 : 10),
                   decoration: BoxDecoration(
                       color: _aufnahmeSeit == null ? null : p.tint,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: _aufnahmeSeit == null ? p.line : p.tintLine)),
-                  child: Text(
-                      _aufnahmeSeit == null ? '🎤' : '■ ${_aufnahmeDauer()}',
-                      style: mono(size: 12, color: _aufnahmeSeit == null ? p.muted : p.tintInk)),
+                  // GEZEICHNET, NICHT GESETZT: Punkt = aufnehmen, Quadrat =
+                  // anhalten, wie an jedem Rekorder. Als Textzeichen (● ■)
+                  // hing ihre Groesse an der Schrift — das ● war in Chivo Mono
+                  // ein Stecknadelkopf neben dem vollen "+" (Emulatorlauf
+                  // 25.09.2026).
+                  child: _aufnahmeSeit == null
+                      ? Container(
+                          width: 11, height: 11,
+                          decoration: BoxDecoration(color: p.muted, shape: BoxShape.circle))
+                      : Row(mainAxisSize: MainAxisSize.min, children: [
+                          Container(
+                              width: 9, height: 9,
+                              decoration: BoxDecoration(
+                                  color: p.tintInk, borderRadius: BorderRadius.circular(1.5))),
+                          const SizedBox(width: 8),
+                          Text(_aufnahmeDauer(), style: mono(size: 12, color: p.tintInk)),
+                        ]),
                 ),
               ),
             ),
@@ -4293,6 +4549,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Future<void> anhangWaehlen(String cid) async {
     final gewaehlt = await st.dateien.waehlen();
     if (gewaehlt == null) return;
+    _selbstGeschrieben = true;
     try {
       await st.anhangSenden(cid, gewaehlt.datei,
           name: gewaehlt.name, groesse: gewaehlt.groesse);
@@ -4518,6 +4775,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           Semantics(
             button: e.key == meine,
             label: '${e.key} ${e.value}',
+            // Sonst liest die Vorleseschrift die Reaktion zweimal: einmal
+            // aus diesem Etikett, einmal aus dem Text darunter.
+            excludeSemantics: true,
             child: GestureDetector(
               onTap: e.key == meine ? () => st.reagiere(cid, m.id, null) : null,
               child: Container(
@@ -4588,7 +4848,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   /// Ein Balken. Duenn, ohne Rahmen, ohne Rundung an den Enden — er soll den
   /// Blick nicht auf sich ziehen, sondern nur sagen, dass es vorangeht.
-  Widget fortschrittsBalken(double anteil) => Column(
+  Widget fortschrittsBalken(double anteil, {bool mitZahl = true}) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
@@ -4604,9 +4864,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text('${(anteil * 100).clamp(0, 100).toStringAsFixed(0)} %',
-              style: mono(size: 9.5, color: p.dim)),
+          if (mitZahl) ...[
+            const SizedBox(height: 4),
+            Text('${(anteil * 100).clamp(0, 100).toStringAsFixed(0)} %',
+                style: mono(size: 9.5, color: p.dim)),
+          ],
         ],
       );
 
@@ -4692,7 +4954,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               // "holen" waere Unsinn, ein Knopf "oeffnen" ist es nicht.
               AnhangZustand.da => Row(mainAxisSize: MainAxisSize.min, children: [
                   if (sprachName.hasMatch(a.name))
-                    anhangKnopf('▶ ${t('voicePlay')}', () async {
+                    anhangKnopf(t('voicePlay'), () async {
                       // Erst der eigene Spieler, sonst die App des Systems.
                       if (a.pfad == null || !await Sprache.spiele(a.pfad!)) {
                         await oeffneAnhang(a);
@@ -4794,7 +5056,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('appearance'), t('appearanceSub')),
           const SizedBox(height: 8),
-          segmented(['dark', 'light'], [t('dark'), t('light')], mode, (v) => setState(() => mode = v)),
+          segmented(['dark', 'light'], [t('dark'), t('light')], mode, (v) {
+            setState(() => mode = v);
+            anzeigeModus.value = v;
+          }),
         ])),
         const SizedBox(height: 3),
         // Steht bei "Allgemein" und nicht bei "Sicherheit": das ist eine
@@ -5789,7 +6054,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                   neu(() => fehler = t('panicPwSame'));
                 }
               },
-              child: Text(t('create')),
+              child: Text(t('actSave')),
             ),
           ],
         ),
