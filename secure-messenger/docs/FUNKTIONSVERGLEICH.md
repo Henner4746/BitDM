@@ -47,10 +47,30 @@ Zeile mit ✅ ist gebaut UND durch Tests belegt; die Testdatei steht dabei.
 | Entschlüsseln-Effekt an neuen Nachrichten | — | ✅ abschaltbar, respektiert „Bewegung reduzieren“ | `themen_test` |
 | Sprache und Aussehen merken | alle | ✅ vorher bei jedem Start vergessen | `test/core/preferences_test.dart` |
 
+### Dritte Runde (1.8.0, 25.09.2026)
+
+| Funktion | Vorbild | BitDM | Belegt durch |
+|---|---|---|---|
+| Echte Ungelesen-Zahl | alle | ✅ je Unterhaltung, Nachrichten in die offene Unterhaltung gelten sofort als gelesen | `test/oberflaeche/chatliste_ordnung_test.dart`, `test/store/encrypted_database_test.dart` |
+| Ruhezeiten | Signal (Benachrichtigungsprofile) | ✅ Fenster auch über Mitternacht, angeheftete Chats kommen durch | `test/core/ruhezeit_test.dart` |
+| Wiederherstellung über Vertrauenskontakte | Briar/Dark Crystal | ✅ Shamir über GF(256), 2/3, 3/5, 4/7; Teile mit Prüfsumme | `test/crypto/teilgeheimnis_test.dart`, `test/oberflaeche/vertrauen_test.dart` |
+| Fernlöschung durch Vertrauenskontakte | Briar-Prototyp | ✅ k von n, 24 h, 10 min Countdown mit Abbrechen | `test/core/fernloeschung_test.dart`, `test/net/gruppen_test.dart`, `test/oberflaeche/fernloeschung_ui_test.dart` |
+| Einmal-Ansicht | Signal | ✅ Fotos und Sprachnachrichten, erzwungene Bildschirmsperre, nicht in der Sicherung | `test/net/anhang_end_to_end_test.dart` |
+| Bilder in der Blase | alle | ✅ nach dem Holen, Antippen zeigt groß | — |
+| Verteilerlisten | Threema | ✅ einzeln verschickt, nur örtlich | `chatliste_ordnung_test`, `test/core/haken_test.dart` |
+| Erwähnungen in Gruppen | SimpleX 6.3 | ✅ `@XLLW…S7JD`, kommen durch Stumm und Ruhezeit | `test/oberflaeche/erwaehnung_test.dart` |
+| Zustellhaken je Mitglied | Signal | ✅ zwei Haken erst, wenn alle sie haben | `test/net/gruppen_test.dart` |
+| Notizen: Bearbeiten/Löschen auf alle Geräte | Signal | ✅ | `test/net/zwei_geraete_test.dart` |
+| Sicherung mit Anhangdateien | Signal | ✅ wahlweise, bis 100 MB | `anhang_end_to_end_test` |
+| Metadaten auch aus HEIC/AVIF/Video | Signal | ✅ ohne Verschieben der Daten | `test/anhang/metadaten_test.dart` |
+| Tor (SOCKS5/Orbot) und Relay als Onion-Dienst | Molly, Cwtch | ✅ kein DNS-Leck, TLS über dem Tunnel | `test/net/netzweg_test.dart` |
+| Tarnverkehr | Loopix (Forschung) | ✅ wahlweise, gegen Beobachter der Leitung | `server/test_relay.py` |
+
 ## Was bewusst NICHT gebaut wurde — und warum
 
 | Funktion | Vorbild | Warum nicht |
 |---|---|---|
+| Sender Keys für Gruppen | Signal (seit 2021) | Sie sind eine Maßnahme für **Effizienz** in großen Gruppen, keine für Sicherheit — und haben sogar die schwächere Erholung nach einem Einbruch ins Gerät. Bei höchstens 20 Mitgliedern ist die Verteilung über die Zweiersitzungen (wie bei Session und SimpleX) die bessere Wahl. Der eigentliche Gewinn — ein Upload statt zwanzig — bräuchte außerdem einen Relay mit Mehrfachzustellung. |
 | Linkvorschau | Signal, WhatsApp | Die Vorschau lädt die Seite — also erfährt der fremde Server, dass und wann jemand den Link bekommen hat. Das widerspricht dem Grund, warum es BitDM gibt. |
 | Anzeigenamen/Spitznamen | alle | Die App sagt ausdrücklich „Namen gibt es nicht — auch nicht lokal“ (`noNames`). Das ist eine Produktentscheidung, keine Lücke. |
 | Anrufe (Sprache, Video) | Signal, Session, Threema | Braucht WebRTC und TURN-Server, die Metadaten sehen. Ein eigenes Vorhaben mit eigener Bedrohungsanalyse. |
