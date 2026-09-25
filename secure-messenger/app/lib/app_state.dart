@@ -1397,8 +1397,8 @@ class AppState extends ChangeNotifier {
 
   /// Erstellt die Sicherung und laesst den Nutzer einen Ort waehlen.
   /// Rueckgabe: wo sie liegt, oder null, wenn abgebrochen.
-  Future<String?> sichere() async {
-    final daten = await core.erstelleSicherung();
+  Future<String?> sichere({bool mitDateien = false}) async {
+    final daten = await core.erstelleSicherung(mitDateien: mitDateien);
     final tmp = await getTemporaryDirectory();
     final heute = DateTime.now();
     final name = 'bitdm-sicherung-'

@@ -241,7 +241,11 @@ abstract class MessengerCore {
   /// Reaktionen, Stimmen, Anleitungen der Anhaenge; KEINE Schluessel und
   /// Sitzungen (siehe lib/core/store/sicherung.dart). Aufgehen tut sie nur
   /// mit denselben zwoelf Woertern.
-  Future<Uint8List> erstelleSicherung();
+  ///
+  /// [mitDateien]: die geholten Anhaenge selbst kommen mit — hoechstens
+  /// [Sicherung.dateienGrenze] zusammen; was darueber liegt, bleibt draussen
+  /// (Einmal-Ansichten immer).
+  Future<Uint8List> erstelleSicherung({bool mitDateien = false});
 
   /// Spielt eine Sicherung ein, ohne Vorhandenes zu ueberschreiben. Rueckgabe:
   /// wie viele Nachrichten dazukamen. Wirft `SicherungPasstNichtException`,

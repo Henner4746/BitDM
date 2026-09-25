@@ -652,7 +652,7 @@ class FakeMessengerCore implements MessengerCore {
   /// Der Entwurfskern "verschluesselt" nicht — er legt JSON ab. Genug, damit
   /// die Oberflaeche den Weg Sichern → Einspielen durchlaufen kann.
   @override
-  Future<Uint8List> erstelleSicherung() async => Uint8List.fromList(utf8.encode(
+  Future<Uint8List> erstelleSicherung({bool mitDateien = false}) async => Uint8List.fromList(utf8.encode(
       jsonEncode({'demo': true, 'n': _msgs.values.fold<int>(0, (a, l) => a + l.length)})));
 
   @override

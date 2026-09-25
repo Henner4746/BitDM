@@ -6085,7 +6085,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           const SizedBox(height: 8),
           Row(children: [
             Expanded(child: outlineBtn(t('backupCreate'), () async {
-              final wo = await st.sichere();
+              // Mit oder ohne die Dateien selbst — ohne ist klein und
+              // verschickbar, mit ist vollstaendig (bis 100 MB).
+              final mit = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Text(t('backup')),
+                  content: Text(t('backupFilesAsk'), style: mono(size: 12, color: p.muted, height: 1.5)),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('backupNoFiles'))),
+                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('backupWithFiles'))),
+                  ],
+                ),
+              );
+              if (mit == null) return;
+              final wo = await st.sichere(mitDateien: mit);
               if (wo != null && mounted) {
                 ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                     SnackBar(content: Text('${t('backupSaved')} $wo')));

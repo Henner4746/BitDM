@@ -232,6 +232,37 @@ void main() {
           reason: 'ohne eigene Kopie verschwindet der Anhang mit der Quelle');
     }, timeout: const Timeout(Duration(minutes: 3)));
 
+    test('SICHERUNG MIT DATEIEN: auf dem neuen Telefon ist der Anhang wieder da', () async {
+      if (relay == null || lager == null) return;
+      final quelle = await dateiMit(ordner, 30000, 'plan.pdf');
+      final vorher = await quelle.readAsBytes();
+      final angekommen = bob.incomingMessages.first;
+      await alice.sendeAnhang(bob.myId, quelle);
+      final beiBob = await angekommen.timeout(const Duration(seconds: 20));
+      await bob.holeAnhang(alice.myId, beiBob.id);
+
+      final ohne = await bob.erstelleSicherung();
+      final mit = await bob.erstelleSicherung(mitDateien: true);
+      expect(mit.length, greaterThan(ohne.length + 30000),
+          reason: 'die Datei steckt nicht in der Sicherung');
+
+      // Das neue Telefon: dieselben Woerter, frische Datenbank.
+      final woerter = await bob.getRecoveryPhrase();
+      final neu = RealMessengerCore(
+        secretStore: SpeicherImKopf(),
+        databasePath: '${ordner.path}${Platform.pathSeparator}bob-neu.db',
+        relayUri: relay!.uri,
+        lagerUri: lager!.uri,
+      );
+      addTearDown(neu.dispose);
+      await neu.initialize();
+      await neu.restoreIdentity(woerter);
+      await neu.spieleSicherungEin(mit);
+      final dort = (await neu.getAnhaenge(alice.myId))[beiBob.id]!;
+      expect(dort.zustand, AnhangZustand.da, reason: 'der Anhang ist nicht wieder da');
+      expect(await File(dort.pfad!).readAsBytes(), vorher);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
     test('nach dem Holen ist das Lager wieder leer', () async {
       if (relay == null || lager == null) return;
       final angekommen = bob.incomingMessages.first;

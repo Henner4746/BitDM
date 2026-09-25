@@ -2376,14 +2376,31 @@ class RealMessengerCore implements MessengerCore {
   }
 
   @override
-  Future<Uint8List> erstelleSicherung() async {
+  Future<Uint8List> erstelleSicherung({bool mitDateien = false}) async {
     final chats = _chats;
     final entropie = await secretStore.read();
     if (chats == null || entropie == null) {
       throw const NotInitializedException();
     }
-    return Sicherung.verpacke(
-        chats.sicherungsInhalt(), await Sicherung.schluessel(entropie));
+    final inhalt = chats.sicherungsInhalt();
+    if (mitDateien) {
+      // DIE DATEIEN SELBST — bis zur Grenze. Vorher standen nur die
+      // Anleitungen darin, und die gehen nach 14 Tagen ins Leere.
+      final dateien = <Map<String, Object?>>[];
+      for (final a in chats.anhaengeFuerSicherung(Sicherung.dateienGrenze)) {
+        final f = File(a.pfad!);
+        if (!await f.exists()) continue;
+        dateien.add({
+          'chat_id': a.chatId,
+          'sender_id': a.senderId,
+          'message_id': a.messageId,
+          'name': a.name,
+          'daten': base64.encode(await f.readAsBytes()),
+        });
+      }
+      inhalt['dateien'] = dateien;
+    }
+    return Sicherung.verpacke(inhalt, await Sicherung.schluessel(entropie));
   }
 
   @override
@@ -2396,6 +2413,30 @@ class RealMessengerCore implements MessengerCore {
     final inhalt =
         await Sicherung.entpacke(daten, await Sicherung.schluessel(entropie));
     final neu = chats.spieleSicherungEin(inhalt);
+    // Mitgesicherte Dateien zurueck in den Anhangordner — nur dort, wo der
+    // Anhang hier noch nicht liegt.
+    final dateien = inhalt['dateien'];
+    if (dateien is List && dateien.isNotEmpty) {
+      final ordner = Directory('${File(databasePath).parent.path}/anhaenge');
+      await ordner.create(recursive: true);
+      for (final d in dateien.whereType<Map>()) {
+        try {
+          final chat = d['chat_id'] as String;
+          final absender = d['sender_id'] as String;
+          final id = d['message_id'] as String;
+          final vorhanden = chats.anhang(chat, absender, id);
+          if (vorhanden == null || vorhanden.zustand == AnhangZustand.da || vorhanden.einmal) {
+            continue;
+          }
+          final ziel = File('${ordner.path}/${AnhangEmpfang.sichererName(id)}_'
+              '${AnhangEmpfang.sichererName(d['name'] as String)}');
+          await ziel.writeAsBytes(base64.decode(d['daten'] as String), flush: true);
+          chats.setzeAnhangZustand(chat, absender, id, AnhangZustand.da, pfad: ziel.path);
+        } catch (_) {
+          // Eine unlesbare Datei ist kein Grund, den Rest nicht einzuspielen.
+        }
+      }
+    }
     // Neue Kontakte heissen neue Leuchtfeuer — derselbe Grund wie beim
     // Empfang (`_richteNaheEin` in _nimmUmschlag).
     unawaited(_richteNaheEin());

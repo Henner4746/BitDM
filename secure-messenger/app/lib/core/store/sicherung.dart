@@ -44,6 +44,14 @@ class Sicherung {
   static final Uint8List magie =
       Uint8List.fromList(utf8.encode('BITDM-SICHERUNG-1'));
   static const String info = 'bitdm backup key v1';
+
+  /// Wie viele Bytes Anhangdateien hoechstens in eine Sicherung gehen.
+  ///
+  /// Die ganze Sicherung liegt beim Erstellen und Einspielen einmal im
+  /// Speicher (und als base64 um ein Drittel groesser). 100 MB sind auf
+  /// jedem Telefon, auf dem BitDM laeuft, noch unkritisch; ein Gigabyte
+  /// waere es nicht.
+  static const int dateienGrenze = 100 * 1024 * 1024;
   static final _aead = Chacha20.poly1305Aead();
 
   /// Der Sicherungsschluessel aus der Entropie der Identitaet.

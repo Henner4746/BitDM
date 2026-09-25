@@ -1190,6 +1190,24 @@ class ChatRepository {
     };
   }
 
+  /// Die geholten Anhaenge fuer eine Sicherung mit Dateien — ohne
+  /// Einmal-Ansichten, kleinste zuerst, bis [grenze] Bytes.
+  List<AnhangEintrag> anhaengeFuerSicherung(int grenze) {
+    final zeilen = db.raw.select(
+        'SELECT * FROM anhaenge WHERE zustand = ? AND pfad IS NOT NULL AND einmal = 0 '
+        'ORDER BY groesse',
+        [AnhangZustand.da.index]);
+    final aus = <AnhangEintrag>[];
+    var summe = 0;
+    for (final r in zeilen) {
+      final a = _zuAnhang(r);
+      if (summe + a.groesse > grenze) break;
+      summe += a.groesse;
+      aus.add(a);
+    }
+    return aus;
+  }
+
   /// Spielt eine Sicherung ein, OHNE Vorhandenes zu ueberschreiben.
   ///
   /// `INSERT OR IGNORE` ueberall: was schon hier ist, ist neuer als die
