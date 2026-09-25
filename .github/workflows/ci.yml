@@ -1,0 +1,63 @@
+# Pruefung bei jedem Push und Pull-Request.
+#
+# Bis 25.09.2026 gab es keine: die Tests liefen nur, wenn jemand sie von Hand
+# startete. Zwei Auftraege:
+#   app     — flutter analyze + flutter test, auf WINDOWS, weil die Testhilfen
+#             Relay und Zwischenlager mit `py` starten (dem Python-Starter von
+#             Windows) und die Tests genau dort gepflegt werden.
+#   server  — pytest fuer Relay und Zwischenlager, auf Linux wie im Betrieb.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: secure-messenger/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Relay-Abhaengigkeiten (die Tests starten echte Server)
+        run: py -m pip install -r ../server/requirements.txt
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.8'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: flutter analyze
+        run: flutter analyze --no-fatal-infos
+      - name: flutter test
+        run: flutter test
+
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: secure-messenger/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: libsodium fuer XEdDSA
+        run: sudo apt-get update && sudo apt-get install -y libsodium23
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
