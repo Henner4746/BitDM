@@ -134,6 +134,15 @@ def _raeume_auf(user_id, pruefe):
 
 async def _durchstich(priv, user_id, pruefe):
     ws = await websockets.connect(f"{WS}?user_id={user_id}")
+    # Auch beim Abbruch schliessen: sonst meldet asyncio beim Beenden einen
+    # "Fatal error on SSL transport", der wie ein zweiter Fehler aussieht.
+    try:
+        return await _mit_verbindung(ws, priv, pruefe)
+    finally:
+        await ws.close()
+
+
+async def _mit_verbindung(ws, priv, pruefe):
     ch = json.loads(await ws.recv())
     await ws.send(json.dumps({"signature": b64(sign(priv, base64.b64decode(ch["nonce"])))}))
     auth = json.loads(await ws.recv())
@@ -152,7 +161,6 @@ async def _durchstich(priv, user_id, pruefe):
            antwort.get("type") == "blob_marke_ok")
     if antwort.get("type") != "blob_marke_ok":
         print(antwort)
-        await ws.close()
         return 1
 
     # Zehn Sekunden fuer den Verbindungsaufbau: ein Lager, das gar nicht
@@ -178,7 +186,6 @@ async def _durchstich(priv, user_id, pruefe):
         r = await http.get(antwort["holen"])
         pruefe("danach ist es weg", r.status_code == 404)
 
-    await ws.close()
     return 0
 
 
