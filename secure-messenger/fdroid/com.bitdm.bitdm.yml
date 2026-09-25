@@ -1,0 +1,97 @@
+# ENTWURF fuer fdroiddata (metadata/com.bitdm.bitdm.yml) — NICHT eingereicht.
+# Stand 25.09.2026. Vor dem Merge-Request die offenen Punkte in README.md
+# (gleiches Verzeichnis) abarbeiten; der wichtigste: sqlite3mc wird in 1.7.0
+# beim Bauen als FERTIGE Bibliothek heruntergeladen statt uebersetzt.
+#
+# Pruefen vor dem Einreichen, im fdroiddata-Checkout:
+#   fdroid readmeta
+#   fdroid rewritemeta com.bitdm.bitdm
+#   fdroid lint com.bitdm.bitdm
+#   fdroid build -v -l com.bitdm.bitdm
+
+Categories:
+  - Messaging
+  - Connectivity
+License: AGPL-3.0-only
+AuthorName: Henner4746
+WebSite: https://bitdm.net
+SourceCode: https://github.com/Henner4746/BitDM
+IssueTracker: https://github.com/Henner4746/BitDM/issues
+Changelog: https://github.com/Henner4746/BitDM/releases
+
+AutoName: BitDM
+
+RepoType: git
+Repo: https://github.com/Henner4746/BitDM.git
+# Reproduzierbarer Build: F-Droid baut selbst, vergleicht mit der APK aus dem
+# GitHub-Release und veroeffentlicht bei Bitgleichheit die Entwickler-signierte
+# Fassung. Solange die Builds NICHT bitgleich sind (siehe README), diese
+# beiden Zeilen auskommentieren — dann signiert F-Droid mit eigenem Schluessel.
+Binaries: https://github.com/Henner4746/BitDM/releases/download/v%v/bitdm-%v.apk
+AllowedAPKSigningKeys: e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063
+
+# Der Relay (relay.bitdm.net) und das Zwischenlager (dateien.bitdm.net) sind
+# freie Software (AGPL-3.0, server/ im selben Repo) — also KEIN NonFreeNet.
+# Die Adresse laesst sich aber nur beim Bauen aendern (--dart-define=BITDM_RELAY),
+# nicht in der App. Das ist die Definition von TetheredNet. Faellt weg, sobald
+# die App eine Relay-Einstellung bekommt.
+AntiFeatures:
+  TetheredNet:
+    en-US: Messages go through the developer's relay (relay.bitdm.net). The relay
+      is free software and can be self-hosted, but its address can only be changed
+      at build time, not in the app.
+    de-DE: Nachrichten laufen über den Relay des Entwicklers (relay.bitdm.net). Der
+      Relay ist freie Software und selbst betreibbar, seine Adresse lässt sich aber
+      nur beim Bauen ändern, nicht in der App.
+
+Builds:
+  # Ein einziges APK fuer alle drei ABIs (arm64-v8a, armeabi-v7a, x86_64), weil
+  # das GitHub-Release genau so ein APK enthaelt (bitdm-1.7.0.apk, sha256
+  # 86dfb9e5...7599, gebaut mit `flutter build apk --release` ohne
+  # --split-per-abi). Nur dasselbe Artefakt kann bitgleich verglichen werden.
+  # --split-per-abi wuerde versionCodes 1015/2015/3015 erzeugen, die es
+  # upstream nicht gibt (siehe Kommentar ueber `version:` in pubspec.yaml).
+  - versionName: 1.7.0
+    versionCode: 15
+    # Tag v1.7.0 = 5d5b3b30853a409255d63a2109ca1c60c094ee14 (git ls-remote).
+    # fdroiddata-Reviewer bevorzugen oft den Hash; beides ist gueltig.
+    commit: v1.7.0
+    subdir: secure-messenger/app
+    output: build/app/outputs/flutter-apk/app-release.apk
+    srclibs:
+      - flutter@3.44.8
+    rm:
+      - secure-messenger/app/linux
+      - secure-messenger/app/windows
+      - secure-messenger/app/web
+      - secure-messenger/nah-test
+      - secure-messenger/prototype
+      - secure-messenger/website
+      - bitdm-core-kit
+    prebuild:
+      # webcrypto (ueber unifiedpush -> webpush_encryption) und jni uebersetzen
+      # BoringSSL bzw. libdartjni aus Quelltext mit CMake; AGP nimmt ohne
+      # Vorgabe cmake 3.22.1.
+      - sdkmanager 'cmake;3.22.1'
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      # --enforce-lockfile: pubspec.yaml hat noch Caret-Bereiche (camera,
+      # zxing2, flutter_local_notifications, nfc_manager, cbor, unifiedpush,
+      # url_launcher). Erst die Sperrdatei macht den Stand eindeutig.
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+    scandelete:
+      - secure-messenger/app/.pub-cache
+    build:
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      # KEIN -PbitdmRequireSigning=true: ohne android/key.properties baut
+      # app/build.gradle.kts dann unsigniert und warnt nur. F-Droid signiert
+      # bzw. uebertraegt die Entwicklersignatur selbst.
+      - $$flutter$$/bin/flutter build apk --release
+    # flutter.ndkVersion in Flutter 3.44.8 = 28.2.13676358 = r28c
+    ndk: r28c
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[0-9.]+$
+UpdateCheckData: secure-messenger/app/pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
+CurrentVersion: 1.7.0
+CurrentVersionCode: 15

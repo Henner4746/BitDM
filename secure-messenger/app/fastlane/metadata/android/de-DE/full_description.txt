@@ -1,0 +1,37 @@
+BitDM ist ein Ende-zu-Ende-verschlüsselter Messenger, der nichts von dir verlangt: keine Telefonnummer, keinen Benutzernamen, keine E-Mail, kein Konto. Beim ersten Start erzeugt die App ein Schlüsselpaar. Die 56 Zeichen lange Adresse, die sie dir zeigt, ist die öffentliche Hälfte davon.
+
+Weil die Adresse der Schlüssel ist, kann dir kein Server einen falschen Schlüssel für einen Kontakt unterschieben - er müsste dafür die Adresse ändern, und die hast du schon. Es gibt kein Verzeichnis, das man manipulieren könnte, weil es kein Verzeichnis gibt. Einen Kontakt prüfst du, indem du die Adresse oder ihr Schlüsselbild (Randomart wie bei OpenSSH) vergleichst.
+
+<b>Verschlüsselung</b>
+* Signal-Protokoll (X3DH über Curve25519, Double Ratchet) über libsignal_protocol_dart, mit Forward Secrecy
+* Anhänge werden in Stücke geteilt, jedes mit eigenem zufälligem AES-256-GCM-Schlüssel verschlüsselt, und in einem getrennten Zwischenlager abgelegt, das nur Chiffretext sieht
+* Lokale Datenbank als Ganzes verschlüsselt (SQLite3MultipleCiphers)
+* Foto-Metadaten (Ort, Kamera, Aufnahmezeit) werden vor dem Senden aus JPEG, PNG und WebP entfernt
+* Wiederherstellung: 12 Wörter bringen Identität und Kontakte auf ein neues Gerät (nicht den Verlauf)
+
+<b>In der Nähe über Bluetooth</b>
+Zwei Telefone nebeneinander können Textnachrichten über Bluetooth LE austauschen, ganz ohne Internet. Die Geräte erkennen sich an wechselnden Baken, die aus dem gemeinsamen Geheimnis abgeleitet sind, statt eine Kennung auszusenden. Ein Schalter "Nur in der Nähe" sorgt dafür, dass die App überhaupt keine Serververbindung öffnet. Der Nahbereich braucht Android 12 oder neuer - deshalb fragt die App nie nach dem Standort.
+
+<b>Funktionen</b>
+Antworten, Reaktionen, Bearbeiten, Für alle löschen, Umfragen, Gruppen (bis 20), Sprachnachrichten, geplante und angeheftete Nachrichten, Notiz an mich, markierte Nachrichten, Filter der Chatliste, Suche, selbstlöschende Nachrichten, Tipp-Anzeige (ab Werk aus), verschlüsselte Sicherung, Panik-Passwort, Bildschirmschutz, App-Sperre (App-Passwort, Fingerabdruck, Geräte-PIN oder FIDO2-Sicherheitsschlüssel über NFC/USB), neun Themen einschließlich Material You.
+
+Push ist freiwillig und läuft über UnifiedPush (zum Beispiel ntfy) - nie über Google. Ohne Push kann auf Wunsch ein Vordergrunddienst im Hintergrund weiter empfangen.
+
+<b>Berechtigungen</b>
+* Kamera: nur zum Einlesen des QR-Codes eines Kontakts
+* Mikrofon: nur während du eine Sprachnachricht aufnimmst
+* Bluetooth (Suchen, Senden, Verbinden): nur für den Nahbereich, ausdrücklich "nie für den Standort"
+* NFC: nur für einen Sicherheitsschlüssel
+
+<b>Wovor es nicht schützt</b>
+* Ein Relay, den du nicht selbst betreibst, kann keine Nachrichten lesen, sieht aber, welche Adressen sich wann verbinden und wie viel sie senden.
+* Ein kompromittiertes oder gerootetes Gerät.
+* Die Tatsache, dass du BitDM benutzt.
+
+<b>Anti-Feature: gebundenes Netzwerk</b>
+Nachrichten laufen über den Relay relay.bitdm.net, den der Entwickler betreibt; Anhänge über dateien.bitdm.net. Der Relay ist freie Software (AGPL-3.0) und mit einem Befehl selbst aufgesetzt, aber die Serveradresse lässt sich derzeit nur beim Bauen der App ändern, nicht in der App. Alle Beteiligten brauchen denselben Relay; eine Föderation gibt es nicht.
+
+<b>Stand</b>
+Diese Software ist <b>nicht unabhängig geprüft</b> worden. Lies die bekannten Lücken im README, bevor du dich auf sie verlässt.
+
+Quellcode, Relay und Dokumentation: https://github.com/Henner4746/BitDM

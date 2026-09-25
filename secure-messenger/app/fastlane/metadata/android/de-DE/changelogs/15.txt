@@ -1,0 +1,8 @@
+* Neun Themen inkl. Material You, mit langsamem Chiffre-Übergang
+* Neue Nachrichten entschlüsseln sich sichtbar (abschaltbar)
+* Foto-Metadaten (Ort, Kamera, Zeit) werden vor dem Senden entfernt
+* Markierte Nachrichten (★) und Filter der Chatliste
+* Befehle: /timer, /verify, /poll, /theme, /shrug
+* Schlüsselbild wie bei OpenSSH statt eines erfundenen Fingerabdrucks
+* Quittungen zufällig verzögert gegen Zuordnung über die Zeit
+* Sprache und Aussehen werden gespeichert

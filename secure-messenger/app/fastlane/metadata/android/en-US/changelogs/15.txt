@@ -1,0 +1,8 @@
+* Nine themes incl. Material You, with slow cipher-veil transitions
+* New messages visibly decrypt (optional, respects "reduce motion")
+* Photo metadata (location, camera, time) stripped before sending
+* Starred messages and chat list filters
+* Slash commands: /timer, /verify, /poll, /theme, /shrug
+* OpenSSH-style key picture replaces a made-up fingerprint
+* Read receipts randomly delayed against timing correlation
+* Language and theme are remembered

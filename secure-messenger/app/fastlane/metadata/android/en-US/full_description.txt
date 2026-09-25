@@ -1,0 +1,37 @@
+BitDM is an end-to-end encrypted messenger that asks for nothing: no phone number, no username, no e-mail, no account. On first launch it generates a key pair. The 56-character address it shows you is the public half of that key.
+
+Because the address is the key, no server can hand you a wrong key for a contact - it would have to change the address, and you already have it. There is no directory to poison, because there is no directory. You verify a contact by comparing the address or its key picture (randomart, as in OpenSSH).
+
+<b>Encryption</b>
+* Signal protocol (X3DH over Curve25519, Double Ratchet) via libsignal_protocol_dart, with forward secrecy
+* Attachments are split into chunks, each encrypted with its own random AES-256-GCM key, and stored in a separate blob store that only ever sees ciphertext
+* Local database encrypted as a whole (SQLite3MultipleCiphers)
+* Photo metadata (location, camera, time) is stripped from JPEG, PNG and WebP before sending
+* Recovery: 12 words restore identity and contacts on a new device (not the message history)
+
+<b>Nearby over Bluetooth</b>
+Two phones next to each other can exchange text messages over Bluetooth LE with no internet at all. Devices find each other through rotating beacons derived from the shared secret instead of broadcasting an identifier. An optional "nearby only" switch makes the app open no server connection at all. Nearby mode needs Android 12 or newer, so the app never asks for location access.
+
+<b>Features</b>
+Replies, reactions, edits, delete for everyone, polls, groups (up to 20), voice messages, scheduled and pinned messages, note to self, starred messages, chat filters, search, disappearing messages, typing indicator (off by default), encrypted backup, panic password, screenshot protection, app lock (app password, fingerprint, device PIN or FIDO2 hardware key over NFC/USB), nine themes including Material You.
+
+Push is optional and goes through UnifiedPush (for example ntfy) - never Google. Without it, a foreground service can keep receiving in the background if you switch it on.
+
+<b>Permissions</b>
+* Camera: only for scanning a contact's QR code
+* Microphone: only while you record a voice message
+* Bluetooth (scan, advertise, connect): only for nearby mode, declared "never for location"
+* NFC: only for a hardware security key
+
+<b>What it does not protect</b>
+* A relay you do not control cannot read messages, but it sees which addresses connect, when, and how much they send.
+* A compromised or rooted device.
+* The fact that you use BitDM.
+
+<b>Anti-feature: tethered network</b>
+Messages travel through the relay at relay.bitdm.net, run by the developer; attachments use dateien.bitdm.net. The relay is free software (AGPL-3.0) and one command sets up your own, but the server address can currently only be changed when building the app, not in the app itself. All participants need the same relay; there is no federation.
+
+<b>Status</b>
+This software has <b>not been independently audited</b>. Read the known gaps in the README before relying on it.
+
+Source code, relay and documentation: https://github.com/Henner4746/BitDM

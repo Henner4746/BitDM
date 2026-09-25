@@ -1,0 +1,6 @@
+Behebt 19 Fehler aus einem Test mit zwei Geräten, darunter:
+* Eine Lesebestätigung konnte ältere, noch nicht verschickte Nachrichten (geplant oder im Funkloch) auf "gelesen" setzen - sie wären nie gesendet worden
+* Nach einem Neustart fehlten Gruppen in der Chatliste
+* Spoiler standen in Vorschau, Zitat und Suche im Klartext
+* Dialoge, Blätter und Datumswahl im Stil der App; keine Farb-Emojis mehr als Bedienzeichen
+* Lesebestätigungen sind ab Werk an

@@ -1,0 +1,6 @@
+Fixes 19 bugs found in a two-device test, including:
+* A read receipt could mark older, still unsent messages (scheduled or stuck offline) as read, so they were never sent
+* Groups were missing from the chat list after a restart
+* Spoilers leaked into previews, quotes and search
+* Dialogs, sheets and date pickers now match the app style; no more colour emojis as controls
+* Read receipts are on by default, as the settings already claimed
