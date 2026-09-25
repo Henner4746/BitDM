@@ -807,6 +807,28 @@ class ChatRepository {
     return ging;
   }
 
+  /// Merkt sich, dass [mitglied] die eigene Gruppennachricht hat. Gibt alle
+  /// zurueck, die sie bisher bestaetigt haben — oder null, wenn es keine
+  /// eigene Nachricht dieser Gruppe ist (dann wird auch nichts gemerkt).
+  Set<String>? merkeGruppenQuittung(String gid, String messageId, String mitglied, String ich) {
+    final eigen = db.raw.select(
+        'SELECT 1 FROM messages WHERE chat_id = ? AND id = ? AND sender_id = ?',
+        [gid, messageId, ich]);
+    if (eigen.isEmpty) return null;
+    db.transaction((raw) => raw.execute(
+        'INSERT OR IGNORE INTO gruppen_quittung (chat_id, message_id, mitglied, am) '
+        'VALUES (?,?,?,?)',
+        [gid, messageId, mitglied, DateTime.now().toUtc().millisecondsSinceEpoch]));
+    return zugestelltAn(gid, messageId);
+  }
+
+  Set<String> zugestelltAn(String gid, String messageId) => {
+        for (final r in db.raw.select(
+            'SELECT mitglied FROM gruppen_quittung WHERE chat_id = ? AND message_id = ?',
+            [gid, messageId]))
+          r['mitglied'] as String,
+      };
+
   /// Die Verteilerlisten — als JSON in der verschluesselten Datenbank.
   List<Verteiler> verteiler() {
     final roh = db.meta('verteiler');

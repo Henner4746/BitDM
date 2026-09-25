@@ -1260,7 +1260,11 @@ class RealMessengerCore implements MessengerCore {
         case PayloadKind.contactDecline:
           _lehnteAb(von);
         case PayloadKind.deliveryReceipt:
-          _quittiere(von, payload.refs, MessageStatus.delivered);
+          if (payload.gruppe != null) {
+            _quittiereGruppe(von, payload.gruppe!, payload.refs);
+          } else {
+            _quittiere(von, payload.refs, MessageStatus.delivered);
+          }
         case PayloadKind.readReceipt:
           _quittiere(von, payload.refs, MessageStatus.read);
         // Der Chat IST der Absender, und der Autor auch: eine Gegenstelle
@@ -1804,7 +1808,52 @@ class RealMessengerCore implements MessengerCore {
     if (neu) {
       _incoming.add(nachricht);
       if (eintrag != null) _anhangWechsel.add(eintrag);
+      // DER AUTOR ERFAEHRT, DASS SIE DA IST — direkt, nicht an die ganze
+      // Gruppe. Vorher gab es in Gruppen gar keine Quittung, und jede
+      // Nachricht stand fuer immer auf einem Haken.
+      if (von != myId) unawaited(_sendeGruppenQuittung(von, gid, p.messageId));
     }
+  }
+
+  Future<void> _sendeGruppenQuittung(String an, String gid, String messageId) async {
+    await Future<void>.delayed(quittungsVerzug());
+    if (_conn != ConnectionState.online && !(_nah?.bereit ?? false)) return;
+    try {
+      await _sendePayload(
+          an,
+          Payload(
+              kind: PayloadKind.deliveryReceipt,
+              messageId: _neueId(),
+              sentAt: DateTime.now().toUtc(),
+              refs: [messageId],
+              gruppe: gid));
+    } catch (_) {
+      // Eine verlorene Quittung kostet einen Haken, sonst nichts.
+    }
+  }
+
+  /// Eine Zustellquittung aus einer Gruppe: je Mitglied merken, und wenn alle
+  /// da sind, zwei Haken — so wie bei Signal.
+  void _quittiereGruppe(String von, String gid, List<String> refs) {
+    final chats = _chats!;
+    final g = chats.gruppe(gid);
+    if (g == null || !g.mitglieder.contains(von)) return;
+    for (final ref in refs) {
+      final haben = chats.merkeGruppenQuittung(gid, ref, von, myId);
+      if (haben == null) continue;
+      final alle = g.mitglieder.where((m) => m != myId).toSet();
+      if (alle.difference(haben).isEmpty) {
+        chats.setzeStatus(gid, myId, ref, MessageStatus.delivered);
+        _status.add(MessageStatusUpdate(
+            messageId: ref, chatId: gid, status: MessageStatus.delivered, at: DateTime.now().toUtc()));
+      }
+    }
+  }
+
+  @override
+  Future<Set<String>> zugestelltAn(String gruppe, String messageId) async {
+    if (_chats == null) throw const NotInitializedException();
+    return _chats!.zugestelltAn(gruppe, messageId);
   }
 
   /// Der Stand einer Gruppe, verkuendet vom Admin.

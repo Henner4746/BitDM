@@ -375,6 +375,9 @@ class FakeMessengerCore implements MessengerCore {
     _gelesenBis[contactId] = _msgs[contactId]?.length ?? 0;
   }
 
+  @override
+  Future<Set<String>> zugestelltAn(String gruppe, String messageId) async => const {};
+
   List<Verteiler> _verteiler = const [];
 
   @override

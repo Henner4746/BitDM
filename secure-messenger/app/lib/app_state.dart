@@ -971,6 +971,9 @@ class AppState extends ChangeNotifier {
   /// Oberflaeche setzt das beim Zeichnen.
   String? offeneUnterhaltung;
 
+  Future<Set<String>> zugestelltAn(String gruppe, String messageId) =>
+      core.zugestelltAn(gruppe, messageId);
+
   /// Verteilerlisten (siehe [Verteiler]).
   List<Verteiler> verteiler = const [];
 

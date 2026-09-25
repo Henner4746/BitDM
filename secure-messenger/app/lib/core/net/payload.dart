@@ -570,9 +570,16 @@ class Payload {
     if (istGruppenArt && (g is! String || !_gruppeTaugt.hasMatch(g))) {
       throw const PayloadFormatException('Gruppenkennung fehlt oder taugt nicht');
     }
+    // EINE ZUSTELLQUITTUNG DARF SAGEN, AUS WELCHER GRUPPE sie stammt — dann
+    // zaehlt sie beim Autor je Mitglied (Haken je Mitglied, seit 25.09.2026).
+    // Freiwillig, aber geprueft wie jede Kennung; eine aeltere Fassung
+    // uebergeht das Feld.
+    final quittungAusGruppe = kind == PayloadKind.deliveryReceipt &&
+        g is String &&
+        _gruppeTaugt.hasMatch(g);
 
     return Payload(
-      gruppe: istGruppenArt ? g as String : null,
+      gruppe: (istGruppenArt || quittungAusGruppe) ? g as String : null,
       kind: kind,
       messageId: id,
       sentAt: DateTime.fromMillisecondsSinceEpoch(t, isUtc: true),

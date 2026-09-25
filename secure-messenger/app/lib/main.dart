@@ -1955,6 +1955,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
             if (!m.widerrufen)
               eintrag(m.sternAm == null ? t('star') : t('unstar'),
                   () => st.setzeStern(cid, m.id, m.sternAm == null)),
+            if (m.isMine && st.gruppeZu(cid) != null)
+              eintrag(t('msgInfo'), () => _zeigeZustellung(cid, m)),
             if (!m.widerrufen && m.kind == MessageKind.text)
               eintrag(t('copyMsg'), () {
                 Clipboard.setData(ClipboardData(text: m.text));
@@ -2426,6 +2428,41 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         'ungelesen' => st.ungelesenIn(id) > 0,
         _ => true,
       };
+
+  /// Wer in der Gruppe eine eigene Nachricht schon hat.
+  Future<void> _zeigeZustellung(String gid, Message m) async {
+    final g = st.gruppeZu(gid);
+    if (g == null) return;
+    final haben = await st.zugestelltAn(gid, m.id);
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t('msgInfo'), style: mono(size: 14, weight: FontWeight.w600, color: p.ink)),
+            const SizedBox(height: 4),
+            Text(t('msgInfoSub'), style: mono(size: 10.5, color: p.dim, height: 1.5)),
+            const SizedBox(height: 10),
+            for (final mitglied in g.mitglieder.where((x) => x != st.meineAdresse))
+              Padding(
+                key: ValueKey('zustellung-$mitglied'),
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(children: [
+                  Identicon(mitglied, 22, avp, 5),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(shortId(adresseFormatiert(mitglied)),
+                      style: mono(size: 12.5, color: p.ink))),
+                  Text(haben.contains(mitglied) ? '✓✓' : '✓',
+                      style: TextStyle(fontSize: 12, color: haben.contains(mitglied) ? p.accLight : p.dim)),
+                ]),
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
 
   /// Fragt nach k von n, zerlegt die Woerter und zeigt die Teile.
   Future<void> _erzeugeTeile() async {

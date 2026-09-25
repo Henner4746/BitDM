@@ -63,9 +63,12 @@ Zeile mit ✅ ist gebaut UND durch Tests belegt; die Testdatei steht dabei.
 
 ## Bekannte Grenzen des Gebauten
 
-- **Gruppen:** Der Admin ändert die Mitglieder; tritt er aus, bleibt die Liste
-  eingefroren. Neue Mitglieder sehen den Verlauf vor ihrem Beitritt nicht
-  (wie bei Signal). Keine Lese- und Zustellhaken je Mitglied.
+- **Gruppen:** Der Admin ändert die Mitglieder; tritt er aus, rückt das
+  nächste Mitglied nach (`Gruppe.nachfolger`, Test „GEHT DER ADMIN, RUECKT DER
+  NAECHSTE NACH“). Neue Mitglieder sehen den Verlauf vor ihrem Beitritt nicht
+  (wie bei Signal). Zustellhaken je Mitglied seit 25.09.2026, Lesehaken in
+  Gruppen bewusst nicht. Noch keine Sender Keys: jede Nachricht geht einzeln
+  über die Zweiersitzung an jedes Mitglied.
 - **Einladungen nur von Kontakten:** Die Regel in `_nimmGruppenStand` schützt
   gegen einen *veränderten* Client ohne alte Sitzung. Der vorhandene Test
   bleibt auch ohne sie grün, weil beim Entfernen eines Kontakts die Sitzung

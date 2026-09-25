@@ -108,6 +108,19 @@ void main() {
         isFalse);
   });
 
+  test('ZUSTELLHAKEN JE MITGLIED: ZWEI HAKEN ERST, WENN ALLE SIE HABEN', () async {
+    // Bis 25.09.2026 gab es in Gruppen gar keine Quittung — jede Nachricht
+    // stand fuer immer auf einem Haken.
+    final (:anna, :bob, :carl, :gid) = await gruppe();
+    final m = await bob.core.sendMessage(gid, 'Wer bringt Brot mit?');
+    expect(
+        await Nutzer.warteBis(() => bob.statusEreignisse.any(
+            (u) => u.messageId == m.id && u.status == MessageStatus.delivered)),
+        isTrue,
+        reason: 'die Nachricht kam nie auf zwei Haken');
+    expect(await bob.core.zugestelltAn(gid, m.id), {anna.core.myId, carl.core.myId});
+  });
+
   test('REAKTIONEN, BEARBEITEN UND ANHEFTEN GEHEN AUCH IN DER GRUPPE',
       () async {
     final (:anna, :bob, :carl, :gid) = await gruppe();

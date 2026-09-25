@@ -271,6 +271,9 @@ abstract class MessengerCore {
 
   Future<List<Gruppe>> getGruppen();
 
+  /// Welche Mitglieder eine eigene Gruppennachricht schon haben.
+  Future<Set<String>> zugestelltAn(String gruppe, String messageId);
+
   /// Verteilerlisten — nur oertlich, der Relay erfaehrt nichts.
   Future<List<Verteiler>> getVerteiler();
   Future<void> speichereVerteiler(List<Verteiler> liste);

@@ -88,4 +88,23 @@ void main() {
       abgewiesen(1, {'x': 42});
     });
   });
+
+  test('eine Zustellquittung darf ihre Gruppe nennen — eine ungueltige faellt weg', () {
+    final gid = 'g-${'A' * 22}';
+    final q = Payload(
+        kind: PayloadKind.deliveryReceipt,
+        messageId: 'abcDEF123_-',
+        sentAt: DateTime.utc(2026, 9, 25),
+        refs: const ['x1'],
+        gruppe: gid);
+    expect(Payload.fromBytes(q.toBytes()).gruppe, gid);
+    final kaputt = Payload(
+        kind: PayloadKind.deliveryReceipt,
+        messageId: 'abcDEF123_-',
+        sentAt: DateTime.utc(2026, 9, 25),
+        refs: const ['x1'],
+        gruppe: '../../etc');
+    expect(Payload.fromBytes(kaputt.toBytes()).gruppe, isNull,
+        reason: 'eine fremde Kennung ohne Form hat im Verlauf nichts verloren');
+  });
 }
