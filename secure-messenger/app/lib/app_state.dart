@@ -1396,10 +1396,17 @@ class AppState extends ChangeNotifier {
   }
 
   /// Schickt eine fertige Aufnahme als Anhang.
-  Future<void> sendeSprachnachricht(String chatId, Aufnahme a) async {
+  Future<void> sendeSprachnachricht(String chatId, Aufnahme a, {bool einmal = false}) async {
     final datei = File(a.pfad);
     await anhangSenden(chatId, datei,
-        name: sprachDateiname(DateTime.now()), groesse: await datei.length());
+        name: sprachDateiname(DateTime.now()), groesse: await datei.length(), einmal: einmal);
+  }
+
+  /// Eine Einmal-Ansicht wurde angesehen — die Datei geht, die Blase bleibt.
+  Future<void> verbraucheEinmal(String chatId, String messageId) async {
+    await core.verbraucheEinmal(chatId, messageId);
+    anhaenge[chatId] = await core.getAnhaenge(chatId);
+    notifyListeners();
   }
 
   Future<void> setzeOrdnung(String chatId,
@@ -1439,7 +1446,7 @@ class AppState extends ChangeNotifier {
   /// erst, wenn alles oben ist — bis dahin traegt [fortschritt] den Stand
   /// unter [schwebendeKennung].
   Future<void> anhangSenden(String chatId, File datei,
-      {String? name, int? groesse}) async {
+      {String? name, int? groesse, bool einmal = false}) async {
     if (schwebendeKennung != null) {
       // EINER NACH DEM ANDEREN. Zwei gleichzeitige Uploads teilen sich die
       // Leitung, verdoppeln den Speicherbedarf und machen den Fortschritt
@@ -1466,7 +1473,7 @@ class AppState extends ChangeNotifier {
         schwebenderName = name;
       }
       final m = await core.sendeAnhang(chatId, datei,
-          name: name, groesse: groesse);
+          name: name, groesse: groesse, einmal: einmal);
       // EINE NEUE LISTE, KEIN `.add`: dieselbe Falle wie in [senden] — die
       // Liste kommt vom Kern, und ob sie wachsen darf, entscheidet er. Der
       // Entwurfskern gibt eine unveraenderliche zurueck; das `.add` warf dort,

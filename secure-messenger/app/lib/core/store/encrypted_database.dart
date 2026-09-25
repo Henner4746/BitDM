@@ -79,7 +79,7 @@ class EncryptedDatabase {
   CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 11;
+  static const int schemaVersion = 12;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -273,6 +273,8 @@ class EncryptedDatabase {
             _schemaV10(db);
           case 11:
             _schemaV11(db);
+          case 12:
+            _schemaV12(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -546,6 +548,11 @@ class EncryptedDatabase {
   /// "duplicate column name" scheitert, rollt zurueck und ist danach nie
   /// wieder erreichbar. Jede Spalte nur, wenn sie fehlt; jede Tabelle mit
   /// IF NOT EXISTS.
+  /// EINMAL-ANSICHT: 1, wenn der Anhang nur einmal geoeffnet werden darf.
+  static void _schemaV12(CommonDatabase db) {
+    _spalteDazu(db, 'anhaenge', 'einmal', 'INTEGER NOT NULL DEFAULT 0');
+  }
+
   /// GELESEN: je Unterhaltung bis zu welcher Nachricht (seq) gelesen wurde —
   /// fuer die Zahl an der Chatzeile. Nur lokal.
   ///

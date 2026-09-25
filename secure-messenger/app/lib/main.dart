@@ -1360,7 +1360,74 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     // eigene Sprachnachricht war abgeschickt und unsichtbar (Emulatorlauf
     // 25.09.2026). Dasselbe fuer Umfrage und Anhang.
     _selbstGeschrieben = true;
-    await st.sendeSprachnachricht(cid, a);
+    final einmal = _spracheEinmal;
+    setState(() => _spracheEinmal = false);
+    await st.sendeSprachnachricht(cid, a, einmal: einmal);
+  }
+
+  /// Ob die laufende Aufnahme als Einmal-Ansicht hinausgeht (Schalter "1×").
+  bool _spracheEinmal = false;
+
+  static final _bildEndung = RegExp(r'\.(jpe?g|png|webp|gif|heic|heif|avif)$', caseSensitive: false);
+  bool istBildName(String name) => _bildEndung.hasMatch(name);
+
+  /// Zeigt ein Bild bildschirmfuellend. Bei einer Einmal-Ansicht mit
+  /// erzwungener Bildschirmsperre, und beim Schliessen ist die Datei weg.
+  Future<void> zeigeBild(String cid, AnhangEintrag a) async {
+    final pfad = a.pfad;
+    if (pfad == null) return;
+    if (a.einmal) await Fenster.screenshotSperre(true);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (ctx) => Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Stack(children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                maxScale: 6,
+                child: Center(child: Image.file(File(pfad),
+                    errorBuilder: (_, _, _) => Text(t('imageUnreadable'),
+                        style: mono(size: 12, color: Colors.white70)))),
+              ),
+            ),
+            Positioned(
+              top: 12, left: 12,
+              child: iconBtn('‹', () => Navigator.of(ctx).pop()),
+            ),
+            if (a.einmal)
+              Positioned(
+                top: 20, right: 16,
+                child: marke(t('onceTag')),
+              ),
+          ]),
+        ),
+      ),
+    ));
+    if (a.einmal) {
+      await Fenster.screenshotSperre(st.einstellungen.blockScreenshots);
+      await st.verbraucheEinmal(cid, a.messageId);
+    }
+  }
+
+  /// Holt (falls noetig) und oeffnet eine empfangene Einmal-Ansicht.
+  Future<void> oeffneEinmal(String cid, Message m) async {
+    var a = st.anhangZu(cid, m.id);
+    if (a == null) return;
+    if (a.zustand != AnhangZustand.da) {
+      await st.anhangHolen(cid, m.id);
+      a = st.anhangZu(cid, m.id);
+      if (a == null || a.zustand != AnhangZustand.da) return;
+    }
+    if (sprachName.hasMatch(a.name)) {
+      // Abspielen und sofort verbrauchen: der Spieler haelt die Datei offen,
+      // das Loeschen nimmt nur den Namen weg.
+      if (a.pfad != null) await Sprache.spiele(a.pfad!);
+      await st.verbraucheEinmal(cid, m.id);
+      return;
+    }
+    await zeigeBild(cid, a);
   }
 
   Future<void> _verwirfAufnahme() async {
@@ -1572,6 +1639,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SizedBox(height: 8),
             eintrag(t('attach'), () => anhangWaehlen(cid)),
+            eintrag(t('attachOnce'), () => anhangWaehlen(cid, einmal: true)),
             eintrag(t('pollNew'), () => _legeUmfrageAn(cid)),
             const SizedBox(height: 6),
           ])),
@@ -5017,6 +5085,25 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
             if (_aufnahmeSeit != null) ...[
               Semantics(
                 button: true,
+                toggled: _spracheEinmal,
+                label: t('onceToggle'),
+                child: GestureDetector(
+                  key: const ValueKey('sprache-einmal'),
+                  onTap: () => setState(() => _spracheEinmal = !_spracheEinmal),
+                  child: Container(
+                    width: 36, height: 36, alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                        color: _spracheEinmal ? p.tint : null,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _spracheEinmal ? p.tintLine : p.line)),
+                    child: Text('1×', style: mono(size: 11, weight: FontWeight.w600,
+                        color: _spracheEinmal ? p.tintInk : p.muted)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Semantics(
+                button: true,
                 label: t('voiceDiscard'),
                 child: GestureDetector(
                   onTap: _verwirfAufnahme,
@@ -5089,13 +5176,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// sonst bleibt eine Dateikennung offen, und davon hat ein Prozess nur eine
   /// begrenzte Zahl. Nach ein paar abgebrochenen Versuchen ginge gar nichts
   /// mehr, und niemand wuesste warum.
-  Future<void> anhangWaehlen(String cid) async {
+  Future<void> anhangWaehlen(String cid, {bool einmal = false}) async {
     final gewaehlt = await st.dateien.waehlen();
     if (gewaehlt == null) return;
+    // EINMAL-ANSICHT NUR FUER BILDER: die zeigt die App selbst und loescht
+    // sie beim Schliessen. Eine beliebige Datei ginge an eine fremde App, und
+    // was die damit tut, laesst sich nicht zuruecknehmen.
+    if (einmal && !istBildName(gewaehlt.name)) {
+      await st.dateien.gibFrei(gewaehlt.zettel);
+      _hinweis(t('onceOnlyImages'));
+      return;
+    }
     _selbstGeschrieben = true;
     try {
       await st.anhangSenden(cid, gewaehlt.datei,
-          name: gewaehlt.name, groesse: gewaehlt.groesse);
+          name: gewaehlt.name, groesse: gewaehlt.groesse, einmal: einmal);
     } finally {
       await st.dateien.gibFrei(gewaehlt.zettel);
     }
@@ -5488,12 +5583,54 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     final laeuft = a.zustand == AnhangZustand.laedt ||
         (m.isMine && m.status == MessageStatus.sending);
 
+    // EINMAL-ANSICHT: kein Name, keine Vorschau, kein Oeffnen fuer den
+    // Absender — nur, was es ist und ob es schon angesehen wurde.
+    if (a.einmal) {
+      final sprache = sprachName.hasMatch(a.name);
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          marke(t('onceTag')),
+          const SizedBox(width: Masse.nah),
+          if (laeuft)
+            SizedBox(width: 120, child: fortschrittsBalken(f?.anteil ?? 0, mitZahl: false))
+          else if (m.isMine)
+            Text(a.zustand == AnhangZustand.verbraucht ? t('onceViewed') : t('onceSent'),
+                style: mono(size: 10.5, color: p.muted))
+          else
+            switch (a.zustand) {
+              AnhangZustand.verbraucht => Text(t('onceViewed'), style: mono(size: 10.5, color: p.muted)),
+              AnhangZustand.weg => Text(t('attachGone'), style: mono(size: 10.5, color: p.muted)),
+              _ => anhangKnopf(sprache ? t('oncePlay') : t('onceView'),
+                  () => oeffneEinmal(cid, m), betont: true),
+            },
+        ]),
+      );
+    }
+
+    // BILDER ZEIGEN, sobald sie da sind — geholt wird trotzdem nur auf
+    // Knopfdruck (ein Anhang kann gross sein, siehe holeAnhang).
+    final bild = a.zustand == AnhangZustand.da && a.pfad != null && istBildName(a.name);
+
     return Align(
       alignment: Alignment.centerLeft,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (bild) ...[
+            GestureDetector(
+              key: ValueKey('bild-${m.id}'),
+              onTap: () => zeigeBild(cid, a),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.file(File(a.pfad!),
+                    width: 220, fit: BoxFit.cover, cacheWidth: 440,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink()),
+              ),
+            ),
+            const SizedBox(height: Masse.nah),
+          ],
           anhangKopf(a.name, a.groesse),
           if (laeuft) ...[
             const SizedBox(height: Masse.innen),
@@ -5542,6 +5679,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                   ],
                 ),
               AnhangZustand.laedt => const SizedBox.shrink(),
+              AnhangZustand.verbraucht => Text(t('onceViewed'),
+                  style: mono(size: 10.5, color: p.muted)),
             },
           ],
         ],

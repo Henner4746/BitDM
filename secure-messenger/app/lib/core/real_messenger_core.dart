@@ -1483,6 +1483,7 @@ class RealMessengerCore implements MessengerCore {
       name: name,
       groesse: rezept.gesamtGroesse,
       zustand: AnhangZustand.angekuendigt,
+      einmal: rezept.einmal,
     );
 
     final ttl = p.ttlSeconds == null ? null : Duration(seconds: p.ttlSeconds!);
@@ -1771,6 +1772,7 @@ class RealMessengerCore implements MessengerCore {
           name: text,
           groesse: rezept.gesamtGroesse,
           zustand: AnhangZustand.angekuendigt,
+          einmal: rezept.einmal,
         );
       default:
         return;
@@ -2312,6 +2314,14 @@ class RealMessengerCore implements MessengerCore {
   }
 
   @override
+  Future<void> verbraucheEinmal(String contactId, String messageId) async {
+    _fordereChat(contactId);
+    final pfad = _chats!.verbraucheAnhang(contactId, messageId);
+    if (pfad != null) await _loescheDateien([pfad]);
+    _verlaufWechsel.add(contactId);
+  }
+
+  @override
   Future<Map<String, int>> ungelesenJeChat() async {
     if (_chats == null) throw const NotInitializedException();
     return _chats!.ungelesenJeChat();
@@ -2715,7 +2725,7 @@ class RealMessengerCore implements MessengerCore {
 
   @override
   Future<Message> sendeAnhang(String contactId, File datei,
-      {String? name, int? groesse}) async {
+      {String? name, int? groesse, bool einmal = false}) async {
     _fordereChat(contactId);
 
     // EIN ANHANG BRAUCHT DEN SERVER, und zwar zweimal: der Relay stellt die
@@ -2768,6 +2778,23 @@ class RealMessengerCore implements MessengerCore {
       timestamp: DateTime.now().toUtc(),
       status: MessageStatus.sending,
     );
+    // EINE EIGENE KOPIE im Anhangordner — sonst zeigte "Oeffnen" beim eigenen
+    // Anhang ins Leere: der Dateiwaehler reicht /proc/self/fd/<nr> herein,
+    // und die Kennung ist nach dem Versand wieder zu (bis 25.09.2026 so).
+    // Nur bis 50 MB, damit ein grosser Versand nicht den Platz verdoppelt,
+    // und nie bei einer Einmal-Ansicht: die soll auch hier nicht liegen.
+    String? eigenerPfad;
+    if (!einmal && wirklicheGroesse <= 50 * 1024 * 1024) {
+      try {
+        final ordner = Directory('${File(databasePath).parent.path}/anhaenge');
+        await ordner.create(recursive: true);
+        final kopie = File('${ordner.path}/${AnhangEmpfang.sichererName(id)}_$angezeigt');
+        await datei.copy(kopie.path);
+        eigenerPfad = kopie.path;
+      } catch (_) {
+        eigenerPfad = null;
+      }
+    }
     final eintrag = AnhangEintrag(
       messageId: id,
       chatId: contactId,
@@ -2775,7 +2802,8 @@ class RealMessengerCore implements MessengerCore {
       name: angezeigt,
       groesse: wirklicheGroesse,
       zustand: AnhangZustand.da,
-      pfad: datei.path,
+      pfad: eigenerPfad,
+      einmal: einmal,
     );
 
     final versand = AnhangVersand(relay: relay, lager: _lager());
@@ -2797,14 +2825,15 @@ class RealMessengerCore implements MessengerCore {
     }
 
     final frist = _fristFuer(contactId);
+    final anleitung = einmal ? rezept.alsEinmal() : rezept;
     _chats!.speichereEigene(nachricht,
         lebensdauer: frist,
         anhang: eintrag,
-        rezept: rezept.alsText());
+        rezept: anleitung.alsText());
 
     unawaited(_versucheZuSenden(
         contactId,
-        Payload.anhang(id, rezept.alsText(), nachricht.timestamp,
+        Payload.anhang(id, anleitung.alsText(), nachricht.timestamp,
             lebensdauer: frist),
         eigeneNachricht: id));
 

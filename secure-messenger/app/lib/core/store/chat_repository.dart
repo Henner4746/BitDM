@@ -327,8 +327,8 @@ class ChatRepository {
       CommonDatabase raw, AnhangEintrag a, String rezept) {
     raw.execute(
       'INSERT INTO anhaenge '
-      '(chat_id, sender_id, message_id, name, groesse, rezept, zustand, pfad) '
-      'VALUES (?,?,?,?,?,?,?,?) '
+      '(chat_id, sender_id, message_id, name, groesse, rezept, zustand, pfad, einmal) '
+      'VALUES (?,?,?,?,?,?,?,?,?) '
       // Bei einer doppelt zugestellten Nachricht darf der oertliche Zustand
       // NICHT zurueckfallen — sonst boete die Oberflaeche an, eine Datei noch
       // einmal zu holen, die schon dasteht.
@@ -342,8 +342,23 @@ class ChatRepository {
         rezept,
         a.zustand.index,
         a.pfad,
+        a.einmal ? 1 : 0,
       ],
     );
+  }
+
+  /// Eine Einmal-Ansicht ist angesehen: Zustand "verbraucht", der Pfad weg.
+  /// Gibt den alten Pfad zurueck, damit der Aufrufer die Datei loescht.
+  String? verbraucheAnhang(String chatId, String messageId) {
+    final r = db.raw.select(
+        'SELECT pfad FROM anhaenge WHERE chat_id = ? AND message_id = ? AND einmal = 1',
+        [chatId, messageId]);
+    if (r.isEmpty) return null;
+    db.transaction((raw) => raw.execute(
+        'UPDATE anhaenge SET zustand = ?, pfad = NULL '
+        'WHERE chat_id = ? AND message_id = ? AND einmal = 1',
+        [AnhangZustand.verbraucht.index, chatId, messageId]));
+    return r.first['pfad'] as String?;
   }
 
   static AnhangEintrag _zuAnhang(Row r) => AnhangEintrag(
@@ -354,6 +369,7 @@ class ChatRepository {
         groesse: r['groesse'] as int,
         zustand: AnhangZustand.values[r['zustand'] as int],
         pfad: r['pfad'] as String?,
+        einmal: ((r['einmal'] as int?) ?? 0) != 0,
       );
 
   /// Legt einen Kontakt an und schreibt den Sitzungsfortschritt zusammen.
@@ -1146,10 +1162,11 @@ class ChatRepository {
           [jetzt]),
       'reaktionen': zeilen('SELECT * FROM reaktionen'),
       'stimmen': zeilen('SELECT * FROM stimmen'),
-      // Die Anleitung ja, der Ort auf diesem Telefon nein.
+      // Die Anleitung ja, der Ort auf diesem Telefon nein. EINMAL-ANSICHTEN
+      // NICHT: sie liessen sich sonst aus der Sicherung ein zweites Mal holen.
       'anhaenge': zeilen(
           'SELECT chat_id, sender_id, message_id, name, groesse, rezept '
-          'FROM anhaenge'),
+          'FROM anhaenge WHERE einmal = 0'),
     };
   }
 

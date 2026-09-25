@@ -279,7 +279,7 @@ class FakeMessengerCore implements MessengerCore {
 
   @override
   Future<Message> sendeAnhang(String contactId, File datei,
-      {String? name, int? groesse}) async {
+      {String? name, int? groesse, bool einmal = false}) async {
     if (!_init) throw const NotInitializedException();
     if (!_kennt(contactId)) {
       throw UnknownContactException(contactId);
@@ -318,7 +318,8 @@ class FakeMessengerCore implements MessengerCore {
         name: angezeigt,
         groesse: gr,
         zustand: AnhangZustand.da,
-        pfad: datei.path);
+        pfad: einmal ? null : datei.path,
+        einmal: einmal);
     Timer(const Duration(milliseconds: 250),
         () => _emitStatus(contactId, id, MessageStatus.sent));
     return msg;
@@ -372,6 +373,17 @@ class FakeMessengerCore implements MessengerCore {
     if (!_kennt(contactId)) throw UnknownContactException(contactId);
     // Keine Lesebestaetigung im Entwurf — aber die Zahl merkt er sich.
     _gelesenBis[contactId] = _msgs[contactId]?.length ?? 0;
+  }
+
+  @override
+  Future<void> verbraucheEinmal(String contactId, String messageId) async {
+    final e = _anhaenge[contactId]?[messageId];
+    if (e == null || !e.einmal) return;
+    _anhaenge[contactId]![messageId] = AnhangEintrag(
+        messageId: e.messageId, chatId: e.chatId, senderId: e.senderId,
+        name: e.name, groesse: e.groesse, zustand: AnhangZustand.verbraucht,
+        einmal: true);
+    _verlaufCtl.add(contactId);
   }
 
   /// Je Unterhaltung: wie viele Nachrichten beim letzten [markRead] da waren.

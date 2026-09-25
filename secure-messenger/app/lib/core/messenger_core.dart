@@ -317,7 +317,11 @@ abstract class MessengerCore {
   /// hergibt. Der Dateiwaehler liefert /proc/self/fd/<nr>; dort waere der
   /// geratene Name "7".
   Future<Message> sendeAnhang(String contactId, File datei,
-      {String? name, int? groesse});
+      {String? name, int? groesse, bool einmal = false});
+
+  /// Eine empfangene Einmal-Ansicht wurde angesehen: Datei loeschen, Zustand
+  /// [AnhangZustand.verbraucht]. Tut nichts bei einem gewoehnlichen Anhang.
+  Future<void> verbraucheEinmal(String contactId, String messageId);
 
   /// Holt einen empfangenen Anhang ins Dateisystem.
   ///

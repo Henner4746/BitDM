@@ -183,6 +183,55 @@ void main() {
               'Signal-Sitzung dazwischen');
     }, timeout: const Timeout(Duration(minutes: 3)));
 
+    test('EINMAL-ANSICHT: Bob sieht sie einmal, danach ist sie weg', () async {
+      if (relay == null || lager == null) return;
+      final angekommen = bob.incomingMessages.first;
+      final gesendet = await alice.sendeAnhang(
+          bob.myId, await dateiMit(ordner, 40000, 'foto.jpg'), einmal: true);
+
+      // Der Absender behaelt keine Kopie.
+      final beiAlice = (await alice.getAnhaenge(bob.myId))[gesendet.id]!;
+      expect(beiAlice.einmal, isTrue);
+      expect(beiAlice.pfad, isNull, reason: 'die Einmal-Ansicht liegt beim Absender');
+
+      final beiBob = await angekommen.timeout(const Duration(seconds: 20));
+      final vorm = (await bob.getAnhaenge(alice.myId))[beiBob.id]!;
+      expect(vorm.einmal, isTrue, reason: 'das Kennzeichen kam nicht an');
+
+      final geholt = await bob.holeAnhang(alice.myId, beiBob.id);
+      final datei = File(geholt.pfad!);
+      expect(datei.existsSync(), isTrue);
+
+      await bob.verbraucheEinmal(alice.myId, beiBob.id);
+      final danach = (await bob.getAnhaenge(alice.myId))[beiBob.id]!;
+      expect(danach.zustand, AnhangZustand.verbraucht);
+      expect(danach.pfad, isNull);
+      expect(datei.existsSync(), isFalse, reason: 'die Datei liegt nach dem Ansehen noch da');
+
+      // Und sie steht nicht in der Sicherung.
+      final sicherung = String.fromCharCodes(await bob.erstelleSicherung());
+      expect(sicherung.contains('foto.jpg'), isFalse);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('EIN GEWOEHNLICHER EIGENER ANHANG BLEIBT OEFFENBAR', () async {
+      if (relay == null || lager == null) return;
+      // Bis 25.09.2026 zeigte der Pfad auf die Quelle — beim Dateiwaehler eine
+      // Dateikennung, die nach dem Versand zu ist.
+      final quelle = await dateiMit(ordner, 20000, 'notiz.txt');
+      final angekommen = bob.incomingMessages.first;
+      final gesendet = await alice.sendeAnhang(bob.myId, quelle);
+      // Bob holt ab — sonst bliebe der Block im gemeinsamen Lager liegen und
+      // der naechste Test zaehlte ihn mit.
+      final beiBob = await angekommen.timeout(const Duration(seconds: 20));
+      await bob.holeAnhang(alice.myId, beiBob.id);
+      await Future<void>.delayed(const Duration(seconds: 1));
+      await quelle.delete();
+      final eigen = (await alice.getAnhaenge(bob.myId))[gesendet.id]!;
+      expect(eigen.pfad, isNotNull);
+      expect(File(eigen.pfad!).existsSync(), isTrue,
+          reason: 'ohne eigene Kopie verschwindet der Anhang mit der Quelle');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
     test('nach dem Holen ist das Lager wieder leer', () async {
       if (relay == null || lager == null) return;
       final angekommen = bob.incomingMessages.first;

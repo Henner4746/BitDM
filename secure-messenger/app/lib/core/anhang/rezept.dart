@@ -123,7 +123,20 @@ class Rezept {
     required this.gesamtGroesse,
     required this.pruefsumme,
     required this.stuecke,
+    this.einmal = false,
   });
+
+  /// Einmal-Ansicht. Steht als Feld "e" in der Anleitung; eine aeltere
+  /// App-Fassung kennt es nicht, uebergeht es und zeigt einen gewoehnlichen
+  /// Anhang. Das ist eine bekannte Grenze, keine Zusage.
+  final bool einmal;
+
+  Rezept alsEinmal() => Rezept(
+      name: name,
+      gesamtGroesse: gesamtGroesse,
+      pruefsumme: pruefsumme,
+      stuecke: stuecke,
+      einmal: true);
 
   /// Der ANGEZEIGTE Name, nicht der gespeicherte.
   ///
@@ -157,6 +170,7 @@ class Rezept {
         'g': gesamtGroesse,
         'p': base64.encode(pruefsumme),
         'st': stuecke.map((s) => s.alsJson()).toList(),
+        if (einmal) 'e': true,
       });
 
   static Rezept ausText(String text) {
@@ -229,6 +243,7 @@ class Rezept {
       gesamtGroesse: g,
       pruefsumme: pruefsumme,
       stuecke: stuecke,
+      einmal: j['e'] == true,
     );
   }
 

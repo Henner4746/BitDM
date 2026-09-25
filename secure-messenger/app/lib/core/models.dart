@@ -254,6 +254,10 @@ enum AnhangZustand {
   /// EIGENER ZUSTAND und nicht [gescheitert]: die Oberflaeche muss darauf
   /// etwas anderes sagen. "Noch einmal versuchen" waere hier eine Luege.
   weg,
+
+  /// Eine Einmal-Ansicht, die angesehen wurde. Die Datei ist geloescht; es
+  /// bleibt nur die Blase, die sagt, dass hier etwas war.
+  verbraucht,
 }
 
 /// Was die Oberflaeche ueber einen Anhang wissen muss, ohne die Anleitung zu
@@ -267,7 +271,11 @@ class AnhangEintrag {
     required this.groesse,
     required this.zustand,
     this.pfad,
+    this.einmal = false,
   });
+
+  /// Einmal-Ansicht: einmal oeffnen, danach weg — auch nicht in der Sicherung.
+  final bool einmal;
 
   final String messageId;
   final String chatId;
@@ -294,6 +302,7 @@ class AnhangEintrag {
         groesse: groesse,
         zustand: zustand ?? this.zustand,
         pfad: pfad ?? this.pfad,
+        einmal: einmal,
       );
 }
 

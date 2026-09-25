@@ -72,6 +72,16 @@ void main() {
       expect(nachher.stuecke[1].klarGroesse, 50);
     });
 
+    test('Einmal-Ansicht: das Kennzeichen reist mit, ohne es bleibt alles beim Alten', () {
+      final gewoehnlich = beispiel();
+      expect(gewoehnlich.alsText().contains('"e"'), isFalse,
+          reason: 'eine gewoehnliche Anleitung soll byte-gleich wie bisher aussehen');
+      expect(Rezept.ausText(gewoehnlich.alsText()).einmal, isFalse);
+      final einmal = gewoehnlich.alsEinmal();
+      expect(Rezept.ausText(einmal.alsText()).einmal, isTrue);
+      expect(Rezept.ausText(einmal.alsText()).stuecke, hasLength(2));
+    });
+
     test('die Lagergroesse zaehlt die Beglaubigungsanhaenge mit', () {
       // Das ist die Zahl, fuer die Marken gebraucht werden. Wer hier die
       // Klargroesse nimmt, bekommt beim letzten Stueck ein 413 vom Lager —
