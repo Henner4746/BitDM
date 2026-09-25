@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Relay-Abhaengigkeiten (die Tests starten echte Server)
-        run: py -m pip install -r ../server/requirements.txt
+        run: py -m pip install --require-hashes -r ../server/requirements.txt
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: '3.44.8'
@@ -63,5 +63,5 @@ jobs:
           python-version: '3.12'
       - name: libsodium fuer XEdDSA
         run: sudo apt-get update && sudo apt-get install -y libsodium23
-      - run: pip install -r requirements.txt pytest
+      - run: pip install --require-hashes -r requirements.txt
       - run: python -m pytest -q
