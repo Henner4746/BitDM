@@ -1460,6 +1460,51 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// Ob die Schreibzeile beim letzten Tastendruck mit "/" begann.
   bool _warBefehl = false;
 
+  /// Vorschlaege fuer "@" in einer Gruppe: die Mitglieder ausser mir.
+  List<String> _passendeErwaehnungen() {
+    final g = st.gruppeZu(chat ?? '');
+    final text = draftCtl.text;
+    final at = text.lastIndexOf('@');
+    if (g == null || at < 0) return const [];
+    final teil = text.substring(at + 1).toUpperCase();
+    if (teil.contains(' ') || teil.contains('\n')) return const [];
+    return g.mitglieder
+        .where((m) => m != st.meineAdresse)
+        .map(AppState.erwaehnungVon)
+        .where((e) => e.substring(1).startsWith(teil))
+        .toList();
+  }
+
+  /// Die Leiste mit den Mitgliedern, sobald in einer Gruppe "@" getippt wird.
+  Widget erwaehnungsLeiste() {
+    final passend = _passendeErwaehnungen();
+    if (passend.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(17, 0, 17, 8),
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+          color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
+      child: Wrap(spacing: 6, runSpacing: 6, children: [
+        for (final e in passend)
+          GestureDetector(
+            key: ValueKey('erwaehne-$e'),
+            onTap: () {
+              final text = draftCtl.text;
+              final at = text.lastIndexOf('@');
+              draftCtl.text = '${text.substring(0, at)}$e ';
+              draftCtl.selection = TextSelection.collapsed(offset: draftCtl.text.length);
+              setState(() {});
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(99), border: Border.all(color: p.tintLine)),
+              child: Text(e, style: mono(size: 11, weight: FontWeight.w600, color: p.accLight)),
+            ),
+          ),
+      ]),
+    );
+  }
+
   List<String> _passendeBefehle() {
     final text = draftCtl.text;
     if (!text.startsWith('/') || text.contains('\n')) return const [];
@@ -5118,6 +5163,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       // nirgends gezeigt: die Nachricht verschwand aus dem Eingabefeld und kam
       // nie an, ohne dass irgendwo etwas stand.
       befehlsLeiste(),
+      erwaehnungsLeiste(),
       eingabeBezug(),
       if (chatFehlerText() != null)
         Container(
@@ -5200,7 +5246,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                   st.eingabeGeaendert(cid, text.startsWith('/') ? '' : text);
                   // Neu zeichnen, solange ein Befehl dasteht — und EINMAL
                   // danach, damit die Leiste auch wieder verschwindet.
-                  final befehl = text.startsWith('/');
+                  // "/" am Anfang oder ein "@" in einer Gruppe: die Leisten
+                  // darueber haengen am Text.
+                  final befehl = text.startsWith('/') ||
+                      (text.contains('@') && st.gruppeZu(cid) != null);
                   if (befehl || _warBefehl) setState(() {});
                   _warBefehl = befehl;
                 },

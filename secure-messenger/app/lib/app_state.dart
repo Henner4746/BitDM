@@ -42,6 +42,7 @@ import 'core/nah/funk.dart';
 import 'core/real_messenger_core.dart';
 import 'core/sprache.dart';
 import 'core/verbindungstest.dart';
+import 'data.dart' show shortId;
 
 class AppState extends ChangeNotifier {
   AppState(this.core,
@@ -900,7 +901,10 @@ class AppState extends ChangeNotifier {
         // UND NICHT IN DER RUHEZEIT — ausser fuer angeheftete Unterhaltungen:
         // die hat der Nutzer selbst als die wichtigen ausgewaehlt.
         final ruhe = einstellungen.inRuhezeit(DateTime.now()) && !_istAngeheftet(m.chatId);
-        if (!_imVordergrund && !m.isMine && !_istStumm(m.chatId) && !ruhe) {
+        // EINE ERWAEHNUNG KOMMT DURCH — durch Stumm und Ruhezeit. Wer in
+        // einer lauten Gruppe gezielt angesprochen wird, soll es merken.
+        final erwaehnt = erwaehntMich(m);
+        if (!_imVordergrund && !m.isMine && (erwaehnt || (!_istStumm(m.chatId) && !ruhe))) {
           _ungelesen++;
           unawaited(Benachrichtigungen.instanz.zeigeNeueNachricht(
               anzahl: _ungelesen,
@@ -1191,6 +1195,19 @@ class AppState extends ChangeNotifier {
 
   Reaktionen reaktionenZu(String chatId, String messageId) =>
       reaktionen[chatId]?[messageId] ?? const {};
+
+  /// Wie diese App eine Adresse in einer Erwaehnung schreibt: "@XLLW…S7JD"
+  /// — dieselbe Kurzform, unter der jedes Mitglied ohnehin angezeigt wird.
+  /// Keine Namen, kein neues Feld auf der Leitung: eine aeltere Fassung zeigt
+  /// einfach den Text.
+  static String erwaehnungVon(String adresse) => '@${shortId(adresseFormatiert(adresse))}';
+
+  /// Ob [m] eine Gruppennachricht ist, die mich erwaehnt.
+  bool erwaehntMich(Message m) =>
+      meineAdresse.isNotEmpty &&
+      Gruppe.istGruppenId(m.chatId) &&
+      !m.isMine &&
+      m.text.contains(erwaehnungVon(meineAdresse));
 
   bool _istAngeheftet(String chatId) =>
       kontakte.any((k) => k.id == chatId && k.angeheftet) ||
