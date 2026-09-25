@@ -4,6 +4,12 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
+## 1.8.2 — 26.09.2026
+
+**Behoben**
+- Bei Sperrfrist „sofort" sperrte die eigene Dateiauswahl die App: Android legt den Dateiwähler vor die App, und das zählte als Verlassen. Das Ergebnis kam trotzdem an, und der Anhang lief in die geschlossene Datenbank — nach dem Entsperren stand nur ein Fehler da. Jetzt zählen die eigene Dateiauswahl und „Speichern unter" nicht als Verlassen (höchstens 2 Minuten, danach greift die Sperre doch); wurde dennoch gesperrt, geht die Datei nach dem Entsperren hinaus. Wer die App wirklich verlässt, wird weiter sofort gesperrt.
+- Die Windows- und Linux-Fassung horchen nicht mehr auf den Bluetooth-Kanal, den es nur auf Android gibt.
+
 ## 1.8.1 — 25.09.2026
 
 Sicherheitsfassung. Eine eigene Prüfung in fünf Bereichen (Server, Kryptografie und Speicher, Protokoll, Oberfläche, Plattform) fand rund 80 Befunde; alle sind behoben oder unter „Bekannte Lücken" im README benannt. Ein externes Audit ist das nicht — der Weg dahin steht in `secure-messenger/docs/AUDIT.md`.

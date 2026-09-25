@@ -6002,7 +6002,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       st.meldeFehler('anhangWeb');
       return;
     }
-    final gewaehlt = await st.dateien.waehlen();
+    final gewaehlt = await st.imSystemDialog(st.dateien.waehlen);
     if (gewaehlt == null) return;
     // EINMAL-ANSICHT NUR FUER BILDER: die zeigt die App selbst und loescht
     // sie beim Schliessen. Eine beliebige Datei ginge an eine fremde App, und
@@ -6014,6 +6014,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     }
     _selbstGeschrieben = true;
     try {
+      // Doch gesperrt (zu lange im Waehler): nach dem Entsperren senden,
+      // statt an der geschlossenen Datenbank zu scheitern.
+      if (!await st.wartBisOffen()) return;
       await st.anhangSenden(cid, gewaehlt.datei,
           name: gewaehlt.name, groesse: gewaehlt.groesse, einmal: einmal);
     } finally {

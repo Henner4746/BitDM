@@ -1,0 +1,1 @@
+Behoben: Bei Sperrfrist „sofort“ sperrte die eigene Dateiauswahl die App, und der Anhang scheiterte nach dem Entsperren mit einem Fehler. Die Auswahl zählt jetzt nicht als Verlassen (höchstens 2 Minuten); wurde doch gesperrt, geht die Datei nach dem Entsperren hinaus.

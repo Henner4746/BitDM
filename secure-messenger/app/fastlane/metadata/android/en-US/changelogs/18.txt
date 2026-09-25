@@ -1,0 +1,1 @@
+Fixed: with the lock set to "instantly", picking a file locked the app and the attachment then failed after unlocking. The file picker no longer counts as leaving the app (for up to 2 minutes); if it did lock, the file is sent after unlocking.

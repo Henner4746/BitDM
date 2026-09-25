@@ -879,7 +879,73 @@ class AppState extends ChangeNotifier {
     if (gesperrt || _nieSperren || _amFaktor) return false;
     final weg = _weggelegtUm;
     if (weg == null) return false;
-    return DateTime.now().difference(weg) >= sperrfrist;
+    final fort = DateTime.now().difference(weg);
+    // DIE EIGENE DATEIWAHL ZAEHLT NICHT ALS WEGLEGEN — aber nur kurz. Siehe
+    // [imSystemDialog]. Wer laenger als [systemDialogHoechstens] im Waehler
+    // bleibt (oder ihn offen liegen laesst), kommt trotzdem an die Sperre.
+    final zurueck = _systemDialogZurueck;
+    final imDialog = _systemDialoge > 0 ||
+        (zurueck != null && DateTime.now().difference(zurueck) < const Duration(seconds: 3));
+    if (imDialog && fort < systemDialogHoechstens) return false;
+    return fort >= sperrfrist;
+  }
+
+  /// Wie viele vom Nutzer selbst geoeffnete Systemdialoge gerade offen sind.
+  int _systemDialoge = 0;
+
+  /// Wann der letzte davon zurueckkam. Android liefert das Ergebnis der
+  /// Dateiwahl (onActivityResult) VOR dem Wiederauftauchen der App
+  /// (onResume) — der Dialog ist fuer Dart also schon "zu", wenn die Frage
+  /// nach der Sperre kommt. Drei Sekunden Nachlauf decken das ab.
+  DateTime? _systemDialogZurueck;
+
+  /// Wie lange ein Systemdialog die Sperre hoechstens aufschiebt.
+  /// Veraenderlich nur fuer Tests (die Uhr laesst sich dort nicht vorstellen).
+  Duration systemDialogHoechstens = const Duration(minutes: 2);
+
+  /// Fuehrt [aktion] aus, waehrend der die App nicht als weggelegt gilt —
+  /// fuer die Dateiwahl und "Speichern unter".
+  ///
+  /// SEIT 26.09.2026. Die Dateiwahl gehoert Android und legt sich VOR die
+  /// App; bei Sperrfrist "sofort" sperrte sie deshalb, waehrend man eine
+  /// Datei aussuchte. Das Ergebnis kam trotzdem an — und der Versand lief in
+  /// die geschlossene Datenbank: nach dem Entsperren stand nur ein Fehler da
+  /// (gemeldet von Henrik). Genauso behandelt wie [_amFaktor] beim Stick,
+  /// aber mit Obergrenze: dort bedient man die App, hier nicht.
+  Future<T> imSystemDialog<T>(Future<T> Function() aktion) async {
+    _systemDialoge++;
+    try {
+      return await aktion();
+    } finally {
+      _systemDialoge--;
+      _systemDialogZurueck = DateTime.now();
+    }
+  }
+
+  /// Wartet, bis die App entsperrt ist. true, sobald offen; false, wenn die
+  /// Identitaet weg ist oder [hoechstens] verstrich.
+  ///
+  /// Fuer das, was ein Systemdialog zurueckbringt, waehrend doch gesperrt
+  /// wurde (ueber [systemDialogHoechstens] hinaus): die gewaehlte Datei geht
+  /// nach dem Entsperren hinaus, statt an der geschlossenen Datenbank zu
+  /// scheitern.
+  Future<bool> wartBisOffen({Duration hoechstens = const Duration(minutes: 10)}) async {
+    if (!gesperrt) return hatIdentitaet;
+    final fertig = Completer<bool>();
+    void horch() {
+      if (fertig.isCompleted) return;
+      if (!hatIdentitaet) {
+        fertig.complete(false);
+      } else if (!gesperrt) {
+        fertig.complete(true);
+      }
+    }
+    addListener(horch);
+    try {
+      return await fertig.future.timeout(hoechstens, onTimeout: () => false);
+    } finally {
+      removeListener(horch);
+    }
   }
 
   /// Verriegelt wieder: Datenbank zu, Schluessel aus dem Speicher.
@@ -1669,7 +1735,7 @@ class AppState extends ChangeNotifier {
     final datei = File('${tmp.path}${Platform.pathSeparator}$name');
     await datei.writeAsBytes(daten, flush: true);
     try {
-      return await dateien.speichere(datei.path, name);
+      return await imSystemDialog(() => dateien.speichere(datei.path, name));
     } finally {
       // Die Kopie im Zwischenspeicher ist verschluesselt, aber sie hat dort
       // nichts verloren, sobald sie ihren Ort hat.
@@ -1689,9 +1755,10 @@ class AppState extends ChangeNotifier {
       if (daten == null) return null;
       return _spieleEin(daten);
     }
-    final gewaehlt = await dateien.waehlen();
+    final gewaehlt = await imSystemDialog(dateien.waehlen);
     if (gewaehlt == null) return null;
     try {
+      if (!await wartBisOffen()) return null;
       return await _spieleEin(await gewaehlt.datei.readAsBytes());
     } finally {
       await dateien.gibFrei(gewaehlt.zettel);

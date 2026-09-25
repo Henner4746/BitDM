@@ -95,6 +95,62 @@ void main() {
     });
   });
 
+  // GEMELDET AM 26.09.2026: Anhang waehlen, Dateiwahl von Android oeffnet
+  // sich, Datei ausgesucht — zurueck in der App die Anmeldung, und danach ein
+  // Fehler. Bei Sperrfrist "sofort" sperrte die EIGENE Dateiwahl die App,
+  // und der Versand lief in die geschlossene Datenbank.
+  group('Die eigene Dateiwahl', () {
+    test('SPERRT BEI "SOFORT" NICHT, solange sie laeuft und kurz danach', () async {
+      await richteEin();
+      final ergebnis = await st.imSystemDialog(() async {
+        st.vordergrund(false); // Android legt den Waehler vor die App
+        return 'datei';
+      });
+      st.vordergrund(true); // onResume kommt NACH dem Ergebnis
+      await Future<void>.delayed(Duration.zero);
+      expect(ergebnis, 'datei');
+      expect(st.gesperrt, isFalse,
+          reason: 'die selbst geoeffnete Dateiwahl darf nicht zusperren');
+      expect(core.isInitialized, isTrue);
+    });
+
+    test('ABER NICHT GRENZENLOS: ueber der Obergrenze sperrt es doch', () async {
+      await richteEin();
+      st.systemDialogHoechstens = Duration.zero;
+      await st.imSystemDialog(() async => st.vordergrund(false));
+      st.vordergrund(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(st.gesperrt, isTrue,
+          reason: 'wer den Waehler offen liegen laesst, muss an die Sperre');
+    });
+
+    test('OHNE DATEIWAHL bleibt "sofort" sofort', () async {
+      await richteEin();
+      await st.imSystemDialog(() async => 'nichts');
+      // Drei Sekunden Nachlauf sind um — hier kuenstlich: ein zweites
+      // Weglegen lange nach dem Dialog darf nicht mehr darunter fallen.
+      st.systemDialogHoechstens = Duration.zero;
+      st.vordergrund(false);
+      st.vordergrund(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(st.gesperrt, isTrue);
+    });
+
+    test('WAR DOCH GESPERRT, WARTET DER VERSAND AUFS ENTSPERREN', () async {
+      await richteEin();
+      await st.sperreWieder();
+      expect(st.gesperrt, isTrue);
+      var offen = false;
+      final warten = st.wartBisOffen().then((v) => offen = v);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(offen, isFalse, reason: 'vor dem Entsperren darf nichts hinaus');
+      await st.entsperreMitBiometrie();
+      await warten;
+      expect(offen, isTrue);
+      expect(core.isInitialized, isTrue);
+    });
+  });
+
   group('Mit einem Faktor', () {
     test('DER FALL: weggelegt und wieder aufgenommen — die App ist zu',
         () async {
