@@ -5168,7 +5168,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   Widget contactRow(String id) {
     final list = st.verlaufVon(id);
     final letzte = list.isEmpty ? null : list.last;
-    final last = letzte == null ? t('newContact') : auszug(letzte);
+    // Leere Notizen sind kein "neuer Kontakt" — das stand dort bis 25.09.2026.
+    final last = letzte == null
+        ? (st.istNotizen(id) ? t('notesEmpty') : t('newContact'))
+        : auszug(letzte);
     final k = st.kontakte.where((c) => c.id == id).firstOrNull;
     final marken = [
       if (k?.angeheftet ?? false) t('pinnedTag'),
