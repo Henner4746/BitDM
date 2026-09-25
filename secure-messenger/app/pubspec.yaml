@@ -131,7 +131,7 @@ dependencies:
   path_provider: 2.1.6
   camera: ^0.12.0+2
   zxing2: ^0.2.4
-  flutter_local_notifications: ^22.2.0
+  flutter_local_notifications: ^22.3.1
   nfc_manager: ^4.2.1
   cbor: ^6.5.1
 
