@@ -1498,15 +1498,30 @@ class AppState extends ChangeNotifier {
   }
 
   /// Eine Kopie von [datei] ohne Metadaten und mit neutralem Namen — oder
-  /// null, wenn es kein bekanntes Bild ist oder nichts zu entfernen war.
+  /// null, wenn es kein bekanntes Bild oder Video ist oder nichts zu
+  /// entfernen war.
   ///
-  /// Nur bis 40 MB: groessere Bilder sind selten, und die ganze Datei liegt
-  /// dafuer einmal im Speicher.
+  /// Bilder nur bis 40 MB: groessere sind selten, und die ganze Datei liegt
+  /// dafuer einmal im Speicher. Videos bis 300 MB: dort wird an Ort und
+  /// Stelle umbenannt und ueberschrieben (`vorOrt`), es liegt also auch nur
+  /// EINE Kopie im Speicher, nicht zwei. Groessere Videos gehen unveraendert.
   Future<(File, String)?> _ohneMetadaten(File datei) async {
     try {
-      if (await datei.length() > 40 * 1024 * 1024) return null;
+      final laenge = await datei.length();
+      if (laenge > 300 * 1024 * 1024) return null;
+      if (laenge > 40 * 1024 * 1024) {
+        // Ueber der Bildgrenze nur weiter, wenn der Anfang ein Video ist.
+        final zugriff = await datei.open();
+        final Uint8List kopf;
+        try {
+          kopf = await zugriff.read(256);
+        } finally {
+          await zugriff.close();
+        }
+        if (!istVideo(kopf)) return null;
+      }
       final bytes = await datei.readAsBytes();
-      final sauber = ohneMetadaten(bytes);
+      final sauber = ohneMetadaten(bytes, vorOrt: true);
       if (sauber == null) return null;
       final name = neutralerBildname(sauber, Random.secure().nextInt(0x10000));
       final ordner = await getTemporaryDirectory();
