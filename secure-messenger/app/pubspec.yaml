@@ -123,7 +123,7 @@ dependencies:
   # ist ein Plattform-Plugin und laeuft in Tests nicht. Die Schnittstelle davor
   # laesst sich ersetzen — und spaeter durch die App-Sperre (lib/core/lock/)
   # ablOesen, ohne dass der Kern etwas davon merkt.
-  flutter_secure_storage: 10.3.1
+  flutter_secure_storage: 11.2.0
 
   # Wo die verschluesselte Datenbank liegen darf. Vom Flutter-Team selbst
   # (flutter.dev, verifiziert). Braucht es, weil der Pfad je Plattform anders
