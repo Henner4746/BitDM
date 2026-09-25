@@ -16,7 +16,7 @@ gstatic.com, und die CSP unten verbietet das (zu Recht).
 
     cd /opt/bitdm/secure-messenger/website
     curl -fsSLO https://github.com/Henner4746/BitDM/releases/download/v1.8.0/bitdm-web-1.8.0.tar.gz
-    echo "99e9bbde3a12a07ad9f6e3210a1f68b24e7267479bf33700acf848234c2c6fb0  bitdm-web-1.8.0.tar.gz" | sha256sum -c
+    echo "eefb8e6a61edb4a1294d7c4e9dcce027f9804b35a2c35461d55372523397c7d0  bitdm-web-1.8.0.tar.gz" | sha256sum -c
     rm -rf app.neu && mkdir app.neu && tar -C app.neu -xzf bitdm-web-1.8.0.tar.gz
     rm -rf app.alt && { [ -d app ] && mv app app.alt; true; } && mv app.neu app
 
