@@ -1,0 +1,31 @@
+# /etc/nginx/sites-available/relay-onion — der Relay als Onion-Dienst.
+# Tor reicht die Verbindungen hierher weiter; nginx hoert NUR auf 127.0.0.1.
+# Dieselbe Positivliste wie relay.bitdm.net — aber /health GANZ gesperrt:
+# ueber Tor kommt alles von 127.0.0.1, "nur lokal" hiesse hier "fuer jeden".
+server {
+    listen 127.0.0.1:8470;
+    server_name _;
+    access_log off;
+    error_log  /var/log/nginx/relay-onion.error.log warn;
+    server_tokens off;
+    client_max_body_size 256k;
+    client_body_timeout  20s;
+    client_header_timeout 20s;
+    add_header X-Content-Type-Options "nosniff"     always;
+    add_header Referrer-Policy        "no-referrer" always;
+    location = /ws {
+        proxy_pass http://127.0.0.1:8465;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host       $host;
+        proxy_read_timeout  1h;
+        proxy_send_timeout  1h;
+        proxy_buffering     off;
+    }
+    location = /register/challenge { proxy_pass http://127.0.0.1:8465; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
+    location = /register           { proxy_pass http://127.0.0.1:8465; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
+    location ^~ /prekey/           { proxy_pass http://127.0.0.1:8465; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
+    location = /health { return 404; }
+    location / { return 404; }
+}

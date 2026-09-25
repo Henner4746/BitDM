@@ -140,10 +140,13 @@ void main() {
     }
     addTearDown(relay.beenden);
     final ordner = Directory.systemTemp.createTempSync('bitdm_tor');
+    // Die "Onion-Adresse" ist hier derselbe Relay unter anderem Namen —
+    // kommt sie beim Proxy an, nimmt der Kern mit Tor den zweiten Weg.
     final kern = RealMessengerCore(
       secretStore: SpeicherImKopf(),
       databasePath: '${ordner.path}${Platform.pathSeparator}k.db',
       relayUri: relay.uri,
+      relayUriTor: Uri.parse('http://localhost:${relay.uri.port}'),
     );
     addTearDown(() async {
       await kern.dispose();
@@ -158,7 +161,7 @@ void main() {
         .firstWhere((z) => z == ConnectionState.online)
         .timeout(const Duration(seconds: 20), onTimeout: () => kern.connectionState);
     expect(online, ConnectionState.online, reason: 'ueber den Proxy kam keine Verbindung zustande');
-    expect(socks.verlangt.where((v) => v == '127.0.0.1:${relay.uri.port}'), isNotEmpty,
-        reason: 'der Relay wurde direkt erreicht, am Proxy vorbei');
+    expect(socks.verlangt.where((v) => v == 'localhost:${relay.uri.port}'), isNotEmpty,
+        reason: 'mit Tor ging die Verbindung nicht an die Onion-Adresse');
   }, timeout: const Timeout(Duration(minutes: 2)));
 }

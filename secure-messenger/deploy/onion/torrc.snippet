@@ -1,0 +1,5 @@
+# An /etc/tor/torrc anhaengen. Nur Dienst; die SOCKS-Schnittstelle von Tor
+# bleibt wie ausgeliefert auf 127.0.0.1:9050.
+HiddenServiceDir /var/lib/tor/bitdm_relay/
+HiddenServicePort 80 127.0.0.1:8470
+HiddenServiceEnableIntroDoSDefense 1

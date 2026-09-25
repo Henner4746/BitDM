@@ -61,6 +61,7 @@ class RealMessengerCore implements MessengerCore {
     required this.secretStore,
     required this.databasePath,
     required this.relayUri,
+    this.relayUriTor,
     Uri? lagerUri,
     RelayClient Function(Uri, SignalIdentity)? relayFactory,
     Nahbereich Function()? nahFactory,
@@ -77,6 +78,16 @@ class RealMessengerCore implements MessengerCore {
   final SecretStore secretStore;
   final String databasePath;
   final Uri relayUri;
+
+  /// Derselbe Relay als Onion-Dienst — benutzt, wenn "Tor" an ist. Dann
+  /// verlaesst die Verbindung das Tor-Netz gar nicht erst, und es gibt keinen
+  /// Ausgangsknoten, der sie sieht. Fuer Anmeldevermerk und Zwischenlager
+  /// gilt weiter [relayUri]: es ist derselbe Server unter zweiter Adresse,
+  /// kein neuer — sonst meldete sich die App dort neu an und verwarf dabei
+  /// alle Einmal-Prekeys (siehe relay_wechsel_test.dart).
+  final Uri? relayUriTor;
+
+  Uri get _relayWeg => (_prefs.tor && relayUriTor != null) ? relayUriTor! : relayUri;
 
   /// Wo die grossen Anhaenge liegen.
   ///
@@ -553,9 +564,9 @@ class RealMessengerCore implements MessengerCore {
   /// Argumente; nur der echte Client bekommt die Geraetekennung mit — und
   /// auch nur, wenn es nicht die 1 ist (siehe RelayClient `geraeteKennung`).
   RelayClient _neuerRelay(SignalIdentity identitaet) =>
-      _relayFactory?.call(relayUri, identitaet) ??
+      _relayFactory?.call(_relayWeg, identitaet) ??
       RelayClient(
-        baseUri: relayUri,
+        baseUri: _relayWeg,
         identity: identitaet,
         geraeteKennung: geraetId == 1 ? null : geraetId,
       );

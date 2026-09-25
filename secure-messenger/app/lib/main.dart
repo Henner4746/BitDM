@@ -67,6 +67,19 @@ const String relayBasis = String.fromEnvironment(
 ///                     --dart-define=BITDM_LAGER=http://10.0.2.2:8099
 const String lagerBasis = String.fromEnvironment('BITDM_LAGER');
 
+/// Der Relay als Onion-Dienst — benutzt, wenn "Ueber Tor verbinden" an ist.
+///
+/// Nur fuer den eingebauten Relay: wer mit einem eigenen BITDM_RELAY baut,
+/// bekommt nicht stillschweigend die Onion-Adresse von bitdm.net, sondern
+/// gibt seine eigene mit BITDM_RELAY_ONION an (oder keine — dann geht es
+/// ueber einen Tor-Ausgang zur normalen Adresse).
+const String relayOnion = String.fromEnvironment('BITDM_RELAY_ONION');
+const String _relayOnionStandard =
+    'http://tpbryhlguq6bhrxzv3qlcqk2ogkrv4hot7auqa54pnmeksaoiwsnuqqd.onion';
+Uri? get relayTorUri => relayOnion.isNotEmpty
+    ? Uri.parse(relayOnion)
+    : (relayBasis == 'https://relay.bitdm.net' ? Uri.parse(_relayOnionStandard) : null);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -111,6 +124,7 @@ Future<void> main() async {
     secretStore: tresor,
     databasePath: kIsWeb ? 'bitdm.db' : '$ablageWeg/bitdm.db',
     relayUri: Uri.parse(relayBasis),
+    relayUriTor: relayTorUri,
     lagerUri: lagerBasis.isEmpty ? null : Uri.parse(lagerBasis),
   );
 
