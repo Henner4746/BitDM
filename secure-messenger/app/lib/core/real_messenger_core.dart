@@ -1522,6 +1522,17 @@ class RealMessengerCore implements MessengerCore {
   /// messages(chat_id, sender_id, id) zusammen mit `INSERT OR IGNORE`. Noetig
   /// ist das, weil der Nachversand dieselbe Nutzlast erneut schickt und damit
   /// erneut spiegelt.
+  /// Was in den Notizen zwischen eigenen Geraeten reist: neue Notizen und
+  /// alles, was auf eine vorhandene zeigt. Nichts, was einen Kontakt anlegt.
+  static const _notizArten = {
+    PayloadKind.text,
+    PayloadKind.anhang,
+    PayloadKind.bearbeitung,
+    PayloadKind.widerruf,
+    PayloadKind.reaktion,
+    PayloadKind.anheften,
+  };
+
   void _nimmSpiegel(Payload aussen) {
     if (aussen.kind != PayloadKind.spiegel) return;
     final chats = _chats!;
@@ -1545,9 +1556,7 @@ class RealMessengerCore implements MessengerCore {
     // DIE UNTERHALTUNG MIT SICH SELBST GIBT ES NUR ALS NOTIZEN: Text und
     // Anhang, sonst nichts. Eine gespiegelte Kontaktanfrage "an mich" legte
     // sonst einen Kontakt "ich" im Wartezustand an, den niemand annehmen kann.
-    if (chat == myId &&
-        p.kind != PayloadKind.text &&
-        p.kind != PayloadKind.anhang) {
+    if (chat == myId && !_notizArten.contains(p.kind)) {
       return;
     }
 
@@ -2647,7 +2656,7 @@ class RealMessengerCore implements MessengerCore {
   /// Anhang. Kein Buendelabruf, aus demselben Grund wie in
   /// [_spiegleAnEigeneGeraete].
   Future<void> _spiegleNotiz(BitdmSignalStore store, Payload p) async {
-    if (p.kind != PayloadKind.text && p.kind != PayloadKind.anhang) return;
+    if (!_notizArten.contains(p.kind)) return;
     if (_bekannteGeraete(store, myId).isEmpty) return;
     try {
       await _sendePayload(myId, Payload.spiegel(myId, p), spiegeln: false);
@@ -2696,9 +2705,15 @@ class RealMessengerCore implements MessengerCore {
   Future<void> _sendeSteuerung(String an, Payload p) async {
     final chats = _chats;
     if (chats == null) return;
-    // In den Notizen gibt es niemanden, dem man eine Reaktion oder Bearbeitung
-    // mitteilen muesste.
-    if (an == myId) return;
+    // IN DEN NOTIZEN gibt es kein Gegenueber — aber die eigenen anderen
+    // Geraete. Bis 25.09.2026 blieben Bearbeiten, Loeschen, Reaktion und
+    // Anheften in den Notizen auf dem Geraet, auf dem sie passierten; jetzt
+    // gehen sie als Spiegel mit, genau wie neue Notizen.
+    if (an == myId) {
+      final store = _store;
+      if (store != null) await _spiegleNotiz(store, p);
+      return;
+    }
     final seq = chats.legeInAusgang(an, p.toBytes());
     await _versucheAusgang(seq, an, p);
   }

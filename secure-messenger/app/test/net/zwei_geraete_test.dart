@@ -389,6 +389,39 @@ void main() {
       expect(anna.eingang.any((x) => x.text == 'Milch, Brot, Akku'), isFalse);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
+    test('BEARBEITEN UND LOESCHEN EINER NOTIZ REISEN AUFS TABLET MIT', () async {
+      // Bis 25.09.2026 blieben beide auf dem Geraet, auf dem sie passierten.
+      await alleDreiBereit();
+      await annaUndBobBefreundet();
+      final notizen = await handy.core.oeffneNotizen();
+      final m = await handy.core.sendMessage(notizen, 'Eier');
+      expect(await Nutzer.warteBis(() => tablet.eingang.any((x) => x.id == m.id)), isTrue);
+
+      Future<Message?> aufDemTablet() async => (await tablet.core.getMessages(bobsAdresse))
+          .where((x) => x.id == m.id)
+          .firstOrNull;
+      Future<bool> warteAuf(Future<bool> Function() pruefung) async {
+        final ende = DateTime.now().add(const Duration(seconds: 20));
+        while (DateTime.now().isBefore(ende)) {
+          if (await pruefung()) return true;
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        return pruefung();
+      }
+
+      await handy.core.bearbeite(notizen, m.id, 'Eier, Butter');
+      expect(
+          await warteAuf(() async => (await aufDemTablet())?.text == 'Eier, Butter'),
+          isTrue,
+          reason: 'die Bearbeitung kam auf dem Tablet nicht an');
+
+      await handy.core.widerrufe(notizen, m.id);
+      expect(
+          await warteAuf(() async => (await aufDemTablet())?.widerrufen == true),
+          isTrue,
+          reason: 'das Loeschen kam auf dem Tablet nicht an');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
     // ═══════════════════════════════════════════════════════════════ Fall 4
     test('DER VERLAUF VOR DEM KOPPELN WANDERT NICHT MIT — das Neue schon',
         () async {
