@@ -893,6 +893,60 @@ es laeuft. Ob daraus ein Angriff folgt (Reflexion, Unknown-Key-Share), habe
 ich **nicht** geprueft und kann es aus dem Code nicht beantworten. Das
 gehoert vor S4 geklaert, nicht danach.
 
+> **BEANTWORTET AM 30.07.2026, UND ZWAR MIT NEIN.** Reflexion haelt nicht. Der
+> Ablauf braucht keine privaten Schluessel, nur einen feindlichen Relay:
+>
+> 1. `connect()` frischt bei **jedem** Verbinden die eigene Geraeteliste auf,
+>    auch bei nur einem Telefon.
+> 2. Der Relay antwortet auf `?nur_geraete=1` mit `[1, 7]`. Geraet 7 gibt es
+>    nicht.
+> 3. Im vollen Buendel legt er unter `device_id: 7` die **eigenen** signierten
+>    Prekeys der Nutzerin ab, unveraendert kopiert aus ihrer echten Zeile.
+> 4. `_bauSitzungen` prueft genau eine Sache: `b.deviceId == geraetId`. 7 ist
+>    nicht 1, also durch. `processPreKeyBundle` prueft die SPK-Signatur — sie
+>    ist echt, die Nutzerin hat sie selbst erzeugt. `isTrustedIdentity` prueft
+>    `_keyMatchesAddress` — der Schluessel IST ihrer, die Adresse IST ihre.
+>    **Jede Pruefung, die die App hat, besteht.** Sie hat jetzt eine Sitzung
+>    mit sich selbst.
+> 5. Der Angriff schafft sich damit seine eigene Vorbedingung: `_bekannteGeraete`
+>    ist nicht mehr leer, also spiegelt sie ab jetzt an Geraet 7 — an den Relay.
+>
+> Der Relay kann diese Spiegel danach **beliebig oft** als beglaubigte Nachricht
+> „von einem anderen eigenen Geraet" zurueckspielen.
+>
+> **KORREKTUR VOM 01.08.2026 ZUR SCHWERE.** Hier stand zuerst, ein
+> wiedereingespielter `contactDecline` laufe ueber `_lehnteAb` nach
+> `entferneKontakt` und sei damit `DELETE FROM anhaenge, messages, contacts` —
+> **Fernloeschung durch den Server**. Das war falsch, und zwar nachgemessen:
+> `_nimmSpiegel` ruft `_lehnteAb` an keiner Stelle auf; der einzige Aufruf
+> haengt am Zweig fuer FREMDE Absender in `_nimmUmschlag`.
+>
+> Was wirklich passiert: die Absage faellt in den Zweig darunter, und der setzt
+> fuer alles, was keine Kontaktanfrage ist, `ContactState.active`. Ein
+> eingeworfener alter Absage-Spiegel **legt einen Kontakt an oder macht einen
+> abgelehnten wieder aktiv** — das Gegenteil dessen, was er bedeutet. Dazu
+> kommt das beliebige Wiedereinspielen geloeschter Text- und Anhangnachrichten
+> und ein Verbrauch von Einmalschluesseln je erfundenem Geraet.
+>
+> Das ist kein Datenverlust, aber es ist eine Aussage ueber den Willen des
+> Nutzers, die ein Dritter setzen kann. Die Vertraulichkeit bricht nicht; der
+> Relay lernt keinen Klartext.
+>
+> Nachgestellt, nicht hergeleitet: `dart run` gegen unveraenderte Kopien von
+> `signal_store.dart`, `signal_identity.dart`, `address.dart`,
+> `relay_protocol.dart`, `prekey_bundle_bridge.dart`, `envelope.dart`,
+> `payload.dart` — also gegen BitDMs **echten** Speicher, nicht gegen
+> `InMemorySignalProtocolStore`. Ausgabe: `_bauSitzungen -> Ziele [7]`,
+> `store.geraeteVon(myId) = [7]`, `reflektiert als ...:9 -> ENTSCHLUESSELT
+> kind=PayloadKind.spiegel innere=PayloadKind.contactDecline`.
+>
+> **Die Ursache ist strukturell und nicht wegzupruefen.** Weil alle eigenen
+> Geraete denselben Identitaetsschluessel teilen, ist „stammt dieser Schluessel
+> von mir" identisch mit „ist dieser Schluessel echt". Genau die Frage, die
+> Signal ueber getrennte Identitaetsschluessel beantwortet, kann BitDM per
+> Konstruktion nicht stellen. Der Riegel muss deshalb woanders sitzen: an dem,
+> was man dem eigenen Zweitgeraet ueberhaupt zu tun erlaubt.
+
 **12.2 Auffrischungsfenster 6 Stunden.** Gesetzt, nicht gemessen. Zu kurz
 kostet Anfragen (§4: 4 je Kontakt und Tag), zu lang laesst ein neues Geraet
 der Gegenstelle lange stumm. Der Wert gehoert in eine Konstante mit Kommentar,

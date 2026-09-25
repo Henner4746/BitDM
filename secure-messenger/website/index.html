@@ -131,7 +131,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{
 .mark{display:flex; align-items:baseline; gap:10px; margin-right:auto; text-decoration:none}
 .mark-name{font-family:'Doto',monospace; font-weight:700; font-size:21px;
   letter-spacing:.04em; color:var(--ink); text-transform:uppercase}
-.mark-rev{font:500 10px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+.mark-rev{font:500 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
   color:var(--dim); text-transform:uppercase}
 
 /* Kippschalter für die Sprache — ein echtes Bedienelement, kein Link */
@@ -157,7 +157,7 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 .toggle button{
   appearance:none; border:0; background:transparent; cursor:pointer;
   padding:5px 11px; border-radius:var(--r-pill); color:var(--muted);
-  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
   transition:color .18s cubic-bezier(.33,1,.68,1), background .18s cubic-bezier(.33,1,.68,1);
 }
 .toggle button:hover{color:var(--body)}
@@ -168,7 +168,7 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 
 .src-link{
   display:inline-flex; align-items:center; gap:8px; text-decoration:none;
-  color:var(--muted); font:600 10px/1 'Chivo Mono',monospace;
+  color:var(--muted); font:600 11px/1 'Chivo Mono',monospace;
   letter-spacing:.14em; text-transform:uppercase; transition:color .18s cubic-bezier(.33,1,.68,1);
 }
 .src-link:hover{color:var(--lit)}
@@ -223,7 +223,7 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
   appearance:none; cursor:pointer; background:var(--panel);
   border:1px solid var(--line); border-radius:var(--r);
   color:var(--body); padding:9px 15px;
-  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
   transition:border-color .18s cubic-bezier(.33,1,.68,1), color .18s cubic-bezier(.33,1,.68,1), background .18s cubic-bezier(.33,1,.68,1);
 }
 .regen:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
@@ -328,7 +328,7 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
   border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--line-soft)}
 .sees li{display:flex; align-items:center; gap:12px; padding:13px 17px; background:var(--panel)}
 .sees .what{flex:1; font-size:13.5px; color:var(--body)}
-.sees .verdict{font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.13em; text-transform:uppercase}
+.sees .verdict{font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.13em; text-transform:uppercase}
 .sees .yes .verdict{color:var(--lit)}
 .sees .no  .verdict{color:var(--muted)}
 
@@ -343,7 +343,7 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 .words{display:grid; gap:9px; grid-template-columns:repeat(auto-fill,minmax(126px,1fr)); margin-top:6px}
 .word{display:flex; align-items:baseline; gap:9px; border:1px solid var(--line-soft);
   border-radius:var(--r); background:var(--panel-2); padding:10px 13px}
-.word i{font:500 10px/1 'Chivo Mono',monospace; color:var(--dim); font-style:normal; letter-spacing:.1em}
+.word i{font:500 11px/1 'Chivo Mono',monospace; color:var(--dim); font-style:normal; letter-spacing:.1em}
 .word span{font-family:'Doto',monospace; font-weight:700; font-size:14px; color:var(--lit-hi); letter-spacing:.03em}
 
 /* Grenzen: die eingebrannte Typenschild-Tabelle */
@@ -352,7 +352,7 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
   gap:0; border-bottom:1px solid var(--line-soft)}
 .plate-row:last-child{border-bottom:0}
 .plate-row dt{padding:15px 17px; background:var(--panel-2); border-right:1px solid var(--line-soft);
-  font:600 10.5px/1.5 'Chivo Mono',monospace; letter-spacing:.13em;
+  font:600 11px/1.5 'Chivo Mono',monospace; letter-spacing:.13em;
   text-transform:uppercase; color:var(--muted)}
 .plate-row dd{margin:0; padding:15px 17px; background:var(--panel);
   font-size:13.5px; line-height:1.6; color:var(--body)}
@@ -524,7 +524,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       Adresse ändern, und die hast du bereits.
     </p>
     <p class="de">
-      Verschlüsselt wird mit <strong>libsignal</strong> — derselben Bibliothek,
+      Verschlüsselt wird mit <strong>libsignal</strong>, derselben Bibliothek,
       die Signal benutzt, mit <strong>AES 256 Bit</strong> für jede einzelne
       Nachricht. Was genau darin steckt, steht weiter unten Zeile für Zeile.
     </p>
@@ -539,7 +539,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       already have that.
     </p>
     <p class="en">
-      The encryption is <strong>libsignal</strong> — the same library Signal
+      The encryption is <strong>libsignal</strong>, the same library Signal
       uses, with <strong>AES 256-bit</strong> for every single message. What
       exactly is inside it is spelled out line by line further down.
     </p>
@@ -563,11 +563,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="screen screen-lit en">Android — direct download</span>
       </div>
       <p class="de">Version 1.5.1, 66 MB, für arm64 und arm32. Android wird beim
-        Installieren warnen — es warnt bei jeder App, deren Zertifikat Google
+        Installieren warnen: es warnt bei jeder App, deren Zertifikat Google
         nicht kennt, unabhängig davon, was in der Datei steht. Was in dieser
         steht, lässt sich an den zwei Werten darunter nachprüfen.</p>
       <p class="en">Version 1.5.1, 66 MB, for arm64 and arm32. Android will warn you
-        when installing — it warns about every app whose certificate Google does
+        when installing: it warns about every app whose certificate Google does
         not know, regardless of what the file contains. What this one contains
         can be checked against the two values below.</p>
 
@@ -623,7 +623,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="screen en">F-Droid</span>
       </div>
       <p class="de">Der quelloffene App-Katalog. Dort baut nicht der Entwickler
-        die App, sondern F-Droid selbst — aus dem Quellcode, den du auch lesen
+        die App, sondern F-Droid selbst, aus dem Quellcode, den du auch lesen
         kannst. Genau deshalb wollen wir dort hin.</p>
       <p class="en">The open-source app catalogue. There the app is not built by
         the developer but by F-Droid itself, from the source you can read too.
@@ -689,13 +689,13 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <p class="hint">
         <span class="de">Hier steht ein Wert und nicht zwei: der gilt nur für
           diese eine Datei. Einen zweiten, der über alle künftigen Versionen
-          gleich bleibt, gibt es unter Windows erst mit einer Signatur — auf
+          gleich bleibt, gibt es unter Windows erst mit einer Signatur; auf
           Android leistet das der Schlüssel im Kasten oben. Was auf dem Desktop
           anders läuft als am Telefon, steht <a href="#desktop">weiter
           unten</a>.</span>
         <span class="en">One value here, not two: it covers this one file only.
           A second one that stays the same across future versions needs a
-          signature on Windows — on Android the signing key above does that job.
+          signature on Windows. On Android the signing key above does that job.
           What behaves differently on the desktop is spelled out
           <a href="#desktop">further down</a>.</span>
       </p>
@@ -730,7 +730,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="screen en">Linux</span>
       </div>
       <p class="de">Der Linux-Teil ist im Quellcode enthalten, gebaut wurde er
-        hier aber noch nie — es gibt kein Verzeichnis <code>build/linux</code>
+        hier aber noch nie: es gibt kein Verzeichnis <code>build/linux</code>
         und darum auch nichts zum Herunterladen. Selbst bauen geht:
         <code>flutter build linux --release</code>, dazu die
         Entwicklungspakete von GTK 3 und libsecret. Gestartet hat das Ergebnis
@@ -738,7 +738,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         Schritt-für-Schritt-Anleitung samt Paketnamen je Distribution liegt im
         Quellcode unter <code>docs/LINUX.md</code>.</p>
       <p class="en">The Linux part is in the source, but it has never been built
-        here — there is no <code>build/linux</code> directory and therefore
+        here: there is no <code>build/linux</code> directory and therefore
         nothing to download. Building it yourself works:
         <code>flutter build linux --release</code>, plus the development
         packages for GTK 3 and libsecret. Nobody has launched the result, so
@@ -797,12 +797,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="screen en">Web app</span>
       </div>
       <p class="de">In Arbeit. Der Bau läuft durch, im Browser bleibt die Seite
-        aber weiß — der Netzcode der App steckt auf <code>dart:io</code>, das es
+        aber weiß: der Netzcode der App steckt auf <code>dart:io</code>, das es
         im Browser nicht gibt, und die Kanäle zum Betriebssystem haben dort keine
         Gegenseite. Ein Link kommt hierher, sobald die Seite etwas anzeigt; bis
         dahin führte er auf ein weißes Feld.</p>
       <p class="en">In progress. The build completes, but in the browser the page
-        stays blank — the app's networking sits on <code>dart:io</code>, which
+        stays blank: the app's networking sits on <code>dart:io</code>, which
         browsers do not have, and the channels to the operating system have no
         counterpart there. A link will appear here as soon as the page shows
         something; until then it would lead to a blank panel.</p>
@@ -848,7 +848,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </h2>
       <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Inhalt. Sie schützt
         nicht, <em>dass</em> du geschrieben hast. Wer das verschweigt, verkauft
-        Sicherheit, statt sie zu liefern — deshalb steht es hier und nicht im
+        Sicherheit, statt sie zu liefern; deshalb steht es hier und nicht im
         Kleingedruckten.</p>
       <p class="en">End-to-end encryption protects the content. It does not
         protect the fact <em>that</em> you wrote. Hiding that means selling
@@ -899,10 +899,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </h2>
       <p class="de">Zwei Telefone, die nebeneinander liegen, brauchen niemanden
         dazwischen. BitDM findet den anderen über Bluetooth und schickt die
-        Nachricht direkt — kein WLAN, keine Mobilfunkdaten, kein Rechenzentrum.
+        Nachricht direkt: kein WLAN, keine Mobilfunkdaten, kein Rechenzentrum.
         Sie tragen dann ein Zeichen: <strong>direkt</strong>.</p>
       <p class="en">Two phones lying next to each other need nobody in between.
-        BitDM finds the other over Bluetooth and delivers the message directly —
+        BitDM finds the other over Bluetooth and delivers the message directly:
         no Wi-Fi, no mobile data, no data centre. Such messages carry a mark:
         <strong>direct</strong>.</p>
     </div>
@@ -917,11 +917,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     <p>
       <span class="de">Das Schwierige daran ist nicht das Senden, sondern das
         <em>Finden</em>. Ein Gerät, das seine Adresse in die Gegend ruft, damit
-        Freunde es erkennen, verrät sie auch allen anderen — und eine Adresse,
+        Freunde es erkennen, verrät sie auch allen anderen. Eine Adresse,
         die man über Tage wiedererkennt, ist ein Bewegungsprofil.</span>
       <span class="en">The hard part is not the sending, it is the
         <em>finding</em>. A device broadcasting its address so friends can spot
-        it also hands that address to everyone else — and an address you can
+        it also hands that address to everyone else. An address you can
         recognise across days is a movement profile.</span>
     </p>
 
@@ -955,9 +955,9 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              data-en-alt="The nearby settings: two switches and a box that
                   says what currently applies.">
         <figcaption>
-          <span class="de">Zwei Schalter, und die App sagt geradeheraus, wenn
+          <span class="de">Es gibt zwei Schalter, und die App sagt geradeheraus, wenn
             einer allein nichts bewirkt.</span>
-          <span class="en">Two switches — and the app says plainly when one
+          <span class="en">There are two switches, and the app says plainly when one
             alone achieves nothing.</span>
         </figcaption>
       </figure>
@@ -979,7 +979,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     <p class="hint">
       <span class="de">Braucht Android 12 oder neuer und Bluetooth 5 auf beiden
         Geräten. Die erste Nachricht an einen ganz neuen Kontakt tauscht die
-        Schlüssel ebenfalls über Funk — dazu muss die Gegenseite kurz in
+        Schlüssel ebenfalls über Funk; dazu muss die Gegenseite kurz in
         Reichweite sein. Anhänge gehen diesen Weg nicht.</span>
       <span class="en">Needs Android 12 or newer and Bluetooth 5 on both
         devices. The first message to a brand new contact exchanges keys over
@@ -1107,8 +1107,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Die Nachricht selbst</span><span class="en">The message itself</span></dt>
-        <dd><span class="de"><strong>AES mit 256 Bit</strong> Schlüssellänge im CBC-Betrieb, beglaubigt mit HMAC-SHA256 — Signals eigene Konstruktion. Der Schlüssel ist 32 Byte lang und gilt für genau eine Nachricht.</span>
-            <span class="en"><strong>AES with a 256-bit key</strong> in CBC mode, authenticated with HMAC-SHA256 — Signal's own construction. The key is 32 bytes long and covers exactly one message.</span></dd>
+        <dd><span class="de"><strong>AES mit 256 Bit</strong> Schlüssellänge im CBC-Betrieb, beglaubigt mit HMAC-SHA256; diese Kombination ist Signals eigene Konstruktion. Der Schlüssel ist 32 Byte lang und gilt für genau eine Nachricht.</span>
+            <span class="en"><strong>AES with a 256-bit key</strong> in CBC mode, authenticated with HMAC-SHA256; that combination is Signal's own construction. The key is 32 bytes long and covers exactly one message.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Unterschriften</span><span class="en">Signatures</span></dt>
@@ -1127,8 +1127,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Die Adresse</span><span class="en">The address</span></dt>
-        <dd><span class="de">32 Byte öffentlicher Schlüssel plus 3 Byte SHA-256-Prüfsumme, in Base32 — zusammen 56 Zeichen. Wer sie hat, hat den Schlüssel selbst.</span>
-            <span class="en">32 bytes of public key plus 3 bytes of SHA-256 checksum, in Base32 — 56 characters in all. Whoever has it has the key itself.</span></dd>
+        <dd><span class="de">32 Byte öffentlicher Schlüssel plus 3 Byte SHA-256-Prüfsumme, in Base32: zusammen 56 Zeichen. Wer sie hat, hat den Schlüssel selbst.</span>
+            <span class="en">32 bytes of public key plus 3 bytes of SHA-256 checksum, in Base32: 56 characters in all. Whoever has it has the key itself.</span></dd>
       </div>
     </dl>
   </section>
@@ -1143,9 +1143,9 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="en">If the phone falls into the wrong hands</span>
       </h2>
       <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Weg. Was auf dem Gerät
-        liegt, ist eine zweite Frage — und sie wird oft gar nicht gestellt.</p>
+        liegt, ist eine zweite Frage, und sie wird oft gar nicht gestellt.</p>
       <p class="en">End-to-end encryption protects the path. What sits on the device
-        is a second question — and one that often goes unasked.</p>
+        is a second question, and one that often goes unasked.</p>
     </div>
 
     <dl class="plate">
@@ -1156,8 +1156,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">App-Sperre</span><span class="en">App lock</span></dt>
-        <dd><span class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb. Beim App-Passwort entsteht der Schlüssel über Argon2id mit 19 MiB Speicher und 2 Durchgängen — die Empfehlung des OWASP. Raten kostet damit Speicher und Zeit, nicht nur Rechenschritte.</span>
-            <span class="en"><strong>AES with a 256-bit key</strong> in GCM mode. With the app password the key comes from Argon2id using 19 MiB of memory and 2 passes — the OWASP recommendation. Guessing therefore costs memory and time, not just cycles.</span></dd>
+        <dd><span class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb. Beim App-Passwort entsteht der Schlüssel über Argon2id mit 19 MiB Speicher und 2 Durchgängen: die Empfehlung des OWASP. Raten kostet damit Speicher und Zeit, nicht nur Rechenschritte.</span>
+            <span class="en"><strong>AES with a 256-bit key</strong> in GCM mode. With the app password the key comes from Argon2id using 19 MiB of memory and 2 passes, the OWASP recommendation. Guessing therefore costs memory and time, not just cycles.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Vier Wege hinein</span><span class="en">Four ways in</span></dt>
@@ -1166,8 +1166,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Alles löschen</span><span class="en">Wipe</span></dt>
-        <dd><span class="de">Der Schlüssel der Datenbank stammt aus den zwölf Wörtern. Sind sie gelöscht, ist die Datei dauerhaft unlesbar — auch für uns, auch wenn die Bytes im Flash-Speicher überleben.</span>
-            <span class="en">The database key comes from the twelve words. Delete them and the file is permanently unreadable — to us as well, even if the bytes survive in flash.</span></dd>
+        <dd><span class="de">Der Schlüssel der Datenbank stammt aus den zwölf Wörtern. Sind sie gelöscht, ist die Datei dauerhaft unlesbar: auch für uns, auch wenn die Bytes im Flash-Speicher überleben.</span>
+            <span class="en">The database key comes from the twelve words. Delete them and the file is permanently unreadable: to us as well, even if the bytes survive in flash.</span></dd>
       </div>
     </dl>
   </section>
@@ -1181,10 +1181,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="de">Große Dateien, ohne großen Server</span>
         <span class="en">Large files, without a large server</span>
       </h2>
-      <p class="de">Bis zu 5 GB je Datei. Sie geht nicht durch den Relay — der ist für
+      <p class="de">Bis zu 5 GB je Datei. Sie geht nicht durch den Relay; der ist für
         kurze Nachrichten gebaut. Sie liegt verschlüsselt in einem eigenen
         Zwischenlager, in Stücken, und verschwindet nach 14 Tagen von selbst.</p>
-      <p class="en">Up to 5 GB per file. It does not pass through the relay — that one
+      <p class="en">Up to 5 GB per file. It does not pass through the relay; that one
         is built for short messages. It rests encrypted in a separate holding store,
         in pieces, and disappears by itself after 14 days.</p>
     </div>
@@ -1212,10 +1212,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <div class="step">
         <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
         <h3><span class="de">Die Nummer mitbeglaubigen</span><span class="en">Authenticate the number</span></h3>
-        <p class="de">Fälschen kann der Speicher nichts. Vertauschen schon — unter der
+        <p class="de">Fälschen kann der Speicher nichts. Vertauschen schon: unter der
           Kennung von Stück 3 die Bytes von Stück 5. Deshalb steckt die Stücknummer im
           beglaubigten Zusatz; ein vertauschtes Stück geht dann gar nicht mehr auf.</p>
-        <p class="en">The store cannot forge anything. It could swap, though — serving
+        <p class="en">The store cannot forge anything. It could swap, though: serving
           piece 5's bytes under piece 3's identifier. So the piece number sits in the
           authenticated data; a swapped piece then fails to open at all.</p>
       </div>
@@ -1250,12 +1250,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         auf Windows keine Gegenseite: der Nahbereich über Bluetooth, der
         Weckdienst für Push und jede Sperre außer dem App-Passwort. Am PC werden
         sie deshalb gar nicht erst angeboten. Das ist eine Entscheidung und keine
-        halbe Arbeit — lieber etwas weglassen, als es anbieten und daran
+        halbe Arbeit: lieber etwas weglassen, als es anbieten und daran
         scheitern.</p>
       <p class="en">Part of BitDM lives entirely in Android code and has no
         counterpart on Windows: the nearby exchange over Bluetooth, the push
         wake-up, and every lock factor except the app password. On the PC they
-        are not offered at all. That is a decision rather than unfinished work —
+        are not offered at all. That is a decision rather than unfinished work:
         better to leave something out than to offer it and fail at it.</p>
     </div>
 
@@ -1305,7 +1305,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
 
     <p class="hint">
       <span class="de">Ohne Push bleibt am PC die Verbindung offen, solange die
-        App läuft — ein Weckdienst von außen wird dort nicht gebraucht. Beim
+        App läuft; ein Weckdienst von außen wird dort nicht gebraucht. Beim
         Anhang ist die Lage unschöner: der Knopf ist noch zu sehen, und am PC
         öffnet sich beim Druck darauf kein Auswahlfenster. Solange das so ist,
         steht es hier.</span>
@@ -1353,8 +1353,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              weggefallen — es war die einzige Stelle der Datei mit einem, und ein
              unsichtbares Zeichen, das nur an einer Stelle steht, kostet beim
              nächsten Nachmessen mehr, als es an Umbruch spart.) -->
-        <dd><span class="de">Einzelchats mit Text und Anhängen bis 5 GB. Keine Gruppen, keine Anrufe.</span>
-            <span class="en">One-to-one chats with text and attachments up to 5 GB. No groups, no calls.</span></dd>
+        <!-- "KEINE GRUPPEN" STIMMTE BIS 1.6.0. Seit dem 25.09.2026 gibt es
+             Gruppen bis 20 Mitglieder (docs/FUNKTIONSVERGLEICH.md) und
+             Sprachnachrichten auf Android; Anrufe weiterhin nicht. -->
+        <dd><span class="de">Einzelchats und Gruppen bis 20, mit Text, Sprachnachrichten und Anhängen bis 5 GB. Keine Anrufe.</span>
+            <span class="en">One-to-one chats and groups up to 20, with text, voice messages and attachments up to 5 GB. No calls.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
@@ -1422,8 +1425,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="fact">
         <span class="num">5 GB</span>
-        <p class="de">Größte Datei je Anhang — in 32-MiB-Stücken, jedes mit eigenem Schlüssel.</p>
-        <p class="en">Largest file per attachment — in 32 MiB pieces, each with its own key.</p>
+        <p class="de">Größte Datei je Anhang, in 32-MiB-Stücken, jedes mit eigenem Schlüssel.</p>
+        <p class="en">Largest file per attachment, in 32 MiB pieces, each with its own key.</p>
       </div>
     </div>
   </section>

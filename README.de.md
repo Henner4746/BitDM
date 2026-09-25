@@ -6,7 +6,7 @@ Diese Seite auf [Englisch](README.md).
 Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 
 [![Lizenz: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.5.1-6f62a8)
+![Version](https://img.shields.io/badge/version-1.6.0-6f62a8)
 ![Plattform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows-6f62a8)
 
 | Plattform | Zustand |
@@ -169,6 +169,13 @@ nicht angezeigt, statt angezeigt und kaputt zu sein: der erste Windows-Build bot
 vier Faktoren an, von denen drei nicht funktionieren konnten, und einer davon
 sprach auf einem PC von "der PIN, dem Muster oder dem Passwort dieses
 Telefons".
+
+
+**Funktionen neben dem Kern** — Antworten, Reaktionen, Bearbeiten, Für alle
+löschen, Umfragen, Gruppen (bis 20), Sprachnachrichten (Android), geplante und
+angeheftete Nachrichten, Notiz an mich, Tipp-Anzeige, Suche, verschlüsselte
+Sicherung, Panik-Passwort. Was davon woher kommt, was bewusst fehlt und welche
+Grenzen es gibt: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 
 ---
 

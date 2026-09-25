@@ -10,6 +10,24 @@
           "secure-messenger/website/index.html"
         ],
         "createdAt": "2026-07-25T00:30:56.916Z"
+      },
+      {
+        "rule": "aphoristic-cadence",
+        "value": "*",
+        "files": [
+          "secure-messenger/website/index.html"
+        ],
+        "createdAt": "2026-07-30T18:54:19.894Z",
+        "reason": "Henrik bestaetigt (30.07.2026). Dieselben drei Saetze wie vor allen heutigen Aenderungen — an der HEAD-Fassung gegengemessen, gleicher Befund, gleicher Beispielsatz. Jeder traegt eine Tatsache, die sonst fehlte: Umfang (keine Gruppen, keine Anrufe), Einschraenkung des Nahwegs, Folge einer Signaturpruefung. Fuenf echte Pointen wurden am 30.07. entfernt."
+      },
+      {
+        "rule": "all-caps-body",
+        "value": "*",
+        "files": [
+          "secure-messenger/website/index.html"
+        ],
+        "createdAt": "2026-07-30T18:54:19.975Z",
+        "reason": "Nocturne-Entwurf, Kommentar in der Datei: Chivo Mono versal fuer eingebrannte Beschriftungen. Henrik bestaetigt."
       }
     ]
   }

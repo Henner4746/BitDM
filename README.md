@@ -6,7 +6,7 @@ This page in [German](README.de.md).
 Your address *is* your public key.**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.5.1-6f62a8)
+![Version](https://img.shields.io/badge/version-1.6.0-6f62a8)
 ![Platform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows-6f62a8)
 
 | Platform | State |
@@ -161,6 +161,14 @@ channel written in Kotlin. On the desktop they are not shown at all rather than
 shown and broken: the first Windows build offered four factors of which three
 could not work, and one of them said "the PIN, pattern or password of this
 phone" on a PC.
+
+
+**Features beyond the core** — replies, reactions, edits, delete for everyone,
+polls, groups (up to 20), voice messages (Android), scheduled and pinned
+messages, note to self, typing indicator, search, encrypted backup, panic
+password. Where each comes from, what is deliberately missing and the known
+limits: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md)
+(German).
 
 ---
 
