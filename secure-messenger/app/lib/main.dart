@@ -37,6 +37,7 @@ import 'core/verbindungstest.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'data.dart';
 import 'formatierung.dart';
+import 'core/crypto/teilgeheimnis.dart';
 import 'schluesselbild.dart';
 import 'themen.dart';
 import 'painters.dart';
@@ -2188,6 +2189,105 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         _ => true,
       };
 
+  /// Fragt nach k von n, zerlegt die Woerter und zeigt die Teile.
+  Future<void> _erzeugeTeile() async {
+    var wahl = '3/5';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, neu) => AlertDialog(
+          title: Text(t('trustTitle')),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t('trustHow'), style: mono(size: 12, color: p.muted, height: 1.5)),
+            const SizedBox(height: 12),
+            segmented(['2/3', '3/5', '4/7'], ['2 / 3', '3 / 5', '4 / 7'], wahl, (v) => neu(() => wahl = v)),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('cancel'))),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('actCreate'))),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final k = int.parse(wahl.split('/')[0]);
+    final n = int.parse(wahl.split('/')[1]);
+    final List<Teil> teile;
+    try {
+      teile = teileWoerter(await st.phraseAusEinstellungen(), schwelle: k, anzahl: n);
+    } catch (e) {
+      _hinweis('$e');
+      return;
+    }
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t('trustSheetTitle').replaceFirst('{k}', '$k').replaceFirst('{n}', '$n'),
+                style: mono(size: 14, weight: FontWeight.w600, color: p.ink, height: 1.4)),
+            const SizedBox(height: 6),
+            Text(t('trustWarn').replaceFirst('{k}', '$k'),
+                style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+            const SizedBox(height: 12),
+            for (var i = 0; i < teile.length; i++)
+              Container(
+                key: ValueKey('teil-$i'),
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                    color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${t('trustPart')} ${i + 1} / $n',
+                      style: mono(size: 10, weight: FontWeight.w600, color: p.dim, spacing: 1)),
+                  const SizedBox(height: 4),
+                  SelectableText(teile[i].alsText(), style: mono(size: 11, color: p.ink, height: 1.5)),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Expanded(child: outlineBtn(t('copy'), () {
+                      Clipboard.setData(ClipboardData(text: teile[i].alsText()));
+                      _hinweis(t('copied'));
+                    }, padding: const EdgeInsets.all(8))),
+                    const SizedBox(width: 8),
+                    Expanded(child: outlineBtn(t('trustSend'), () => _sendeTeil(teile[i]),
+                        accent: false, padding: const EdgeInsets.all(8))),
+                  ]),
+                ]),
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// Schickt einen Teil verschluesselt an einen Kontakt.
+  Future<void> _sendeTeil(Teil teil) async {
+    final kandidaten = st.aktiveKontakte.where((k) => !st.istNotizen(k.id)).toList();
+    if (kandidaten.isEmpty) {
+      _hinweis(t('trustNoContacts'));
+      return;
+    }
+    final ziel = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(t('trustSend')),
+        children: [
+          for (final k in kandidaten)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, k.id),
+              child: Text(shortId(adresseFormatiert(k.id)), style: mono(size: 13, color: p.ink)),
+            ),
+        ],
+      ),
+    );
+    if (ziel == null) return;
+    await st.senden(ziel, '${t('trustMsg')}\n\n${teil.alsText()}');
+    _hinweis(t('trustSent'));
+  }
+
   String _uhr(int minuten) =>
       '${(minuten ~/ 60).toString().padLeft(2, '0')}:${(minuten % 60).toString().padLeft(2, '0')}';
 
@@ -3644,8 +3744,39 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   }
 
   Future<void> _stelleWieder() async {
-    final woerter = _phraseWoerter;
+    var woerter = _phraseWoerter;
     setState(() => restoreFehler = null);
+
+    // TEILE VON VERTRAUENSKONTAKTEN statt der Woerter: stehen sie im Feld,
+    // werden daraus die zwoelf Woerter, und danach geht es genau so weiter,
+    // als haette jemand sie getippt — mit derselben Pruefsumme am Ende.
+    if (phraseCtl.text.toUpperCase().contains('BITDM-TEIL')) {
+      try {
+        final teile = phraseCtl.text
+            .split(RegExp(r'(?=BITDM-TEIL)', caseSensitive: false))
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .map(Teil.ausText)
+            .toList();
+        woerter = woerterAusTeilen(teile);
+      } catch (e) {
+        setState(() => restoreFehler = '${t('restorePartsBad')} $e');
+        return;
+      }
+      setState(() => screen = 'creating');
+      final ok = await st.identitaetWiederherstellen(woerter);
+      if (!mounted) return;
+      if (ok) {
+        phraseCtl.clear();
+        setState(() => screen = 'chats');
+      } else {
+        setState(() {
+          screen = 'restore';
+          restoreFehler = t('restoreChecksum');
+        });
+      }
+      return;
+    }
 
     if (woerter.length != kRecoveryPhraseWords) {
       setState(() => restoreFehler = t('restoreCount')
@@ -3699,6 +3830,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         const SizedBox(height: 12),
         Text(t('restoreIntro'),
             style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
+        const SizedBox(height: 6),
+        Text(t('restoreParts'),
+            style: mono(size: 11, color: p.dim, height: 1.5)),
         const SizedBox(height: 16),
 
         // DER RAHMEN ZEIGT DEN FOKUS — IM FENSTER. Der Kasten zeichnet den
@@ -5609,6 +5743,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         toggleRow(t("readReceipts"), t("readReceiptsSub"), st.einstellungen.readReceipts,
             () => st.setzeEinstellungen(st.einstellungen.copyWith(
                 readReceipts: !st.einstellungen.readReceipts))),
+        const SizedBox(height: 3),
+        // VERTRAUENSKONTAKTE: die zwoelf Woerter in Teile zerlegt (Shamir,
+        // core/crypto/teilgeheimnis.dart). Einige zusammen stellen die
+        // Identitaet wieder her, einer allein verraet nichts.
+        settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          settingHead(t('trustTitle'), t('trustSub')),
+          const SizedBox(height: 8),
+          outlineBtn(t('trustCreate'), _erzeugeTeile, padding: const EdgeInsets.all(9)),
+        ])),
         const SizedBox(height: 3),
         // SICHERUNG: Kontakte und Verlauf als verschluesselte Datei, die nur
         // mit den zwoelf Woertern aufgeht. Zwei Knoepfe, weil es zwei Wege
