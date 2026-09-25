@@ -315,6 +315,14 @@ const Map<String, Map<String, String>> strings = {
     'attachQuota': "Today's limit is used up. Attachments are capped at 10 GB per day.",
     'attachBroken': "That file did not come through intact. Ask the sender to send it again.",
     'attachNet': 'That did not go through. Check the connection and try again.',
+    'attachWeb': 'Files do not work in the browser — that needs the app.',
+    'webOnboard': 'Browser version, limited. Without an app password your identity '
+        'only lasts until the page is reloaded — after that you get it back with '
+        'your 12 words. With an app password it stays in this browser, encrypted. '
+        'Nearby radio, files and voice messages are app-only.',
+    'webVolatile': 'Browser: without an app password your identity is gone when '
+        'the page reloads. Set one under Settings › Access, then it stays here, '
+        'encrypted.',
     'attachBusy': 'One file at a time — wait for the current one.',
     'attachNoApp': 'No app on this device can open that kind of file.',
 
@@ -641,6 +649,14 @@ const Map<String, Map<String, String>> strings = {
     'attachQuota': 'Das Tagespensum ist aufgebraucht. Anhänge sind auf 10 GB pro Tag begrenzt.',
     'attachBroken': 'Diese Datei ist nicht heil angekommen. Bitte die Gegenstelle, sie noch einmal zu schicken.',
     'attachNet': 'Das ging nicht durch. Prüf die Verbindung und versuch es noch einmal.',
+    'attachWeb': 'Dateien gehen im Browser nicht — dafür braucht es die App.',
+    'webOnboard': 'Browser-Fassung, eingeschränkt. Ohne App-Passwort bleibt deine '
+        'Identität nur bis zum Neuladen der Seite — danach holst du sie mit den '
+        '12 Wörtern zurück. Mit App-Passwort bleibt sie verschlüsselt in diesem '
+        'Browser. Nahfunk, Dateien und Sprachnachrichten gibt es nur in der App.',
+    'webVolatile': 'Browser: Ohne App-Passwort ist deine Identität beim Neuladen '
+        'weg. Richte unter Einstellungen › Zugriff eines ein, dann bleibt sie '
+        'hier, verschlüsselt.',
     'attachBusy': 'Eine Datei nach der anderen — warte, bis die aktuelle durch ist.',
     'attachNoApp': 'Keine App auf diesem Gerät kann diese Art Datei öffnen.',
 

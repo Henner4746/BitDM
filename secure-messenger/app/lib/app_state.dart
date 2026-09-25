@@ -23,6 +23,7 @@ import 'core/anhang/lager_client.dart';
 import 'core/anhang/metadaten.dart';
 import 'core/app_lock.dart';
 import 'core/benachrichtigungen.dart';
+import 'core/browser/browser_zugang.dart';
 import 'core/dateien.dart';
 import 'core/empfang.dart';
 import 'core/fenster.dart';
@@ -1454,11 +1455,20 @@ class AppState extends ChangeNotifier {
   /// Rueckgabe: wo sie liegt, oder null, wenn abgebrochen.
   Future<String?> sichere({bool mitDateien = false}) async {
     final daten = await core.erstelleSicherung(mitDateien: mitDateien);
-    final tmp = await getTemporaryDirectory();
     final heute = DateTime.now();
     final name = 'bitdm-sicherung-'
         '${heute.year}-${heute.month.toString().padLeft(2, '0')}-'
         '${heute.day.toString().padLeft(2, '0')}.bitdm';
+    // IM BROWSER ALS DOWNLOAD. Es gibt dort weder ein Zwischenverzeichnis
+    // (path_provider hat keine Web-Umsetzung) noch den Speichern-Kanal. Und
+    // gerade dort zaehlt die Sicherung: ohne App-Passwort ist die Identitaet
+    // nach dem Neuladen weg, und der Verlauf kommt nur mit den zwoelf
+    // Woertern UND einer Datenbank oder Sicherung zurueck.
+    if (kIsWeb) {
+      await browserDownload(daten, name);
+      return name;
+    }
+    final tmp = await getTemporaryDirectory();
     final datei = File('${tmp.path}${Platform.pathSeparator}$name');
     await datei.writeAsBytes(daten, flush: true);
     try {
@@ -1475,11 +1485,25 @@ class AppState extends ChangeNotifier {
   /// Laesst eine Sicherung waehlen und spielt sie ein. Rueckgabe: wie viele
   /// Nachrichten dazukamen, oder null, wenn abgebrochen.
   Future<int?> spieleSicherungEin() async {
+    // Im Browser ueber ein <input type=file>; der Kanal bitdm/dateien fehlt
+    // dort (browser_zugang_web.dart).
+    if (kIsWeb) {
+      final daten = await browserDateiLesen();
+      if (daten == null) return null;
+      return _spieleEin(daten);
+    }
     final gewaehlt = await dateien.waehlen();
     if (gewaehlt == null) return null;
     try {
-      final n = await core
-          .spieleSicherungEin(await gewaehlt.datei.readAsBytes());
+      return await _spieleEin(await gewaehlt.datei.readAsBytes());
+    } finally {
+      await dateien.gibFrei(gewaehlt.zettel);
+    }
+  }
+
+  Future<int?> _spieleEin(Uint8List daten) async {
+    try {
+      final n = await core.spieleSicherungEin(daten);
       await _ladeKontakteNeu();
       for (final id in verlaeufe.keys.toList()) {
         await _ladeNeu(id);
@@ -1489,8 +1513,6 @@ class AppState extends ChangeNotifier {
       letzterFehler = 'sicherungPasstNicht';
       notifyListeners();
       return null;
-    } finally {
-      await dateien.gibFrei(gewaehlt.zettel);
     }
   }
 
@@ -1744,6 +1766,10 @@ class AppState extends ChangeNotifier {
   /// das in keiner Bildschirmaufnahme stehen soll.
   static String _anhangFehler(Object e) {
     if (e is NurNahbereichException) return 'nurNahbereich';
+    // Im Browser: der Anhang-Weg braucht Dateien (dart:io), und die werfen
+    // dort UnsupportedError. Kein Netzfehler — "pruef die Verbindung" waere
+    // die falsche Auskunft.
+    if (e is UnsupportedError) return 'anhangWeb';
     final t = e.toString();
     if (t.contains('Tagesmenge')) return 'tagesmenge';
     if (e is AnhangKaputt) return 'anhangKaputt';
@@ -1795,6 +1821,13 @@ class AppState extends ChangeNotifier {
   void vergissFehler() {
     if (letzterFehler == null) return;
     letzterFehler = null;
+    notifyListeners();
+  }
+
+  /// Setzt eine Fehlermeldung, die nicht aus einem Kernaufruf kommt — etwa
+  /// "Dateien gehen im Browser nicht", bevor ueberhaupt etwas versucht wird.
+  void meldeFehler(String schluessel) {
+    letzterFehler = schluessel;
     notifyListeners();
   }
 

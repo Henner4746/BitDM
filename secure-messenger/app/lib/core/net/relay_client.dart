@@ -5,9 +5,11 @@
 // offline ist. Lesen kann er nichts. Diese Datei spricht mit ihm, sie
 // entschluesselt selbst nichts — das macht die Schicht darueber.
 //
-// KEINE ZUSAETZLICHE ABHAENGIGKEIT: HTTP und WebSocket kommen aus dart:io.
-// Ein Paket wie `http` waere hier zusaetzliche Angriffsflaeche fuer Arbeit,
-// die das SDK schon kann.
+// KEINE ZUSAETZLICHE ABHAENGIGKEIT: HTTP und WebSocket kommen auf dem Geraet
+// aus dart:io, im Browser aus dessen eigener WebSocket und fetch (package:web,
+// vom Dart-Team, kam ueber package:sqlite3 ohnehin mit). Ein Paket wie `http`
+// waere hier zusaetzliche Angriffsflaeche fuer Arbeit, die das SDK schon kann.
+// Die Weiche steht in netz_zugang.dart.
 //
 // WAS DIESE SCHICHT BEWUSST NICHT TUT: sich selbst wieder verbinden. Wann ein
 // Messenger nach einem Abbruch neu verbindet, ist keine Netzwerkfrage, sondern
@@ -18,14 +20,13 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../crypto/signal_identity.dart';
-import 'netzweg.dart';
+import 'netz_zugang.dart';
 import 'relay_protocol.dart';
 
 class RelayException implements Exception {
@@ -162,12 +163,12 @@ class RelayClient {
   final _wartendeMarken = <String, Completer<BlobMarke>>{};
   final _zufall = Random();
 
-  WebSocket? _ws;
+  WsLeitung? _ws;
   var _laufendeNummer = 0;
 
   Stream<RelayEvent> get events => _events.stream;
 
-  bool get isConnected => _ws?.readyState == WebSocket.open;
+  bool get isConnected => _ws?.offen ?? false;
 
   String get address => identity.address;
 
@@ -283,21 +284,19 @@ class RelayClient {
       },
     );
 
-    final WebSocket ws;
+    final WsLeitung ws;
     try {
-      // Ueber Tor, wenn eingeschaltet (netzweg.dart) — sonst wie immer.
-      ws = await WebSocket.connect(wsUri.toString(),
-          customClient: Netzweg.proxy == null ? null : Netzweg.httpClient());
+      ws = await wsOeffnen(wsUri);
     } on Object catch (e) {
       throw RelayException('Verbindung fehlgeschlagen: $e');
     }
     _ws = ws;
 
     final angemeldet = Completer<void>();
-    ws.listen(
+    ws.rahmen.listen(
       (roh) => _verarbeite(roh, angemeldet),
       onDone: () {
-        final code = ws.closeCode;
+        final code = ws.schlusscode;
         _ws = null;
         _brichAlleAcksAb('Verbindung beendet');
         if (!angemeldet.isCompleted) {
@@ -379,7 +378,7 @@ class RelayClient {
         // bisherigen Verhalten. Gemessen gegen den unveraenderten Server:
         // die Anmeldung mit dem Zusatzfeld beantwortet er mit
         // {'type': 'auth_result', 'ok': True}.
-        _ws?.add(jsonEncode({
+        _ws?.sende(jsonEncode({
           'signature': base64.encode(sig),
           'empfangsnachweis': true,
         }));
@@ -518,10 +517,16 @@ class RelayClient {
     if (!_kannFluechtig) {
       throw const RelayException('dieser Relay kennt keine fluechtigen Rahmen');
     }
-    final id = '${_laufendeNummer++}-${_zufall.nextInt(1 << 32)}';
+    // 0x100000000 UND NICHT `1 << 32`, hier und in sendeAnGeraet. Auf der VM ist
+    // beides dieselbe Zahl; im Browser rechnet dart2js Verschiebungen in 32
+    // Bit, und `1 << 32` ist dort 0. `nextInt(0)` warf "RangeError: max must
+    // be in range 0 < max ≤ 2^32, was 0" — gemessen am 25.09.2026 in Chrome:
+    // im Browser ging deshalb KEINE einzige Nachricht hinaus, die Wegwahl
+    // meldete nur "der Relay hat abgelehnt".
+    final id = '${_laufendeNummer++}-${_zufall.nextInt(0x100000000)}';
     final warte = Completer<void>();
     _wartendeAcks[id] = warte;
-    ws.add(jsonEncode({
+    ws.sende(jsonEncode({
       'type': 'message',
       'id': id,
       'to': to,
@@ -553,9 +558,10 @@ class RelayClient {
     // Echte Umschlaege: Nutzlast auf 256er-Bloecke aufgefuellt plus
     // Signal-Kopf; meist ein bis drei Bloecke.
     final laenge = 256 * (1 + _zufall.nextInt(3)) + 60 + _zufall.nextInt(40);
-    ws.add(jsonEncode({
+    ws.sende(jsonEncode({
       'type': 'geraeus',
-      'id': '${_laufendeNummer++}-${_zufall.nextInt(1 << 32)}',
+      // 0x100000000 statt 1 << 32: im Browser ergibt die Verschiebung 0.
+      'id': '${_laufendeNummer++}-${_zufall.nextInt(0x100000000)}',
       'to': to,
       'ciphertext': base64.encode(List.generate(laenge, (_) => _zufall.nextInt(256))),
     }));
@@ -575,11 +581,11 @@ class RelayClient {
     final ws = _ws;
     if (ws == null) throw const RelayException('nicht verbunden');
 
-    final id = '${_laufendeNummer++}-${_zufall.nextInt(1 << 32)}';
+    final id = '${_laufendeNummer++}-${_zufall.nextInt(0x100000000)}';
     final warte = Completer<void>();
     _wartendeAcks[id] = warte;
 
-    ws.add(jsonEncode({
+    ws.sende(jsonEncode({
       'type': 'message',
       'id': id,
       'to': to,
@@ -626,7 +632,7 @@ class RelayClient {
 
     final warte = Completer<BlobMarke>();
     _wartendeMarken[kennung] = warte;
-    ws.add(jsonEncode({
+    ws.sende(jsonEncode({
       'type': 'blob_marke',
       'kennung': kennung,
       'groesse': groesse,
@@ -657,7 +663,7 @@ class RelayClient {
   void setzePushEndpunkt(String? endpunkt) {
     final ws = _ws;
     if (ws == null) throw const RelayException('nicht verbunden');
-    ws.add(jsonEncode({
+    ws.sende(jsonEncode({
       'type': 'push_endpoint',
       'endpoint': endpunkt ?? '',
     }));
@@ -680,9 +686,9 @@ class RelayClient {
   /// kommt noch einmal — genau die Richtung, in die der Irrtum fallen soll.
   void bestaetigeEmpfang(int q) {
     final ws = _ws;
-    if (ws == null || ws.readyState != WebSocket.open) return;
+    if (ws == null || !ws.offen) return;
     try {
-      ws.add(jsonEncode({
+      ws.sende(jsonEncode({
         'type': 'empfangen',
         'ids': [q],
       }));
@@ -695,7 +701,7 @@ class RelayClient {
     final ws = _ws;
     _ws = null;
     _brichAlleAcksAb('Verbindung geschlossen');
-    await ws?.close();
+    await ws?.schliesse();
   }
 
   /// Gibt alle Mittel frei. Danach ist dieser Client nicht mehr verwendbar.
@@ -718,42 +724,34 @@ class RelayClient {
 
   Future<Map<String, Object?>> _anfrage(String methode, String pfad,
       Map<String, Object?>? body, [Map<String, String>? abfrage]) async {
-    final client = Netzweg.httpClient();
+    // DIE ABFRAGE GEHOERT NICHT IN DEN PFAD. `Uri.replace(path: ...)`
+    // kodiert das Fragezeichen zu %3F — daraus wuerde ein Pfad namens
+    // "/prekey/aaa?nur_geraete=1" und der Server antwortete mit 404.
+    final uri = baseUri.replace(
+        path: '$_pfadOhneSchraegstrich$pfad', queryParameters: abfrage);
+    final NetzAntwort resp;
     try {
-      // DIE ABFRAGE GEHOERT NICHT IN DEN PFAD. `Uri.replace(path: ...)`
-      // kodiert das Fragezeichen zu %3F — daraus wuerde ein Pfad namens
-      // "/prekey/aaa?nur_geraete=1" und der Server antwortete mit 404.
-      final uri = baseUri.replace(
-          path: '$_pfadOhneSchraegstrich$pfad', queryParameters: abfrage);
-      final req = methode == 'POST'
-          ? await client.postUrl(uri)
-          : await client.getUrl(uri);
-      if (body != null) {
-        req.headers.contentType = ContentType.json;
-        req.write(jsonEncode(body));
-      }
-      final resp = await req.close();
-      final text = await resp.transform(utf8.decoder).join();
-
-      if (resp.statusCode >= 400) {
-        // Der Server schickt bei Fehlern {"detail": "..."}.
-        String grund = text;
-        try {
-          final j = jsonDecode(text);
-          if (j is Map && j['detail'] != null) grund = '${j['detail']}';
-        } catch (_) {
-          // Kein JSON — dann eben der Rohtext.
-        }
-        throw RelayException(grund, statusCode: resp.statusCode);
-      }
-
-      final j = jsonDecode(text);
-      if (j is! Map) throw const RelayException('unerwartete Antwort');
-      return j.cast<String, Object?>();
-    } on SocketException catch (e) {
-      throw RelayException('Relay nicht erreichbar: ${e.message}');
-    } finally {
-      client.close();
+      resp = await netzAnfrage(methode, uri,
+          json: body == null ? null : jsonEncode(body));
+    } on NetzNichtErreichbar catch (e) {
+      throw RelayException('Relay nicht erreichbar: ${e.grund}');
     }
+    final text = resp.text;
+
+    if (resp.status >= 400) {
+      // Der Server schickt bei Fehlern {"detail": "..."}.
+      String grund = text;
+      try {
+        final j = jsonDecode(text);
+        if (j is Map && j['detail'] != null) grund = '${j['detail']}';
+      } catch (_) {
+        // Kein JSON — dann eben der Rohtext.
+      }
+      throw RelayException(grund, statusCode: resp.status);
+    }
+
+    final j = jsonDecode(text);
+    if (j is! Map) throw const RelayException('unerwartete Antwort');
+    return j.cast<String, Object?>();
   }
 }

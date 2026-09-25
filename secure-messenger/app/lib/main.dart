@@ -1,6 +1,4 @@
 import 'dart:async';
-// Nur fuer File in der Weiche unten. dart:io uebersetzt fuer Web mit — die
-// Stellen, die dort nicht gehen, werfen erst beim Aufruf (io_patch.dart).
 import 'dart:io' show File;
 
 import 'package:flutter/foundation.dart'
@@ -23,6 +21,7 @@ import 'core/lock/geraete_fach.dart';
 import 'core/lock/key_vault.dart';
 import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
+import 'core/browser/browser_zugang.dart';
 import 'core/sprache.dart';
 import 'core/benachrichtigungen.dart';
 import 'bewegung.dart';
@@ -108,15 +107,33 @@ Future<void> main() async {
   // dem ersten Faktor wandert sie in ein Schluesselfach und ist ohne ihn nicht
   // mehr zu haben — auch nicht mit Root, auch nicht mit der Datei in der Hand.
   final tresor = VaultSecretStore(
-    // File() direkt und NICHT vaultDateiIn() im Browser: das setzt den Pfad mit
-    // `Platform.pathSeparator` zusammen (vault_store.dart:301), und der ist auf
-    // Web ein UnsupportedError("Platform._pathSeparator") — nachgelesen am
-    // 30.07.2026 in dart-sdk/lib/_internal/js_runtime/lib/io_patch.dart:242.
-    // Der reine Name wirft nicht; erst LESEN oder SCHREIBEN wuerde es (dieselbe
-    // Datei, Zeile 115: File._exists). Der Browser kommt also so weit wie ohne
-    // Fachdatei, nicht weiter.
-    datei: kIsWeb ? File(vaultDateiname) : vaultDateiIn(ablageWeg),
-    basis: DeviceSecretStore(),
+    // IM BROWSER GIBT ES KEINE FACHDATEI, sondern einen Eintrag in
+    // localStorage. Bis 25.09.2026 stand hier `File(vaultDateiname)` — das
+    // uebersetzt, aber schon das erste `existsSync()` wirft im Browser
+    // UnsupportedError (io_patch.dart), und `VaultSecretStore.write` fragt
+    // genau das zuerst. "Identitaet erstellen" konnte im Browser also nie
+    // gelingen. Was im Eintrag steht, ist so wenig geheim wie die Datei: die
+    // Faecher sind mit dem Passwort verschluesselt (browser_zugang_web.dart).
+    datei: kIsWeb ? null : vaultDateiIn(ablageWeg),
+    ablage: kIsWeb ? browserFachAblage(vaultDateiname) : null,
+    // IM BROWSER LIEGT DIE ENTROPIE OHNE APP-PASSWORT NUR IM ARBEITSSPEICHER.
+    //
+    // Das ist eine Entscheidung, keine Luecke. flutter_secure_storage legt
+    // sie im Browser zwar AES-GCM-verschluesselt in localStorage ab — aber
+    // den AES-Schluessel gleich daneben, im selben localStorage (nachgelesen
+    // in flutter_secure_storage_web-2.1.1/lib/flutter_secure_storage_web.dart:
+    // generateKey, exportKey('raw'), dann unter "publicKey" abgelegt). Wer
+    // das Browserprofil hat, hat damit die zwoelf Woerter, und mit ihnen den
+    // Schluessel der Datenbank. "Verschluesselt im Browser gespeichert" waere
+    // in dieser Form eine Behauptung, die nichts traegt.
+    //
+    // Also: ohne Passwort ueberlebt die Identitaet das Neuladen der Seite
+    // NICHT, und die Oberflaeche sagt das dauerhaft an (_WebHinweis). Die
+    // Datenbank bleibt verschluesselt in IndexedDB liegen und geht mit den
+    // zwoelf Woertern wieder auf. MIT App-Passwort wandert die Entropie wie
+    // auf dem Rechner in ein Fach, das nur das Passwort oeffnet (Argon2id),
+    // und dann bleibt alles ueber den Neustart erhalten — verschluesselt.
+    basis: kIsWeb ? InMemorySecretStore() : DeviceSecretStore(),
     jetzt: () => DateTime.now().millisecondsSinceEpoch,
   );
 
@@ -3843,6 +3860,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                   Text(t('intro'), style: mono(size: 13.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
                   const SizedBox(height: 16),
                   bullet(t('b1')), bullet(t('b2')), bullet(t('b3')),
+                  // IM BROWSER VOR DEM ERSTEN KNOPF, nicht irgendwo in den
+                  // Einstellungen: wer hier eine Identitaet anlegt, muss
+                  // wissen, dass sie das Neuladen ohne Passwort nicht
+                  // ueberlebt (main() bei `basis:`).
+                  if (kIsWeb) ...[
+                    const SizedBox(height: 12),
+                    webHinweis(t('webOnboard')),
+                  ],
                   if (wiped) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -5009,6 +5034,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       ),
       Container(height: 1, color: p.lineSoft),
       if (st.fernloeschung.faellig != null) fernBanner(),
+      // SOLANGE ES KEIN APP-PASSWORT GIBT, steht das hier, und zwar ohne
+      // Knopf zum Wegklicken: die Identitaet ist in dem Zustand beim
+      // naechsten Neuladen weg, und das ist keine Meldung, die man einmal
+      // liest und dann vergessen darf.
+      if (kIsWeb && st.faktoren.isEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 10, 22, 0),
+          child: webHinweis(t('webVolatile')),
+        ),
       suchFeld(),
       if (st.suchText.trim().isEmpty && !_zeigeArchiv) filterLeiste(),
       Expanded(
@@ -5232,7 +5266,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   Widget chatScreen() {
     final cid = chat ?? c1;
     final hints = <String>[];
-    if (st.einstellungen.blockScreenshots) hints.add(t("hintShot"));
+    // NICHT IM BROWSER: dort gibt es keinen Screenshot-Schutz (der Kanal
+    // bitdm/fenster fehlt, und eine Webseite kann das Abfotografieren
+    // grundsaetzlich nicht verhindern). "Screenshot-Schutz aktiv" stand dort
+    // bis 25.09.2026 trotzdem ueber jedem Chat.
+    if (st.einstellungen.blockScreenshots && !kIsWeb) hints.add(t("hintShot"));
     hints.add(t("hintEnc"));
     // ZUERST in der Zeile, weil es das Wichtigste ist: was hier geschrieben
     // wird, geht gerade nirgendwo hin. Wer das nicht sieht, haelt eine
@@ -5528,6 +5566,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// begrenzte Zahl. Nach ein paar abgebrochenen Versuchen ginge gar nichts
   /// mehr, und niemand wuesste warum.
   Future<void> anhangWaehlen(String cid, {bool einmal = false}) async {
+    // IM BROWSER SAGEN, WARUM NICHTS PASSIERT. Die Dateiwahl laeuft ueber den
+    // Kanal bitdm/dateien, den es dort nicht gibt; ohne diese Zeile kaeme
+    // null zurueck und der Menuepunkt taete einfach nichts. Der ganze
+    // Anhang-Weg ist an dart:io-Dateien gebaut (anhang_versand.dart,
+    // anhang_empfang.dart) — im Browser ist er nicht nachgebaut.
+    if (kIsWeb) {
+      st.meldeFehler('anhangWeb');
+      return;
+    }
     final gewaehlt = await st.dateien.waehlen();
     if (gewaehlt == null) return;
     // EINMAL-ANSICHT NUR FUER BILDER: die zeigt die App selbst und loescht
@@ -5565,6 +5612,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// Fehlerart haette eine weitere if-Zeile im Aufbau gebraucht, und die
   /// erste, die jemand vergisst, verschwindet spurlos. Genau so war 'zuLang'
   /// selbst einmal gesetzt und nirgends gezeigt.
+  /// Der dauerhafte Hinweis der Browser-Fassung. Gleiche Farben wie die
+  /// Meldung nach dem Loeschen (`wiped`) — ein Hinweis, kein Fehler.
+  Widget webHinweis(String text) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+            color: p.tint,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: p.tintLine)),
+        child: Text(text, style: mono(size: 11.5, color: p.tintInk, height: 1.45)),
+      );
+
   String? chatFehlerText() {
     final f = st.letzterFehler;
     if (f == null) return null;
@@ -5578,6 +5637,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     if (f == 'tagesmenge') return t('attachQuota');
     if (f == 'anhangKaputt') return t('attachBroken');
     if (f == 'anhangNetz' || f == 'anhangFehler') return t('attachNet');
+    if (f == 'anhangWeb') return t('attachWeb');
     if (f == 'anhangLaeuft') return t('attachBusy');
     if (f == 'anhangKeineApp') return t('attachNoApp');
     if (f == 'nurNahbereich') return t('nearOnlyNoAttach');
@@ -6160,57 +6220,62 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
               ])),
         ],
 
-        const SizedBox(height: 22),
-        label6(t('receiving')),
-        settingCard(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          settingHead(t('bgReceive'), t('bgReceiveSub')),
-          const SizedBox(height: 8),
-          // OHNE PUSH AUF DEM DESKTOP. '-2' ist der Push-Takt, und der laeuft
-          // ueber UnifiedPush — ein Android-Plugin. Auf Windows waehlbar zu
-          // sein, aber beim Umschalten zu scheitern, ist schlechter als nicht
-          // angeboten zu werden. Die Verbindung bleibt dort ohnehin offen, ein
-          // Weckdienst von aussen wird also nicht gebraucht.
-          segmented(
-            _nurAufAndroid
-                ? const ['0', '-2', '-1', '15', '60']
-                : const ['0', '-1', '15', '60'],
-            _nurAufAndroid
-                ? [t('bgOff'), t('bgPush'), t('bgLive'), t('bg15'), t('bg60')]
-                : [t('bgOff'), t('bgLive'), t('bg15'), t('bg60')],
-            '${st.empfangsTakt.minuten}',
-            (v) => _setzeEmpfangsTakt(int.parse(v)),
-          ),
-          const SizedBox(height: 10),
-          Text(_empfangErklaerung(),
-              style: mono(size: 11, color: p.dim, height: 1.55)),
-
-          // Die Anleitung bleibt erreichbar, auch wenn Push schon laeuft:
-          // ntfy kann nach einer Neuinstallation wieder auf seinem eigenen
-          // Server stehen, und dann geht es ohne erkennbaren Grund nicht mehr.
-          if (st.empfangsTakt.angestossen) ...[
+        // NICHT IM BROWSER: ein geschlossener Tab empfaengt nichts, und der
+        // Weckdienst (UnifiedPush) wie der Vordergrunddienst sind Android.
+        // Solange der Tab offen ist, bleibt die Verbindung ohnehin stehen.
+        if (!kIsWeb) ...[
+          const SizedBox(height: 22),
+          label6(t('receiving')),
+          settingCard(
+              child:
+                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            settingHead(t('bgReceive'), t('bgReceiveSub')),
             const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () => setState(() => enroll = 'pushHilfe'),
-              child: Text(t('pushGuideLink').toUpperCase(),
-                  style: mono(
-                      size: 10,
-                      weight: FontWeight.w600,
-                      color: p.accLight,
-                      spacing: 1.2)),
+            // OHNE PUSH AUF DEM DESKTOP. '-2' ist der Push-Takt, und der laeuft
+            // ueber UnifiedPush — ein Android-Plugin. Auf Windows waehlbar zu
+            // sein, aber beim Umschalten zu scheitern, ist schlechter als nicht
+            // angeboten zu werden. Die Verbindung bleibt dort ohnehin offen, ein
+            // Weckdienst von aussen wird also nicht gebraucht.
+            segmented(
+              _nurAufAndroid
+                  ? const ['0', '-2', '-1', '15', '60']
+                  : const ['0', '-1', '15', '60'],
+              _nurAufAndroid
+                  ? [t('bgOff'), t('bgPush'), t('bgLive'), t('bg15'), t('bg60')]
+                  : [t('bgOff'), t('bgLive'), t('bg15'), t('bg60')],
+              '${st.empfangsTakt.minuten}',
+              (v) => _setzeEmpfangsTakt(int.parse(v)),
             ),
-          ],
-
-          // DER WIDERSPRUCH, DEN DER NUTZER KENNEN MUSS: eine Sperre, die
-          // sofort zugeht, macht Hintergrundempfang unmoeglich. Nicht aus
-          // Bequemlichkeit — der Relay verlangt eine Unterschrift mit dem
-          // Identitaetsschluessel, und der liegt hinter der Sperre.
-          if (st.empfangsTakt.an && !st.empfangMoeglich) ...[
             const SizedBox(height: 10),
-            _hinweisKasten(t('bgConflict'), warnend: false),
-          ],
-        ])),
+            Text(_empfangErklaerung(),
+                style: mono(size: 11, color: p.dim, height: 1.55)),
+
+            // Die Anleitung bleibt erreichbar, auch wenn Push schon laeuft:
+            // ntfy kann nach einer Neuinstallation wieder auf seinem eigenen
+            // Server stehen, und dann geht es ohne erkennbaren Grund nicht mehr.
+            if (st.empfangsTakt.angestossen) ...[
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () => setState(() => enroll = 'pushHilfe'),
+                child: Text(t('pushGuideLink').toUpperCase(),
+                    style: mono(
+                        size: 10,
+                        weight: FontWeight.w600,
+                        color: p.accLight,
+                        spacing: 1.2)),
+              ),
+            ],
+
+            // DER WIDERSPRUCH, DEN DER NUTZER KENNEN MUSS: eine Sperre, die
+            // sofort zugeht, macht Hintergrundempfang unmoeglich. Nicht aus
+            // Bequemlichkeit — der Relay verlangt eine Unterschrift mit dem
+            // Identitaetsschluessel, und der liegt hinter der Sperre.
+            if (st.empfangsTakt.an && !st.empfangMoeglich) ...[
+              const SizedBox(height: 10),
+              _hinweisKasten(t('bgConflict'), warnend: false),
+            ],
+          ])),
+        ],
 
         // IN DER NAEHE steht VOR der Sicherheit, weil es ein Weg ist und
         // keine Einschraenkung. Die Einschraenkung "nur in der Naehe" ist
@@ -6226,10 +6291,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
         const SizedBox(height: 22),
         label6(t('security')),
-        toggleRow(t("screenshot"), t("screenshotSub"), st.einstellungen.blockScreenshots,
-            () => st.setzeEinstellungen(st.einstellungen.copyWith(
-                blockScreenshots: !st.einstellungen.blockScreenshots))),
-        const SizedBox(height: 3),
+        // Im Browser ohne Wirkung — derselbe Grund wie beim Hinweis im Chat.
+        if (!kIsWeb) ...[
+          toggleRow(t("screenshot"), t("screenshotSub"), st.einstellungen.blockScreenshots,
+              () => st.setzeEinstellungen(st.einstellungen.copyWith(
+                  blockScreenshots: !st.einstellungen.blockScreenshots))),
+          const SizedBox(height: 3),
+        ],
         toggleRow(t("readReceipts"), t("readReceiptsSub"), st.einstellungen.readReceipts,
             () => st.setzeEinstellungen(st.einstellungen.copyWith(
                 readReceipts: !st.einstellungen.readReceipts))),

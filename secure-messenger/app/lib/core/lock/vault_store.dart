@@ -34,6 +34,7 @@ import 'dart:typed_data';
 import '../app_lock.dart';
 import '../errors.dart';
 import '../secret_store.dart';
+import 'fach_ablage.dart';
 import 'key_vault.dart';
 import 'keystore_factor.dart';
 import 'unlock_factor.dart';
@@ -68,16 +69,22 @@ class VaultSecretStore implements SecretStore {
     return unterschied == 0;
   }
 
+  /// [datei] ODER [ablage]: die Datei ist der Normalfall auf dem Geraet (und
+  /// in allen Tests), die Ablage der Weg fuer den Browser, der keine Dateien
+  /// kennt (core/browser/browser_zugang_web.dart).
   VaultSecretStore({
-    required this.datei,
+    File? datei,
+    FachAblage? ablage,
     required this.basis,
     required this.jetzt,
-  });
+  })  : assert(datei != null || ablage != null,
+            'VaultSecretStore braucht eine Datei oder eine Ablage'),
+        ablage = ablage ?? DateiFachAblage(datei!);
 
   /// Die Fachdatei. Liegt UNVERSCHLUESSELT neben der Datenbank — sie muss
   /// lesbar sein, bevor irgendetwas aufgeschlossen ist. Geheim ist nur die
   /// Nutzlast in den Faechern.
-  final File datei;
+  final FachAblage ablage;
 
   /// Wo die Entropie liegt, solange es kein einziges Fach gibt.
   final SecretStore basis;
@@ -101,9 +108,9 @@ class VaultSecretStore implements SecretStore {
   Future<KeyVault?> faecher() async {
     if (_geladen) return _faecher;
     _geladen = true;
-    if (!datei.existsSync()) return _faecher = null;
+    if (!ablage.existiert()) return _faecher = null;
     try {
-      return _faecher = KeyVault.fromJsonString(await datei.readAsString());
+      return _faecher = KeyVault.fromJsonString(await ablage.lies());
     } on VaultFormatException {
       rethrow;
     } catch (e) {
@@ -153,7 +160,7 @@ class VaultSecretStore implements SecretStore {
     // ERST die Faecher, dann die Basis: bei einem Abbruch dazwischen bleibt
     // eine unlesbare Fachdatei zurueck, keine lesbare Entropie.
     try {
-      if (datei.existsSync()) datei.deleteSync();
+      ablage.loesche();
     } catch (_) {}
     _faecher = null;
     _geladen = true;
@@ -331,12 +338,9 @@ class VaultSecretStore implements SecretStore {
   }
 
   Future<void> _schreibe(KeyVault v) async {
-    // Ueber eine Nebendatei und dann umbenennen: ein Absturz mitten im
-    // Schreiben liesse sonst eine halbe Datei zurueck — und damit einen
-    // Tresor, den niemand mehr oeffnet.
-    final neben = File('${datei.path}.neu');
-    await neben.writeAsString(v.toJsonString(), flush: true);
-    await neben.rename(datei.path);
+    // Als Ganzes ersetzen — wie, entscheidet die Ablage (auf der Platte ueber
+    // eine Nebendatei und Umbenennen, siehe DateiFachAblage).
+    await ablage.schreibe(v.toJsonString());
     _faecher = v;
     _geladen = true;
   }

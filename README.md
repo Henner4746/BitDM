@@ -14,7 +14,7 @@ Your address *is* your public key.**
 | **Android 9+** | released, signed APK |
 | **Windows x64** | built, unsigned zip |
 | **Linux** | project files present, nothing built |
-| **Web** | builds, unfinished |
+| **Web** | runs, limited, not published |
 
 Most messengers ask for your number first. BitDM asks for nothing. On first
 launch it generates a key pair; the 56-character address it shows you is the
@@ -154,7 +154,7 @@ Along the way that rig also measured something the specs do not make obvious:
 | **Android 9+** | released, signed APK | Android 12+ | UnifiedPush | app password, fingerprint, device PIN, hardware key |
 | **Windows x64** | built, unsigned zip | no | no — the connection stays open instead | app password |
 | **Linux** | project files present, nothing built | no | no | app password |
-| **Web** | builds, unfinished | no | no | app password |
+| **Web** | runs, limited, not published | no | no | app password |
 
 Nearby, push and three of the four lock factors sit behind an Android platform
 channel written in Kotlin. On the desktop they are not shown at all rather than
@@ -394,8 +394,15 @@ concerned. Two separate bugs in this project had that single root cause.
   Windows build starts with an empty conversation list, and the phone that had
   been using that address stops being reachable. Linked devices need the Sesame
   protocol, which is not built.
-- **The web build is not finished.** It compiles and the layout holds; it is not
-  a client you should rely on.
+- **The web build runs, but limited, and it is not published.** Identity,
+  app password, unlock after reload, restore from the 12 words and text
+  messages between two browsers work (tested headless against a local relay).
+  The database sits encrypted in IndexedDB (SQLite3MultipleCiphers as WASM).
+  Without an app password the identity lives in memory only and is gone on
+  reload — on purpose, because the browser's key store would keep the key right
+  next to the data. No attachments, voice messages, nearby, push or screenshot
+  protection. And it only reaches a relay under the same origin: the relay
+  sends no CORS headers, so a web build on another host cannot register.
 - **Linux has no published build.** The project files are there, nothing has
   been produced from them.
 - **The Windows binary is unsigned,** and the installer from `bitdm.iss` has not

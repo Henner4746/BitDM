@@ -106,7 +106,11 @@ class DeviceSecretStore implements SecretStore {
 
 }
 
-/// Nur fuer Tests. Haelt die Entropie im Arbeitsspeicher.
+/// Haelt die Entropie im Arbeitsspeicher — nach dem Neustart ist sie weg.
+///
+/// Fuer Tests, UND im Browser als Grundspeicher, solange kein App-Passwort
+/// eingerichtet ist. Warum dort nicht der Schluesselspeicher des Pakets:
+/// siehe main.dart bei `basis:`.
 class InMemorySecretStore implements SecretStore {
   Uint8List? _wert;
 

@@ -1,63 +1,75 @@
 // sqlite_zugang.dart — die Plattformweiche fuer SQLite.
 //
 // ============================================================================
-// STAND WEB am 30.07.2026: BITDM LAEUFT IM BROWSER NICHT. Was hier steht, ist
-// die Datenbankweiche und sonst nichts. `flutter build web --release` endet mit
-// 0 — das ist eine Aussage ueber den Uebersetzer, nicht ueber eine startfaehige
-// App. Wer weitermacht, muss diese vier Brocken erledigen:
+// STAND WEB am 25.09.2026: BITDM LAEUFT IM BROWSER — eingeschraenkt, und was
+// fehlt, fehlt mit Absicht oder weil der Browser es nicht hergibt.
 //
-// 1. web/sqlite3mc.wasm FEHLT. Gemessen: `find web/ -name "*.wasm"` -> 0
-//    Treffer, web/ enthaelt nur favicon.png, icons/, index.html,
-//    manifest.json. sqliteVorbereiten() laeuft also im Browser bis
-//    `WasmSqlite3.loadFromUrlString('sqlite3mc.wasm')` in
-//    sqlite_zugang_web.dart und wirft aus dem catch daneben den StateError mit
-//    der 404-Erklaerung. Die Datei wird ABSICHTLICH nicht mitgeliefert: sie
-//    ist ein fremdes Binaerpaket aus den GitHub-Releases von
-//    simolus3/sqlite3.dart und braucht Henriks ausdrueckliches Ja, bevor sie
-//    ins Verzeichnis kommt.
+// GEMESSEN (Chrome headless, `flutter build web`, Seite ueber
+// `py -m http.server`): Identitaet anlegen, zwoelf Woerter, App-Passwort
+// einrichten, Seite neu laden, mit dem Passwort entsperren; ohne Passwort
+// neu laden und mit den zwoelf Woertern wiederherstellen — die Notiz von
+// vorher war wieder da. Gegen einen lokalen relay_server.py unter DERSELBEN
+// Herkunft (siehe Punkt 2): zwei getrennte Browserprofile, Kontaktanfrage,
+// Annehmen, Nachricht von einem zum anderen, Double Ratchet Ende-zu-Ende. In
+// IndexedDB lagen danach 200 KB Datenbankbloecke ohne "SQLite format 3",
+// ohne "CREATE TABLE", ohne ein einziges lesbares Wort.
 //
-// 2. relay_client.dart nutzt dart:io-Netzwerk. Nachgelesen am 30.07.2026 in
-//    lib/core/net/relay_client.dart: `WebSocket.connect` in Zeile 197 und
-//    `HttpClient()` in Zeile 522 — diese ZWEI Stellen werfen im Browser
-//    UnsupportedError. Zeile 137 (`_ws?.readyState == WebSocket.open`) und 485
-//    (`ws.readyState != WebSocket.open`) lesen nur die Zustands-KONSTANTE, das
-//    wirft nichts; sie fallen mit der Umstellung trotzdem weg, weil es den Typ
-//    dart:io-WebSocket dann nicht mehr gibt. Ersatz waere package:web_socket_channel
-//    und package:http — beides eine eigene Baustelle, kein Suchen-Ersetzen,
-//    weil dart:io-WebSocket Kopfzeilen und Zertifikatspruefung anbietet, die
-//    der Browser gar nicht hergibt.
+// Die vier Brocken vom 30.07.2026 und was aus ihnen wurde:
 //
-// 3. Der Datenbankpfad kommt aus path_provider. Gemessen: `grep -rn
-//    path_provider lib/` trifft genau eine Stelle, lib/main.dart:7, benutzt in
-//    lib/main.dart:57 (`getApplicationSupportDirectory()`). Das Paket hat keine
-//    Web-Umsetzung, der Aufruf endet vor dem ersten Bildaufbau in einer
-//    MissingPluginException. lib/app_state.dart braucht dart:io nur fuer den
-//    Typ `File` in der Signatur von `anhangSenden` (Zeile 909) — das
-//    uebersetzt, aber Anhaenge waehlen kann der Browser damit nicht.
+// 1. sqlite3mc.wasm liegt in web/ (Tag sqlite3-3.5.0, sha256 3430d5f6...,
+//    derselbe Wert wie in package:sqlite3/src/hook/asset_hashes.dart:63).
+//    DAS ALLEIN REICHTE NICHT: geoeffnet werden muss ueber die VFS-Schicht
+//    "multipleciphers-<name>", sonst scheitert `PRAGMA key` — siehe
+//    `_vfsMitVerschluesselung` in sqlite_zugang_web.dart. Bis dahin endete im
+//    Browser jedes "Identitaet erstellen" in einer DatabaseUnlockException.
 //
-// 4. Die Plattformkanaele haben kein Web-Gegenstueck. `grep -rn
-//    "MethodChannel(\|EventChannel(" lib/` gibt zehn Zeilen; eine davon ist
-//    diese hier, bleiben NEUN Anlagestellen. Dieselbe Ausgabe durch
-//    `grep -o "bitdm/[a-z_]*" | sort -u | wc -l` geschickt gibt aber nur ACHT
-//    verschiedene Kanal-NAMEN — bitdm/fenster wird zweimal angelegt
-//    (lib/core/fenster.dart:13 in Fenster, :42 in FremdeApp). Darunter
-//    bitdm/empfang (lib/core/empfang.dart:92 — der EmpfangsDienst) und
-//    bitdm/nahfunk plus bitdm/nahfunk_ereignisse (lib/core/nah/funk.dart:166
-//    und 168 — der Nahfunk), ausserdem bitdm/krypto, bitdm/dateien,
-//    bitdm/usb_hid, bitdm/schluesselfach. Alle antworten im
-//    Browser mit MissingPluginException. Nahfunk ist dort ueberhaupt nicht
-//    nachbaubar: Web Bluetooth kennt kein Werben und kein Lauschen.
+// 2. relay_client.dart spricht jetzt ueber die Weiche net/netz_zugang.dart:
+//    dart:io auf dem Geraet, WebSocket und fetch des Browsers im Web. Dabei
+//    kam ein zweiter Fehler heraus, den kein Uebersetzer meldet:
+//    `nextInt(1 << 32)` ist unter dart2js `nextInt(0)` und warf bei JEDER
+//    Nachricht (Begruendung an der Stelle in relay_client.dart).
+//    HARTE GRENZE, NICHT IM CODE LOESBAR: relay_server.py schickt keine
+//    CORS-Kopfzeilen. Eine Web-Fassung unter einer anderen Herkunft als der
+//    Relay (etwa localhost gegen relay.bitdm.net) kommt ueber die WebSocket
+//    zwar hinein, aber `fetch` fuer Anmeldung und Schluesselbuendel verweigert
+//    der Browser — die App zeigt dann dauerhaft "keine Verbindung". Abhilfe
+//    ist eine Entscheidung ueber die AUSLIEFERUNG: Web-Fassung unter derselben
+//    Herkunft wie der Relay ausliefern (`--dart-define=BITDM_RELAY=...` auf
+//    einen Pfad dort), oder CORS am Relay fuer genau diese Herkunft.
 //
-// dart:io im Ganzen: `grep -rl "^import 'dart:io'" lib/` findet am 30.07.2026
-// 13 Dateien — app_state.dart, core/anhang/anhang_empfang.dart,
-// core/anhang/anhang_versand.dart, core/anhang/lager_client.dart,
-// core/dateien.dart, core/fake_messenger_core.dart,
-// core/lock/geraete_fach.dart, core/lock/vault_store.dart,
-// core/messenger_core.dart, core/net/relay_client.dart,
-// core/real_messenger_core.dart, core/store/sqlite_zugang_native.dart,
-// core/verbindungstest.dart. Nur eine davon ist harmlos:
-// sqlite_zugang_native.dart steht hinter dieser Weiche und wird fuer Web nie
-// uebersetzt. Bleiben 12 offene.
+// 3. path_provider: im Browser gar nicht mehr aufgerufen (main.dart), der
+//    Datenbankpfad ist dort ein Name in IndexedDB. Die Fachdatei der
+//    App-Sperre liegt in localStorage (core/lock/fach_ablage.dart,
+//    core/browser/browser_zugang_web.dart).
+//
+// 4. Plattformkanaele: die Aufrufer fangen MissingPluginException bereits
+//    ab (fenster, empfang, sprache, krypto, dateien); Nahfunk wird im
+//    Browser gar nicht erst angelegt. Was im Browser NICHT geht und
+//    deshalb dort ausgeblendet oder mit einem Satz beantwortet wird:
+//    Nahfunk (Web Bluetooth kennt kein Werben und kein Lauschen),
+//    Dateianhaenge (der ganze Anhang-Weg ist an dart:io-Dateien gebaut),
+//    Sprachnachrichten, Screenshot-Schutz, Geraetesperre/Biometrie und
+//    Hardware-Stick als Faktor, Hintergrundempfang und UnifiedPush.
+//
+// VERSCHLUESSELUNG IM RUHEZUSTAND, bewusst entschieden: die Datenbank ist in
+// IndexedDB mit sqlite3mc (ChaCha20-Poly1305) verschluesselt, ihr Schluessel
+// kommt aus der Entropie. Die Entropie liegt im Browser OHNE App-Passwort nur
+// im Arbeitsspeicher und ueberlebt das Neuladen nicht — flutter_secure_storage
+// legte sie dort samt AES-Schluessel nebeneinander in localStorage ab, und das
+// waere Verschluesselung nur dem Namen nach (Begruendung in main.dart bei
+// `basis:`). Die Oberflaeche sagt das dauerhaft an. MIT App-Passwort liegt die
+// Entropie in einem Argon2id-Fach und alles bleibt ueber den Neustart
+// erhalten. Klartext wird im Browser an keiner Stelle abgelegt.
+//
+// HALTBARKEIT: IndexedDbFileSystem schreibt asynchron nach (siehe
+// sqlite_zugang_web.dart bei writeAutomatically). Ein bestaetigtes COMMIT kann
+// einen sofort geschlossenen Tab also verlieren — auf dem Geraet nicht.
+//
+// dart:io im Ganzen: Die Dateien, die dart:io noch importieren, uebersetzen
+// fuer Web mit (dart2js hat einen io_patch) und werfen erst beim Aufruf. Die
+// verbliebenen Aufrufe liegen alle auf Wegen, die im Browser gesperrt sind
+// (Anhaenge, Sprachnachrichten, Geraetefach) oder hinter `kIsWeb` stehen
+// (Sicherung als Download statt Datei, Loeschen der Anhaenge beim Wipe).
 // ============================================================================
 //
 // WARUM ES DIESE DATEI GIBT: `package:sqlite3/sqlite3.dart` zieht ueber

@@ -16,6 +16,29 @@ import 'package:sqlite3/wasm.dart';
 /// Wird nur von [sqliteVorbereiten] gesetzt. `null` heisst: noch nicht geladen.
 WasmSqlite3? _laufzeit;
 
+/// Das virtuelle Dateisystem in IndexedDB. Gebraucht zum Loeschen
+/// ([loescheDatenbank]) und zum Festschreiben ([flush]).
+IndexedDbFileSystem? _dateisystem;
+
+/// Unter diesem Namen haengt das IndexedDB-Dateisystem an SQLite.
+const String _vfsName = 'bitdm-idb';
+
+/// UND UNTER DIESEM WIRD GEOEFFNET — nicht unter [_vfsName].
+///
+/// Das war der Grund, warum die erste Datenbank im Browser nie aufging
+/// (gemessen am 25.09.2026, Chrome headless): `PRAGMA cipher` bzw. `PRAGMA
+/// key` scheiterten mit einer SqliteException, [EncryptedDatabase] machte
+/// daraus ordnungsgemaess eine DatabaseUnlockException, und im Browser stand
+/// nur "Error". sqlite3mc verschluesselt nicht in SQLite selbst, sondern als
+/// Zwischenschicht UEBER einem Dateisystem. Fuer jedes Dateisystem, das man
+/// in sqlite3mc.wasm anmeldet, legt es eine solche Schicht mit dem Vorsatz
+/// "multipleciphers-" an — nachzulesen im Beispiel des Pakets,
+/// package:sqlite3-3.5.0/example/web/main.dart:46. Wer das nackte Dateisystem
+/// oeffnet, bekommt gewoehnliches SQLite ohne Verschluesselung, und das
+/// PRAGMA scheitert (oder wuerde, schlimmer, still nichts tun — genau dagegen
+/// steht _pruefeVerschluesselung).
+const String _vfsMitVerschluesselung = 'multipleciphers-$_vfsName';
+
 CommonSqlite3 get sqliteLaufzeit {
   final geladen = _laufzeit;
   if (geladen == null) {
@@ -26,6 +49,12 @@ CommonSqlite3 get sqliteLaufzeit {
   }
   return geladen;
 }
+
+/// Oeffnet die Datei ueber die verschluesselnde Schicht. Siehe
+/// [_vfsMitVerschluesselung] — ohne diesen Namen gaebe es keine
+/// Verschluesselung.
+CommonDatabase oeffneDatei(String pfad) =>
+    sqliteLaufzeit.open(pfad, vfs: _vfsMitVerschluesselung);
 
 /// Laedt das WASM-Modul und haengt das virtuelle Dateisystem daran.
 ///
@@ -77,11 +106,54 @@ Future<void> sqliteVorbereiten() async {
   // encrypted_database.dart: im schlimmsten Fall ein verbrauchter Prekey ohne
   // die zugehoerige neue Sitzung, also ein toter Gespraechsfaden mit diesem
   // einen Gegenueber. Auf dem Telefon ist das ausgeschlossen, im Browser nicht.
-  final dateisystem = await IndexedDbFileSystem.open(dbName: 'bitdm');
+  final dateisystem =
+      await IndexedDbFileSystem.open(dbName: 'bitdm', vfsName: _vfsName);
   modul.registerVirtualFileSystem(dateisystem, makeDefault: true);
 
+  _dateisystem = dateisystem;
   _laufzeit = modul;
 }
+
+/// Entfernt die Datenbank samt Rollback-Journal aus IndexedDB.
+///
+/// Die Blocks darin sind verschluesselt; ohne den Schluessel sind sie so viel
+/// wert wie auf der Platte. Geloescht wird trotzdem, und zwar bis nach
+/// IndexedDB durch ([IndexedDbFileSystem.flush]): das Dateisystem haelt eine
+/// Kopie im Arbeitsspeicher und schreibt sonst erst irgendwann.
+///
+/// Laeuft auch, wenn sqliteVorbereiten() noch nie aufgerufen wurde — das
+/// Loeschen der Identitaet darf nicht davon abhaengen, ob in dieser Sitzung
+/// schon eine Datenbank offen war.
+Future<void> loescheDatenbank(String pfad) async {
+  await sqliteVorbereiten();
+  final fs = _dateisystem!;
+  for (final endung in const ['', '-journal']) {
+    // UEBER xFullPathName. SQLite oeffnet 'bitdm.db' als '/bitdm.db' — es
+    // fragt die VFS vorher nach dem vollen Namen —, und das Dateisystem
+    // kennt die Datei nur unter diesem. Ein xAccess('bitdm.db') findet sie
+    // nicht; so blieb im ersten Anlauf die alte Datei liegen, und die neue
+    // Identitaet scheiterte an ihr mit einer DatabaseUnlockException
+    // (gemessen am 25.09.2026 in Chrome).
+    final name = fs.xFullPathName('$pfad$endung');
+    try {
+      if (fs.xAccess(name, 0) != 0) fs.xDelete(name, 0);
+    } catch (_) {
+      // Weiter loeschen — dieselbe Haltung wie auf der Platte.
+    }
+  }
+  await fs.flush();
+}
+
+/// IM BROWSER UEBERLEBT DIE IDENTITAET OHNE APP-PASSWORT KEINEN NEUSTART —
+/// die Datenbank schon.
+///
+/// Die Entropie liegt dort ohne Passwort nur im Arbeitsspeicher (siehe
+/// main.dart bei `basis:`), die verschluesselte Datenbank dagegen in
+/// IndexedDB. Nach dem Neuladen steht also eine Datei da, zu der es keinen
+/// Schluessel mehr gibt, ausser den zwoelf Woertern. [RealMessengerCore]
+/// braucht das zu wissen: eine NEUE Identitaet darf an dieser Datei nicht
+/// scheitern, eine wiederhergestellte soll sie wieder oeffnen.
+const bool verwaisteDatenbankMoeglich = true;
 
 /// Im Browser gibt es keine absoluten Pfade.
 ///

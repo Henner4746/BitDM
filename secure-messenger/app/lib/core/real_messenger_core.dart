@@ -328,6 +328,14 @@ class RealMessengerCore implements MessengerCore {
     }
     final woerter = Bip39.generate();
     final entropie = Bip39.mnemonicToEntropy(woerter);
+    // NUR IM BROWSER (verwaisteDatenbankMoeglich): dort kann eine
+    // verschluesselte Datenbank liegen, deren Identitaet den letzten
+    // Neustart nicht ueberlebt hat. Frische Entropie oeffnet sie mit
+    // Sicherheit nicht — ohne dieses Loeschen endete "Identitaet erstellen"
+    // in einer DatabaseUnlockException. Wer die alte zurueckwill, nimmt den
+    // anderen Weg, die zwoelf Woerter; darauf weist die Oberflaeche im
+    // Browser hin.
+    if (verwaisteDatenbankMoeglich) await loescheDatenbank(databasePath);
     await secretStore.write(entropie);
     _hatIdentitaet = true;
     await _oeffne(entropie);
@@ -343,7 +351,17 @@ class RealMessengerCore implements MessengerCore {
     final entropie = Bip39.mnemonicToEntropy(words);
     await secretStore.write(entropie);
     _hatIdentitaet = true;
-    await _oeffne(entropie);
+    try {
+      await _oeffne(entropie);
+    } on DatabaseUnlockException {
+      // IM BROWSER: die liegengebliebene Datenbank gehoert zu einer ANDEREN
+      // Identitaet (bei denselben Woertern ginge sie auf, samt Verlauf).
+      // Oeffnen laesst sie sich nie mehr, also weg damit und frisch anfangen.
+      // Auf dem Geraet bleibt es beim Fehler wie bisher.
+      if (!verwaisteDatenbankMoeglich) rethrow;
+      await loescheDatenbank(databasePath);
+      await _oeffne(entropie);
+    }
     return myId;
   }
 
@@ -4082,19 +4100,17 @@ class RealMessengerCore implements MessengerCore {
     } on FileSystemException {
       // Weiter loeschen. Eine Datei, die sich nicht entfernen laesst, darf den
       // Rest nicht aufhalten — der Rest ist wichtiger.
+    } on UnsupportedError {
+      // Im Browser gibt es kein Dateisystem und damit auch keine geholten
+      // Anhaenge (siehe AppState.anhangHolen). Vorher brach der Wurf von
+      // existsSync() hier das ganze Loeschen ab — VOR dem Schluessel.
     }
 
     await secretStore.delete();
 
-    for (final endung in ['', '-wal', '-shm']) {
-      final f = File('$databasePath$endung');
-      try {
-        if (f.existsSync()) f.deleteSync();
-      } on FileSystemException {
-        // Die Datei bleibt vielleicht liegen — ohne Schluessel ist sie
-        // wertlos. Kein Grund, den Loeschvorgang deswegen abzubrechen.
-      }
-    }
+    // Auf dem Geraet die drei Dateien, im Browser die Eintraege in IndexedDB
+    // (sqlite_zugang_*.dart).
+    await loescheDatenbank(databasePath);
 
     _hatIdentitaet = false;
     _setzeVerbindung(ConnectionState.disconnected);

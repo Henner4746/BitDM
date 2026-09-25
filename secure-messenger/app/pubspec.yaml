@@ -102,6 +102,19 @@ dependencies:
   # ab, das seit 0.7.0+eol nichts mehr tut.
   sqlite3: 3.5.0
 
+  # Die Browser-Schnittstellen fuer die Web-Fassung: WebSocket und fetch zum
+  # Relay (lib/core/net/netz_zugang_web.dart), localStorage fuer die Fachdatei
+  # und Download/Dateiwahl fuer Sicherungen (lib/core/browser/). Vom Dart-Team
+  # (dart.dev, verifiziert), BSD-3-Clause.
+  #
+  # KEINE NEUE ABHAENGIGKEIT im eigentlichen Sinn: package:sqlite3 zieht genau
+  # diese Fassung schon mit (stand vorher als "transitive" in pubspec.lock).
+  # Hier steht sie, weil der Code sie jetzt direkt benutzt und nicht davon
+  # abhaengen darf, dass ein anderes Paket sie zufaellig mitbringt — dieselbe
+  # Begruendung wie bei pointycastle. Nur in Dateien importiert, die fuer Web
+  # uebersetzt werden (Weichen auf dart.library.io); Android sieht sie nicht.
+  web: 1.1.1
+
   # Der Schluesselspeicher des Geraets — hier liegt die Entropie, aus der die
   # gesamte Identitaet entsteht. Verifizierter Publisher (steenbakker.dev),
   # BSD-3-Clause.

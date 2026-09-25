@@ -16,7 +16,7 @@
 // KEIN dart:io und KEIN package:sqlite3/sqlite3.dart. Beides gibt es im
 // Browser nicht — der ffi-Import bricht schon den Bau, der File-Konstruktor
 // erst zur Laufzeit. Was plattformabhaengig ist, steht in sqlite_zugang.dart
-// und ist dort begruendet: sqliteLaufzeit, absoluterPfad, journalModus.
+// und ist dort begruendet: oeffneDatei, absoluterPfad, journalModus.
 import 'dart:typed_data';
 
 import 'package:sqlite3/common.dart';
@@ -104,9 +104,10 @@ class EncryptedDatabase {
     CommonDatabase? db;
     try {
       // Im Browser wirft das einen StateError, wenn sqliteVorbereiten() nicht
-      // abgewartet wurde. Auf der VM ist sqliteVorbereiten() ein leerer Future
-      // und diese Zeile dieselbe wie vorher.
-      db = sqliteLaufzeit.open(pfad);
+      // abgewartet wurde, und oeffnet ueber die verschluesselnde VFS-Schicht
+      // von sqlite3mc. Auf der VM ist es dasselbe `sqlite3.open(pfad)` wie
+      // vorher.
+      db = oeffneDatei(pfad);
 
       // Der Verschluesselungsteil MUSS vor allem anderen kommen. Sobald
       // irgendetwas die Datei liest, ist es zu spaet.

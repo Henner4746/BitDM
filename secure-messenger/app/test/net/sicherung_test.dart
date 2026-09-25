@@ -105,7 +105,12 @@ void main() {
 
     // UND SIE KANN WEITERSCHREIBEN — mit einer frischen Sitzung.
     final danach = await neu.core.sendMessage(bob.core.myId, 'wieder da');
-    expect(await Nutzer.warteBis(() => bob.eingang.any((m) => m.id == danach.id)),
+    // 45 statt 20 Sekunden: das neue Geraet baut hier erst eine frische
+    // Sitzung auf, und unter Last (voller Testlauf, CI) dauerte das einmal
+    // laenger als 20 Sekunden.
+    expect(
+        await Nutzer.warteBis(() => bob.eingang.any((m) => m.id == danach.id),
+            frist: const Duration(seconds: 45)),
         isTrue,
         reason: 'nach dem Einspielen ging keine Nachricht mehr durch');
   });

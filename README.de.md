@@ -14,7 +14,7 @@ Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 | **Android 9+** | veröffentlicht, signiertes APK |
 | **Windows x64** | gebaut, unsigniertes Zip |
 | **Linux** | Projektdateien vorhanden, nichts gebaut |
-| **Web** | baut, unfertig |
+| **Web** | läuft, eingeschränkt, nicht veröffentlicht |
 
 Die meisten Messenger fragen zuerst nach deiner Nummer. BitDM fragt nach gar
 nichts. Beim ersten Start erzeugt es ein Schlüsselpaar; die 56 Zeichen, die es
@@ -161,7 +161,7 @@ Beide Seiten brauchen BLE 5.0.
 | **Android 9+** | veröffentlicht, signiertes APK | Android 12+ | UnifiedPush | App-Passwort, Fingerabdruck, Geräte-PIN, Hardware-Schlüssel |
 | **Windows x64** | gebaut, unsigniertes Zip | nein | nein — die Verbindung bleibt stattdessen offen | App-Passwort |
 | **Linux** | Projektdateien vorhanden, nichts gebaut | nein | nein | App-Passwort |
-| **Web** | baut, unfertig | nein | nein | App-Passwort |
+| **Web** | läuft, eingeschränkt, nicht veröffentlicht | nein | nein | App-Passwort |
 
 Nahbereich, Push und drei der vier Sperrfaktoren liegen hinter einem
 Android-Plattformkanal, geschrieben in Kotlin. Auf dem Desktop werden sie gar
@@ -416,8 +416,17 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   einer leeren Unterhaltungsliste an, und das Telefon, das diese Adresse bisher
   benutzt hat, ist nicht mehr erreichbar. Verbundene Geräte brauchen das
   Sesame-Protokoll, das nicht gebaut ist.
-- **Der Web-Build ist nicht fertig.** Er lässt sich übersetzen, und das Layout
-  steht; ein Programm, auf das du dich verlassen solltest, ist er nicht.
+- **Der Web-Build läuft, aber eingeschränkt, und er ist nicht veröffentlicht.**
+  Identität, App-Passwort, Entsperren nach dem Neuladen, Wiederherstellen aus
+  den 12 Wörtern und Textnachrichten zwischen zwei Browsern gehen (headless
+  gegen einen lokalen Relay geprüft). Die Datenbank liegt verschlüsselt in
+  IndexedDB (SQLite3MultipleCiphers als WASM). Ohne App-Passwort liegt die
+  Identität nur im Arbeitsspeicher und ist beim Neuladen weg — mit Absicht,
+  weil der Schlüsselspeicher des Browsers den Schlüssel direkt neben die Daten
+  legen würde. Keine Anhänge, keine Sprachnachrichten, kein Nahfunk, kein Push,
+  kein Screenshot-Schutz. Und er erreicht nur einen Relay unter derselben
+  Herkunft: der Relay schickt keine CORS-Kopfzeilen, eine Web-Fassung auf einem
+  anderen Host kann sich dort nicht anmelden.
 - **Für Linux gibt es keinen veröffentlichten Build.** Die Projektdateien sind
   da, hergestellt wurde daraus nichts.
 - **Die Windows-Datei ist unsigniert,** und das Installationsprogramm aus

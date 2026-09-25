@@ -337,6 +337,10 @@ class Verbindungstest {
     }
     if (e is HandshakeException) return 'TLS-Handschlag gescheitert';
     if (e is HttpException) return e.message;
+    // Im Browser: das Zwischenlager spricht dart:io (lager_client.dart), und
+    // das wirft dort UnsupportedError. Ohne diese Zeile stuende im Bericht
+    // nur "UnsupportedError".
+    if (e is UnsupportedError) return 'im Browser nicht moeglich';
     return e.runtimeType.toString();
   }
 }
