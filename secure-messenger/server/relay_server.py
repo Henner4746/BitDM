@@ -24,6 +24,16 @@ S3  /prekey ist ratenbegrenzt. Vorher konnte eine Schleife den One-Time-Prekey-
     Pool jedes Nutzers leeren.
 S4  Offline-Warteschlange ist nach Anzahl, Groesse und Alter begrenzt.
 S5  Persistenz in SQLite statt RAM; Fehlerbehandlung ist nicht mehr pauschal.
+S6  MEHRGERAETE (30.07.2026, docs/MEHRGERAETE.md). Alles, was frueher an einer
+    ADRESSE hing, haengt jetzt an (Adresse, Geraet): Buendel, Einmalschluessel,
+    Warteschlange, WebSocket, Anstoss-Endpunkt. Grund ist keine Bequemlichkeit,
+    sondern die Signal-Sitzung: sie ist eine Hashkette, und rasten zwei Geraete
+    dieselbe Kette weiter, ist eine der beiden Nachrichten unwiederbringlich
+    verloren. Deshalb eine Sitzung je GERAETEPAAR und ein Umschlag je Geraet.
+    JEDE Geraeteangabe ist optional und bedeutet weggelassen "Geraet 1" — ein
+    Client, der nichts davon weiss, merkt keinen Unterschied. Was beim
+    Aufspielen mit einer bestehenden Datenbank passiert, steht bei
+    wandere_auf_geraete().
 
 Ausserdem: Adressformat auf 56 Zeichen umgestellt (3-Byte-Pruefsumme statt 2),
 damit Base32 glatt aufgeht und kein Padding abgeschnitten werden muss.
@@ -90,15 +100,30 @@ OTK_LOW_WATERMARK = int(os.getenv("BITDM_OTK_LOW", 20))
 # Stelle nachgewiesen (Challenge-Response beim Verbinden), die IP dagegen sagt
 # nichts: hinter einer Mobilfunk-IP haengen tausende Kunden, siehe die
 # Begruendung weiter oben.
-MSG_CAPACITY = int(os.getenv("BITDM_MSG_BURST", 60))
-MSG_REFILL_PER_SEC = float(os.getenv("BITDM_MSG_REFILL", 2.0))
+#
+# SEIT MEHRGERAETE VERDREIFACHT (60 -> 180, 2,0 -> 6,0/s). Der Eimer zaehlt
+# RAHMEN, und mit Fanout kostet EINE Nutzernachricht n Rahmen — einer je Geraet
+# der Gegenstelle plus einer je eigenem Zweitgeraet. Bei den alten 60 haette ein
+# Absender mit drei Geraeten je Adresse nach 20 Nutzernachrichten "zu viele
+# Nachrichten" bekommen, obwohl sich an seinem Verhalten nichts geaendert hat.
+#
+# Was das Dach kostet: 180 Rahmen x 64 KiB = 11,25 MiB Stoss je Absender
+# (`py -c "print(180*65536/1024**2)"` -> 11.25). Bei drei Geraeten je Adresse
+# bleiben das die frueheren 60 Nutzernachrichten, im schlechtesten Fall aus
+# MEHRGERAETE.md §6 (9 Rahmen) noch 20. Die Platte bleibt trotzdem durch
+# QUEUE_MAX_TOTAL und QUEUE_MAX_PER_USER gedeckelt — diese Bremse ist nicht die
+# einzige Verteidigung, sondern nur die schnellste.
+MSG_CAPACITY = int(os.getenv("BITDM_MSG_BURST", 180))
+MSG_REFILL_PER_SEC = float(os.getenv("BITDM_MSG_REFILL", 6.0))
 
 # Ein Dach ueber der GANZEN Tabelle. Der Deckel darunter (QUEUE_MAX_PER_USER)
 # haengt an der Adresse, die der ABSENDER aussucht — ohne ein zweites, festes
 # Dach ist er beliebig oft zu haben.
 #
 # 200 000 Zeilen sind im schlechtesten Fall (jede Zeile am
-# MAX_CIPHERTEXT_BYTES-Limit) rund 12,5 GiB. Dem stehen heute 31 Konten
+# MAX_CIPHERTEXT_BYTES-Limit) rund 12,2 GiB
+# (`py -c "print(200000*65536/1024**3)"` -> 12.20703125; hier stand bis zum
+# 30.07.2026 "12,5 GiB", das sind 2,4 % daneben). Dem stehen heute 31 Konten
 # gegenueber, die zusammen hoechstens 15 500 Zeilen halten koennen — die Zahl
 # trifft also keinen ehrlichen Betrieb, sondern nur die Flut. Sie gehoert an
 # die Platte des jeweiligen Relays angepasst.
@@ -133,6 +158,45 @@ QUEUE_MAX_TOTAL = int(os.getenv("BITDM_QUEUE_MAX_TOTAL", 200_000))
 # Relay fuer seine eigenen Nutzer unbenutzbar.
 OTK_MAX_JE_BUENDEL = int(os.getenv("BITDM_OTK_MAX", 200))
 IDENTITAETEN_MAX = int(os.getenv("BITDM_IDENTITIES_MAX", 50_000))
+
+
+# --------------------------------------------------------------------------- #
+#  Mehrgeraete  (MEHRGERAETE.md §6, §7)
+# --------------------------------------------------------------------------- #
+#
+# Bei BitDM IST die Adresse der oeffentliche Schluessel, und der kommt
+# deterministisch aus den zwoelf Woertern. Wer sie hat, ist die Adresse — es
+# gibt kein Geraet mit mehr Recht darauf als ein anderes und deshalb auch kein
+# Hauptgeraet, keine Kopplungsmaske und keinen Widerruf. Was es geben MUSS, ist
+# eine eigene Signal-Sitzung je GERAETEPAAR: eine Sitzung ist eine Hashkette,
+# und rasten zwei Geraete dieselbe Kette weiter, ist eine der beiden
+# Nachrichten unwiederbringlich verloren (MEHRGERAETE.md §10).
+#
+# Wie viele Geraete EINE Adresse fuehren darf.
+#
+# Jedes Geraet kostet dem ABSENDER eine eigene Verschluesselung und diesem
+# Server eine eigene Warteschlangenzeile. Schlechtester Fall fuer EINE
+# Nutzernachricht: 5 Geraete der Gegenstelle + 4 eigene = 9 Umschlaege. Platte
+# je Adresse: 5 x QUEUE_MAX_PER_USER 500 x MAX_CIPHERTEXT_BYTES 64 KiB =
+# 156,25 MiB (`py -c "print(5*500*65536/1024**2)"` -> 156.25; je Geraet
+# 31,25 MiB). Einmalschluessel: 5 x 100 = 500 je Adresse, OTK_MAX_JE_BUENDEL
+# gilt weiter JE BUENDEL, also je Geraet.
+#
+# Fuenf deckt Telefon + Tablet + Laptop + Schreibtisch + Reserve.
+GERAETE_MAX = int(os.getenv("BITDM_GERAETE_MAX", 5))
+
+# Ab wann ein Geraet als vergessen gilt und samt seiner Warteschlange
+# weggeraeumt wird.
+#
+# WARUM ES DIESE FRIST BRAUCHT: die Warteschlange haengt jetzt am Geraet. Ein
+# totes Telefon steht dauerhaft an seinem Deckel (QUEUE_MAX_PER_USER), und ab
+# da faellt fuer JEDEN Absender an dieses Geraet die aelteste Zeile weg —
+# solange die Zeile lebt, ist die Adresse teilweise unbeschickbar. Bei einer
+# Warteschlange je Adresse fiel das niemandem auf.
+#
+# 30 Tage sind laenger als der Urlaub eines Tablets und kuerzer als
+# "vergessen". Entscheidet der Betreiber, wie alle Aufbewahrungsfristen.
+GERAET_TTL = int(os.getenv("BITDM_GERAET_TTL", 30 * 24 * 3600))
 
 
 # --------------------------------------------------------------------------- #
@@ -287,33 +351,55 @@ def verify_signature(identity_key: bytes, message: bytes, signature: bytes) -> b
 #  Datenbank
 # --------------------------------------------------------------------------- #
 
+# device_id UEBERALL MIT VORGABE 1.
+#
+# Das ist die ganze Rueckwaertsvertraeglichkeit dieses Umbaus: ein Client, der
+# nichts von Geraeten weiss, schreibt und liest Geraet 1, und alle bestehenden
+# Zeilen sind bei der Wanderung (siehe wandere_auf_geraete) Geraet 1 geworden.
+# Deshalb ist auch das ERSTE Geraet einer Adresse immer die feste 1 und keine
+# Zufallszahl (MEHRGERAETE.md §1): waere es eine Zufallszahl, koennte ein
+# alter Client eine frisch angelegte Adresse nie mehr erreichen.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS identities (
-    user_id           TEXT PRIMARY KEY,
+    user_id           TEXT NOT NULL,
+    device_id         INTEGER NOT NULL DEFAULT 1,
     identity_key      BLOB NOT NULL,
     registration_id   INTEGER NOT NULL DEFAULT 0,
     signed_prekey_id  INTEGER NOT NULL,
     signed_prekey     BLOB NOT NULL,
     signed_prekey_sig BLOB NOT NULL,
-    updated_at        REAL NOT NULL
+    updated_at        REAL NOT NULL,
+    push_endpoint     TEXT,
+    -- Zeitpunkt der letzten erfolgreichen /ws-Anmeldung DIESES Geraets, fuer
+    -- GERAET_TTL. Bleibt 0, bis sich das Geraet zum ersten Mal verbindet —
+    -- siehe LEBENSZEICHEN, das genau deshalb nicht nackt darauf schaut.
+    last_seen         REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, device_id)
 );
 
 CREATE TABLE IF NOT EXISTS one_time_prekeys (
     user_id    TEXT NOT NULL,
+    device_id  INTEGER NOT NULL DEFAULT 1,
     key_id     INTEGER NOT NULL,
     public_key BLOB NOT NULL,
-    PRIMARY KEY (user_id, key_id),
-    FOREIGN KEY (user_id) REFERENCES identities(user_id) ON DELETE CASCADE
+    PRIMARY KEY (user_id, device_id, key_id),
+    FOREIGN KEY (user_id, device_id)
+        REFERENCES identities(user_id, device_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS queue (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    recipient  TEXT NOT NULL,
-    sender     TEXT NOT NULL,
-    ciphertext BLOB NOT NULL,
-    ts         REAL NOT NULL
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient        TEXT NOT NULL,
+    recipient_device INTEGER NOT NULL DEFAULT 1,
+    sender           TEXT NOT NULL,
+    -- sender_device ist KEINE Zugabe: eine gepufferte Zeile wird spaeter
+    -- zugestellt und muss dann "from_device" tragen. Ohne diese Spalte weiss
+    -- der Server beim Nachzustellen nicht mehr, von welchem Geraet die
+    -- Nachricht kam — und der Empfaenger kann sie keiner Sitzung zuordnen.
+    sender_device    INTEGER NOT NULL DEFAULT 1,
+    ciphertext       BLOB NOT NULL,
+    ts               REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_queue_recipient ON queue(recipient);
 CREATE INDEX IF NOT EXISTS idx_queue_ts        ON queue(ts);
 
 -- Ausgestellte Marken fuer das Zwischenlager. NUR fuer die Tagesmenge da.
@@ -333,6 +419,21 @@ CREATE TABLE IF NOT EXISTS blob_marken (
 );
 CREATE INDEX IF NOT EXISTS idx_blob_marken ON blob_marken(user_id, ts);
 """
+
+# "Zuletzt ein Lebenszeichen" — als SQL-Ausdruck, weil zwei Stellen ihn
+# brauchen (der Janitor und die Verdraengung beim vollen Geraete-Deckel).
+#
+# WARUM NICHT NACKT `last_seen`: last_seen wird erst bei der ersten
+# /ws-Anmeldung gesetzt. Auf 0 stehen damit ZWEI voellig lebendige Faelle —
+# jede bei der Wanderung uebernommene Bestandszeile und jedes Geraet, das sich
+# gerade registriert, aber noch nicht verbunden hat. Ein nacktes
+# `last_seen < now - GERAET_TTL` haette Henriks bestehende Registrierung eine
+# Stunde nach dem Aufspielen weggeraeumt (Janitor-Takt 3600 s) und jede frische
+# Registrierung sofort wieder verdraengbar gemacht.
+#
+# updated_at ist der Zeitpunkt der letzten Registrierung und damit die richtige
+# Untergrenze: ein Geraet, das sein Buendel erneuert, lebt.
+LEBENSZEICHEN = "MAX(last_seen, updated_at)"
 
 db: sqlite3.Connection
 
@@ -391,8 +492,186 @@ def init_db(path: Path) -> sqlite3.Connection:
         # bloss ignoriert.
         conn.execute("ALTER TABLE identities ADD COLUMN push_endpoint TEXT")
 
+    # Die Warteschlange bekommt ihre beiden Geraetespalten per ALTER — ihr
+    # Primaerschluessel ist die AUTOINCREMENT-Kennung und wird nicht angefasst.
+    # DEFAULT 1 heisst: alles, was heute drin liegt, ist Post an und von
+    # Geraet 1 und bleibt zustellbar.
+    q_spalten = {row[1] for row in conn.execute("PRAGMA table_info(queue)")}
+    if "recipient_device" not in q_spalten:
+        conn.execute("ALTER TABLE queue ADD COLUMN "
+                     "recipient_device INTEGER NOT NULL DEFAULT 1")
+    if "sender_device" not in q_spalten:
+        conn.execute("ALTER TABLE queue ADD COLUMN "
+                     "sender_device INTEGER NOT NULL DEFAULT 1")
+
+    # NACH dem ALTER, sonst gibt es die Spalte beim ersten Start noch nicht.
+    # Der alte Index auf `recipient` allein faellt weg: jede Abfrage der
+    # Warteschlange fragt ab jetzt nach (Adresse, Geraet), und ein zweiter
+    # Index auf die Praefixspalte kostet nur Schreibarbeit.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_empfaenger "
+                 "ON queue(recipient, recipient_device)")
+    conn.execute("DROP INDEX IF EXISTS idx_queue_recipient")
+
     conn.commit()
+    wandere_auf_geraete(conn)
     return conn
+
+
+def wandere_auf_geraete(conn: sqlite3.Connection) -> bool:
+    """Bestehende Datenbank auf "je Adresse UND Geraet" umstellen.
+
+    WAS BEIM AUFSPIELEN PASSIERT, in einem Satz: alle bestehenden Zeilen werden
+    Geraet 1 und bleiben sonst Byte fuer Byte, wie sie waren. Ein heute
+    registrierter Client, der nichts von Geraeten weiss, funktioniert danach
+    unveraendert weiter — er schreibt und liest Geraet 1, weil jede Vorgabe im
+    Protokoll 1 ist. Niemand verliert seine Registrierung, niemand muss sich
+    neu anmelden, keine Sitzung wird ungueltig.
+
+    WARUM NEUANLAGE UND KOPIE statt ALTER TABLE: `identities` hatte
+    `user_id TEXT PRIMARY KEY`, und ein Primaerschluessel ist in SQLite per
+    ALTER nicht erweiterbar — mit dem alten Schluessel liesse sich ein zweites
+    Geraet gar nicht einfuegen. Dasselbe gilt fuer `one_time_prekeys`
+    (PRIMARY KEY (user_id, key_id)), das zusaetzlich den neuen
+    zusammengesetzten Fremdschluessel braucht.
+
+    `blob_marken` bleibt ausdruecklich unangetastet, siehe blob_menge_heute.
+
+    ABWEICHUNG VON MEHRGERAETE.md §8, UND SIE IST NOETIG: dort steht, jede
+    uebernommene Zeile bekomme `last_seen = 0`. Zusammen mit §7 ("der janitor
+    loescht Geraetezeilen mit last_seen < now - GERAET_TTL") loescht das JEDE
+    Bestandsregistrierung beim ersten Aufraeumen. Auch mit LEBENSZEICHEN, das
+    ersatzweise auf `updated_at` schaut, bleibt eine Luecke: `updated_at` ist
+    der Zeitpunkt der letzten REGISTRIERUNG, nicht des letzten Besuchs. Ein
+    Telefon, das taeglich verbindet, aber seit einem halben Jahr genug
+    Einmalschluessel hat, traegt dort ein halbes Jahr altes Datum.
+
+    Gemessen am 30.07.2026 gegen den echten Serverstart: eine Bestandszeile mit
+    `updated_at = 1_700_000_000` (Nov 2023) war nach dem ersten Hochfahren weg,
+    `/health` meldete `users: 0` — die Wanderung rettete die Zeile, und
+    raeume_vergessene_geraete loeschte sie zwei Zeilen spaeter wieder.
+
+    Deshalb bekommt jede uebernommene Zeile den Zeitpunkt der WANDERUNG als
+    Lebenszeichen. Damit hat jedes Bestandsgeraet nach dem Aufspielen die
+    vollen GERAET_TTL Zeit, sich einmal zu melden — genau die Zusage
+    "bestehende Zeilen bleiben erhalten, bis das Geraet sich neu meldet".
+    """
+    vorhanden = {row[1] for row in conn.execute("PRAGMA table_info(identities)")}
+    if "device_id" in vorhanden:
+        return False
+
+    # MUSS VOR BEGIN STEHEN: innerhalb einer Transaktion ist dieses PRAGMA
+    # wirkungslos, und mit eingeschalteten Fremdschluesseln raeumte das
+    # `DROP TABLE identities` unten per Kaskade genau die Einmalschluessel weg,
+    # die gerade kopiert worden sind.
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        # BEGIN steht IM Skript und nicht davor: executescript committet eine
+        # offene Transaktion vor dem Lauf und fuehrt selbst keine ein — ein
+        # `conn.execute("BEGIN")` davor waere sofort wieder weg gewesen, und
+        # jede DDL-Zeile haette einzeln committet. Ein Absturz mitten in der
+        # Wanderung haette dann eine halb umgestellte Datenbank hinterlassen.
+        conn.executescript("""
+            BEGIN;
+            CREATE TABLE identities_neu (
+                user_id           TEXT NOT NULL,
+                device_id         INTEGER NOT NULL DEFAULT 1,
+                identity_key      BLOB NOT NULL,
+                registration_id   INTEGER NOT NULL DEFAULT 0,
+                signed_prekey_id  INTEGER NOT NULL,
+                signed_prekey     BLOB NOT NULL,
+                signed_prekey_sig BLOB NOT NULL,
+                updated_at        REAL NOT NULL,
+                push_endpoint     TEXT,
+                last_seen         REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, device_id)
+            );
+            INSERT INTO identities_neu (user_id, device_id, identity_key,
+                registration_id, signed_prekey_id, signed_prekey,
+                signed_prekey_sig, updated_at, push_endpoint, last_seen)
+            SELECT user_id, 1, identity_key, registration_id, signed_prekey_id,
+                   signed_prekey, signed_prekey_sig, updated_at, push_endpoint, 0
+            FROM identities;
+
+            CREATE TABLE otk_neu (
+                user_id    TEXT NOT NULL,
+                device_id  INTEGER NOT NULL DEFAULT 1,
+                key_id     INTEGER NOT NULL,
+                public_key BLOB NOT NULL,
+                PRIMARY KEY (user_id, device_id, key_id),
+                FOREIGN KEY (user_id, device_id)
+                    REFERENCES identities(user_id, device_id) ON DELETE CASCADE
+            );
+            INSERT INTO otk_neu (user_id, device_id, key_id, public_key)
+            SELECT user_id, 1, key_id, public_key FROM one_time_prekeys;
+
+            DROP TABLE one_time_prekeys;
+            DROP TABLE identities;
+            ALTER TABLE identities_neu RENAME TO identities;
+            ALTER TABLE otk_neu        RENAME TO one_time_prekeys;
+        """)
+        # Der Zeitpunkt der Wanderung als Lebenszeichen — Begruendung oben.
+        # Als eigene Anweisung, weil executescript keine Platzhalter kennt und
+        # eine hineingeschriebene Zahl in einem Schema-Skript nichts zu suchen
+        # hat. Steht noch IN der Transaktion, faellt also mit ihr zurueck.
+        # Zu diesem Zeitpunkt enthaelt `identities` ausschliesslich
+        # uebernommene Zeilen; spaeter registrierte trifft es nie.
+        conn.execute("UPDATE identities SET last_seen=?", (time.time(),))
+        # Muss leer sein. Bliebe ein Einmalschluessel ohne seine Geraetezeile
+        # zurueck, waere das mit wieder eingeschalteten Fremdschluesseln eine
+        # Datenbank, die sich nicht mehr aufraeumen laesst.
+        kaputt = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if kaputt:
+            raise sqlite3.IntegrityError(
+                f"Wanderung haette {len(kaputt)} verwaiste Zeilen hinterlassen")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+    print("[i] Datenbank auf Mehrgeraete umgestellt — alle bestehenden "
+          "Zeilen sind jetzt Geraet 1")
+    return True
+
+
+def loesche_geraet(uid: str, geraet: int) -> int:
+    """Eine Geraetezeile samt ihrer Post entfernen. Rueckgabe: geloeschte Zeilen.
+
+    Die Einmalschluessel nimmt die Kaskade. Die Warteschlange NICHT — sie
+    zeigt auf keine Geraetezeile und wuerde sonst als Post an ein Geraet
+    liegenbleiben, das es nicht mehr gibt, bis QUEUE_TTL_SECONDS sie holt.
+
+    Ruft NUR auf, wer die schreibsperre schon haelt.
+    """
+    cur = db.execute("DELETE FROM queue WHERE recipient=? AND recipient_device=?",
+                     (uid, geraet))
+    weg = cur.rowcount
+    db.execute("DELETE FROM identities WHERE user_id=? AND device_id=?",
+               (uid, geraet))
+    return weg
+
+
+def raeume_vergessene_geraete() -> int:
+    """Geraete ohne Lebenszeichen seit GERAET_TTL entfernen. Rueckgabe: Anzahl.
+
+    Ein Geraet, das nie wieder kommt, heilte frueher allein durch
+    QUEUE_TTL_SECONDS. Das reicht nicht mehr: solange seine Zeile lebt, hat es
+    eine eigene Warteschlange, die dauerhaft am Deckel steht — und ab da faellt
+    fuer jeden Absender an dieses Geraet die aelteste Zeile weg. Ein totes
+    Telefon macht die Adresse damit teilweise unbeschickbar.
+    """
+    cutoff = time.time() - GERAET_TTL
+    entfernte_zeilen = 0
+    with schreibsperre, db:
+        tot = db.execute(
+            f"SELECT user_id, device_id FROM identities WHERE {LEBENSZEICHEN} < ?",
+            (cutoff,),
+        ).fetchall()
+        for uid, geraet in tot:
+            entfernte_zeilen += loesche_geraet(uid, geraet)
+    queue_zeilen_aendern(-entfernte_zeilen)
+    return len(tot)
 
 
 def purge_expired() -> int:
@@ -471,18 +750,28 @@ def client_ip(request: Request) -> str:
 #  Einmal-Nonces fuer Besitznachweise
 # --------------------------------------------------------------------------- #
 
-_nonces: dict[str, tuple[bytes, float]] = {}
+# Schluessel ist (Adresse, Geraet), nicht die Adresse allein.
+#
+# Ohne das Geraet im Schluessel holten sich zwei Geraete derselben Adresse
+# gegenseitig das Nonce weg: das zweite /register/challenge ueberschriebe das
+# erste, und die Registrierung des ersten Geraets scheiterte mit "kein
+# gueltiges Nonce". Bei zwei Geraeten, die beim App-Start gleichzeitig
+# nachliefern, waere das der Normalfall gewesen.
+#
+# Ein Client, der kein Geraet nennt, bekommt den Schluessel (Adresse, None) und
+# kollidiert damit nie mit einem neuen.
+_nonces: dict[tuple[str, int | None], tuple[bytes, float]] = {}
 
 
-def issue_nonce(user_id: str) -> bytes:
+def issue_nonce(user_id: str, device_id: int | None = None) -> bytes:
     nonce = secrets.token_bytes(32)
-    _nonces[user_id] = (nonce, time.monotonic() + NONCE_TTL_SECONDS)
+    _nonces[(user_id, device_id)] = (nonce, time.monotonic() + NONCE_TTL_SECONDS)
     return nonce
 
 
-def consume_nonce(user_id: str) -> bytes | None:
+def consume_nonce(user_id: str, device_id: int | None = None) -> bytes | None:
     """Holt das Nonce und verbraucht es — jedes Nonce gilt genau einmal."""
-    entry = _nonces.pop(user_id, None)
+    entry = _nonces.pop((user_id, device_id), None)
     if entry is None:
         return None
     nonce, expires = entry
@@ -498,9 +787,54 @@ class OneTimePreKey(BaseModel):
     public_key: str                       # base64
 
 
+GERAET_MAX_KENNUNG = 2**31 - 1
+
+
+def geraetekennung_moeglich(wert) -> bool:
+    """Kann es ein Geraet mit dieser Kennung ueberhaupt geben?
+
+    Dieselben Grenzen wie geraete_feld() darunter, nur fuer die Wege, an denen
+    kein pydantic-Modell steht: die Query von /ws und `to_device` im Rahmen.
+
+    DIE OBERGRENZE IST KEINE KOSMETIK. `int()` und JSON kennen keine, die
+    SQLite-Bindung schon: alles ab 2**63 wirft beim Binden OverflowError, und
+    der faellt weder in `except ValueError` noch in die Fangliste der
+    Hauptschleife. Ungefangen kappt er die Verbindung ohne Close-Frame und
+    schreibt je Versuch 3690 Byte Traceback ins Log — im /ws-Handler VOR jeder
+    Anmeldung und ohne Ratenbremse (gemessen 31.07.2026 gegen einen eigenen
+    uvicorn: `ws://127.0.0.1:8611/ws?user_id=&device_id=9223372036854775808`,
+    dreimal, Serverlog 12225 Byte).
+
+    bool ist in Python ein int — deshalb die zweite Pruefung, dieselbe Falle
+    wie bei geraete_feld() und der Groesse der Blob-Marke.
+    """
+    return (isinstance(wert, int) and not isinstance(wert, bool)
+            and 1 <= wert <= GERAET_MAX_KENNUNG)
+
+
+def geraete_feld():
+    """Das Feld `device_id`, wie es in jedem Rumpf steht.
+
+    strict=True ist hier nicht Kosmetik: `bool` IST in Python ein `int`, und
+    pydantic machte `true` in lax mode klaglos zu `1` — der Kennung, die jedem
+    Bestandsgeraet gehoert. Dieselbe Falle wie bei der Blob-Groesse und bei den
+    Kennungen im Empfangsnachweis.
+
+    Eine Funktion und keine geteilte Konstante: ein FieldInfo gehoert genau
+    einem Feld, zwei Modelle bekommen zwei eigene.
+    """
+    return Field(default=None, strict=True, ge=1, le=GERAET_MAX_KENNUNG)
+
+
 class PreKeyBundle(BaseModel):
     user_id: str
     identity_key: str                     # base64, Curve25519
+
+    # WELCHES GERAET dieser Adresse. Optional, und das ist der ganze
+    # Rueckwaertspfad: fehlt das Feld, ist es Geraet 1 — und weil es dann auch
+    # in canonical_bytes fehlt, sind die signierten Bytes eines alten Clients
+    # Byte fuer Byte die bisherigen.
+    device_id: int | None = geraete_feld()
 
     # Bezeichnet das GERAET, nicht die Identitaet.
     #
@@ -531,8 +865,28 @@ class PreKeyBundle(BaseModel):
         abgefangenes Bundle mit veraenderter Nummer erneut einreichen und beim
         Gegenueber den Eindruck eines Geraetewechsels erzeugen — oder einen
         echten Wechsel verbergen.
+
+        device_id gehoert aus demselben Grund mit hinein, und der Schaden waere
+        groesser: stuende die Kennung nur im Rumpf, koennte ein
+        Weiterleitender sie aendern und DIESELBE Signatur weiterverwenden. Die
+        Registrierung landete dann unter fremder Geraetenummer, ueberschriebe
+        dort Buendel und signed_prekey und loeschte die Einmalschluessel des
+        echten Geraets — ein stiller Uebernahmefall innerhalb einer Adresse,
+        gegen den der Besitznachweis sonst nichts ausrichtet.
+
+        NUR WENN GESETZT. Fehlt das Feld, fehlt es auch hier, und die Bytes
+        eines Clients ohne Geraetekennung sind Byte fuer Byte die von vor dem
+        Umbau. Das ist die ganze Rueckwaertsvertraeglichkeit von /register —
+        geprueft von app/test/net/canonical_fixtures.json, dessen bestehende
+        Faelle unveraendert bleiben MUESSEN.
         """
-        payload = {
+        payload = {}
+        if self.device_id is not None:
+            # sort_keys sortiert ohnehin; hier steht es trotzdem vorne, damit
+            # die Reihenfolge dieselbe ist wie im Dart-Gegenstueck, das in
+            # Einfuegereihenfolge schreibt ("d" kommt vor "i").
+            payload["device_id"] = self.device_id
+        payload.update({
             "user_id": self.user_id,
             "identity_key": self.identity_key,
             "registration_id": self.registration_id,
@@ -543,7 +897,7 @@ class PreKeyBundle(BaseModel):
                 ([k.key_id, k.public_key] for k in self.one_time_prekeys),
                 key=lambda x: x[0],
             ),
-        }
+        })
         return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
 
 
@@ -554,6 +908,9 @@ class RegisterRequest(BaseModel):
 
 class ChallengeRequest(BaseModel):
     user_id: str
+    # Muss zur device_id im spaeteren /register passen, sonst findet der
+    # Besitznachweis sein Nonce nicht — siehe _nonces.
+    device_id: int | None = geraete_feld()
 
 
 # --------------------------------------------------------------------------- #
@@ -567,6 +924,11 @@ async def lifespan(app: FastAPI):
     purged = purge_expired()
     if purged:
         print(f"[i] {purged} abgelaufene Nachrichten entfernt")
+    # Auch beim Start und nicht nur stuendlich: ein Relay, das oefter neu
+    # startet als einmal je Stunde, kaeme sonst nie zum Aufraeumen.
+    vergessen = raeume_vergessene_geraete()
+    if vergessen:
+        print(f"[i] {vergessen} vergessene Geraete entfernt")
     # Ohne diese Zeile stuende der Zaehler nach einem Neustart auf 0 und
     # QUEUE_MAX_TOTAL waere wirkungslos, bis die erste Stunde um ist.
     queue_zeilen_neu_zaehlen()
@@ -576,6 +938,9 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(3600)
             try:
                 purge_expired()
+                vergessen = raeume_vergessene_geraete()
+                if vergessen:
+                    print(f"[i] {vergessen} vergessene Geraete entfernt")
                 queue_zeilen_neu_zaehlen()
             except sqlite3.Error as exc:
                 print(f"[!] Aufraeumen fehlgeschlagen: {exc}")
@@ -593,7 +958,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="BitDM Relay", version="1.0", lifespan=lifespan)
 
-connections: dict[str, WebSocket] = {}
+# ZWEISTUFIG: Adresse -> Geraet -> Verbindung.
+#
+# Frueher stand hier eine Verbindung je Adresse, und eine neue verdraengte die
+# alte mit 4409. Genau das ist der Fehler, den Mehrgeraete behebt: zwei Geraete
+# mit denselben zwoelf Woertern warfen sich gegenseitig hinaus, und keines
+# merkte etwas. Verdraengt wird ab jetzt nur noch bei gleichem
+# (Adresse, Geraet) — eine zweite Verbindung DESSELBEN Geraets ist immer noch
+# ein Neustart derselben App und soll die alte ersetzen.
+connections: dict[str, dict[int, WebSocket]] = {}
 
 # Ob die Verbindung hinter `connections[adresse]` den Empfangsnachweis
 # beherrscht.
@@ -606,7 +979,7 @@ connections: dict[str, WebSocket] = {}
 # Immer zusammen mit `connections` gesetzt und geloescht — zwei Verzeichnisse,
 # die auseinanderlaufen koennen, waeren schlimmer als eines mit einem Tupel.
 # Ein Tupel waere sauberer, aendert aber jede Fundstelle von `connections`.
-nachweisfaehig: dict[str, bool] = {}
+nachweisfaehig: dict[str, dict[int, bool]] = {}
 
 # Wie viele Zeilen in `queue` stehen — mitgefuehrt statt gezaehlt.
 #
@@ -640,15 +1013,53 @@ def queue_zeilen_aendern(delta: int) -> None:
     _queue_zeilen = max(0, _queue_zeilen + delta)
 
 
+def verwirf_aelteste(to: str, geraet: int) -> int:
+    """Bei vollem Geraete-Deckel die AELTESTE Zeile dieses Geraets wegwerfen.
+
+    WARUM WERFEN UND NICHT DEN ABSENDER ABWEISEN: die Warteschlange haengt seit
+    dem Mehrgeraete-Umbau am Geraet. Ein totes Telefon steht dauerhaft an
+    seinem Deckel (QUEUE_MAX_PER_USER = 500), und wiese der Server hier ab,
+    haenge eine lebende Unterhaltung an einem Geraet, das seit Wochen aus ist —
+    der Absender bekaeme "Warteschlange voll" fuer eine Adresse, deren
+    Telefon direkt daneben liegt. Bei EINER Schlange je Adresse fiel das
+    niemandem auf, je Geraet macht es die Adresse teilweise unbeschickbar.
+
+    Der Verlust trifft nur dieses eine Geraet; auf den anderen Geraeten
+    derselben Adresse liegt dieselbe Nachricht (der Absender faechert an alle).
+
+    QUEUE_MAX_TOTAL weist WEITER AB, siehe die beiden Aufrufstellen: das Dach
+    ueber der ganzen Tabelle darf nicht nachgeben, sonst waere der Deckel je
+    Geraet beliebig oft zu haben — man braucht nur ein weiteres Zielgeraet.
+
+    Rueckgabe: wie viele Zeilen weggefallen sind (0 oder 1).
+    """
+    with schreibsperre, db:
+        cur = db.execute(
+            "DELETE FROM queue WHERE id = (SELECT id FROM queue"
+            " WHERE recipient=? AND recipient_device=? ORDER BY id LIMIT 1)",
+            (to, geraet),
+        )
+    queue_zeilen_aendern(-cur.rowcount)
+    return cur.rowcount
+
+
 @app.get("/health")
 def health():
     # `queued` heisst seit dem Empfangsnachweis "wartet auf einen abwesenden
     # Empfaenger ODER auf dessen Nachweis". Der Wert liegt im Mittel etwas
     # hoeher als vorher; wer darauf eine Schwelle gesetzt hat, muss das
     # wissen.
-    users = db.execute("SELECT COUNT(*) FROM identities").fetchone()[0]
+    #
+    # `users` zaehlt weiterhin ADRESSEN und nicht Zeilen — sonst bedeutete die
+    # Betriebszahl nach dem Mehrgeraete-Umbau etwas anderes als vorher und
+    # jede darauf gesetzte Schwelle waere still falsch. Die Geraetezeilen
+    # stehen daneben als `geraete`.
+    users = db.execute("SELECT COUNT(DISTINCT user_id) FROM identities").fetchone()[0]
+    geraete = db.execute("SELECT COUNT(*) FROM identities").fetchone()[0]
     queued = db.execute("SELECT COUNT(*) FROM queue").fetchone()[0]
-    return {"ok": True, "users": users, "online": len(connections), "queued": queued}
+    online = sum(len(g) for g in connections.values())
+    return {"ok": True, "users": users, "geraete": geraete, "online": online,
+            "queued": queued}
 
 
 # ---------------------------------------------------------------- Registrieren
@@ -662,7 +1073,7 @@ def register_challenge(req: ChallengeRequest, request: Request):
         decode_id(req.user_id)
     except ValueError as exc:
         raise HTTPException(400, f"ungueltige Adresse: {exc}") from exc
-    return {"nonce": b64e(issue_nonce(req.user_id))}
+    return {"nonce": b64e(issue_nonce(req.user_id, req.device_id))}
 
 
 @app.post("/register")
@@ -687,7 +1098,10 @@ def register(req: RegisterRequest, request: Request):
     if encode_id(identity_key) != bundle.user_id:
         raise HTTPException(400, "user_id passt nicht zum identity_key")
 
-    nonce = consume_nonce(bundle.user_id)
+    # Das Nonce haengt am (Adresse, Geraet)-Paar. Ein Geraet kann sich damit
+    # nicht mit dem Nonce eines anderen anmelden, und zwei Geraete derselben
+    # Adresse nehmen sich ihre Nonces nicht mehr gegenseitig weg.
+    nonce = consume_nonce(bundle.user_id, bundle.device_id)
     if nonce is None:
         raise HTTPException(401, "kein gueltiges Nonce — erst /register/challenge")
 
@@ -704,6 +1118,9 @@ def register(req: RegisterRequest, request: Request):
     # COUNT offen. Sonst zaehlte die Antwort einen Stand, den inzwischen ein
     # anderer Aufrufer veraendert haben kann — und der Client leitet aus dieser
     # Zahl ab, ob er Prekeys nachliefern muss.
+    # Fehlt die Kennung, ist es Geraet 1 — die Regel fuer den ganzen Umbau.
+    geraet = 1 if bundle.device_id is None else bundle.device_id
+
     with schreibsperre:
         # DAS DACH, und zwar nur fuer NEUE Adressen.
         #
@@ -717,43 +1134,100 @@ def register(req: RegisterRequest, request: Request):
         # keine Prekeys mehr nachliefern und waeren nach dem Aufbrauchen des
         # Vorrats nicht mehr erreichbar.
         schon_da = db.execute(
-            "SELECT 1 FROM identities WHERE user_id=?", (bundle.user_id,)
+            "SELECT 1 FROM identities WHERE user_id=? AND device_id=?",
+            (bundle.user_id, geraet),
         ).fetchone() is not None
-        if not schon_da:
-            wie_viele = db.execute("SELECT COUNT(*) FROM identities").fetchone()[0]
+        # ZWEI VERSCHIEDENE DECKEL, und sie duerfen nicht verwechselt werden.
+        geraete_dieser_adresse = db.execute(
+            "SELECT COUNT(*) FROM identities WHERE user_id=?", (bundle.user_id,)
+        ).fetchone()[0]
+
+        if not schon_da and geraete_dieser_adresse == 0:
+            # Neue ADRESSE. COUNT(DISTINCT user_id) und nicht COUNT(*): sonst
+            # saenke die Aufnahmegrenze des Relays um den Geraetefaktor, und
+            # IDENTITAETEN_MAX bedeutete etwas anderes als vor dem Umbau.
+            wie_viele = db.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM identities").fetchone()[0]
             if wie_viele >= IDENTITAETEN_MAX:
                 # 507, nicht 429: das ist keine Bremse, die nach einer Weile
                 # nachgibt, sondern eine volle Ablage. Der Unterschied gehoert
                 # in die Antwort, sonst versucht es der Client fuer immer.
                 raise HTTPException(507, "Dieser Relay nimmt keine neuen "
                                          "Adressen mehr auf")
+
+        if not schon_da and geraete_dieser_adresse >= GERAETE_MAX:
+            # Neues GERAET einer bekannten Adresse, und die ist voll.
+            #
+            # Erst nach Platz suchen: ein Geraet ohne Lebenszeichen seit
+            # GERAET_TTL ist ein vergessenes Telefon und darf dem neuen
+            # weichen. Genommen wird das aelteste davon.
+            totes = db.execute(
+                f"SELECT device_id FROM identities WHERE user_id=?"
+                f" AND {LEBENSZEICHEN} < ? ORDER BY {LEBENSZEICHEN}, device_id"
+                f" LIMIT 1",
+                (bundle.user_id, time.time() - GERAET_TTL),
+            ).fetchone()
+            if totes is None:
+                # KEIN VERDRAENGEN LEBENDER GERAETE. Bei sechs lebenden
+                # Geraeten wuerfen sie sich bei jeder Buendel-Erneuerung
+                # gegenseitig hinaus (die App erneuert auf `prekeys_low`), und
+                # aus dem Dauerpendeln wuerde Nachrichtenverlust. Eine
+                # ehrliche Absage ist besser.
+                raise HTTPException(
+                    507, f"Diese Adresse hat schon {GERAETE_MAX} Geraete")
+            with db:
+                weg = loesche_geraet(bundle.user_id, totes[0])
+            queue_zeilen_aendern(-weg)
+
         try:
             with db:
                 db.execute(
-                    "INSERT INTO identities (user_id, identity_key, registration_id,"
-                    " signed_prekey_id, signed_prekey, signed_prekey_sig, updated_at)"
-                    " VALUES (?,?,?,?,?,?,?)"
-                    " ON CONFLICT(user_id) DO UPDATE SET identity_key=excluded.identity_key,"
+                    "INSERT INTO identities (user_id, device_id, identity_key,"
+                    " registration_id, signed_prekey_id, signed_prekey,"
+                    " signed_prekey_sig, updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?)"
+                    " ON CONFLICT(user_id, device_id) DO UPDATE SET"
+                    " identity_key=excluded.identity_key,"
                     " registration_id=excluded.registration_id,"
                     " signed_prekey_id=excluded.signed_prekey_id,"
                     " signed_prekey=excluded.signed_prekey,"
                     " signed_prekey_sig=excluded.signed_prekey_sig,"
                     " updated_at=excluded.updated_at",
-                    (bundle.user_id, identity_key, bundle.registration_id,
+                    (bundle.user_id, geraet, identity_key, bundle.registration_id,
                      bundle.signed_prekey_id, b64d(bundle.signed_prekey),
                      b64d(bundle.signed_prekey_sig), time.time()),
                 )
-                db.execute("DELETE FROM one_time_prekeys WHERE user_id=?", (bundle.user_id,))
+                # NUR die Einmalschluessel DIESES Geraets. Ohne das
+                # `AND device_id=?` raeumte jede Nachlieferung eines Geraets den
+                # Vorrat aller anderen derselben Adresse weg — genau das
+                # geschah bis zum 30.07.2026 zwischen zwei Geraeten mit
+                # denselben zwoelf Woertern, und keines merkte etwas davon.
+                db.execute("DELETE FROM one_time_prekeys"
+                           " WHERE user_id=? AND device_id=?",
+                           (bundle.user_id, geraet))
                 db.executemany(
-                    "INSERT INTO one_time_prekeys (user_id, key_id, public_key) VALUES (?,?,?)",
-                    [(bundle.user_id, k.key_id, b64d(k.public_key))
+                    "INSERT INTO one_time_prekeys (user_id, device_id, key_id,"
+                    " public_key) VALUES (?,?,?,?)",
+                    [(bundle.user_id, geraet, k.key_id, b64d(k.public_key))
                      for k in bundle.one_time_prekeys],
                 )
-        except (sqlite3.Error, ValueError) as exc:
+        except (sqlite3.Error, ValueError, OverflowError) as exc:
+            # OverflowError gehoert dazu, seit die Kennungen im Rumpf keine
+            # Obergrenze haben: registration_id, signed_prekey_id und key_id
+            # sind blanke `int`, und alles ab 2**63 wirft beim Binden. Ohne
+            # diesen Eintrag kaeme dafuer 500 statt 400 — ein Fehler des
+            # Absenders, den der Server als eigenen meldet. GEBUNDEN wird hier
+            # nicht: jede Schranke wiese Werte ab, die heute sauber
+            # durchgehen (das Fixture "grosse Zahlen" faehrt
+            # signed_prekey_id=16777215 und registration_id=0).
             raise HTTPException(400, f"Bundle konnte nicht gespeichert werden: {exc}") from exc
 
+        # Zaehlt JE GERAET. Der Client leitet aus dieser Zahl ab, ob er
+        # nachliefern muss — adressweit gezaehlt saehe ein leeres Zweitgeraet
+        # den vollen Vorrat des Erstgeraets und lieferte nie nach.
         count = db.execute(
-            "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id=?", (bundle.user_id,)
+            "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id=? AND device_id=?",
+            (bundle.user_id, geraet),
         ).fetchone()[0]
     return {"ok": True, "one_time_prekeys": count}
 
@@ -761,12 +1235,24 @@ def register(req: RegisterRequest, request: Request):
 # ------------------------------------------------------------- Prekeys abholen
 
 @app.get("/prekey/{user_id}")
-def get_prekey(user_id: str, request: Request):
-    """Bundle fuer den X3DH-Aufbau. Ein One-Time-Prekey wird dabei verbraucht.
+def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
+    """Buendel fuer den X3DH-Aufbau — EINES JE GERAET dieser Adresse.
 
     Ratenbegrenzt: sonst leert eine Schleife den Pool eines beliebigen Nutzers
     und zwingt alle kuenftigen Kontakte auf den schwaecheren X3DH-Pfad ohne
     One-Time-Prekey.
+
+    DIE FLACHEN FELDER BLEIBEN und sind eine Kopie von `geraete[0]`, also des
+    Geraets mit der KLEINSTEN Kennung — nicht fest "Geraet 1". Ist Geraet 1
+    weggeraeumt (raeume_vergessene_geraete), muss ein Client, der nichts von
+    Geraeten weiss, trotzdem noch jemanden erreichen. Der Einmalschluessel im
+    flachen Block ist DERSELBE wie in geraete[0] und kein zweiter, sonst
+    kostete jede Abfrage einen Schluessel zu viel.
+
+    `?nur_geraete=1` gibt nur die Kennungen zurueck: keine Schluessel, kein
+    Einmalschluessel wird gezogen, kein Eimer-Token bei otk_limit_ok. Das ist
+    der Aufruf, den der Client oft macht (Auffrischung der Geraeteliste), und
+    er darf deshalb nichts verbrauchen.
     """
     if not rate_limit_ok(f"pk:{client_ip(request)}"):
         raise HTTPException(429, "zu viele Anfragen")
@@ -775,19 +1261,33 @@ def get_prekey(user_id: str, request: Request):
     # ausgelieferte Bundle aus EINEM Zustand stammt: davor konnte er die noch
     # nicht committete Identitaet eines anderen Threads sehen.
     with schreibsperre:
-        row = db.execute(
-            "SELECT identity_key, signed_prekey_id, signed_prekey, signed_prekey_sig,"
-            " registration_id FROM identities WHERE user_id=?", (user_id,)
-        ).fetchone()
-        if row is None:
+        rows = db.execute(
+            "SELECT device_id, identity_key, signed_prekey_id, signed_prekey,"
+            " signed_prekey_sig, registration_id FROM identities"
+            " WHERE user_id=? ORDER BY device_id", (user_id,)
+        ).fetchall()
+        if not rows:
             raise HTTPException(404, "unbekannte Adresse")
+
+        if nur_geraete:
+            return {
+                "user_id": user_id,
+                "geraete": [{"device_id": r[0], "registration_id": r[5]}
+                            for r in rows],
+            }
 
         # One-Time-Prekey nur ausgeben, wenn das Limit dieser Adresse es zulaesst.
         # Bei Ueberschreitung kommt das Bundle OHNE — X3DH funktioniert auch dann,
         # nur etwas schwaecher. Das ist bewusst besser als ein 429: legitime
         # Kontakte koennen weiterhin eine Sitzung aufbauen, waehrend der
         # Drain-Angriff ins Leere laeuft.
-        otk = None
+        #
+        # EINMAL JE ANFRAGE gebucht, nicht je ausgegebenem Schluessel: greift
+        # die Bremse, kommen ALLE Geraete ohne Einmalschluessel. Der Preis ist,
+        # dass der Prekey-Drain um den Geraetefaktor billiger wird (bei 5
+        # Geraeten 5x). Tragbar, weil ein geleerter Vorrat laut Entwurf kein
+        # Fehler ist, sondern X3DH ohne Einmalschluessel.
+        otks: dict[int, tuple] = {}
         if otk_limit_ok(user_id):
             # Atomar ist hier nur die ANWEISUNG: DELETE ... RETURNING gibt die
             # Zeile heraus, die es selbst entfernt hat, dieselbe kann also nie
@@ -797,22 +1297,42 @@ def get_prekey(user_id: str, request: Request):
             # DELETE mit zuruecknehmen, waehrend der Prekey unten schon im
             # JSON stand.
             with db:
-                otk = db.execute(
-                    "DELETE FROM one_time_prekeys WHERE rowid = ("
-                    "  SELECT rowid FROM one_time_prekeys WHERE user_id=? LIMIT 1"
-                    ") RETURNING key_id, public_key", (user_id,)
-                ).fetchone()
+                for r in rows:
+                    treffer = db.execute(
+                        "DELETE FROM one_time_prekeys WHERE rowid = ("
+                        "  SELECT rowid FROM one_time_prekeys"
+                        "  WHERE user_id=? AND device_id=? LIMIT 1"
+                        ") RETURNING key_id, public_key", (user_id, r[0])
+                    ).fetchone()
+                    if treffer is not None:
+                        otks[r[0]] = treffer
 
+    def als_geraet(r) -> dict:
+        otk = otks.get(r[0])
+        return {
+            "device_id": r[0],
+            "registration_id": r[5],
+            "signed_prekey_id": r[2],
+            "signed_prekey": b64e(r[3]),
+            "signed_prekey_sig": b64e(r[4]),
+            "one_time_prekey": (
+                {"key_id": otk[0], "public_key": b64e(otk[1])} if otk else None
+            ),
+        }
+
+    geraete = [als_geraet(r) for r in rows]
+    erstes = geraete[0]
     return {
         "user_id": user_id,
-        "identity_key": b64e(row[0]),
-        "registration_id": row[4],
-        "signed_prekey_id": row[1],
-        "signed_prekey": b64e(row[2]),
-        "signed_prekey_sig": b64e(row[3]),
-        "one_time_prekey": (
-            {"key_id": otk[0], "public_key": b64e(otk[1])} if otk else None
-        ),
+        # Der Identitaetsschluessel gehoert der ADRESSE, nicht dem Geraet — er
+        # steht deshalb nur einmal da und nicht in jedem Geraeteeintrag.
+        "identity_key": b64e(rows[0][1]),
+        "registration_id": erstes["registration_id"],
+        "signed_prekey_id": erstes["signed_prekey_id"],
+        "signed_prekey": erstes["signed_prekey"],
+        "signed_prekey_sig": erstes["signed_prekey_sig"],
+        "one_time_prekey": erstes["one_time_prekey"],
+        "geraete": geraete,
     }
 
 
@@ -920,14 +1440,20 @@ def push_endpunkt_gueltig(url: str) -> bool:
     return re.fullmatch(r"/up[A-Za-z0-9_-]+", teile.path) is not None
 
 
-async def stosse_an(user_id: str) -> None:
+async def stosse_an(user_id: str, device_id: int) -> None:
+    # JE GERAET: der Anstoss-Endpunkt steht in der Geraetezeile und ist damit
+    # von selbst geraetegenau. Ein Anstoss je gepufferter Zeile heisst bei
+    # Fanout einen je Zielgeraet — was richtig ist, denn nur das Geraet mit
+    # dieser Zeile hat etwas abzuholen.
+    #
     # Dieser Lesezugriff steht bewusst OHNE schreibsperre da: stosse_an ist
     # async und hat unten ein await — die Sperre bis dorthin zu halten, waere
     # genau der Deadlock, vor dem der Kommentar an schreibsperre warnt.
     # Schlimmstenfalls sieht er einen Endpunkt, der gleich ueberschrieben wird;
     # daraus wird ein leerer POST an die vorige Adresse.
     row = db.execute(
-        "SELECT push_endpoint FROM identities WHERE user_id=?", (user_id,)
+        "SELECT push_endpoint FROM identities WHERE user_id=? AND device_id=?",
+        (user_id, device_id),
     ).fetchone()
     if row is None or not row[0]:
         return
@@ -956,8 +1482,28 @@ async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     user_id = ws.query_params.get("user_id", "")
 
+    # Ohne `device_id` in der Query ist es Geraet 1 — ein Client, der nichts
+    # von Geraeten weiss, landet damit auf seiner bisherigen Zeile.
+    roh_geraet = ws.query_params.get("device_id")
+    try:
+        device_id = 1 if roh_geraet is None else int(roh_geraet)
+    except ValueError:
+        # Kein eigener Fehlerzweig: eine Kennung, die keine Zahl ist, gibt es
+        # unter keiner Adresse, und die Abfrage darunter antwortet ohnehin
+        # schon "erst /register aufrufen". Ein zweiter Zweig waere eine zweite
+        # Stelle, an der etwas anderes herauskaeme.
+        device_id = -1
+    if not geraetekennung_moeglich(device_id):
+        # Derselbe Ausgang wie oben, und aus demselben Grund: eine Kennung
+        # ausserhalb des Bereichs gibt es unter keiner Adresse. Ohne diese
+        # Zeile ginge sie unveraendert in die SQLite-Bindung darunter — und
+        # `?device_id=9223372036854775808` risse die Verbindung ungefangen ab,
+        # unauthentifiziert und ungebremst. -1 passt in die Bindung.
+        device_id = -1
+
     row = db.execute(
-        "SELECT identity_key FROM identities WHERE user_id=?", (user_id,)
+        "SELECT identity_key FROM identities WHERE user_id=? AND device_id=?",
+        (user_id, device_id),
     ).fetchone()
     if row is None:
         await ws.send_json({"type": "error", "reason": "erst /register aufrufen"})
@@ -978,7 +1524,21 @@ async def ws_endpoint(ws: WebSocket):
     except Exception:
         signature = b""
 
-    if not verify_signature(identity_key, nonce, signature):
+    # WAS SIGNIERT WIRD, haengt daran, ob die Query eine Kennung TRUEG — nicht
+    # daran, welche. Sonst liesse sich eine Signatur, die fuer Geraet A
+    # abgefangen wurde, unter Geraet B einreichen; das Nonce ist zwar je
+    # Verbindung frisch, aber es steht offen auf der Leitung.
+    #
+    # Ein Herunterhandeln faellt geschlossen aus: streicht jemand `device_id`
+    # aus der Query eines neuen Clients, erwartet der Server 32 Byte, der
+    # Client hat 36 signiert -> 4403. Und ohne den privaten
+    # Identitaetsschluessel kommt ueberhaupt keine Signatur zustande.
+    #
+    # device_id ist an dieser Stelle nachweislich eine gespeicherte Kennung
+    # (die Abfrage oben hat getroffen), passt also in 4 Byte unsigned.
+    erwartet = nonce if roh_geraet is None else nonce + device_id.to_bytes(4, "big")
+
+    if not verify_signature(identity_key, erwartet, signature):
         await ws.send_json({"type": "auth_result", "ok": False})
         await ws.close(code=4403)
         return
@@ -1000,11 +1560,29 @@ async def ws_endpoint(ws: WebSocket):
     # Frage "hat der Server mich verstanden" ueberhaupt beantwortbar; ein
     # neuer Client, der das Flag versehentlich nicht setzt, sieht die `q`
     # trotzdem und faellt sonst nirgends auf.
-    await ws.send_json({"type": "auth_result", "ok": True,
-                        "empfangsnachweis": nachweis})
+    # Lebenszeichen dieses Geraets, einmal je Verbindung. Daran haengt
+    # GERAET_TTL: ohne diese Zeile waere jedes Geraet nach 30 Tagen weg,
+    # gleichgueltig wie oft es sich verbunden hat.
+    with schreibsperre, db:
+        db.execute("UPDATE identities SET last_seen=? WHERE user_id=? AND device_id=?",
+                   (time.time(), user_id, device_id))
 
-    # Nur eine aktive Verbindung je Adresse: eine neue verdraengt die alte.
-    old = connections.get(user_id)
+    # `device_id` im Rueckspiegel ist reine Diagnose, dieselbe Begruendung wie
+    # beim Empfangsnachweis: ein Client, der versehentlich die falsche Kennung
+    # schickt, ist von aussen sonst nicht von einem alten zu unterscheiden.
+    # `fluechtig` kuendigt an, dass dieser Relay fluechtige Rahmen kennt (siehe
+    # unten beim Versand). Ein Client sendet sie NUR, wenn das hier steht —
+    # ein alter Relay wuerde sie sonst puffern und den Empfaenger per Anstoss
+    # wecken, fuer ein "tippt gerade", das Stunden spaeter nichts mehr heisst.
+    await ws.send_json({"type": "auth_result", "ok": True,
+                        "empfangsnachweis": nachweis, "device_id": device_id,
+                        "fluechtig": True})
+
+    # Eine aktive Verbindung je (Adresse, GERAET): eine neue verdraengt nur die
+    # alte DESSELBEN Geraets. Frueher verdraengte sie jede Verbindung der
+    # Adresse — damit warfen sich zwei Geraete mit denselben zwoelf Woertern
+    # gegenseitig hinaus, immer abwechselnd, und keines merkte etwas.
+    old = connections.get(user_id, {}).get(device_id)
     if old is not None:
         # Breit gefangen, mit Absicht: was hier schiefgeht, betrifft eine
         # Verbindung, die ohnehin endet — die NEUE darf nicht daran haengen.
@@ -1031,19 +1609,32 @@ async def ws_endpoint(ws: WebSocket):
     # Verbindung stirbt gleich mit. Das `try:` steht deshalb HIER und nicht
     # erst vor der Hauptschleife: die Nachzustellung ist genau die Stelle, an
     # der es reisst, weil dort der ganze Rueckstand durch den Socket geht.
-    connections[user_id] = ws
-    nachweisfaehig[user_id] = nachweis
+    connections.setdefault(user_id, {})[device_id] = ws
+    nachweisfaehig.setdefault(user_id, {})[device_id] = nachweis
     try:
         # ---- wartende Nachrichten zustellen ----
+        #
+        # NUR die dieses Geraets. `recipient` allein trennt nicht mehr: beide
+        # Geraete haben dieselbe Adresse, und ohne `recipient_device` bekaeme
+        # jedes Geraet die Umschlaege des anderen — verschluesselt gegen eine
+        # Sitzung, die es nicht hat, und der erste Fehlversuch schreibt den
+        # Ratchet-Fortschritt fest.
         rows = db.execute(
-            "SELECT id, sender, ciphertext, ts FROM queue WHERE recipient=? ORDER BY id",
-            (user_id,)
+            "SELECT id, sender, sender_device, ciphertext, ts FROM queue"
+            " WHERE recipient=? AND recipient_device=? ORDER BY id",
+            (user_id, device_id)
         ).fetchall()
         zugestellt: list[int] = []
-        for row_id, sender, ciphertext, ts in rows:
+        for row_id, sender, sender_device, ciphertext, ts in rows:
             await ws.send_json({
                 "type": "message",
                 "from": sender,
+                # OHNE DIES IST DAS GANZE VORHABEN WIRKUNGSLOS: der Empfaenger
+                # waehlt daran die Sitzung (name:geraet). Faechert ein Absender
+                # mit zwei Geraeten an mich, kommen zwei Umschlaege an; beide
+                # gegen name:1 zu probieren, laesst einen davon immer
+                # scheitern — und der Fehlversuch rueckt den Ratchet.
+                "from_device": sender_device,
                 "ciphertext": b64e(ciphertext),
                 "ts": ts,
                 # Die Kennung der Warteschlangenzeile. Nur gepufferte
@@ -1070,12 +1661,21 @@ async def ws_endpoint(ws: WebSocket):
         # verloren nicht.
         if zugestellt and not nachweis:
             with schreibsperre, db:
-                db.executemany("DELETE FROM queue WHERE id=?",
-                               [(i,) for i in zugestellt])
+                # Der Geraetefilter steht auch hier, obwohl die Kennungen aus
+                # der eigenen Abfrage oben stammen: es ist dasselbe DELETE wie
+                # im Empfangsnachweis, und zwei Fassungen derselben Bedingung
+                # sind zwei Gelegenheiten, eine davon zu vergessen.
+                db.executemany(
+                    "DELETE FROM queue WHERE id=? AND recipient=?"
+                    " AND recipient_device=?",
+                    [(i, user_id, device_id) for i in zugestellt])
             queue_zeilen_aendern(-len(zugestellt))
 
+        # Zaehlt JE GERAET — sonst saehe ein frisch gekoppeltes Zweitgeraet den
+        # vollen Vorrat des Erstgeraets und lieferte nie nach.
         otk_left = db.execute(
-            "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id=?", (user_id,)
+            "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id=? AND device_id=?",
+            (user_id, device_id)
         ).fetchone()[0]
         if otk_left < OTK_LOW_WATERMARK:
             await ws.send_json({"type": "prekeys_low", "remaining": otk_left})
@@ -1128,12 +1728,32 @@ async def ws_endpoint(ws: WebSocket):
                     # Warteschlangen leeren. bool ist in Python ein int --
                     # deshalb die zweite Pruefung, wie schon bei der Groesse
                     # der Blob-Marke.
-                    eigene = [(i, user_id) for i in ids
-                              if isinstance(i, int) and not isinstance(i, bool)]
+                    #
+                    # Die Obergrenze ist dieselbe Sache wie in
+                    # geraetekennung_moeglich: eine Kennung jenseits 2**63
+                    # wirft beim Binden OverflowError, den die Fangliste
+                    # dieser Schleife nicht kennt -- und der reisst die
+                    # Verbindung ungefangen ab. `id` ist der rowid der
+                    # Warteschlange und liegt immer darunter; alles darueber
+                    # traefe ohnehin keine Zeile.
+                    #
+                    # `AND recipient_device=?` IST DIE GEFAEHRLICHSTE EINZELNE
+                    # STELLE DES GANZEN UMBAUS. Seit die Warteschlange am
+                    # Geraet haengt, trennt die Adresse allein nichts mehr:
+                    # beide Geraete FUEHREN dieselbe, beide sind angemeldet,
+                    # und die Kennungen sind zu erraten. Ohne die Bedingung
+                    # koennte Geraet A die noch nicht zugestellte Post von
+                    # Geraet B loeschen -- stiller Verlust, kein Fehler, keine
+                    # Spur. Das Geraet kommt aus der VERBINDUNG, nie aus dem
+                    # Rahmen.
+                    eigene = [(i, user_id, device_id) for i in ids
+                              if isinstance(i, int) and not isinstance(i, bool)
+                              and 0 < i < 2**63]
                     if eigene:
                         with schreibsperre, db:
                             cur = db.executemany(
-                                "DELETE FROM queue WHERE id=? AND recipient=?",
+                                "DELETE FROM queue WHERE id=? AND recipient=?"
+                                " AND recipient_device=?",
                                 eigene)
                         # rowcount summiert bei executemany ueber alle
                         # Durchlaeufe; erraten Kennungen treffen nichts und
@@ -1150,18 +1770,23 @@ async def ws_endpoint(ws: WebSocket):
             # ist eine Gelegenheit, ihn falsch zu machen.
             if data.get("type") == "push_endpoint":
                 endpunkt = data.get("endpoint")
+                # JE GERAET, weil die Spalte an der Geraetezeile haengt: der
+                # Endpunkt ist die Kennung eines bestimmten Telefons, und ein
+                # zweites Geraet darf ihn nicht ueberschreiben.
                 if endpunkt in (None, ""):
                     with schreibsperre, db:
                         db.execute(
-                            "UPDATE identities SET push_endpoint=NULL WHERE user_id=?",
-                            (user_id,),
+                            "UPDATE identities SET push_endpoint=NULL"
+                            " WHERE user_id=? AND device_id=?",
+                            (user_id, device_id),
                         )
                     await ws.send_json({"type": "push_ok", "set": False})
                 elif push_endpunkt_gueltig(endpunkt):
                     with schreibsperre, db:
                         db.execute(
-                            "UPDATE identities SET push_endpoint=? WHERE user_id=?",
-                            (endpunkt, user_id),
+                            "UPDATE identities SET push_endpoint=?"
+                            " WHERE user_id=? AND device_id=?",
+                            (endpunkt, user_id, device_id),
                         )
                     await ws.send_json({"type": "push_ok", "set": True})
                 else:
@@ -1196,6 +1821,14 @@ async def ws_endpoint(ws: WebSocket):
                     )
                     continue
 
+                # BLEIBT AN DER ADRESSE UND NICHT AM GERAET, und das ist eine
+                # Entscheidung, keine Auslassung: mit device_id bekaeme
+                # dieselbe Person mit 5 Geraeten 125 GiB am Tag statt 25 — die
+                # Verteidigung waere fuer den Preis eines zweiten Geraets
+                # aufzuheben, und ein Geraet anzulegen kostet nichts. Aus
+                # demselben Grund bleibt `blob_marken` ohne Geraetespalte.
+                # Nicht "der Vollstaendigkeit halber" nachtragen.
+                #
                 # Die Tagesmenge. Sie wird beim AUSSTELLEN gezaehlt, nicht beim
                 # Hochladen — dieser Server erfaehrt nie, ob wirklich
                 # hochgeladen wurde. Wer sich Marken holt und sie verfallen
@@ -1282,10 +1915,13 @@ async def ws_endpoint(ws: WebSocket):
                 await ws.send_json({"type": "error", "reason": "Zieladresse ungueltig", **ref})
                 continue
 
-            # Gibt es diese Adresse ueberhaupt? Ohne diese Frage nimmt die
-            # Warteschlange 32 Zufallsbytes mit selbst gerechneter Pruefsumme
-            # genauso an wie einen echten Empfaenger — und der Deckel darunter
-            # zaehlt je Empfaenger, also nie mit.
+            # Gibt es diese Adresse ueberhaupt, und was ist ihr KLEINSTES
+            # Geraet? Ohne die erste Frage nimmt die Warteschlange 32
+            # Zufallsbytes mit selbst gerechneter Pruefsumme genauso an wie
+            # einen echten Empfaenger — und der Deckel darunter zaehlt je
+            # Empfaenger, also nie mit. MIN() beantwortet beide Fragen in
+            # EINER Abfrage: es ist NULL genau dann, wenn es keine Zeile gibt,
+            # und laeuft ueber PRIMARY KEY (user_id, device_id).
             #
             # DAS MACHT KEIN VERZEICHNIS AUF: es gibt schon zwei, beide ohne
             # Anmeldung. GET /prekey/<adresse> antwortet 404 statt 200, und
@@ -1293,14 +1929,73 @@ async def ws_endpoint(ws: WebSocket):
             # letzteres voellig ungebremst. Wer Adressen durchprobiert, nimmt
             # den billigeren Weg. Hier zu schweigen kostete nur die
             # Ehrlichkeit des `ack`.
-            if db.execute("SELECT 1 FROM identities WHERE user_id=?",
-                          (to,)).fetchone() is None:
+            kleinstes = db.execute(
+                "SELECT MIN(device_id) FROM identities WHERE user_id=?",
+                (to,)).fetchone()[0]
+            if kleinstes is None:
                 await ws.send_json(
                     {"type": "error", "reason": "Zieladresse unbekannt", **ref})
                 continue
 
-            target = connections.get(to)
-            if target is not None and nachweisfaehig.get(to):
+            # An WELCHES Geraet. Fehlt die Angabe, gilt das Geraet mit der
+            # KLEINSTEN Kennung — genau die Zeile, aus der get_prekey seine
+            # flachen Felder kopiert (`erstes = geraete[0]`, die Zeilen kommen
+            # dort ORDER BY device_id). Beide Haelften des Rueckwaertspfads
+            # muessen dasselbe Geraet meinen: fest 1 lieferte dem alten Client
+            # die Schluessel von geraete[0] und schickte seine Nachricht an
+            # Geraet 1 — ist das weggeraeumt (raeume_vergessene_geraete nach
+            # GERAET_TTL, oder verdraengt beim vollen Geraetedeckel), bekommt
+            # er dauerhaft "Zielgeraet unbekannt" und die Adresse ist fuer ihn
+            # unerreichbar. Solange Geraet 1 lebt, IST MIN(device_id) die 1:
+            # kleiner geht nicht, geraete_feld() laesst nur ab 1 zu.
+            ziel_geraet = data.get("to_device")
+            if ziel_geraet is None:
+                ziel_geraet = kleinstes
+
+            # Die Existenzfrage muss JE GERAET gestellt werden. Ohne sie
+            # koennte ein Absender an Geraet 999 einer echten Adresse puffern,
+            # das es nie gab -- und dieselbe Flut ueber eine Adresse fahren,
+            # die die Existenzpruefung darueber besteht.
+            if (not geraetekennung_moeglich(ziel_geraet)
+                    or db.execute(
+                        "SELECT 1 FROM identities WHERE user_id=? AND device_id=?",
+                        (to, ziel_geraet)).fetchone() is None):
+                await ws.send_json(
+                    {"type": "error", "reason": "Zielgeraet unbekannt", **ref})
+                continue
+
+            target = connections.get(to, {}).get(ziel_geraet)
+
+            # FLUECHTIG: nur an eine BESTEHENDE Verbindung, sonst nirgendwohin.
+            # Keine Zeile in der Warteschlange, kein Anstoss, kein `q`. Das ist
+            # fuer Dinge, die nur im Augenblick etwas bedeuten ("tippt gerade");
+            # gepuffert kaemen sie an, wenn sie laengst falsch sind, und jede
+            # einzelne weckte ein Telefon.
+            #
+            # Das `ack` kommt in beiden Faellen: der Absender soll nicht
+            # erfahren, ob die Gegenstelle gerade verbunden ist. Sonst waere das
+            # eine Anwesenheitsabfrage fuer jeden, der eine Adresse kennt.
+            if data.get("fluechtig") is True:
+                if not msg_limit_ok(user_id):
+                    await ws.send_json(
+                        {"type": "error", "reason": "zu viele Nachrichten",
+                         "to": to, **ref})
+                    continue
+                if target is not None:
+                    try:
+                        await target.send_json({
+                            "type": "message",
+                            "from": user_id,
+                            "from_device": device_id,
+                            "ciphertext": raw_ct,
+                            "ts": time.time(),
+                        })
+                    except Exception:
+                        pass
+                await ws.send_json({"type": "ack", "to": to, **ref})
+                continue
+
+            if target is not None and nachweisfaehig.get(to, {}).get(ziel_geraet):
                 # ERST IN DIE WARTESCHLANGE, DANN LIVE SCHICKEN.
                 #
                 # Vorher ging eine live weitergereichte Nachricht ohne jede
@@ -1341,19 +2036,18 @@ async def ws_endpoint(ws: WebSocket):
                          "to": to, **ref})
                     continue
                 offen = db.execute(
-                    "SELECT COUNT(*) FROM queue WHERE recipient=?", (to,)
+                    "SELECT COUNT(*) FROM queue WHERE recipient=?"
+                    " AND recipient_device=?", (to, ziel_geraet)
                 ).fetchone()[0]
                 if offen >= QUEUE_MAX_PER_USER:
-                    await ws.send_json(
-                        {"type": "error", "reason": "Warteschlange voll",
-                         "to": to, **ref})
-                    continue
+                    verwirf_aelteste(to, ziel_geraet)
 
                 with schreibsperre, db:
                     cur = db.execute(
-                        "INSERT INTO queue (recipient, sender, ciphertext, ts)"
-                        " VALUES (?,?,?,?)",
-                        (to, user_id, ciphertext, time.time()),
+                        "INSERT INTO queue (recipient, recipient_device, sender,"
+                        " sender_device, ciphertext, ts) VALUES (?,?,?,?,?,?)",
+                        (to, ziel_geraet, user_id, device_id, ciphertext,
+                         time.time()),
                     )
                 queue_zeilen_aendern(+1)
                 zeile = cur.lastrowid
@@ -1364,6 +2058,10 @@ async def ws_endpoint(ws: WebSocket):
                 await target.send_json({
                     "type": "message",
                     "from": user_id,
+                    # Die Kennung der ANGEMELDETEN VERBINDUNG des Absenders,
+                    # nie ein Wert aus seinem Rahmen. Sonst koennte jeder
+                    # behaupten, von einem beliebigen Geraet zu schreiben.
+                    "from_device": device_id,
                     "ciphertext": raw_ct,
                     "ts": time.time(),
                     "q": zeile,
@@ -1386,6 +2084,7 @@ async def ws_endpoint(ws: WebSocket):
                 await target.send_json({
                     "type": "message",
                     "from": user_id,
+                    "from_device": device_id,
                     "ciphertext": raw_ct,
                     "ts": time.time(),
                 })
@@ -1412,11 +2111,11 @@ async def ws_endpoint(ws: WebSocket):
                 continue
 
             queued = db.execute(
-                "SELECT COUNT(*) FROM queue WHERE recipient=?", (to,)
+                "SELECT COUNT(*) FROM queue WHERE recipient=? AND recipient_device=?",
+                (to, ziel_geraet)
             ).fetchone()[0]
             if queued >= QUEUE_MAX_PER_USER:
-                await ws.send_json({"type": "error", "reason": "Warteschlange voll", "to": to, **ref})
-                continue
+                verwirf_aelteste(to, ziel_geraet)
 
             # Zwischen den beiden Zaehlungen oben und diesem INSERT steht kein
             # await, und in `queue` schreibt sonst nur purge_expired — das
@@ -1425,8 +2124,9 @@ async def ws_endpoint(ws: WebSocket):
             # der HTTP-Endpunkte, nicht gegen einen zweiten Absender.
             with schreibsperre, db:
                 db.execute(
-                    "INSERT INTO queue (recipient, sender, ciphertext, ts) VALUES (?,?,?,?)",
-                    (to, user_id, ciphertext, time.time()),
+                    "INSERT INTO queue (recipient, recipient_device, sender,"
+                    " sender_device, ciphertext, ts) VALUES (?,?,?,?,?,?)",
+                    (to, ziel_geraet, user_id, device_id, ciphertext, time.time()),
                 )
             # NACH dem with-Block: ein sqlite3.Error darin verlaesst die
             # Schleife ungefangen, dann darf der Zaehler nicht hochgelaufen
@@ -1438,16 +2138,26 @@ async def ws_endpoint(ws: WebSocket):
             #
             # NICHT ABWARTEN: der Absender hat sein ack schon. Wenn der
             # Push-Server hakt, darf das seine Verbindung nicht aufhalten.
-            asyncio.create_task(stosse_an(to))
+            asyncio.create_task(stosse_an(to, ziel_geraet))
 
     except (WebSocketDisconnect, json.JSONDecodeError, RuntimeError):
         pass
     finally:
-        if connections.get(user_id) is ws:
-            del connections[user_id]
+        if connections.get(user_id, {}).get(device_id) is ws:
+            del connections[user_id][device_id]
             # Nur zusammen mit dem Eintrag, und nur wenn er UNS gehoert: hat
-            # sich inzwischen eine neuere Verbindung derselben Adresse
+            # sich inzwischen eine neuere Verbindung DIESES GERAETS
             # eingetragen, wuerde ein Loeschen hier ihre Faehigkeit
             # wegnehmen — und der naechste Absender fiele fuer sie auf den
             # alten, verlustbehafteten Weg zurueck.
-            nachweisfaehig.pop(user_id, None)
+            #
+            # Die Pruefung ist jetzt zweistufig, und beide Stufen sind noetig:
+            # ohne `.get(device_id)` risse ein Geraet den Eintrag eines
+            # ANDEREN Geraets derselben Adresse weg.
+            nachweisfaehig.get(user_id, {}).pop(device_id, None)
+            # Die leere Innentabelle abraeumen, sonst waechst `connections` um
+            # einen Eintrag je Adresse, die sich je verbunden hat — dieselbe
+            # Falle wie bei _buckets und _nonces.
+            if not connections[user_id]:
+                del connections[user_id]
+                nachweisfaehig.pop(user_id, None)

@@ -36,6 +36,7 @@ import json
 import os
 import re
 import socket
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -709,6 +710,7 @@ def relay(tmp_path, monkeypatch):
     monkeypatch.setattr(rs, "_buckets", {})
     monkeypatch.setattr(rs, "_nonces", {})
     monkeypatch.setattr(rs, "connections", {})
+    monkeypatch.setattr(rs, "nachweisfaehig", {})
     monkeypatch.setattr(rs, "_queue_zeilen", 0)
     try:
         yield rs
@@ -723,36 +725,54 @@ class _Anfrage:
     client = None
 
 
-def _lege_an(rs, user, n_otk=3):
+def _lege_an(rs, user, n_otk=3, geraet=1, last_seen=None):
     """Traegt eine Identitaet ein, ohne den ganzen /register-Weg zu gehen.
 
     Der Weg ueber /register braeuchte Nonce, Signatur und Ratenbegrenzung —
     alles schon in Haelfte 1 geprueft und hier nur Rauschen um den Punkt herum.
+
+    [geraet] ist die Vorgabe 1, damit jeder Aufruf von vor dem
+    Mehrgeraete-Umbau unveraendert dasselbe tut.
     """
     pub = base64.b64decode(user["bundle"]["identity_key"])
+    jetzt = time.time()
     with rs.db:
         rs.db.execute(
-            "INSERT OR REPLACE INTO identities (user_id, identity_key,"
+            "INSERT OR REPLACE INTO identities (user_id, device_id, identity_key,"
             " registration_id, signed_prekey_id, signed_prekey,"
-            " signed_prekey_sig, updated_at) VALUES (?,?,?,?,?,?,?)",
-            (user["user_id"], pub, 4711, 1, os.urandom(32), os.urandom(64),
-             time.time()),
+            " signed_prekey_sig, updated_at, last_seen) VALUES (?,?,?,?,?,?,?,?,?)",
+            (user["user_id"], geraet, pub, 4711, 1, os.urandom(32),
+             os.urandom(64), jetzt if last_seen is None else last_seen,
+             jetzt if last_seen is None else last_seen),
         )
         rs.db.executemany(
-            "INSERT INTO one_time_prekeys (user_id, key_id, public_key)"
-            " VALUES (?,?,?)",
-            [(user["user_id"], i, os.urandom(32)) for i in range(n_otk)],
+            "INSERT INTO one_time_prekeys (user_id, device_id, key_id, public_key)"
+            " VALUES (?,?,?,?)",
+            [(user["user_id"], geraet, i, os.urandom(32)) for i in range(n_otk)],
         )
 
 
-def _puffere(rs, empfaenger, absender, n=1):
+def _puffere(rs, empfaenger, absender, n=1, geraet=1, von_geraet=1):
     """Legt n Zeilen direkt in die Warteschlange."""
     with rs.db:
         rs.db.executemany(
-            "INSERT INTO queue (recipient, sender, ciphertext, ts) VALUES (?,?,?,?)",
-            [(empfaenger, absender, b"<blob>", time.time()) for _ in range(n)],
+            "INSERT INTO queue (recipient, recipient_device, sender,"
+            " sender_device, ciphertext, ts) VALUES (?,?,?,?,?,?)",
+            [(empfaenger, geraet, absender, von_geraet, b"<blob>", time.time())
+             for _ in range(n)],
         )
     rs.queue_zeilen_neu_zaehlen()
+
+
+def _verbinde(rs, user, leitung, *, geraet=1, nachweis=True):
+    """Haengt eine gefaelschte Leitung als angemeldetes Geraet ein.
+
+    `connections` und `nachweisfaehig` sind seit dem Mehrgeraete-Umbau
+    zweistufig (Adresse -> Geraet -> Leitung). Diese Funktion ist die einzige
+    Stelle, die das in den Tests weiss.
+    """
+    rs.connections.setdefault(user["user_id"], {})[geraet] = leitung
+    rs.nachweisfaehig.setdefault(user["user_id"], {})[geraet] = nachweis
 
 
 # --------------------------------------------------------------------------- #
@@ -974,8 +994,19 @@ class _StummerSocket:
     """
 
     def __init__(self, user_id, priv, *, antworten=None, reisst_bei=None,
-                 nachweis=False, bestaetigt=False):
+                 nachweis=False, bestaetigt=False, geraet=None,
+                 signiert_geraet=None):
         self.query_params = {"user_id": user_id}
+        # OHNE `geraet` steht keine device_id in der Query, und signiert wird
+        # nur das Nonce — das ist der Client von vor dem Mehrgeraete-Umbau,
+        # auf den alle aelteren Tests dieser Datei bauen.
+        if geraet is not None:
+            self.query_params["device_id"] = str(geraet)
+        self._geraet = geraet
+        # Welche Kennung in die SIGNIERTEN Bytes geht. Weicht sie von `geraet`
+        # ab, wird die Signatur eines anderen Geraets wiederverwendet — genau
+        # der Angriff, den nonce||uint32be(device_id) abwehren soll.
+        self._signiert = geraet if signiert_geraet is None else signiert_geraet
         self._priv = priv
         self._antworten = list(antworten or [])
         self._reisst_bei = reisst_bei
@@ -1009,7 +1040,9 @@ class _StummerSocket:
             # Die Challenge wird gleich hier beantwortet: ohne gueltige
             # Signatur kaeme der Ablauf nie bis zur Nachzustellung.
             nonce = base64.b64decode(obj["nonce"])
-            antwort = {"signature": b64(sign(self._priv, nonce))}
+            zu_signieren = nonce if self._geraet is None else (
+                nonce + self._signiert.to_bytes(4, "big"))
+            antwort = {"signature": b64(sign(self._priv, zu_signieren))}
             if self._nachweis:
                 antwort["empfangsnachweis"] = True
             self._antworten.insert(0, antwort)
@@ -1088,7 +1121,7 @@ def test_verdraengte_verbindung_reisst_die_neue_nicht_mit(relay):
         async def close(self, code=None):
             raise AssertionError("zwei Aufgaben auf demselben Protokoll")
 
-    rs.connections[bob["user_id"]] = _AlteVerbindung()
+    _verbinde(rs, bob, _AlteVerbindung())
 
     sock = _StummerSocket(bob["user_id"], bob["priv"])
     entwischt = None
@@ -1185,7 +1218,10 @@ def test_bremse_trifft_das_puffern_und_nicht_die_unterhaltung(relay, monkeypatch
     monkeypatch.setattr(rs, "MSG_REFILL_PER_SEC", 0.0)
 
     horcher = _Zuhoerer()
-    rs.connections[carol["user_id"]] = horcher
+    # nachweis=False haelt den Weg von vor dem Empfangsnachweis: live
+    # durchreichen ohne Warteschlangenzeile. Genau darauf zaehlen die
+    # Erwartungen unten.
+    _verbinde(rs, carol, horcher, nachweis=False)
 
     rahmen = [{"type": "message", "to": bob["user_id"], "ciphertext": b64(b"x")}
               for _ in range(5)]
@@ -1370,7 +1406,7 @@ def test_klage_nennt_weder_adresse_noch_endpunkt(relay, klage_frisch, monkeypatc
     toter_port = s.getsockname()[1]
     s.close()
     monkeypatch.setattr(rs, "PUSH_ZIEL_BASIS", f"http://127.0.0.1:{toter_port}")
-    asyncio.run(rs.stosse_an(empfaenger["user_id"]))
+    asyncio.run(rs.stosse_an(empfaenger["user_id"], 1))
 
     ausgabe = capsys.readouterr().out
     assert "Anstoss geht nicht raus" in ausgabe
@@ -1391,7 +1427,7 @@ def test_anstoss_geht_ueber_loopback_raus(relay, klage_frisch, monkeypatch, caps
     try:
         monkeypatch.setattr(
             rs, "PUSH_ZIEL_BASIS", f"http://127.0.0.1:{srv.server_address[1]}")
-        asyncio.run(rs.stosse_an(empfaenger["user_id"]))
+        asyncio.run(rs.stosse_an(empfaenger["user_id"], 1))
     finally:
         srv.shutdown()
 
@@ -1419,7 +1455,7 @@ def test_fuenfhundert_wird_bemerkt(relay, klage_frisch, monkeypatch, capsys):
     try:
         monkeypatch.setattr(
             rs, "PUSH_ZIEL_BASIS", f"http://127.0.0.1:{srv.server_address[1]}")
-        asyncio.run(rs.stosse_an(empfaenger["user_id"]))
+        asyncio.run(rs.stosse_an(empfaenger["user_id"], 1))
     finally:
         srv.shutdown()
 
@@ -1443,7 +1479,7 @@ def test_toter_push_server_wird_bemerkt(relay, klage_frisch, monkeypatch, capsys
     s.close()
 
     monkeypatch.setattr(rs, "PUSH_ZIEL_BASIS", f"http://127.0.0.1:{toter_port}")
-    asyncio.run(rs.stosse_an(empfaenger["user_id"]))
+    asyncio.run(rs.stosse_an(empfaenger["user_id"], 1))
 
     ausgabe = capsys.readouterr().out
     assert "Anstoss geht nicht raus" in ausgabe
@@ -1544,7 +1580,7 @@ def test_die_kennung_steht_nur_am_gepufferten_rahmen(relay):
     _lege_an(rs, bob)
 
     zuhoerer = _Zuhoerer()
-    rs.connections[bob["user_id"]] = zuhoerer
+    _verbinde(rs, bob, zuhoerer, nachweis=False)
     _sitzung(rs, alice, [
         {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"x")},
     ])
@@ -1797,8 +1833,7 @@ def test_eine_live_nachricht_liegt_bis_zum_nachweis_in_der_warteschlange(relay):
             self.bekommen.append(obj)
 
     bobs_leitung = Empfaenger()
-    rs.connections[bob["user_id"]] = bobs_leitung
-    rs.nachweisfaehig[bob["user_id"]] = True
+    _verbinde(rs, bob, bobs_leitung)
     try:
         raus = _sitzung(rs, alice, [
             {"type": "message", "to": bob["user_id"],
@@ -1847,8 +1882,7 @@ def test_ein_alter_client_bekommt_weiterhin_den_alten_weg(relay):
             self.bekommen.append(obj)
 
     alt = Empfaenger()
-    rs.connections[bob["user_id"]] = alt
-    rs.nachweisfaehig[bob["user_id"]] = False
+    _verbinde(rs, bob, alt, nachweis=False)
     try:
         _sitzung(rs, alice, [
             {"type": "message", "to": bob["user_id"],
@@ -1910,3 +1944,965 @@ def _unterschreibe(user):
     bundle = rs.PreKeyBundle(**user["bundle"])
     nachricht = nonce + hashlib.sha256(bundle.canonical_bytes()).digest()
     return sign(user["priv"], nachricht)
+
+
+# --------------------------------------------------------------------------- #
+#  Mehrgeraete  (docs/MEHRGERAETE.md, 30.07.2026)
+# --------------------------------------------------------------------------- #
+#
+# Der Befund, der das Ganze ausgeloest hat: spielt man dieselben zwoelf Woerter
+# auf zwei Geraeten ein, melden sich beide erfolgreich an und KEINES merkt
+# etwas. Das zuletzt angemeldete besitzt das Buendel, seine Registrierung
+# loescht die Einmalschluessel des anderen, das erste wird stumm getrennt — und
+# beide rasten anschliessend an derselben Signal-Sitzung weiter, was jede
+# zweite Nachricht unwiederbringlich vernichtet.
+#
+# Die Tests hier stehen in der Reihenfolge der Spezifikation: erst das
+# Datenmodell und die Wanderung (§8), dann die Adressierung (§3), dann die
+# Angriffe (§2), zuletzt die Grenzen (§6, §7).
+
+
+def _bundle_mit(user, geraet=None, **aenderungen):
+    """Das Bundle des Nutzers, mit Geraetekennung und optionalen Aenderungen."""
+    import relay_server as rs
+    roh = dict(user["bundle"])
+    if geraet is not None:
+        roh["device_id"] = geraet
+    roh.update(aenderungen)
+    return rs.PreKeyBundle(**roh)
+
+
+def _melde_an(rs, user, geraet=None, **aenderungen):
+    """Eine vollstaendige Registrierung ueber den echten Endpunkt.
+
+    Anders als _lege_an geht das hier durch Nonce, canonical_bytes und
+    Signaturpruefung — bei Mehrgeraete haengt genau daran die Sicherheit, also
+    darf es hier nicht abgekuerzt werden.
+    """
+    bundle = _bundle_mit(user, geraet, **aenderungen)
+    nonce = rs.issue_nonce(user["user_id"], geraet)
+    sig = sign(user["priv"],
+               nonce + hashlib.sha256(bundle.canonical_bytes()).digest())
+    return rs.register(
+        rs.RegisterRequest(bundle=bundle, signature=b64(sig)), _Anfrage())
+
+
+def _geraete(rs, user_id):
+    return [r[0] for r in rs.db.execute(
+        "SELECT device_id FROM identities WHERE user_id=? ORDER BY device_id",
+        (user_id,))]
+
+
+# ------------------------------------------------- §8  Wanderung der Bestandsdaten
+
+# Das Schema, wie es auf relay.bitdm.net LAEUFT — woertlich und nicht aus
+# relay_server.SCHEMA abgeleitet. Eine Kopie, die mitwandert, wuerde genau den
+# Fall nicht mehr pruefen, um den es geht.
+ALTES_SCHEMA = """
+CREATE TABLE identities (
+    user_id           TEXT PRIMARY KEY,
+    identity_key      BLOB NOT NULL,
+    registration_id   INTEGER NOT NULL DEFAULT 0,
+    signed_prekey_id  INTEGER NOT NULL,
+    signed_prekey     BLOB NOT NULL,
+    signed_prekey_sig BLOB NOT NULL,
+    updated_at        REAL NOT NULL,
+    push_endpoint     TEXT
+);
+CREATE TABLE one_time_prekeys (
+    user_id    TEXT NOT NULL,
+    key_id     INTEGER NOT NULL,
+    public_key BLOB NOT NULL,
+    PRIMARY KEY (user_id, key_id),
+    FOREIGN KEY (user_id) REFERENCES identities(user_id) ON DELETE CASCADE
+);
+CREATE TABLE queue (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient  TEXT NOT NULL,
+    sender     TEXT NOT NULL,
+    ciphertext BLOB NOT NULL,
+    ts         REAL NOT NULL
+);
+CREATE INDEX idx_queue_recipient ON queue(recipient);
+CREATE INDEX idx_queue_ts        ON queue(ts);
+"""
+
+
+def _alte_datenbank(pfad, user, n_otk=4, n_queue=2):
+    alt = sqlite3.connect(pfad)
+    alt.executescript(ALTES_SCHEMA)
+    pub = base64.b64decode(user["bundle"]["identity_key"])
+    with alt:
+        alt.execute(
+            "INSERT INTO identities (user_id, identity_key, registration_id,"
+            " signed_prekey_id, signed_prekey, signed_prekey_sig, updated_at,"
+            " push_endpoint) VALUES (?,?,?,?,?,?,?,?)",
+            (user["user_id"], pub, 4711, 9, b"spk", b"sig", 1_700_000_000.0,
+             "https://push.bitdm.net/upAlt"),
+        )
+        alt.executemany(
+            "INSERT INTO one_time_prekeys (user_id, key_id, public_key)"
+            " VALUES (?,?,?)",
+            [(user["user_id"], i, bytes([i]) * 32) for i in range(n_otk)],
+        )
+        alt.executemany(
+            "INSERT INTO queue (recipient, sender, ciphertext, ts) VALUES (?,?,?,?)",
+            [(user["user_id"], "b" * 56, b"<blob>", time.time())
+             for _ in range(n_queue)],
+        )
+    alt.close()
+
+
+def test_bestehende_datenbank_wird_geraet_eins(tmp_path):
+    """DER GEFAEHRLICHSTE TEST DER DATEI.
+
+    relay.bitdm.net laeuft und hat echte Daten — Henriks eigene Registrierung
+    liegt dort. `identities` hatte `user_id TEXT PRIMARY KEY`, und ein
+    Primaerschluessel ist in SQLite per ALTER nicht erweiterbar; die Umstellung
+    MUSS die Tabelle also neu anlegen und kopieren. Eine Neuanlage ohne Kopie
+    loeschte seine Identitaet vom Relay, und er merkte es erst, wenn ihm niemand
+    mehr schreiben kann.
+    """
+    import relay_server as rs
+    pfad = tmp_path / "alt.db"
+    user = make_user()
+    _alte_datenbank(pfad, user)
+
+    conn = rs.init_db(pfad)
+    try:
+        zeilen = conn.execute(
+            "SELECT user_id, device_id, registration_id, signed_prekey_id,"
+            " signed_prekey, push_endpoint, updated_at FROM identities"
+        ).fetchall()
+        assert len(zeilen) == 1, "die bestehende Registrierung ist weg"
+        uid, geraet, reg, spk_id, spk, push, aktualisiert = zeilen[0]
+        assert uid == user["user_id"]
+        assert geraet == 1, "eine Bestandszeile MUSS Geraet 1 werden"
+        # Feld fuer Feld unveraendert: eine Wanderung, die Werte verliert, ist
+        # nicht besser als eine, die Zeilen verliert.
+        assert (reg, spk_id, spk) == (4711, 9, b"spk")
+        assert push == "https://push.bitdm.net/upAlt"
+        assert aktualisiert == 1_700_000_000.0
+
+        prekeys = conn.execute(
+            "SELECT device_id, COUNT(*) FROM one_time_prekeys GROUP BY device_id"
+        ).fetchall()
+        assert prekeys == [(1, 4)], "die Einmalschluessel sind nicht mitgekommen"
+
+        # Die Warteschlange behaelt ihre Zeilen und wird Post an Geraet 1.
+        assert conn.execute(
+            "SELECT COUNT(*) FROM queue WHERE recipient_device=1 AND sender_device=1"
+        ).fetchone()[0] == 2
+
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+        # Der neue, zusammengesetzte Fremdschluessel muss auch NACH der
+        # Wanderung greifen — sonst blieben beim Aufraeumen eines Geraets
+        # dessen Einmalschluessel als Waisen liegen.
+        # Ohne `with conn:` und mit rollback danach: die Probe darf den Rest
+        # des Tests nicht veraendern.
+        conn.execute("DELETE FROM identities WHERE user_id=?",
+                     (user["user_id"],))
+        assert conn.execute(
+            "SELECT COUNT(*) FROM one_time_prekeys").fetchone()[0] == 0, \
+            "die Kaskade ist bei der Wanderung verloren gegangen"
+        conn.rollback()
+        assert conn.execute("SELECT COUNT(*) FROM identities").fetchone()[0] == 1
+
+        # Und ein zweiter Start ruehrt nichts mehr an.
+        conn.close()
+        conn = rs.init_db(pfad)
+        assert conn.execute("SELECT COUNT(*) FROM identities").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_die_wanderung_ueberlebt_den_ersten_janitorlauf(tmp_path, monkeypatch):
+    """Die Falle, die die Spezifikation aufreisst — und die teuerste hier.
+
+    §8 uebernimmt jede Bestandszeile mit `last_seen = 0`, §7 laesst den Janitor
+    alles mit `last_seen < now - GERAET_TTL` loeschen. Beides woertlich
+    genommen loescht JEDE Bestandsregistrierung beim ersten Aufraeumen — die
+    Wanderung rettet die Zeile, und der Janitor loescht sie zwei Zeilen
+    spaeter wieder.
+
+    Am 30.07.2026 gegen den echten Serverstart gemessen und genau so
+    eingetreten: `/health` meldete nach dem Hochfahren `users: 0`.
+
+    Die Bestandszeile hier traegt `updated_at = 1_700_000_000` (Nov 2023) —
+    der realistische Fall, denn `updated_at` ist der Zeitpunkt der letzten
+    REGISTRIERUNG, nicht des letzten Besuchs. Ein Telefon, das taeglich
+    verbindet, aber seit Monaten genug Einmalschluessel hat, steht dort alt da.
+    """
+    import relay_server as rs
+    pfad = tmp_path / "alt.db"
+    user = make_user()
+    _alte_datenbank(pfad, user)
+
+    conn = rs.init_db(pfad)
+    monkeypatch.setattr(rs, "db", conn, raising=False)
+    monkeypatch.setattr(rs, "_queue_zeilen", 0)
+    try:
+        assert conn.execute(
+            "SELECT updated_at FROM identities").fetchone()[0] == 1_700_000_000.0, \
+            "dieser Test haengt an einem ALTEN updated_at"
+
+        assert rs.raeume_vergessene_geraete() == 0, (
+            "der Janitor hat eine Bestandsregistrierung weggeraeumt — genau "
+            "das, was die Wanderung eine Zeile vorher verhindert hat")
+        assert conn.execute("SELECT COUNT(*) FROM identities").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 2
+
+        # Und der zweite Fall, den LEBENSZEICHEN abdeckt: gerade registriert,
+        # noch nie verbunden. last_seen steht auf 0, updated_at auf jetzt.
+        with conn:
+            conn.execute("UPDATE identities SET updated_at=?, last_seen=0",
+                         (time.time(),))
+        assert rs.raeume_vergessene_geraete() == 0, (
+            "ein Geraet, das sein Buendel gerade hochgeladen hat, lebt")
+    finally:
+        conn.close()
+
+
+# ------------------------------------------- §3.1/§3.2  Registrierung je Geraet
+
+def test_zwei_geraete_teilen_sich_die_adresse_ohne_sich_zu_loeschen(relay):
+    """Der Befund selbst, in seiner Umkehrung.
+
+    Vorher loeschte `DELETE FROM one_time_prekeys WHERE user_id=?` bei jeder
+    Registrierung den Vorrat des anderen Geraets mit, und
+    `ON CONFLICT(user_id)` ueberschrieb dessen signed_prekey. Nach kurzer Zeit
+    war ein Geraet ohne Einmalschluessel und mit fremdem Buendel im Netz.
+    """
+    rs = relay
+    henrik = make_user(n_otk=5)
+
+    a = _melde_an(rs, henrik, geraet=1)
+    b = _melde_an(rs, henrik, geraet=4711,
+                  signed_prekey=b64(b"S" * 32), signed_prekey_id=99)
+
+    # Die Zahl in der Antwort zaehlt JE GERAET — der Client leitet daraus ab,
+    # ob er nachliefern muss.
+    assert a == {"ok": True, "one_time_prekeys": 5}
+    assert b == {"ok": True, "one_time_prekeys": 5}
+
+    assert _geraete(rs, henrik["user_id"]) == [1, 4711]
+    assert rs.db.execute(
+        "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id=?",
+        (henrik["user_id"],)).fetchone()[0] == 10, (
+            "eine Registrierung hat dem anderen Geraet die Schluessel geloescht")
+
+    # Und jedes Geraet behaelt SEIN eigenes signed_prekey.
+    buendel = dict(rs.db.execute(
+        "SELECT device_id, signed_prekey_id FROM identities WHERE user_id=?",
+        (henrik["user_id"],)).fetchall())
+    assert buendel == {1: 1, 4711: 99}
+
+
+def test_alte_registrierung_signiert_dieselben_bytes_wie_vorher(relay):
+    """Der eigentliche Rueckwaertsvertraeglichkeits-Beweis von /register.
+
+    Fehlt `device_id`, fehlt es auch in canonical_bytes — die signierten Bytes
+    einer App im Umlauf sind damit Byte fuer Byte die von vor dem Umbau. Waere
+    das Feld immer dabei (etwa als 1), wuerde jede installierte App ab dem
+    Aufspielen mit 403 abgewiesen.
+    """
+    rs = relay
+    user = make_user(n_otk=2)
+
+    ohne = rs.PreKeyBundle(**user["bundle"]).canonical_bytes()
+    assert b"device_id" not in ohne
+    # Genau die Bytes, die vor dem Umbau entstanden sind: sortierte Schluessel,
+    # keine Leerzeichen, kein zusaetzliches Feld.
+    assert ohne.startswith(b'{"identity_key":')
+
+    mit = _bundle_mit(user, geraet=1).canonical_bytes()
+    assert b'"device_id":1' in mit
+    assert mit != ohne, (
+        "die Kennung faellt aus der Signatur heraus — dann laesst sich eine "
+        "abgefangene Signatur auf ein anderes Geraet ummuenzen")
+
+    # Und der Endpunkt nimmt die alte Form weiterhin an, mit Geraet 1.
+    assert _melde_an(rs, user)["ok"] is True
+    assert _geraete(rs, user["user_id"]) == [1]
+
+
+# ------------------------------------------------------------- §2  Die Angriffe
+
+def test_geraet_unter_fremder_adresse_anmelden_scheitert(relay):
+    """Mallory traegt sich als Geraet 7 unter Henriks Adresse ein.
+
+    Der Riegel ist derselbe wie vor dem Umbau und muss es bleiben: die Adresse
+    IST der Schluessel, `encode_id(identity_key) != user_id` faellt sofort auf.
+    Eine Geraetekennung aendert daran nichts — sie waehlt nur die Zeile
+    INNERHALB einer Adresse aus, die man schon besitzen muss.
+    """
+    rs = relay
+    henrik, mallory = make_user(), make_user()
+    _melde_an(rs, henrik, geraet=1)
+
+    gefaelscht = _bundle_mit(mallory, geraet=7)
+    gefaelscht.user_id = henrik["user_id"]
+    nonce = rs.issue_nonce(henrik["user_id"], 7)
+    sig = sign(mallory["priv"],
+               nonce + hashlib.sha256(gefaelscht.canonical_bytes()).digest())
+
+    with pytest.raises(rs.HTTPException) as fehler:
+        rs.register(rs.RegisterRequest(bundle=gefaelscht, signature=b64(sig)),
+                    _Anfrage())
+    assert fehler.value.status_code == 400
+    assert _geraete(rs, henrik["user_id"]) == [1]
+
+
+def test_fremdes_geraet_kommt_nicht_ueber_die_websocket_rein(relay):
+    """Dasselbe am anderen Tor.
+
+    Mallory kennt Henriks Adresse (sie ist oeffentlich) und weiss, dass es dort
+    ein Geraet 1 gibt (`?nur_geraete=1` sagt es jedem). Ohne den privaten
+    Identitaetsschluessel kommt trotzdem keine gueltige Signatur zustande.
+    """
+    rs = relay
+    henrik, mallory = make_user(), make_user()
+    _lege_an(rs, henrik)
+
+    sock = _StummerSocket(henrik["user_id"], mallory["priv"], geraet=1)
+    asyncio.run(rs.ws_endpoint(sock))
+
+    assert sock.geschlossen == 4403
+    assert rs.connections == {}
+
+
+def test_signatur_eines_anderen_geraets_laesst_sich_nicht_wiederverwenden(relay):
+    """WARUM die Kennung in canonical_bytes gehoert — und nicht nur in den Rumpf.
+
+    Stuende sie nur im Rumpf, koennte ein Weiterleitender sie aendern und
+    dieselbe Signatur weiterverwenden. Die Registrierung landete unter fremder
+    Geraetenummer, ueberschriebe dort das Buendel und loeschte die
+    Einmalschluessel des echten Geraets.
+
+    Der Test gibt dem Angreifer ABSICHTLICH ein gueltiges eigenes Nonce fuer
+    Geraet 2 — sonst scheiterte er schon am Nonce, und die Frage, ob die Bytes
+    die Kennung decken, bliebe ungeprueft.
+    """
+    rs = relay
+    henrik = make_user()
+
+    fuer_geraet_1 = _bundle_mit(henrik, geraet=1)
+    nonce = rs.issue_nonce(henrik["user_id"], 2)
+    abgefangen = sign(
+        henrik["priv"],
+        nonce + hashlib.sha256(fuer_geraet_1.canonical_bytes()).digest())
+
+    umgemuenzt = _bundle_mit(henrik, geraet=2)
+    with pytest.raises(rs.HTTPException) as fehler:
+        rs.register(rs.RegisterRequest(bundle=umgemuenzt,
+                                       signature=b64(abgefangen)), _Anfrage())
+    assert fehler.value.status_code == 403
+    assert _geraete(rs, henrik["user_id"]) == []
+
+
+def test_ws_signatur_von_geraet_eins_gilt_nicht_fuer_geraet_zwei(relay):
+    """Dasselbe fuer die Anmeldung: signiert wird nonce||uint32be(device_id).
+
+    Ohne die Kennung in den signierten Bytes koennte jemand, der die Antwort
+    von Geraet 1 abfaengt, sie unter Geraet 2 einreichen — das Nonce steht
+    offen auf der Leitung.
+    """
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1)
+    _lege_an(rs, henrik, geraet=2)
+
+    sock = _StummerSocket(henrik["user_id"], henrik["priv"],
+                          geraet=2, signiert_geraet=1)
+    asyncio.run(rs.ws_endpoint(sock))
+    assert sock.geschlossen == 4403
+
+    # Gegenprobe: mit der richtigen Kennung geht dieselbe Anmeldung durch.
+    ok = _StummerSocket(henrik["user_id"], henrik["priv"], geraet=2)
+    asyncio.run(rs.ws_endpoint(ok))
+    ergebnis = [m for m in ok.gesendet if m.get("type") == "auth_result"]
+    assert ergebnis and ergebnis[0]["ok"] is True
+    assert ergebnis[0]["device_id"] == 2
+
+
+def test_ohne_geraetekennung_wird_weiterhin_nur_das_nonce_signiert(relay):
+    """Der Regressionswall fuer die Apps im Umlauf.
+
+    Sie haengen kein `device_id` an die Query und signieren 32 Byte. Erwartete
+    der Server auch von ihnen 36, waere jede installierte App ab dem
+    Aufspielen ausgesperrt.
+    """
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, n_otk=30)
+    _puffere(rs, henrik["user_id"], "b" * 56, n=2)
+
+    raus = _sitzung(rs, henrik)                    # ohne geraet=
+    ergebnis = [m for m in raus if m.get("type") == "auth_result"]
+    assert ergebnis and ergebnis[0]["ok"] is True
+    assert ergebnis[0]["device_id"] == 1, "ein alter Client ist Geraet 1"
+    assert len([m for m in raus if m.get("type") == "message"]) == 2
+
+
+# ------------------------------------------------------------ §3.3  /prekey
+
+def test_prekey_gibt_alle_geraete_und_bleibt_flach_lesbar(relay):
+    """Beide Leser derselben Antwort.
+
+    Ein neuer Client liest `geraete[]` und verschluesselt an jedes einzeln. Ein
+    alter liest die flachen Felder und erreicht damit weiterhin GENAU EIN
+    Geraet — das mit der kleinsten Kennung, nicht fest Geraet 1: ist Geraet 1
+    weggeraeumt, muss er trotzdem jemanden erreichen.
+    """
+    rs = relay
+    henrik = make_user(n_otk=3)
+    _melde_an(rs, henrik, geraet=4711, signed_prekey_id=99)
+    _melde_an(rs, henrik, geraet=1, signed_prekey_id=7)
+
+    antwort = rs.get_prekey(henrik["user_id"], _Anfrage())
+
+    assert [g["device_id"] for g in antwort["geraete"]] == [1, 4711], \
+        "aufsteigend nach Kennung"
+    assert antwort["signed_prekey_id"] == 7, "flach = geraete[0]"
+    assert antwort["registration_id"] == antwort["geraete"][0]["registration_id"]
+    # Der Identitaetsschluessel gehoert der Adresse und steht nur einmal da.
+    assert antwort["identity_key"] == henrik["bundle"]["identity_key"]
+
+    # JEDES Geraet bekommt einen eigenen Einmalschluessel, und der flache ist
+    # DERSELBE wie der von geraete[0] — kein zweiter, sonst kostete jede
+    # Abfrage einen Schluessel zu viel.
+    schluessel = [g["one_time_prekey"] for g in antwort["geraete"]]
+    assert all(s is not None for s in schluessel)
+    assert antwort["one_time_prekey"] == schluessel[0]
+    assert rs.db.execute(
+        "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id=?",
+        (henrik["user_id"],)).fetchone()[0] == 4, "3+3 minus je einer"
+
+    # Und das kleinste Geraet ist nicht fest die 1.
+    with rs.db:
+        rs.db.execute("DELETE FROM identities WHERE user_id=? AND device_id=1",
+                      (henrik["user_id"],))
+    assert rs.get_prekey(henrik["user_id"], _Anfrage())["signed_prekey_id"] == 99
+
+
+def test_nur_geraete_verbraucht_keinen_einmalschluessel(relay):
+    """Der Aufruf, der oft kommt, darf nichts kosten.
+
+    Der Client frischt seine Geraeteliste je Kontakt alle 6 Stunden auf. Zoege
+    das jedes Mal einen Einmalschluessel, waere die Auffrischung selbst der
+    Prekey-Drain, gegen den otk_limit_ok gebaut wurde.
+    """
+    rs = relay
+    henrik = make_user(n_otk=3)
+    _melde_an(rs, henrik, geraet=1)
+    _melde_an(rs, henrik, geraet=2)
+    vorher = rs.db.execute("SELECT COUNT(*) FROM one_time_prekeys").fetchone()[0]
+
+    antwort = rs.get_prekey(henrik["user_id"], _Anfrage(), nur_geraete=True)
+
+    assert antwort == {
+        "user_id": henrik["user_id"],
+        "geraete": [{"device_id": 1, "registration_id": 4711},
+                    {"device_id": 2, "registration_id": 4711}],
+    }
+    assert "signed_prekey" not in antwort, "keine Schluessel in dieser Antwort"
+    assert rs.db.execute(
+        "SELECT COUNT(*) FROM one_time_prekeys").fetchone()[0] == vorher
+    # Auch der Eimer je Adresse bleibt unangetastet: 20 Auffrischungen in
+    # Folge, und der naechste echte Abruf bekommt trotzdem seinen Schluessel.
+    for _ in range(20):
+        rs.get_prekey(henrik["user_id"], _Anfrage(), nur_geraete=True)
+    assert rs.get_prekey(
+        henrik["user_id"], _Anfrage())["one_time_prekey"] is not None
+
+
+# ----------------------------------------------------- §3.4  Zustellung je Geraet
+
+def test_die_post_geht_an_das_genannte_geraet_und_traegt_from_device(relay):
+    """`from_device` ist die wichtigste Erweiterung des ganzen Vorhabens.
+
+    Ohne sie weiss der Empfaenger nicht, gegen welche Sitzung er entschluesseln
+    soll. Zwei Umschlaege kaemen an, beide wuerden gegen `name:1` probiert,
+    einer scheitert immer — und der Fehlversuch schreibt den Ratchet-Fortschritt
+    fest, womit die Nachricht endgueltig verloren ist.
+    """
+    rs = relay
+    anna, bob = make_user(), make_user()
+    _lege_an(rs, anna, geraet=3, n_otk=30)
+    _lege_an(rs, bob, geraet=1, n_otk=30)
+    _lege_an(rs, bob, geraet=2, n_otk=30)
+
+    raus = _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "to_device": 1,
+         "ciphertext": b64(b"an-eins"), "id": "m1"},
+        {"type": "message", "to": bob["user_id"], "to_device": 2,
+         "ciphertext": b64(b"an-zwei"), "id": "m2"},
+    ], geraet=3)
+    assert len([m for m in raus if m.get("type") == "ack"]) == 2
+
+    # Jedes Geraet bekommt GENAU SEINEN Umschlag, mit Annas echter Kennung.
+    for geraet, erwartet in ((1, b"an-eins"), (2, b"an-zwei")):
+        seins = [m for m in _sitzung(rs, bob, geraet=geraet, nachweis=True)
+                 if m.get("type") == "message"]
+        assert len(seins) == 1, f"Geraet {geraet} bekam {len(seins)} Umschlaege"
+        assert base64.b64decode(seins[0]["ciphertext"]) == erwartet
+        assert seins[0]["from_device"] == 3, (
+            "ohne from_device kann Bob die Sitzung nicht waehlen")
+
+
+def test_from_device_kommt_aus_der_verbindung_und_nicht_aus_dem_rahmen(relay):
+    """Sonst koennte jeder behaupten, von einem beliebigen Geraet zu schreiben.
+
+    Live wie gepuffert: die Kennung ist die der angemeldeten Verbindung des
+    Absenders.
+    """
+    rs = relay
+    anna, bob = make_user(), make_user()
+    _lege_an(rs, anna, geraet=5, n_otk=30)
+    _lege_an(rs, bob, n_otk=30)
+
+    horcher = _Zuhoerer()
+    _verbinde(rs, bob, horcher, nachweis=False)
+    _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"x"),
+         # Die Luege im Rahmen. Sie darf nirgends ankommen.
+         "from_device": 99, "sender_device": 99},
+    ], geraet=5)
+
+    live = [m for m in horcher.empfangen if m.get("type") == "message"]
+    assert live and live[0]["from_device"] == 5
+
+
+def test_zielgeraet_unbekannt_wird_nicht_gepuffert(relay):
+    """Sonst liefe die Flut ueber eine echte Adresse mit erfundener Kennung.
+
+    Die Existenzpruefung war bisher `WHERE user_id=?`. Damit haette ein
+    Absender an Geraet 999 einer echten Adresse puffern koennen, das es nie
+    gab — und der Deckel je Geraet zaehlte fuer jedes erfundene neu.
+    """
+    rs = relay
+    anna, bob = make_user(), make_user()
+    _lege_an(rs, anna)
+    _lege_an(rs, bob, geraet=1)
+
+    raus = _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "to_device": 999,
+         "ciphertext": b64(b"x"), "id": "m1"},
+        # bool ist in Python ein int: ohne die zweite Pruefung waere True die
+        # Kennung 1, und die gehoert einem echten Geraet.
+        {"type": "message", "to": bob["user_id"], "to_device": True,
+         "ciphertext": b64(b"x"), "id": "m2"},
+    ])
+    fehler = [m for m in raus if m.get("type") == "error"]
+    assert [f["id"] for f in fehler] == ["m1", "m2"]
+    assert all(f["reason"] == "Zielgeraet unbekannt" for f in fehler)
+    assert not [m for m in raus if m.get("type") == "ack"]
+    assert rs.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
+
+
+def test_ohne_to_device_geht_die_post_an_das_kleinste_lebende_geraet(relay):
+    """Der Rueckwaertsvertrag haelt nur, wenn beide Haelften dasselbe meinen.
+
+    /prekey gibt dem alten Client die flachen Felder von `geraete[0]`, also vom
+    Geraet mit der KLEINSTEN Kennung — ausdruecklich nicht fest Geraet 1, damit
+    er nach dem Wegraeumen noch jemanden erreicht (§3.3, Docstring von
+    get_prekey). Sein Rahmen kann kein `to_device` tragen. Setzte der Sendeweg
+    dafuer fest 1, bekaeme er die richtigen Schluessel und trotzdem dauerhaft
+    "Zielgeraet unbekannt" — eine Adresse ohne lebendes Geraet 1 waere fuer
+    JEDEN nicht aktualisierten Client unerreichbar. Und Geraet 1 faellt weg:
+    raeume_vergessene_geraete kennt keine Ausnahme fuer die 1, ebensowenig die
+    Verdraengung beim vollen Geraetedeckel.
+    """
+    rs = relay
+    anna, bob = make_user(), make_user()
+    _lege_an(rs, anna)
+    _lege_an(rs, bob, geraet=1, last_seen=time.time() - rs.GERAET_TTL - 60)
+    _lege_an(rs, bob, geraet=4711)
+    assert rs.raeume_vergessene_geraete() == 1
+    assert _geraete(rs, bob["user_id"]) == [4711]
+    # Beide Haelften der Antwort meinen dasselbe Geraet.
+    assert rs.get_prekey(bob["user_id"], _Anfrage())["geraete"][0]["device_id"] \
+        == 4711
+
+    raus = _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"alt"),
+         "id": "m1"},
+    ])
+    assert [m["reason"] for m in raus if m.get("type") == "error"] == []
+    assert [m["id"] for m in raus if m.get("type") == "ack"] == ["m1"]
+    assert rs.db.execute(
+        "SELECT recipient_device FROM queue WHERE recipient=?",
+        (bob["user_id"],)).fetchall() == [(4711,)]
+
+    # Gegenpol: lebt Geraet 1, ist es weiterhin das Ziel — MIN(device_id) IST
+    # dann die 1, und der alte Weg bleibt unveraendert.
+    _lege_an(rs, bob, geraet=1)
+    _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"alt2"),
+         "id": "m2"},
+    ])
+    assert [r[0] for r in rs.db.execute(
+        "SELECT recipient_device FROM queue WHERE recipient=? ORDER BY id",
+        (bob["user_id"],))] == [4711, 1]
+
+
+def test_riesige_geraetekennung_in_der_query_reisst_die_verbindung_nicht(relay):
+    """`int()` kennt keine Obergrenze, die SQLite-Bindung schon.
+
+    `?device_id=9223372036854775808` ging bis hierher unveraendert in die
+    Bindung. Der OverflowError faellt nicht in `except ValueError`, verlaesst
+    ws_endpoint ungefangen und kappt die Verbindung ohne Close-Frame — und das
+    VOR der Challenge: ohne Registrierung, ohne Schluessel, ohne gueltige
+    Adresse. Der /ws-Handler hat keine Ratenbremse, jeder Versuch schrieb rund
+    3,7 kB Traceback ins Log.
+    """
+    rs = relay
+    fremder = make_user()
+    for kennung in (2**63, 10**23, -(10**23), 0, 2**31):
+        sock = _StummerSocket(fremder["user_id"], fremder["priv"], geraet=kennung)
+        entwischt = None
+        try:
+            asyncio.run(rs.ws_endpoint(sock))
+        except BaseException as exc:          # noqa: BLE001 — wird geprueft
+            entwischt = exc
+        assert entwischt is None, f"device_id={kennung} entwischt: {entwischt!r}"
+        assert sock.gesendet == [
+            {"type": "error", "reason": "erst /register aufrufen"}], kennung
+        assert sock.geschlossen == 4401, kennung
+
+
+def test_riesige_kennungen_im_rahmen_reissen_die_verbindung_nicht(relay):
+    """Dieselbe Wurzel eine Ebene weiter, hier fuer einen ANGEMELDETEN Absender.
+
+    `to_device` und die Zeilenkennungen im Empfangsnachweis kommen roh aus dem
+    JSON. Jenseits 2**63 wirft die Bindung OverflowError, und die Fangliste der
+    Hauptschleife kennt ihn nicht: die Verbindung riss mitten im Versand ab,
+    die Nachricht war danach weder gepuffert noch quittiert.
+    """
+    rs = relay
+    anna, bob = make_user(), make_user()
+    _lege_an(rs, anna, geraet=1, n_otk=30)
+    _lege_an(rs, bob, geraet=1, n_otk=30)
+    _puffere(rs, anna["user_id"], bob["user_id"], n=2, geraet=1)
+    offen = [r[0] for r in rs.db.execute("SELECT id FROM queue ORDER BY id")]
+
+    entwischt, raus = None, []
+    try:
+        raus = _sitzung(rs, anna, [
+            {"type": "message", "to": bob["user_id"], "to_device": 10**30,
+             "ciphertext": b64(b"x"), "id": "m1"},
+            {"type": "empfangen", "ids": [10**30, -(2**63)]},
+            # Und danach muss die Leitung noch stehen.
+            {"type": "message", "to": bob["user_id"],
+             "ciphertext": b64(b"y"), "id": "m2"},
+        ], geraet=1, nachweis=True)
+    except BaseException as exc:              # noqa: BLE001 — wird geprueft
+        entwischt = exc
+    assert entwischt is None, f"Ausnahme verlaesst ws_endpoint: {entwischt!r}"
+    assert [(m["id"], m["reason"]) for m in raus if m.get("type") == "error"] \
+        == [("m1", "Zielgeraet unbekannt")]
+    assert [m["id"] for m in raus if m.get("type") == "ack"] == ["m2"]
+    assert [r[0] for r in rs.db.execute(
+        "SELECT id FROM queue WHERE recipient=? ORDER BY id",
+        (anna["user_id"],))] == offen, "eigene Post am Nachweis verloren"
+
+
+def test_riesige_zahlen_im_bundle_sind_ein_fehler_des_absenders(relay):
+    """400 statt 500 — und nichts halb Gespeichertes.
+
+    registration_id, signed_prekey_id und key_id sind blanke `int` ohne
+    Obergrenze. Ab 2**63 wirft die Bindung OverflowError; er erbt nicht von
+    ValueError und fiel deshalb an der Fangliste des Endpunkts vorbei. Der
+    Server meldete einen Fehler des Absenders als seinen eigenen.
+    """
+    rs = relay
+    henrik = make_user(n_otk=1)
+    riesen = [
+        {"registration_id": 10**30},
+        {"signed_prekey_id": 10**30},
+        {"one_time_prekeys": [{"key_id": 10**30, "public_key": b64(b"k" * 32)}]},
+    ]
+    for aenderung in riesen:
+        with pytest.raises(rs.HTTPException) as fehler:
+            _melde_an(rs, henrik, **aenderung)
+        assert fehler.value.status_code == 400, aenderung
+    # Der key_id-Fall legt die Identitaetszeile an, bevor er scheitert: ohne
+    # das `with db:` darum bliebe sie stehen.
+    assert _geraete(rs, henrik["user_id"]) == []
+
+
+def test_fremdes_geraet_derselben_adresse_leert_die_schlange_nicht(relay):
+    """DIE GEFAEHRLICHSTE EINZELNE STELLE DES UMBAUS.
+
+    `AND recipient=?` trennt nicht mehr: beide Geraete FUEHREN dieselbe
+    Adresse, beide sind angemeldet, und die Zeilenkennungen sind fortlaufend
+    und damit zu erraten. Ohne `AND recipient_device=?` koennte Geraet A die
+    noch nicht zugestellte Post von Geraet B loeschen — stiller Verlust, kein
+    Fehler, keine Spur.
+    """
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1, n_otk=30)
+    _lege_an(rs, henrik, geraet=2, n_otk=30)
+    _puffere(rs, henrik["user_id"], "b" * 56, n=4, geraet=2)
+    fuer_zwei = [r[0] for r in rs.db.execute(
+        "SELECT id FROM queue WHERE recipient_device=2 ORDER BY id")]
+    assert len(fuer_zwei) == 4
+
+    # Geraet 1 bestaetigt die Kennungen von Geraet 2 — mit derselben Adresse
+    # und einem gueltigen Besitznachweis.
+    _sitzung(rs, henrik, [{"type": "empfangen", "ids": fuer_zwei}],
+             geraet=1, nachweis=True)
+
+    assert [r[0] for r in rs.db.execute(
+        "SELECT id FROM queue WHERE recipient_device=2 ORDER BY id")] == fuer_zwei, \
+        "Geraet 1 hat die Post von Geraet 2 geloescht"
+
+    # Und Geraet 2 bekommt sie trotzdem, samt seiner eigenen Bestaetigung.
+    raus = _sitzung(rs, henrik, geraet=2, nachweis=True, bestaetigt=True)
+    assert [m["q"] for m in raus if m.get("type") == "message"] == fuer_zwei
+    assert rs.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
+
+
+def test_die_nachzustellung_gibt_jedem_geraet_nur_seine_eigene_post(relay):
+    """Das Gegenstueck zur Loeschseite.
+
+    Bekaeme jedes Geraet die Umschlaege des anderen mit, waere jeder davon
+    gegen eine Sitzung verschluesselt, die es nicht hat — und der erste
+    Fehlversuch schreibt den Ratchet-Fortschritt fest.
+    """
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1, n_otk=30)
+    _lege_an(rs, henrik, geraet=2, n_otk=30)
+    _puffere(rs, henrik["user_id"], "b" * 56, n=2, geraet=1)
+    _puffere(rs, henrik["user_id"], "b" * 56, n=3, geraet=2)
+
+    fuer_eins = _sitzung(rs, henrik, geraet=1, nachweis=True)
+    fuer_zwei = _sitzung(rs, henrik, geraet=2, nachweis=True)
+    assert len([m for m in fuer_eins if m.get("type") == "message"]) == 2
+    assert len([m for m in fuer_zwei if m.get("type") == "message"]) == 3
+
+
+def test_zwei_geraete_derselben_adresse_verdraengen_sich_nicht(relay):
+    """Das Gegenstueck zu test_verdraengte_verbindung_reisst_die_neue_nicht_mit.
+
+    Frueher verdraengte jede neue Verbindung die einzige der Adresse. Zwei
+    Geraete mit denselben zwoelf Woertern warfen sich damit abwechselnd
+    hinaus, und keines merkte etwas. Verdraengt werden darf nur noch dasselbe
+    GERAET — das ist ein App-Neustart und soll die alte Leitung ersetzen.
+    """
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1, n_otk=30)
+    _lege_an(rs, henrik, geraet=2, n_otk=30)
+
+    class _Leitung:
+        def __init__(self):
+            self.geschlossen = None
+            self.empfangen = []
+
+        async def send_json(self, obj):
+            self.empfangen.append(obj)
+
+        async def close(self, code=None):
+            self.geschlossen = code
+
+    eins = _Leitung()
+    _verbinde(rs, henrik, eins, geraet=1)
+
+    _sitzung(rs, henrik, geraet=2, nachweis=True)
+    assert eins.geschlossen is None, "Geraet 2 hat Geraet 1 hinausgeworfen"
+    assert rs.connections[henrik["user_id"]] == {1: eins}
+
+    # Dasselbe Geraet noch einmal verdraengt dagegen sehr wohl.
+    _sitzung(rs, henrik, geraet=1, nachweis=True)
+    assert eins.geschlossen == 4409
+
+
+# ------------------------------------------------------ §6/§7  Grenzen und Zerfall
+
+def test_das_sechste_geraet_wird_abgewiesen(relay, monkeypatch):
+    """Jedes Geraet kostet dem ABSENDER eine Verschluesselung.
+
+    Ohne Deckel bezahlt ein Fremder beliebig viel Rechenzeit und
+    Warteschlangenplatz dafuer, dass jemand anders sich Geraete anlegt. 507 und
+    nicht 429: das ist keine Bremse, die nachgibt.
+    """
+    rs = relay
+    monkeypatch.setattr(rs, "GERAETE_MAX", 3)
+    henrik = make_user()
+    for g in (1, 2, 3):
+        assert _melde_an(rs, henrik, geraet=g)["ok"] is True
+
+    with pytest.raises(rs.HTTPException) as fehler:
+        _melde_an(rs, henrik, geraet=4)
+    assert fehler.value.status_code == 507
+    assert "3 Geraete" in fehler.value.detail
+    assert _geraete(rs, henrik["user_id"]) == [1, 2, 3]
+
+    # WER SCHON DA IST, KOMMT IMMER DURCH — sonst koennte ein Geraet an einer
+    # vollen Adresse nie mehr Einmalschluessel nachliefern und waere nach dem
+    # Aufbrauchen des Vorrats unerreichbar.
+    assert _melde_an(rs, henrik, geraet=2)["ok"] is True
+
+
+def test_ein_totes_geraet_macht_platz(relay, monkeypatch):
+    """Sonst waere eine Adresse nach fuenf Neuinstallationen fuer immer voll.
+
+    Verdraengt wird NUR, was seit GERAET_TTL kein Lebenszeichen gegeben hat.
+    Lebende Geraete werden nicht verdraengt: bei sechs lebenden wuerfen sie
+    sich bei jeder Buendel-Erneuerung gegenseitig hinaus, und aus dem
+    Dauerpendeln wuerde Nachrichtenverlust.
+    """
+    rs = relay
+    monkeypatch.setattr(rs, "GERAETE_MAX", 2)
+    henrik = make_user()
+    _melde_an(rs, henrik, geraet=1)
+    _melde_an(rs, henrik, geraet=2)
+    _puffere(rs, henrik["user_id"], "b" * 56, n=3, geraet=1)
+    assert rs._queue_zeilen == 3
+
+    # Geraet 1 ist seit 40 Tagen nicht mehr da gewesen.
+    lange_her = time.time() - 40 * 24 * 3600
+    with rs.db:
+        rs.db.execute("UPDATE identities SET last_seen=?, updated_at=?"
+                      " WHERE user_id=? AND device_id=1",
+                      (lange_her, lange_her, henrik["user_id"]))
+
+    assert _melde_an(rs, henrik, geraet=3)["ok"] is True
+    assert _geraete(rs, henrik["user_id"]) == [2, 3], \
+        "das tote Geraet haette weichen muessen, nicht das lebende"
+
+    # Seine Warteschlange geht mit — sie zeigt auf ein Geraet, das es nicht
+    # mehr gibt, und laege sonst bis QUEUE_TTL_SECONDS herum.
+    assert rs.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
+    assert rs._queue_zeilen == 0
+    # Die Einmalschluessel nimmt die Kaskade.
+    assert rs.db.execute(
+        "SELECT COUNT(*) FROM one_time_prekeys WHERE device_id=1").fetchone()[0] == 0
+
+
+def test_vergessene_geraete_raeumt_der_janitor_weg(relay, monkeypatch):
+    """Ein totes Telefon macht die Adresse sonst teilweise unbeschickbar.
+
+    Solange seine Zeile lebt, hat es eine eigene Warteschlange, die dauerhaft
+    an ihrem Deckel steht — und ab da faellt fuer jeden Absender an dieses
+    Geraet die aelteste Zeile weg.
+    """
+    rs = relay
+    monkeypatch.setattr(rs, "GERAET_TTL", 30 * 24 * 3600)
+    henrik = make_user()
+    lange_her = time.time() - 40 * 24 * 3600
+    _lege_an(rs, henrik, geraet=1)
+    _lege_an(rs, henrik, geraet=2, last_seen=lange_her)
+    _puffere(rs, henrik["user_id"], "b" * 56, n=2, geraet=2)
+
+    assert rs.raeume_vergessene_geraete() == 1
+    assert _geraete(rs, henrik["user_id"]) == [1]
+    assert rs.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 0
+    assert rs._queue_zeilen == 0
+
+
+def test_bei_voller_geraeteschlange_faellt_die_aelteste_zeile(relay, monkeypatch):
+    """Nicht der Absender wird abgewiesen, sondern die aelteste Zeile faellt.
+
+    Sonst haengt eine lebende Unterhaltung an einem toten Telefon: der
+    Absender bekaeme 'Warteschlange voll' fuer eine Adresse, deren anderes
+    Geraet direkt neben ihm liegt. Der Verlust trifft nur das volle Geraet.
+    """
+    rs = relay
+    monkeypatch.setattr(rs, "QUEUE_MAX_PER_USER", 2)
+    anna, bob = make_user(), make_user()
+    _lege_an(rs, anna)
+    _lege_an(rs, bob, geraet=1)
+    _lege_an(rs, bob, geraet=2)
+    _puffere(rs, bob["user_id"], anna["user_id"], n=2, geraet=1)
+    alt = [r[0] for r in rs.db.execute(
+        "SELECT id FROM queue WHERE recipient_device=1 ORDER BY id")]
+
+    raus = _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "to_device": 1,
+         "ciphertext": b64(b"neu"), "id": "m1"},
+    ])
+    assert [m for m in raus if m.get("type") == "ack"], \
+        "der Absender wurde abgewiesen, statt die aelteste Zeile fallen zu lassen"
+
+    jetzt = [r[0] for r in rs.db.execute(
+        "SELECT id FROM queue WHERE recipient_device=1 ORDER BY id")]
+    assert len(jetzt) == 2 and alt[0] not in jetzt and alt[1] in jetzt
+    assert rs._queue_zeilen == 2, "der Zaehler ist dem Wegwerfen nicht gefolgt"
+
+    # Das ANDERE Geraet derselben Adresse ist davon unberuehrt — der Deckel
+    # haengt am Geraet, nicht an der Adresse.
+    raus = _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "to_device": 2,
+         "ciphertext": b64(b"auch-neu"), "id": "m2"},
+    ])
+    assert [m for m in raus if m.get("type") == "ack"]
+    assert rs.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE recipient_device=2").fetchone()[0] == 1
+
+
+def test_das_dach_ueber_der_tabelle_gibt_auch_je_geraet_nicht_nach(relay,
+                                                                  monkeypatch):
+    """Die Gegenprobe zum Wegwerfen: QUEUE_MAX_TOTAL weist WEITER ab.
+
+    Gaebe auch das Dach nach, waere der Deckel je Geraet beliebig oft zu
+    haben — man braucht nur ein weiteres Zielgeraet.
+    """
+    rs = relay
+    monkeypatch.setattr(rs, "QUEUE_MAX_TOTAL", 1)
+    anna, bob = make_user(), make_user()
+    _lege_an(rs, anna)
+    _lege_an(rs, bob, geraet=1)
+    _lege_an(rs, bob, geraet=2)
+
+    raus = _sitzung(rs, anna, [
+        {"type": "message", "to": bob["user_id"], "to_device": 1,
+         "ciphertext": b64(b"x"), "id": "m1"},
+        {"type": "message", "to": bob["user_id"], "to_device": 2,
+         "ciphertext": b64(b"y"), "id": "m2"},
+    ])
+    assert [m["id"] for m in raus if m.get("type") == "ack"] == ["m1"]
+    voll = [m for m in raus if m.get("reason") == "Warteschlange voll"]
+    assert [m["id"] for m in voll] == ["m2"]
+
+
+def test_health_zaehlt_adressen_und_geraete_getrennt(relay):
+    """Sonst bedeutete die Betriebszahl etwas anderes als vor dem Umbau.
+
+    `users` haengt an IDENTITAETEN_MAX. Zaehlte es Zeilen statt Adressen,
+    saenke die Aufnahmegrenze des Relays um den Geraetefaktor — bei fuenf
+    Geraeten je Adresse auf ein Fuenftel, ohne dass jemand etwas geaendert
+    haette.
+    """
+    rs = relay
+    henrik, anna = make_user(), make_user()
+    _lege_an(rs, henrik, geraet=1)
+    _lege_an(rs, henrik, geraet=2)
+    _lege_an(rs, anna, geraet=1)
+
+    stand = rs.health()
+    assert stand["users"] == 2
+    assert stand["geraete"] == 3
+    assert stand["online"] == 0
+
+    _verbinde(rs, henrik, _Zuhoerer(), geraet=1)
+    _verbinde(rs, henrik, _Zuhoerer(), geraet=2)
+    assert rs.health()["online"] == 2, "online zaehlt Sockets, nicht Adressen"
+
+
+def test_die_tagesmenge_des_zwischenlagers_bleibt_an_der_adresse(relay):
+    """Als ABSICHT festgehalten, damit es niemand 'der Vollstaendigkeit halber'
+    nachtraegt.
+
+    Mit einer Geraetespalte bekaeme dieselbe Person mit 5 Geraeten 125 GiB am
+    Tag statt 25 — die Verteidigung waere fuer den Preis eines zweiten Geraets
+    aufzuheben, und ein Geraet anzulegen kostet nichts.
+    """
+    rs = relay
+    spalten = {r[1] for r in rs.db.execute("PRAGMA table_info(blob_marken)")}
+    assert "device_id" not in spalten
+    assert spalten == {"id", "user_id", "groesse", "ts"}
