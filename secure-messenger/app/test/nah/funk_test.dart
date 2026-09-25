@@ -237,6 +237,35 @@ void main() {
           reason: 'B hat nie etwas von einem kleinen MTU gesagt');
     });
 
+    test('EIN WINZIGES GEMELDETES MASS SPERRT DEN WEG NICHT (ZU_GROSS:5)',
+        () async {
+      // Bis 25.09.2026 wurde jede Zahl uebernommen: bei 5 blieb nach dem
+      // 9-Byte-Rahmen keine Nutzlast, zerlege() warf — und weil das Mass
+      // gemerkt wird, bei JEDEM weiteren Versand an dieses Geraet.
+      sendeFehler = PlatformException(code: 'FUNK', message: 'ZU_GROSS:5');
+      await funk.sende('A', Uint8List.fromList(List.filled(100, 1)));
+      final versuche = gerufen.where((c) => c.method == 'sende').toList();
+      expect(versuche, hasLength(2));
+      final stuecke = (versuche[1].arguments['stuecke'] as List).cast<Uint8List>();
+      expect(stuecke.every((s) => s.length <= Nahfunk.kleinstesMass), isTrue);
+      expect(stuecke, hasLength((100 / (Nahfunk.kleinstesMass - 9)).ceil()));
+
+      // Und das naechste Mal geht auch, mit demselben (geklemmten) Mass.
+      gerufen.clear();
+      await funk.sende('A', Uint8List.fromList(List.filled(100, 1)));
+      expect(gerufen.where((c) => c.method == 'sende'), hasLength(1));
+    });
+
+    test('eine Auskunft, die nicht kleiner ist, wird nicht wiederholt',
+        () async {
+      sendeFehler = PlatformException(code: 'FUNK', message: 'ZU_GROSS:900');
+      await expectLater(
+        funk.sende('A', Uint8List.fromList(List.filled(100, 1))),
+        throwsA(isA<FunkFehler>()),
+      );
+      expect(gerufen.where((c) => c.method == 'sende'), hasLength(1));
+    });
+
     test('ein echter Fehler wird durchgereicht, nicht verschluckt', () async {
       sendeFehler = PlatformException(code: 'FUNK', message: 'weg');
       await expectLater(

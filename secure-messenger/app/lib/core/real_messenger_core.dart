@@ -87,7 +87,13 @@ class RealMessengerCore implements MessengerCore {
   /// alle Einmal-Prekeys (siehe relay_wechsel_test.dart).
   final Uri? relayUriTor;
 
-  Uri get _relayWeg => (_prefs.tor && relayUriTor != null) ? relayUriTor! : relayUri;
+  /// Im Browser gibt es weder SOCKS noch .onion-Aufloesung: dort bleibt die
+  /// Einstellung "Tor" wirkungslos, statt die Verbindung auf eine Adresse zu
+  /// legen, die der Browser nie erreicht (und die CSP ohnehin sperrt).
+  static const bool _imBrowser = bool.fromEnvironment('dart.library.js_interop');
+  bool get _torAn => _prefs.tor && !_imBrowser;
+
+  Uri get _relayWeg => (_torAn && relayUriTor != null) ? relayUriTor! : relayUri;
 
   /// Wo die grossen Anhaenge liegen.
   ///
@@ -1058,13 +1064,38 @@ class RealMessengerCore implements MessengerCore {
   ///
   /// [RelayMessage.q] ist die Kennung der Zeile in der Warteschlange — nur der
   /// Relay hat eine, und nur bei ihm wird am Ende bestaetigt.
-  Future<void> _verarbeiteEingang(RelayMessage roh) => _nimmUmschlag(
-    von: roh.from,
-    vonGeraet: roh.vonGeraet,
-    umschlag: roh.ciphertext,
-    ueberNaehe: false,
-    nachweisFuer: roh.q,
-  );
+  Future<void> _verarbeiteEingang(RelayMessage roh) {
+    // NUR DIE NORMALFORM. `from` kommt vom Relay; eine Adresse in anderer
+    // Schreibweise ("ABC.." statt "abc..") ist fuer SignalProtocolAddress, die
+    // Kontaktliste und jede Abfrage eine ANDERE Adresse — daraus wuerde ein
+    // zweiter Kontakt mit eigener Sitzung derselben Person. Ein ehrlicher
+    // Relay schickt so etwas nie. Verworfen UND bestaetigt: verarbeiten laesst
+    // sich der Umschlag auch beim naechsten Mal nicht, und ihn bei jedem
+    // Verbinden wieder zu bekommen hilft niemandem.
+    if (roh.from != BitdmAddress.normalize(roh.from) ||
+        !BitdmAddress.isValid(roh.from)) {
+      _bestaetigeEmpfang(roh.q);
+      return Future<void>.value();
+    }
+    return _nimmUmschlag(
+      von: roh.from,
+      vonGeraet: roh.vonGeraet,
+      umschlag: roh.ciphertext,
+      ueberNaehe: false,
+      nachweisFuer: roh.q,
+    );
+  }
+
+  /// Je Gegenstelle (Adresse UND Geraet) eine Kette: Umschlaege derselben
+  /// Sitzung werden nacheinander entschluesselt, nie gleichzeitig.
+  ///
+  /// WARUM: `decrypt` ist asynchron und liest und schreibt den Sitzungszustand.
+  /// Zwei Umschlaege derselben Gegenstelle, die sich ueberlappen (der Relay
+  /// liefert nach dem Verbinden einen ganzen Stapel), rasten denselben
+  /// Ratchet von zwei Staenden aus weiter — der zweite ueberschreibt den
+  /// Fortschritt des ersten, und die naechste Nachricht passt zu keinem der
+  /// beiden. Verschiedene Gegenstellen laufen weiter nebeneinander.
+  final _eingangsKetten = <String, Future<void>>{};
 
   /// Ein Umschlag ueber die Naehe.
   ///
@@ -1098,9 +1129,15 @@ class RealMessengerCore implements MessengerCore {
           break;
       }
     } catch (e) {
-      // ignore: avoid_print
-      print('BitDM-Nah: Sonderpost von ' + post.von +
-          ' (Typ ' + post.typ.toString() + ') gescheitert: ' + e.toString());
+      // NUR IN DER ENTWICKLUNG. In einer Release-Fassung stand hier die
+      // Adresse der Gegenstelle im Android-Log — lesbar fuer jeden mit adb
+      // und fuer Fehlerberichte, die das Log mitnehmen.
+      assert(() {
+        // ignore: avoid_print
+        print('BitDM-Nah: Sonderpost von ' + post.von +
+            ' (Typ ' + post.typ.toString() + ') gescheitert: ' + e.toString());
+        return true;
+      }());
     }
   }
 
@@ -1224,6 +1261,50 @@ class RealMessengerCore implements MessengerCore {
     required Uint8List umschlag,
     required bool ueberNaehe,
     required int? nachweisFuer,
+  }) {
+    final schluessel = '$von:$vonGeraet';
+    final vorher = _eingangsKetten[schluessel] ?? Future<void>.value();
+    // Die Kette selbst kennt keine Fehler — sonst liefe nach einem einzigen
+    // Wurf nichts mehr von dieser Gegenstelle. Der Aufrufer bekommt [lauf]
+    // und damit den Fehler wie bisher. NICHT `lauf.catchError(...)` als
+    // Kettenglied: das haengte einen Zuhoerer an [lauf], und ein Fehler der
+    // Ablage galte als behandelt, statt wie bisher aufzufallen
+    // (empfangsnachweis_test).
+    final fertig = Completer<void>();
+    final lauf = vorher
+        .then((_) => _nimmUmschlagJetzt(
+              von: von,
+              vonGeraet: vonGeraet,
+              umschlag: umschlag,
+              ueberNaehe: ueberNaehe,
+              nachweisFuer: nachweisFuer,
+            ))
+        .whenComplete(() {
+      fertig.complete();
+      if (identical(_eingangsKetten[schluessel], fertig.future)) {
+        _eingangsKetten.remove(schluessel);
+      }
+    });
+    _eingangsKetten[schluessel] = fertig.future;
+    return lauf;
+  }
+
+  /// Was nach dem Entschluesseln schiefgehen kann, ohne dass es an der
+  /// Ablage liegt: ein Inhalt, der nicht so aussieht, wie er soll.
+  static bool _istFormatfehler(Object e) =>
+      e is PayloadFormatException ||
+      e is RezeptFormatException ||
+      e is FormatException ||
+      e is TypeError ||
+      e is ArgumentError ||
+      e is StateError;
+
+  Future<void> _nimmUmschlagJetzt({
+    required String von,
+    required int vonGeraet,
+    required Uint8List umschlag,
+    required bool ueberNaehe,
+    required int? nachweisFuer,
   }) async {
     final store = _store;
     final chats = _chats;
@@ -1273,69 +1354,82 @@ class RealMessengerCore implements MessengerCore {
     // bekommt eigene Gruppennachrichten und Gruppenstaende auf demselben Weg
     // wie alle anderen Mitglieder. Wer schreiben darf, entscheidet die
     // Mitgliederliste in [_nimmGruppe], nicht diese Weiche.
-    if (payload.kind == PayloadKind.gruppe) {
-      _nimmGruppe(von, payload, ueberNaehe, store);
-    } else if (payload.kind == PayloadKind.gruppenStand) {
-      _nimmGruppenStand(von, payload, store);
-    } else if (payload.kind == PayloadKind.gruppenAustritt) {
-      _nimmAustritt(von, payload, store);
-    } else if (von == myId) {
-      _nimmSpiegel(payload);
-    } else {
-      switch (payload.kind) {
-        case PayloadKind.text:
-        case PayloadKind.contactRequest:
-          _legeEingangAb(von, payload, ueberNaehe);
-        case PayloadKind.anhang:
-          _legeAnhangAb(von, payload, ueberNaehe);
-        case PayloadKind.contactAccept:
-          _bestaetigeKontakt(von);
-        case PayloadKind.contactDecline:
-          _lehnteAb(von);
-        case PayloadKind.deliveryReceipt:
-          if (payload.gruppe != null) {
-            _quittiereGruppe(von, payload.gruppe!, payload.refs);
-          } else {
-            _quittiere(von, payload.refs, MessageStatus.delivered);
-          }
-        case PayloadKind.readReceipt:
-          _quittiere(von, payload.refs, MessageStatus.read);
-        // Der Chat IST der Absender, und der Autor auch: eine Gegenstelle
-        // kann nur in der Unterhaltung mit sich selbst reagieren, und nur
-        // ihre eigenen Saetze aendern oder zuruecknehmen.
-        case PayloadKind.reaktion:
-          _nimmReaktion(von, von, payload, store);
-        case PayloadKind.bearbeitung:
-          _nimmBearbeitung(von, von, payload, store);
-        case PayloadKind.widerruf:
-          _nimmWiderruf(von, von, payload, store);
-        case PayloadKind.tippt:
-          _nimmTippen(von, payload);
-        case PayloadKind.anheften:
-          _nimmAnheften(von, payload, store);
-        case PayloadKind.umfrage:
-          // Erst pruefen, dann ablegen: eine Umfrage, die keine ist, kaeme
-          // sonst als Blase ohne Inhalt in den Verlauf.
-          if (Umfrage.lies(payload.text) != null) {
-            _legeEingangAb(von, payload, ueberNaehe, art: MessageKind.umfrage);
-          }
-        case PayloadKind.stimme:
-          _nimmStimme(von, von, payload, store);
-        case PayloadKind.gruppe:
-        case PayloadKind.gruppenStand:
-        case PayloadKind.gruppenAustritt:
-          // Schon oben verteilt; hier nur, damit die Aufzaehlung vollstaendig
-          // bleibt und eine kuenftige Art den Uebersetzer stolpern laesst.
-          break;
-        case PayloadKind.loeschanfrage:
-          _nimmLoeschanfrage(von);
-        case PayloadKind.spiegel:
-          // Ein Spiegel von einer FREMDEN Adresse ergibt keinen Sinn: er
-          // gehoert in einen Chat, ueber den der Absender nichts zu sagen
-          // hat. Still verwerfen, wie jede Art, mit der hier nichts anzufangen
-          // ist.
-          break;
+    // JEDER FORMATFEHLER BEIM VERTEILEN ENDET HIER, nicht beim Aufrufer.
+    //
+    // Bis 25.09.2026 konnte eine innere Nutzlast (Gruppe, Spiegel, Anleitung)
+    // mit einem TypeError aus diesem Block fliegen. Dann fehlten beide Zeilen
+    // darunter: der Sitzungsfortschritt blieb ungespeichert und der Relay
+    // bekam keinen Nachweis — derselbe Umschlag kam bei jedem Verbinden
+    // wieder, und jedes Mal scheiterte er gleich. Ein Fehler der Ablage
+    // (SQLite) faellt NICHT darunter und fliegt weiter; dann bleibt die Zeile
+    // beim Relay, wie es sein soll.
+    try {
+      if (payload.kind == PayloadKind.gruppe) {
+        _nimmGruppe(von, payload, ueberNaehe, store);
+      } else if (payload.kind == PayloadKind.gruppenStand) {
+        _nimmGruppenStand(von, payload, store);
+      } else if (payload.kind == PayloadKind.gruppenAustritt) {
+        _nimmAustritt(von, payload, store);
+      } else if (von == myId) {
+        _nimmSpiegel(payload);
+      } else {
+        switch (payload.kind) {
+          case PayloadKind.text:
+          case PayloadKind.contactRequest:
+            _legeEingangAb(von, payload, ueberNaehe);
+          case PayloadKind.anhang:
+            _legeAnhangAb(von, payload, ueberNaehe);
+          case PayloadKind.contactAccept:
+            _bestaetigeKontakt(von);
+          case PayloadKind.contactDecline:
+            _lehnteAb(von);
+          case PayloadKind.deliveryReceipt:
+            if (payload.gruppe != null) {
+              _quittiereGruppe(von, payload.gruppe!, payload.refs);
+            } else {
+              _quittiere(von, payload.refs, MessageStatus.delivered);
+            }
+          case PayloadKind.readReceipt:
+            _quittiere(von, payload.refs, MessageStatus.read);
+          // Der Chat IST der Absender, und der Autor auch: eine Gegenstelle
+          // kann nur in der Unterhaltung mit sich selbst reagieren, und nur
+          // ihre eigenen Saetze aendern oder zuruecknehmen.
+          case PayloadKind.reaktion:
+            _nimmReaktion(von, von, payload, store);
+          case PayloadKind.bearbeitung:
+            _nimmBearbeitung(von, von, payload, store);
+          case PayloadKind.widerruf:
+            _nimmWiderruf(von, von, payload, store);
+          case PayloadKind.tippt:
+            _nimmTippen(von, payload);
+          case PayloadKind.anheften:
+            _nimmAnheften(von, payload, store);
+          case PayloadKind.umfrage:
+            // Erst pruefen, dann ablegen: eine Umfrage, die keine ist, kaeme
+            // sonst als Blase ohne Inhalt in den Verlauf.
+            if (Umfrage.lies(payload.text) != null) {
+              _legeEingangAb(von, payload, ueberNaehe, art: MessageKind.umfrage);
+            }
+          case PayloadKind.stimme:
+            _nimmStimme(von, von, payload, store);
+          case PayloadKind.gruppe:
+          case PayloadKind.gruppenStand:
+          case PayloadKind.gruppenAustritt:
+            // Schon oben verteilt; hier nur, damit die Aufzaehlung vollstaendig
+            // bleibt und eine kuenftige Art den Uebersetzer stolpern laesst.
+            break;
+          case PayloadKind.loeschanfrage:
+            _nimmLoeschanfrage(von, payload);
+          case PayloadKind.spiegel:
+            // Ein Spiegel von einer FREMDEN Adresse ergibt keinen Sinn: er
+            // gehoert in einen Chat, ueber den der Absender nichts zu sagen
+            // hat. Still verwerfen, wie jede Art, mit der hier nichts anzufangen
+            // ist.
+            break;
+        }
       }
+    } catch (e) {
+      if (!_istFormatfehler(e)) rethrow;
     }
 
     // Steuernachrichten legen nichts in den Verlauf, veraendern aber trotzdem
@@ -1432,6 +1526,15 @@ class RealMessengerCore implements MessengerCore {
       return;
     }
 
+    // EINE KENNUNG, DIE IN DIESEM CHAT SCHON EINEM ANDEREN GEHOERT (meist:
+    // mir), wird nicht angenommen — siehe ChatRepository.kennungFremdBelegt.
+    // Verworfen wie jede unbrauchbare Nachricht; der Nachweis an den Relay
+    // geht trotzdem hinaus (_nimmUmschlag), sonst kaeme sie ewig wieder.
+    if (chats.kennungFremdBelegt(von, p.messageId, von)) {
+      chats.speichereNurSitzung(store);
+      return;
+    }
+
     final nachricht = Message(
       id: p.messageId,
       chatId: von,
@@ -1461,6 +1564,12 @@ class RealMessengerCore implements MessengerCore {
     if (neu) {
       _incoming.add(nachricht);
       unawaited(_sendeQuittung(von, p.messageId));
+    } else {
+      // ABER NOCH EINMAL QUITTIEREN. Eine Wiederholung heisst: beim Absender
+      // steht sie noch nicht auf "zugestellt" — die erste Quittung ist
+      // verloren gegangen. Ohne diese Zeile schickte er sie bei jedem
+      // Verbinden erneut, und der Haken kaeme nie.
+      unawaited(_sendeQuittung(von, p.messageId));
     }
   }
 
@@ -1482,6 +1591,12 @@ class RealMessengerCore implements MessengerCore {
       // Eine unlesbare Anleitung ist kein Grund abzustuerzen und auch keiner,
       // dem Nutzer etwas anzuzeigen: er kann nichts damit anfangen. Der
       // Ratchet-Fortschritt muss trotzdem festgeschrieben werden.
+      chats.speichereNurSitzung(store);
+      return;
+    }
+
+    // Dieselbe Regel wie in [_legeEingangAb].
+    if (chats.kennungFremdBelegt(von, p.messageId, von)) {
       chats.speichereNurSitzung(store);
       return;
     }
@@ -1536,8 +1651,9 @@ class RealMessengerCore implements MessengerCore {
     if (neu) {
       _incoming.add(nachricht);
       _anhangWechsel.add(eintrag);
-      unawaited(_sendeQuittung(von, p.messageId));
     }
+    // Auch bei einer Wiederholung — siehe [_legeEingangAb].
+    unawaited(_sendeQuittung(von, p.messageId));
   }
 
   /// Was ein anderes Geraet DERSELBEN Identitaet gerade verschickt hat.
@@ -1663,6 +1779,10 @@ class RealMessengerCore implements MessengerCore {
     }
     final name = anhang ? AnhangEmpfang.sichererName(rezept!.name) : p.text;
 
+    // Dieselbe Regel wie beim fremden Absender: eine Kennung, die in diesem
+    // Chat schon der Gegenstelle gehoert, bekommt keine zweite Nachricht.
+    if (chats.kennungFremdBelegt(chat, p.messageId, myId)) return;
+
     final nachricht = Message(
       id: p.messageId,
       chatId: chat,
@@ -1693,6 +1813,10 @@ class RealMessengerCore implements MessengerCore {
             name: name,
             groesse: rezept!.gesamtGroesse,
             zustand: AnhangZustand.angekuendigt,
+            // DAS KENNZEICHEN REIST MIT (seit 25.09.2026). Ohne es war die
+            // eigene Einmal-Ansicht auf dem Zweitgeraet ein gewoehnlicher
+            // Anhang — beliebig oft zu oeffnen und in jeder Sicherung.
+            einmal: rezept.einmal,
           )
         : null;
 
@@ -1837,33 +1961,48 @@ class RealMessengerCore implements MessengerCore {
       ueberNaehe: ueberNaehe,
       antwortAuf: p.antwortAuf,
     );
+    // Dieselbe Regel wie im Einzelchat: eine Kennung, die in dieser Gruppe
+    // schon ein ANDERES Mitglied benutzt, wird nicht angenommen.
+    if (chats.kennungFremdBelegt(gid, p.messageId, von)) return;
     final ttl = p.ttlSeconds == null ? null : Duration(seconds: p.ttlSeconds!);
     final neu = chats.speichereEmpfangen(nachricht, store,
         lebensdauer: ttl, anhang: eintrag, rezept: eintrag == null ? null : p.text);
     if (neu) {
       _incoming.add(nachricht);
       if (eintrag != null) _anhangWechsel.add(eintrag);
-      // DER AUTOR ERFAEHRT, DASS SIE DA IST — direkt, nicht an die ganze
-      // Gruppe. Vorher gab es in Gruppen gar keine Quittung, und jede
-      // Nachricht stand fuer immer auf einem Haken.
-      if (von != myId) unawaited(_sendeGruppenQuittung(von, gid, p.messageId));
     }
+    // DER AUTOR ERFAEHRT, DASS SIE DA IST — direkt, nicht an die ganze
+    // Gruppe. Vorher gab es in Gruppen gar keine Quittung, und jede
+    // Nachricht stand fuer immer auf einem Haken. Auch bei einer
+    // Wiederholung, siehe [_legeEingangAb].
+    if (von != myId) unawaited(_sendeGruppenQuittung(von, gid, p.messageId));
   }
 
+  /// Wie [_sendeQuittung], mit der Gruppe dabei.
   Future<void> _sendeGruppenQuittung(String an, String gid, String messageId) async {
     await Future<void>.delayed(quittungsVerzug());
-    if (_conn != ConnectionState.online && !(_nah?.bereit ?? false)) return;
+    await _stelleQuittungZu(
+        an,
+        Payload(
+            kind: PayloadKind.deliveryReceipt,
+            messageId: _neueId(),
+            sentAt: DateTime.now().toUtc(),
+            refs: [messageId],
+            gruppe: gid));
+  }
+
+  /// Eine Quittung, die ankommen SOLL: ueber den Ausgang.
+  ///
+  /// Bis 25.09.2026 ging sie "feuern und vergessen" hinaus — nach der
+  /// zufaelligen Wartezeit einmal versucht, und war die Leitung gerade weg,
+  /// war sie es auch. Der Absender sah nie zwei Haken und schickte die
+  /// Nachricht bei jedem Verbinden erneut. Im Ausgang wartet sie jetzt wie
+  /// eine Reaktion, bis ein Weg offen ist ([_sendeUnversandtes]).
+  Future<void> _stelleQuittungZu(String an, Payload p) async {
     try {
-      await _sendePayload(
-          an,
-          Payload(
-              kind: PayloadKind.deliveryReceipt,
-              messageId: _neueId(),
-              sentAt: DateTime.now().toUtc(),
-              refs: [messageId],
-              gruppe: gid));
+      await _sendeSteuerung(an, p);
     } catch (_) {
-      // Eine verlorene Quittung kostet einen Haken, sonst nichts.
+      // Gesperrt oder geloescht, waehrend die Quittung wartete.
     }
   }
 
@@ -1911,10 +2050,18 @@ class RealMessengerCore implements MessengerCore {
         contactId, Payload.control(PayloadKind.loeschanfrage, _neueId(), DateTime.now().toUtc()));
   }
 
-  void _nimmLoeschanfrage(String von) {
+  void _nimmLoeschanfrage(String von, Payload p) {
     final chats = _chats!;
+    // NUR VON EINEM AKTIVEN KONTAKT. Die Liste der Vertrauten allein genuegt
+    // nicht: ein Kontakt, der entfernt wurde oder gerade eine offene Anfrage
+    // ist, darf nicht mitzaehlen — auch wenn er (aus einer Fassung vor dem
+    // 25.09.2026) noch in der Liste stehen sollte.
+    if (chats.kontakt(von)?.state != ContactState.active) return;
     final vorher = chats.fernloeschung();
-    final nachher = vorher.nimmAnfrage(von, DateTime.now().toUtc());
+    // DIE UHR DES ABSENDERS fuer das Fenster, nicht die Ankunft — siehe
+    // Fernloeschung.nimmAnfrage.
+    final nachher =
+        vorher.nimmAnfrage(von, DateTime.now().toUtc(), gesendet: p.sentAt);
     if (identical(vorher, nachher)) return;
     chats.speichereFernloeschung(nachher);
     if (vorher.faellig == null && nachher.faellig != null) {
@@ -1934,6 +2081,11 @@ class RealMessengerCore implements MessengerCore {
   /// Adresse kennt, sie in beliebig viele Gruppen stecken — Werbung ohne
   /// Kontaktanfrage. Die eigene Adresse zaehlt als Kontakt: das Zweitgeraet
   /// uebernimmt Gruppen, die das erste angelegt hat.
+  /// Wie weit eine Fassung auf einmal springen darf. Ein ehrlicher Admin
+  /// zaehlt je Aenderung um eins; ein riesiger Sprung ist entweder ein Fehler
+  /// oder der Versuch, die Zahl ans Ende zu treiben (Gruppe.maxVersion).
+  static const int _groessterSprung = 1 << 16;
+
   void _nimmGruppenStand(String von, Payload p, BitdmSignalStore store) {
     final chats = _chats!;
     final stand =
@@ -1947,10 +2099,40 @@ class RealMessengerCore implements MessengerCore {
       }
       chats.speichereGruppe(stand, store: store);
     } else {
-      if (alt.admin != von || stand.version <= alt.version) return;
+      // WER SELBST GEGANGEN IST, BLEIBT DRAUSSEN (Gruppe.verlassen). Der
+      // Admin kann den Austritt noch nicht verarbeitet haben; sein naechster
+      // Stand fuehrt mich dann weiter als Mitglied und machte mich bis
+      // 25.09.2026 wieder aktiv — mitsamt dem Zweitgeraet.
+      if (alt.verlassen) return;
+
+      // VOM ADMIN, DEN ICH KENNE — ODER VON SEINEM NACHFOLGER, wenn ich den
+      // Austritt des alten Admins noch nicht gesehen habe. Austritt und neuer
+      // Stand kommen von zwei Absendern und damit in beliebiger Reihenfolge;
+      // bisher verwarf ein Mitglied, das den Stand zuerst bekam, genau die
+      // erste Aenderung des neuen Admins.
+      //
+      // ENG GEFASST: nur der Nachfolger, der sich aus MEINER Liste ergibt
+      // (Gruppe.nachfolger, auf allen Geraeten derselbe), und nur ein Stand,
+      // der GENAU den alten Admin herausnimmt und sonst an der Liste nichts
+      // aendert — also genau das, was der Austritt selbst hier bewirkt haette.
+      // Weitere Aenderungen folgen in der naechsten Fassung und gehen dann
+      // den gewoehnlichen Weg. Was bleibt: dieser eine Nachfolger koennte
+      // einen Austritt behaupten, den es nicht gab. Er ist ohnehin der, der
+      // beim echten Austritt Admin wird.
+      final vomAdmin = alt.admin == von;
+      final ohneAlten = [...alt.mitglieder]..remove(alt.admin);
+      final vomNachfolger = !vomAdmin &&
+          von == Gruppe.nachfolger(alt.mitglieder, alt.admin) &&
+          stand.mitglieder.length == ohneAlten.length &&
+          Iterable<int>.generate(ohneAlten.length)
+              .every((i) => stand.mitglieder[i] == ohneAlten[i]);
+      if (!vomAdmin && !vomNachfolger) return;
+      if (stand.version <= alt.version) return;
+      if (stand.version - alt.version > _groessterSprung) return;
       chats.speichereGruppe(
           alt.copyWith(
             name: stand.name,
+            admin: stand.admin,
             mitglieder: stand.mitglieder,
             version: stand.version,
             aktiv: stand.mitglieder.contains(myId),
@@ -1967,16 +2149,29 @@ class RealMessengerCore implements MessengerCore {
     final g = chats.gruppe(p.gruppe!);
     if (g == null || !g.mitglieder.contains(von)) return;
     final rest = [...g.mitglieder]..remove(von);
-    chats.speichereGruppe(
-        g.copyWith(
-          mitglieder: rest,
-          // Ging der Admin, rueckt der Naechste nach — auf allen Geraeten
-          // derselbe, siehe Gruppe.nachfolger.
-          admin: von == g.admin ? Gruppe.nachfolger(g.mitglieder, von) : null,
-          // Das eigene Zweitgeraet ist ausgetreten: dann dieses auch.
-          aktiv: von == myId ? false : g.aktiv,
-        ),
-        store: store);
+    final neu = g.copyWith(
+      mitglieder: rest,
+      // Ging der Admin, rueckt der Naechste nach — auf allen Geraeten
+      // derselbe, siehe Gruppe.nachfolger.
+      admin: von == g.admin ? Gruppe.nachfolger(g.mitglieder, von) : null,
+      // Das eigene Zweitgeraet ist ausgetreten: dann dieses auch — und
+      // dauerhaft (siehe Gruppe.verlassen).
+      aktiv: von == myId ? false : g.aktiv,
+      verlassen: von == myId ? true : null,
+    );
+    chats.speichereGruppe(neu, store: store);
+
+    // BIN ICH JETZT ADMIN, VERKUENDE ICH DEN NEUEN STAND — als Admin, bei dem
+    // jemand gegangen ist, ebenso wie als Nachfolger. Sonst haengt jedes
+    // Mitglied, das den Austritt (noch) nicht bekommen hat, an einer Liste,
+    // die es nicht mehr gibt; und der erste eigene Stand des Nachfolgers
+    // wuerde bei denen verworfen, die ihn noch nicht als Admin kennen (siehe
+    // _nimmGruppenStand). Eine Fassung hoeher, damit er ueberall greift.
+    if (von != myId && neu.aktiv && neu.admin == myId) {
+      final verkuendet = neu.copyWith(version: neu.version + 1);
+      chats.speichereGruppe(verkuendet);
+      _verkuendeStand(verkuendet);
+    }
     _gruppenWechsel.add(g.id);
   }
 
@@ -2027,19 +2222,14 @@ class RealMessengerCore implements MessengerCore {
 
   Future<void> _sendeQuittung(String an, String messageId) async {
     await Future<void>.delayed(quittungsVerzug());
-    // ODER DIE NAEHE. Ohne den zweiten Teil bekaeme eine Nachricht, die ueber
-    // Bluetooth hereinkam, nie ein Haekchen — obwohl der Rueckweg offensteht,
-    // derselbe, auf dem sie gekommen ist.
-    if (_conn != ConnectionState.online && !(_nah?.bereit ?? false)) return;
-    try {
-      await _sendePayload(
-          an,
-          Payload.control(PayloadKind.deliveryReceipt, _neueId(),
-              DateTime.now().toUtc(),
-              refs: [messageId]));
-    } catch (_) {
-      // Eine verlorene Quittung ist kein Fehler, der jemanden interessiert.
-    }
+    // KEINE PRUEFUNG MEHR, ob gerade ein Weg offen ist: die Quittung wartet im
+    // Ausgang, bis einer aufgeht — Relay ODER Naehe (dann auch fuer eine
+    // Nachricht, die ueber Bluetooth hereinkam, derselbe Rueckweg).
+    await _stelleQuittungZu(
+        an,
+        Payload.control(PayloadKind.deliveryReceipt, _neueId(),
+            DateTime.now().toUtc(),
+            refs: [messageId]));
   }
 
   void _bestaetigeKontakt(String von) {
@@ -2071,6 +2261,14 @@ class RealMessengerCore implements MessengerCore {
       } else {
         chats.setzeStatus(von, myId, ref, status);
       }
+      // ZUGESTELLT: eine geheime Nachricht wird jetzt aus dem eigenen Verlauf
+      // geschwaerzt. Vorher nicht — bis zur Quittung braucht der Nachversand
+      // den Text (auch der Relay-Nachschub nach einer Funkzustellung).
+      if (chats.geheimeNachrichten().contains(ref)) {
+        chats.schwaerze(von, myId, ref, _geschwaerzt);
+        chats.setzeGeheim(ref, false);
+        _verlaufWechsel.add(von);
+      }
       _status.add(MessageStatusUpdate(
           messageId: ref,
           chatId: von,
@@ -2078,6 +2276,9 @@ class RealMessengerCore implements MessengerCore {
           at: DateTime.now().toUtc()));
     }
   }
+
+  /// Was nach dem Schwaerzen einer geheimen Nachricht im Verlauf steht.
+  static const String _geschwaerzt = '••••••';
 
   // ════════════════════════════════════════════════════════════════ Kontakte
 
@@ -2236,7 +2437,7 @@ class RealMessengerCore implements MessengerCore {
 
   @override
   Future<Message> sendMessage(String contactId, String text,
-      {String? antwortAuf, DateTime? um}) async {
+      {String? antwortAuf, DateTime? um, bool geheim = false}) async {
     _fordereChat(contactId);
     final bytes = utf8.encode(text).length;
     if (bytes > kMaxTextBytes) {
@@ -2263,6 +2464,7 @@ class RealMessengerCore implements MessengerCore {
     // verschwunden.
     final frist = _fristFuer(contactId);
     _chats!.speichereEigene(nachricht, lebensdauer: frist);
+    if (geheim) _chats!.setzeGeheim(nachricht.id, true);
 
     if (geplant) {
       _planeGeplante();
@@ -2549,8 +2751,8 @@ class RealMessengerCore implements MessengerCore {
           if (vorhanden == null || vorhanden.zustand == AnhangZustand.da || vorhanden.einmal) {
             continue;
           }
-          final ziel = File('${ordner.path}/${AnhangEmpfang.sichererName(id)}_'
-              '${AnhangEmpfang.sichererName(d['name'] as String)}');
+          // Ein freier Name, nie eine vorhandene Datei — siehe holeAnhang.
+          final ziel = _freieAnhangDatei(ordner, d['name'] as String);
           await ziel.writeAsBytes(base64.decode(d['daten'] as String), flush: true);
           chats.setzeAnhangZustand(chat, absender, id, AnhangZustand.da, pfad: ziel.path);
         } catch (_) {
@@ -2575,13 +2777,23 @@ class RealMessengerCore implements MessengerCore {
   /// dessen Versand mit einem Fehler scheitert (Adresse beim Relay
   /// unbekannt), haelt die Nachricht NICHT fuer immer auf: sonst blockierte
   /// ein einziges geloeschtes Konto jede Nachricht der ganzen Gruppe.
+  ///
+  /// NUR "ADRESSE UNBEKANNT" (404 beim Buendel) GILT ALS ERLEDIGT. Bis
+  /// 25.09.2026 zaehlte JEDER Fehler so — eine Bremse des Relays (429), ein
+  /// Netzloch beim Buendelabruf, eine gerade abgebaute Verbindung. Die
+  /// Nachricht stand dann auf "gesendet", und genau dieses Mitglied bekam sie
+  /// nie. Alles ausser dem 404 heisst jetzt "liegt" und wird wiederholt.
+  ///
+  /// WIRFT [_KeinMitgliedMehr], wenn ich nicht mehr in der Gruppe bin. Bis
+  /// 25.09.2026 kam hier `relay` zurueck, und eine liegengebliebene Nachricht
+  /// wurde als "gesendet" gezeigt, obwohl sie niemand bekam.
   Future<Wegbescheid> _sendeAnGruppe(String gid, Payload p) async {
     final g = _chats?.gruppe(gid);
     final store = _store;
     if (g == null || store == null) {
       return const Wegbescheid(Weg.liegt, 'keine solche Gruppe');
     }
-    if (!g.aktiv) return const Wegbescheid(Weg.relay, 'nicht mehr Mitglied');
+    if (!g.aktiv) throw const _KeinMitgliedMehr();
     final huelle = Payload.inGruppe(gid, p);
     var liegt = false;
     var draussen = false;
@@ -2594,8 +2806,11 @@ class RealMessengerCore implements MessengerCore {
         } else {
           draussen = true;
         }
+      } on RelayException catch (e) {
+        // Das geloeschte Konto: blockierte sonst jede Nachricht der Gruppe.
+        if (e.statusCode != 404) liegt = true;
       } catch (_) {
-        // Siehe oben: ein Fehler ist kein "liegt".
+        liegt = true;
       }
     }
     if (_bekannteGeraete(store, myId).isNotEmpty) {
@@ -2744,6 +2959,7 @@ class RealMessengerCore implements MessengerCore {
     }
     _chats!.speichereGruppe(g.copyWith(
         aktiv: false,
+        verlassen: true,
         admin: g.admin == myId ? Gruppe.nachfolger(g.mitglieder, myId) : null,
         mitglieder: [...g.mitglieder]..remove(myId)));
     _gruppenWechsel.add(gruppeId);
@@ -2887,6 +3103,10 @@ class RealMessengerCore implements MessengerCore {
           : await _sendePayload(an, p);
       if (bescheid.weg == Weg.liegt) return;
       _chats?.trageAusDemAusgang(seq);
+    } on _KeinMitgliedMehr {
+      // Dorthin geht nie wieder etwas; liegenlassen hiesse, es bei jedem
+      // Nachversand erneut anzufassen.
+      _chats?.trageAusDemAusgang(seq);
     } catch (_) {
       // Bleibt im Ausgang; der naechste Nachversand versucht es wieder.
     }
@@ -2977,7 +3197,7 @@ class RealMessengerCore implements MessengerCore {
       try {
         final ordner = Directory('${File(databasePath).parent.path}/anhaenge');
         await ordner.create(recursive: true);
-        final kopie = File('${ordner.path}/${AnhangEmpfang.sichererName(id)}_$angezeigt');
+        final kopie = _freieAnhangDatei(ordner, angezeigt);
         await datei.copy(kopie.path);
         eigenerPfad = kopie.path;
       } catch (_) {
@@ -3047,6 +3267,14 @@ class RealMessengerCore implements MessengerCore {
       throw StateError('kein Anhang zu $messageId');
     }
     if (eintrag.zustand == AnhangZustand.da) return eintrag;
+    // EINE ANGESEHENE EINMAL-ANSICHT WIRD NICHT NOCH EINMAL GEHOLT. Bis
+    // 25.09.2026 fragte die Abkuerzung darueber nur nach "da" — nach dem
+    // Ansehen stand "verbraucht", und der naechste Aufruf holte dieselbe
+    // Datei aus dem Lager neu. Die Anleitung ist inzwischen auch geloescht
+    // (ChatRepository.verbraucheAnhang); das hier ist die klare Absage davor.
+    if (eintrag.zustand == AnhangZustand.verbraucht) {
+      throw StateError('Einmal-Ansicht $messageId ist schon angesehen');
+    }
 
     // DERSELBE SCHALTER WIE BEIM VERSCHICKEN, und aus demselben Grund: die
     // Stuecke liegen im Zwischenlager, und das ist ein Server. Dass die
@@ -3079,13 +3307,27 @@ class RealMessengerCore implements MessengerCore {
     // der ein Fehler nicht wehtut, sondern ausbricht. Wer diese Zeile spaeter
     // mit einer Kennung aus einer anderen Quelle bedient, soll nicht darauf
     // angewiesen sein, dass zwei Dateien weiter oben jemand mitgedacht hat.
-    final sicherId = AnhangEmpfang.sichererName(messageId);
-    final ziel = File('${ordner.path}/${sicherId}_${eintrag.name}');
+    //
+    // UND SEIT 25.09.2026 NICHT MEHR AUS DER KENNUNG. "<kennung>_<name>" war
+    // nur je Absender eindeutig: zwei Chats (oder zwei Mitglieder einer
+    // Gruppe) mit derselben Kennung und demselben Namen landeten in DERSELBEN
+    // Datei, und das Umbenennen am Ende ueberschrieb die des anderen. Jetzt
+    // ein frischer Zufallsname, der nie eine vorhandene Datei trifft; der
+    // angezeigte Name bleibt davon unberuehrt am Eintrag.
+    final ziel = _freieAnhangDatei(ordner, eintrag.name);
 
     try {
       final fertig = await AnhangEmpfang(lager: _lager()).hole(
         rezept,
         ziel,
+        // NICHT WEGWERFEN (seit 25.09.2026). Dieselbe Anleitung haben oft
+        // mehrere: die eigenen Zweitgeraete des Absenders (Spiegel, siehe
+        // [_spiegelfaehig]), meine eigenen weiteren Geraete, in einer Gruppe
+        // jedes Mitglied. Wer zuerst holte, loeschte die Bloecke fuer alle
+        // anderen — die sahen nur noch "weg". Das Lager raeumt nach Ablauf
+        // der Marke selbst auf (blob_kehrmaschine.py); lesbar ist dort ohne
+        // den Schluessel aus der Anleitung ohnehin nichts.
+        danachWegwerfen: false,
         fortschritt: (s) => _anhangStand.add(AnhangFortschritt(
               messageId: messageId,
               chatId: contactId,
@@ -3103,6 +3345,19 @@ class RealMessengerCore implements MessengerCore {
     } catch (_) {
       _setzeAnhang(eintrag, AnhangZustand.gescheitert);
       rethrow;
+    }
+  }
+
+  /// Ein Dateiname im Anhangordner, den es noch nicht gibt: Zufall vorneweg,
+  /// der gesaeuberte Name dahinter (damit das Oeffnen die Endung kennt).
+  ///
+  /// Auch die Nebendatei ".teil" des Empfangs muss frei sein — ein
+  /// gleichzeitiger zweiter Empfang schriebe sonst in dieselbe.
+  File _freieAnhangDatei(Directory ordner, String name) {
+    final sauber = AnhangEmpfang.sichererName(name);
+    while (true) {
+      final f = File('${ordner.path}/${_neueId()}_$sauber');
+      if (!f.existsSync() && !File('${f.path}.teil').existsSync()) return f;
     }
   }
 
@@ -3135,7 +3390,15 @@ class RealMessengerCore implements MessengerCore {
 
   /// Stellt den Weg aller Verbindungen nach der Einstellung "Tor".
   void _setzeNetzweg() {
-    Netzweg.proxy = _prefs.tor ? SocksZiel('127.0.0.1', _prefs.torPort) : null;
+    Netzweg.proxy = _torAn ? SocksZiel('127.0.0.1', _prefs.torPort) : null;
+    // DER ONION-DIENST ZEIGT DAS ZERTIFIKAT DES RELAYS (seit 25.09.2026):
+    // derselbe Server unter zweiter Adresse (siehe [relayUriTor]). Geprueft
+    // wird deshalb gegen relayUri.host — ein falscher SOCKS-Proxy auf
+    // 127.0.0.1 bekommt kein gueltiges Zertifikat fuer relay.bitdm.net hin.
+    final tor = relayUriTor;
+    if (tor != null && tor.scheme == 'https' && tor.host != relayUri.host) {
+      Netzweg.zertifikatsName[tor.host] = relayUri.host;
+    }
     // Der Lager-Client haelt seinen HttpClient; er muss neu entstehen.
     _lagerClient = null;
   }
@@ -3299,10 +3562,16 @@ class RealMessengerCore implements MessengerCore {
   }
 
   /// Verschickt und meldet Fehler ueber den Status, nicht als Ausnahme.
+  ///
+  /// [vorlaeufig]: eine Nachricht, die schon ueber die Naehe hinausging und
+  /// jetzt zur Sicherheit ueber den Relay nachgereicht wird (siehe
+  /// `ChatRepository.unversandt`). Sie steht schon auf "gesendet"; scheitert
+  /// der Nachtrag, faellt sie in der Anzeige NICHT auf "wird gesendet" zurueck.
   Future<void> _versucheZuSenden(String an, Payload p,
       {String? eigeneNachricht,
       bool schonBeimRelay = false,
-      bool schonInDerNaehe = false}) async {
+      bool schonInDerNaehe = false,
+      bool vorlaeufig = false}) async {
     // NOTIZEN: es gibt keinen Empfaenger. "Gesendet" heisst hier "gespeichert",
     // und hinaus geht nur ein Spiegel an die eigenen anderen Geraete. Ohne
     // diesen Zweig schickte der Kern die Notiz roh an die eigenen Geraete —
@@ -3345,23 +3614,46 @@ class RealMessengerCore implements MessengerCore {
         if (eigeneNachricht != null && bescheid.inDerNaehe && !schonInDerNaehe) {
           _chats?.merkeInDerNaehe(an, myId, eigeneNachricht);
         }
-        _bleibtLiegen(an, eigeneNachricht);
+        if (!vorlaeufig) _bleibtLiegen(an, eigeneNachricht);
         return;
       }
       if (eigeneNachricht != null) {
         // DAS ZEICHEN ENTSTEHT HIER und nirgends sonst: erst jetzt steht fest,
         // welchen Weg genau diese Nachricht genommen hat. Beim Anlegen war es
         // noch offen, und die Wegwahl kennt die Nachricht nicht.
+        //
+        // NUR UEBER DIE NAEHE heisst seit 25.09.2026 auch: VORLAEUFIG. Bis die
+        // Quittung kommt, bleibt sie in der Liste des Nachversands und geht
+        // zusaetzlich ueber den Relay, sobald er da ist — ein nachgemachtes
+        // Leuchtfeuer soll sie nicht verschlucken koennen. Geht sie ueber den
+        // Relay, faellt das Zeichen wieder (ueberNaehe: false), und sie ist
+        // aus der Liste.
         _chats!.setzeStatus(an, myId, eigeneNachricht, MessageStatus.sent,
             ueberNaehe: bescheid.weg == Weg.naehe);
+        // DEN STAND AUS DER ABLAGE MELDEN, nicht blind "gesendet": die
+        // Ablage geht nur vorwaerts, und bei einem Nachtrag kann die
+        // Quittung laengst da sein.
         _status.add(MessageStatusUpdate(
             messageId: eigeneNachricht,
             chatId: an,
-            status: MessageStatus.sent,
+            status: _chats?.nachricht(an, myId, eigeneNachricht)?.status ??
+                MessageStatus.sent,
+            at: DateTime.now().toUtc()));
+      }
+    } on _KeinMitgliedMehr {
+      // Nicht mehr in der Gruppe: diese Nachricht bekommt niemand mehr. Das
+      // ist kein Liegenbleiben, sondern ein Abbruch — "gescheitert", und der
+      // Nachversand fasst sie nicht mehr an.
+      if (eigeneNachricht != null) {
+        _chats?.setzeStatus(an, myId, eigeneNachricht, MessageStatus.failed);
+        _status.add(MessageStatusUpdate(
+            messageId: eigeneNachricht,
+            chatId: an,
+            status: MessageStatus.failed,
             at: DateTime.now().toUtc()));
       }
     } catch (_) {
-      _bleibtLiegen(an, eigeneNachricht);
+      if (!vorlaeufig) _bleibtLiegen(an, eigeneNachricht);
     }
   }
 
@@ -3522,10 +3814,8 @@ class RealMessengerCore implements MessengerCore {
               Envelope.of(ct).toBytes(),
               schonBeimRelay: schonBeimRelay,
               // NUR FUER GERAET 1, weil nur es je ueber die Naehe erreichbar
-              // war. `schonInDerNaehe` sperrt in der Wegwahl den RELAY —
-              // gaebe man es allen Zielen mit, koennte eine Funkzustellung an
-              // Geraet 1 die Nachricht fuer ALLE anderen Geraete dauerhaft
-              // blockieren: sie bliebe liegen und faende nie wieder einen Weg.
+              // war. Seit 25.09.2026 sperrt der Vermerk in der Wegwahl nichts
+              // mehr (Regel 2 dort); er wird nur weitergetragen.
               schonInDerNaehe: g == 1 && schonInDerNaehe,
             );
 
@@ -3600,7 +3890,10 @@ class RealMessengerCore implements MessengerCore {
       inDerNaehe: inDerNaehe,
     );
 
-    if (spiegeln && weg != Weg.liegt) {
+    // Geheime Nachrichten (Teile der zwoelf Woerter) bleiben auf DIESEM
+    // Geraet — ein Spiegel legte sie auf jedem weiteren ab, ungeschwaerzt.
+    if (spiegeln && weg != Weg.liegt &&
+        !(_chats?.geheimeNachrichten().contains(p.messageId) ?? false)) {
       await _spiegleAnEigeneGeraete(store, an, p);
     }
     return ergebnis;
@@ -3893,16 +4186,39 @@ class RealMessengerCore implements MessengerCore {
   /// nicht geprueft werden kann: der erste Anlauf der Behebung stand mitten in
   /// der Schleife, und ein Mutationstest zeigte, dass kein einziger Test rot
   /// wurde, als man sie wieder zurueckdrehte.
+  ///
+  /// DRITTENS (25.09.2026) DER INHALT EINES ANHANGS. Die Art stimmte seit dem
+  /// ersten Fund, der Text nicht: in `m.text` steht beim eigenen Anhang der
+  /// ANGEZEIGTE NAME ("urlaub.zip"), nicht die Anleitung. Der Empfaenger bekam
+  /// einen Anhang, dessen Anleitung ein Dateiname war, und verwarf ihn still.
+  /// Die Anleitung liegt in der Ablage und kommt als [rezept] herein — mit
+  /// dem Einmal-Kennzeichen, das beim Verschicken hineingeschrieben wurde.
+  /// Ohne sie wirft diese Funktion: lieber "gescheitert" als ein leerer Anhang.
+  ///
+  /// VIERTENS DIE FRIST DER NACHRICHT SELBST ([Message.fristSekunden]). Nur
+  /// wo sie unbekannt ist (vor Schema 14 gespeichert), gilt [frist], die
+  /// aktuelle Einstellung.
   @visibleForTesting
-  static Payload nachversand(Message m, Duration? frist) =>
-      switch (m.kind) {
-        MessageKind.anhang => Payload.anhang(m.id, m.text, m.timestamp,
-            lebensdauer: frist, antwortAuf: m.antwortAuf),
-        MessageKind.umfrage => Payload.umfrage(m.id, m.text, m.timestamp,
-            lebensdauer: frist, antwortAuf: m.antwortAuf),
-        MessageKind.text => Payload.text(m.id, m.text, m.timestamp,
-            lebensdauer: frist, antwortAuf: m.antwortAuf),
-      };
+  static Payload nachversand(Message m, Duration? frist, {String? rezept}) {
+    final eigene = m.fristSekunden;
+    final f = eigene == null
+        ? frist
+        : (eigene <= 0 ? null : Duration(seconds: eigene));
+    return switch (m.kind) {
+      MessageKind.anhang => Payload.anhang(
+          m.id,
+          (rezept == null || rezept.isEmpty)
+              ? (throw StateError('keine Anleitung zu ${m.id}'))
+              : rezept,
+          m.timestamp,
+          lebensdauer: f,
+          antwortAuf: m.antwortAuf),
+      MessageKind.umfrage => Payload.umfrage(m.id, m.text, m.timestamp,
+          lebensdauer: f, antwortAuf: m.antwortAuf),
+      MessageKind.text => Payload.text(m.id, m.text, m.timestamp,
+          lebensdauer: f, antwortAuf: m.antwortAuf),
+    };
+  }
 
   /// Stellt einen Nachversand in die Reihe. Siehe [_nachversandLauf].
   ///
@@ -3934,7 +4250,10 @@ class RealMessengerCore implements MessengerCore {
     // Gesperrt oder geloescht, waehrend der Lauf in der Reihe stand.
     if (chats == null) return;
 
-    for (final m in chats.unversandt()) {
+    // MIT DEN VORLAEUFIGEN (nur ueber die Naehe, noch ohne Quittung), aber
+    // nicht mit "nur in der Naehe": dort gibt es keinen Relay zum Nachreichen,
+    // und derselbe Funkweg noch einmal fragte nur denselben Faelscher.
+    for (final m in chats.unversandt(mitVorlaeufigen: !_prefs.nurNahbereich)) {
       // NICHT MEHR NUR "IST DER RELAY ONLINE".
       //
       // Der Abbruch soll verhindern, dass der Rest der Liste gegen eine tote
@@ -3946,13 +4265,37 @@ class RealMessengerCore implements MessengerCore {
       // MessageStatus.failed wird nirgends gesetzt.
       if (!_einWegOffen) return;
 
+      // Vorlaeufige nur ueber den Relay — siehe oben. Ist er gerade nicht
+      // da, beim naechsten Verbinden.
+      final vorlaeufig = m.status == MessageStatus.sent;
+      if (vorlaeufig && _conn != ConnectionState.online) continue;
+
       // Die Entscheidung, WAS nachgeschickt wird, steht in [nachversand].
       // Womit es NICHT mehr gehen darf, steht an der Nachricht.
-      await _versucheZuSenden(
-          m.chatId, nachversand(m, _fristFuer(m.chatId)),
+      final Payload p;
+      try {
+        p = nachversand(m, _fristFuer(m.chatId),
+            rezept: m.kind == MessageKind.anhang
+                ? chats.rezeptText(m.chatId, myId, m.id)
+                : null);
+      } on StateError {
+        // Ein Anhang ohne Anleitung laesst sich nicht wiederholen. Ihn
+        // liegenzulassen hiesse, es bei jedem Verbinden erneut zu versuchen.
+        chats.setzeStatus(m.chatId, myId, m.id, MessageStatus.failed);
+        _status.add(MessageStatusUpdate(
+            messageId: m.id,
+            chatId: m.chatId,
+            status: MessageStatus.failed,
+            at: DateTime.now().toUtc()));
+        continue;
+      }
+      await _versucheZuSenden(m.chatId, p,
           eigeneNachricht: m.id,
-          schonBeimRelay: m.schonBeimRelay,
-          schonInDerNaehe: m.schonInDerNaehe);
+          // Eine vorlaeufige war schon in der Luft: nicht noch einmal ueber
+          // die Naehe, auch wenn der Relay mitten im Lauf wegfaellt.
+          schonBeimRelay: m.schonBeimRelay || vorlaeufig,
+          schonInDerNaehe: m.schonInDerNaehe,
+          vorlaeufig: vorlaeufig);
     }
 
     // DER AUSGANG NACH DEN NACHRICHTEN, nicht davor: eine Reaktion oder
@@ -4094,9 +4437,30 @@ class RealMessengerCore implements MessengerCore {
     // Die Oberflaeche verspricht "Identitaet, Kontakte und Nachrichten sofort
     // und unwiderruflich loeschen". Der Anhang IST der Inhalt der Nachricht.
     try {
-      final anhaenge =
-          Directory('${File(databasePath).parent.path}/anhaenge');
-      if (anhaenge.existsSync()) anhaenge.deleteSync(recursive: true);
+      final basis = File(databasePath).parent;
+      // Dazu die Sprachaufnahmen (SprachKanal.kt legt sie unter
+      // filesDir/sprache ab) — bis 25.09.2026 ueberlebten sie jedes Loeschen,
+      // unverschluesselt, auch die gesendeten Einmal-Nachrichten.
+      for (final name in const ['anhaenge', 'sprache']) {
+        final ordner = Directory('${basis.path}/$name');
+        if (ordner.existsSync()) ordner.deleteSync(recursive: true);
+      }
+      // Und auf Android der Zwischenspeicher der App (Kopien beim Versand,
+      // bereinigte Bilder, Sicherungen auf dem Weg). Er liegt neben files/
+      // und gehoert nur dieser App. NICHT auf dem Desktop: dort ist das
+      // Zwischenverzeichnis das des ganzen Benutzers.
+      if (Platform.isAndroid && basis.uri.pathSegments.where((s) => s.isNotEmpty).last == 'files') {
+        final cache = Directory('${basis.parent.path}/cache');
+        if (cache.existsSync()) {
+          for (final e in cache.listSync()) {
+            try {
+              e.deleteSync(recursive: true);
+            } on FileSystemException {
+              // Weiter — der Rest ist wichtiger.
+            }
+          }
+        }
+      }
     } on FileSystemException {
       // Weiter loeschen. Eine Datei, die sich nicht entfernen laesst, darf den
       // Rest nicht aufhalten — der Rest ist wichtiger.
@@ -4192,6 +4556,12 @@ class RealMessengerCore implements MessengerCore {
 }
 
 
+/// Ich bin nicht mehr Mitglied dieser Gruppe — kein Netzproblem, sondern das
+/// Ende dieses Versands. Siehe [RealMessengerCore._sendeAnGruppe].
+class _KeinMitgliedMehr implements Exception {
+  const _KeinMitgliedMehr();
+}
+
 /// Der Relay als Ausgang fuer die Wegwahl — eine duenne Huelle, sonst nichts.
 ///
 /// [bereit] ist die einzige Aussage, die hier wirklich getroffen wird, und sie
@@ -4211,6 +4581,10 @@ class _RelayAusgang implements Ausgang {
 
   @override
   bool get bereit => _relay?.isConnected ?? false;
+
+  /// Der Relay erreicht jeden oder keinen.
+  @override
+  bool bereitFuer(String an) => bereit;
 
   @override
   Future<void> schicke(String an, Uint8List umschlag) => _geraet == 1
@@ -4232,6 +4606,9 @@ class _KeinAusgang implements Ausgang {
 
   @override
   bool get bereit => false;
+
+  @override
+  bool bereitFuer(String an) => false;
 
   @override
   Future<void> schicke(String an, Uint8List umschlag) =>

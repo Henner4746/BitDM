@@ -18,16 +18,36 @@ class Buchfuehrend implements Ausgang {
   @override
   bool bereit;
 
+  @override
+  bool bereitFuer(String an) => bereit;
+
   /// Ob der Versuch scheitert — nachdem er gezaehlt wurde.
   bool wirft;
+
+  /// Was dabei geworfen wird; ohne Angabe ein mehrdeutiger Fehler.
+  Object? fehler;
 
   final gesendet = <String>[];
 
   @override
   Future<void> schicke(String an, Uint8List umschlag) async {
     gesendet.add('$an:${umschlag.length}');
-    if (wirft) throw StateError('geht gerade nicht');
+    if (wirft) throw fehler ?? StateError('geht gerade nicht');
   }
+}
+
+/// Wie ein Nahbereich: bereit fuer GENAU die Kontakte in [da].
+class NurFuer extends Buchfuehrend {
+  NurFuer(this.da) : super(bereit: da.isNotEmpty);
+  final Set<String> da;
+  @override
+  bool bereitFuer(String an) => da.contains(an);
+}
+
+/// Ein Fehlschlag, bei dem sicher nichts hinausging (wie FunkFehler NICHT_DA).
+class NichtsRaus implements Exception, Ausgangsfehler {
+  @override
+  bool get nichtsHinaus => true;
 }
 
 final umschlag = Uint8List.fromList(List.generate(612, (i) => i & 0xFF));
@@ -236,6 +256,52 @@ void main() {
       relay.wirft = true;
       naehe.wirft = true;
       await expectLater(wahl().schicke('abc', umschlag), completes);
+    });
+  });
+
+  group('Seit 25.09.2026 (Befund H1)', () {
+    test('BEREIT HEISST: DIESER EMPFAENGER ist in Reichweite, nicht irgendwer',
+        () async {
+      // Ein Nachbar in Reichweite genuegte frueher, und die Nachricht an
+      // jemand ganz anderen ging "ueber die Naehe" — und scheiterte dort.
+      relay.bereit = false;
+      final nah = NurFuer({'nachbar'});
+      final b = await Wegwahl(relay: relay, naehe: nah).schicke('abc', umschlag);
+      expect(b.weg, Weg.liegt);
+      expect(nah.gesendet, isEmpty);
+      expect(b.inDerNaehe, isFalse,
+          reason: 'es wurde gar nichts versucht — also ist nichts mehrdeutig');
+
+      final an = await Wegwahl(relay: relay, naehe: nah).schicke('nachbar', umschlag);
+      expect(an.weg, Weg.naehe);
+    });
+
+    test('WAS SICHER NICHT HINAUSGING, setzt keinen Vermerk', () async {
+      relay.bereit = false;
+      naehe.wirft = true;
+      naehe.fehler = NichtsRaus();
+      final b = await wahl().schicke('abc', umschlag);
+      expect(b.weg, Weg.liegt);
+      expect(b.inDerNaehe, isFalse,
+          reason: 'NICHT_DA und Verwandte sperrten die Nachricht bisher fuer '
+              'immer fuer den Relay');
+    });
+
+    test('ein mehrdeutiger Fehlschlag setzt ihn weiterhin', () async {
+      relay.bereit = false;
+      naehe.wirft = true;
+      final b = await wahl().schicke('abc', umschlag);
+      expect(b.inDerNaehe, isTrue);
+    });
+
+    test('WAS IN DER NAEHE WAR, DARF UEBER DEN RELAY — der Empfaenger entdoppelt',
+        () async {
+      // Bis 25.09.2026 blieb eine solche Nachricht fuer immer liegen.
+      relay.bereit = true;
+      final b = await wahl().schicke('abc', umschlag, schonInDerNaehe: true);
+      expect(b.weg, Weg.relay);
+      expect(relay.gesendet, ['abc:612']);
+      expect(b.inDerNaehe, isTrue, reason: 'der Vermerk geht nicht verloren');
     });
   });
 }

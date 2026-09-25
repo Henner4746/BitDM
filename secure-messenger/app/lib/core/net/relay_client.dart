@@ -26,13 +26,21 @@ import 'dart:typed_data';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../crypto/signal_identity.dart';
+import '../nah/wegwahl.dart' show Ausgangsfehler;
 import 'netz_zugang.dart';
 import 'relay_protocol.dart';
 
-class RelayException implements Exception {
+class RelayException implements Exception, Ausgangsfehler {
   final String grund;
   final int? statusCode;
   const RelayException(this.grund, {this.statusCode});
+
+  /// "nicht verbunden" scheitert, bevor ein Byte die Leitung verlaesst
+  /// ([send] prueft die WebSocket zuerst). Dann hat der Relay sicher nichts
+  /// bekommen, und die Wegwahl merkt sich keinen Relay-Versuch (seit
+  /// 25.09.2026; vorher galt auch das als mehrdeutig).
+  @override
+  bool get nichtsHinaus => grund == 'nicht verbunden';
   @override
   String toString() =>
       'RelayException: $grund${statusCode == null ? '' : ' (HTTP $statusCode)'}';

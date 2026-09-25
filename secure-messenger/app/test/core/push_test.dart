@@ -130,7 +130,7 @@ void main() {
 
       expect(st.pushEndpunkt, isNull);
       expect(core.pushEndpunkt, isNull);
-      expect(st.letzterFehler, contains('fremdem Server'));
+      expect(st.letzterFehler, 'pushFremd');
     });
 
     test('ein NEUER Endpunkt ersetzt den alten', () async {

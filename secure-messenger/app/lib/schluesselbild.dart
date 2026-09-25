@@ -73,18 +73,24 @@ class SchluesselbildAnsicht extends StatelessWidget {
     required this.farbe,
     required this.leer,
     this.punkt = 9,
+    this.beschriftung,
   });
 
   final String schluessel;
   final Color farbe;
   final Color leer;
 
+  /// Was ein Screenreader vorliest — uebersetzt von der Oberflaeche
+  /// (data.dart, 'keyArtLabel'). Hier stand fest das deutsche Wort, auch in
+  /// der englischen Fassung.
+  final String? beschriftung;
+
   /// Kantenlaenge eines Feldes in logischen Pixeln.
   final double punkt;
 
   @override
   Widget build(BuildContext context) => Semantics(
-        label: 'Schluesselbild',
+        label: beschriftung ?? 'Schluesselbild',
         excludeSemantics: true,
         child: CustomPaint(
           size: Size(Schluesselbild.breite * punkt, Schluesselbild.hoehe * punkt),

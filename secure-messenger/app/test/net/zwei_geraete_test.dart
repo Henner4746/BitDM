@@ -549,7 +549,11 @@ void main() {
         registrationId: 4242,
         deviceId: 4711,
         signedPreKeyId: 1,
-        signedPreKey: base64.encode(Uint8List(33)),
+        // FORMGERECHT (0x05 + 32 Byte): seit 25.09.2026 weist der Relay
+        // falsch geformte Schluessel schon mit 400 ab. Dieser Test soll aber
+        // beweisen, dass die SIGNATUR den Angreifer aufhaelt — dafuer muss er
+        // an der Formpruefung vorbeikommen.
+        signedPreKey: base64.encode(Uint8List(33)..[0] = 5),
         signedPreKeySignature: base64.encode(Uint8List(64)),
       );
 

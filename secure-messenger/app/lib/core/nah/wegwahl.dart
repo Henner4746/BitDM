@@ -11,11 +11,18 @@
 //    die Nachricht kommt auch an, wenn der andere weggeht. Die Naehe ist die
 //    Ausfallsicherung, nicht der Normalfall.
 //
-// 2. NIEMALS BEIDE WEGE FUER DIESELBE NACHRICHT. Das waeren zwei verschiedene
-//    Verschluesselungen desselben Textes — der Empfaenger zeigte ihn zweimal
-//    an, und im Double Ratchet stuenden zwei Schluesselketten nebeneinander.
-//    Je Nachricht genau ein Weg, und diese Datei ist die einzige Stelle, an
-//    der das entschieden wird.
+// 2. KEIN WECHSEL VOM RELAY AUF DIE NAEHE. Was beim Relay war (oder sein
+//    koennte), geht nicht mehr ueber die Naehe: sie truege dort das Zeichen
+//    "kein Server war beteiligt", und das stimmte nicht mehr.
+//
+//    DIE GEGENRICHTUNG IST SEIT 25.09.2026 OFFEN, und das mit Absicht. Frueher
+//    sperrte ein Funkversuch den Relay fuer immer — auch einer, bei dem nie
+//    ein Byte hinausging (niemand in Reichweite, Gegenstelle weg). Die
+//    Nachricht lag dann fuer alle Zeit auf "wird gesendet". Eine doppelte
+//    Zustellung dagegen sieht niemand: der Empfaenger legt jede Nachricht am
+//    eindeutigen Index (Chat, Absender, Kennung) ab und verwirft die zweite
+//    Kopie still. Die zwei Verschluesselungen sind zwei gewoehnliche
+//    Ratchet-Schritte, keine zweite Kette. Der teure Irrtum war der andere.
 //
 //    UND ZWAR UEBER DEN EINZELNEN AUFRUF HINAUS. Diese Klasse lebt nur einen
 //    Versand lang; eine Nachricht, die liegenbleibt, bekommt beim naechsten
@@ -26,6 +33,11 @@
 //
 // 3. WER "NUR IN DER NAEHE" EINGESCHALTET HAT, bekommt keinen Relay — auch
 //    nicht als Rueckfall, auch nicht "nur zum Verbinden".
+//
+// 5. "BEREIT" HEISST: DIESER EMPFAENGER ist erreichbar ([Ausgang.bereitFuer]).
+//    Bis 25.09.2026 fragte die Wahl nur, ob IRGENDWER in Reichweite sei — ein
+//    Nachbar genuegte, um eine Nachricht an jemand ganz anderen "ueber die
+//    Naehe" zu schicken, die dann an "nicht in Reichweite" scheiterte.
 //
 // 4. WAS NICHT RAUSGEHT, BLEIBT LIEGEN. Nicht "gescheitert": liegengeblieben.
 //    Der Unterschied ist der zwischen "die App versucht es wieder" und "du
@@ -79,6 +91,11 @@ class Wegbescheid {
   /// Das Gegenstueck: dieser Umschlag ist ueber die Naehe hinausgegangen —
   /// oder es ist mehrdeutig, ob er es ist.
   ///
+  /// NUR DANN. Ein Versuch, der sicher nichts hinausgeschickt hat
+  /// ([Ausgangsfehler.nichtsHinaus] — niemand in Reichweite, kein
+  /// Leuchtfeuer, Bluetooth verweigert), setzt es NICHT. Bis 25.09.2026 tat er
+  /// es doch, und die Nachricht war danach fuer den Relay gesperrt.
+  ///
   /// DIESELBE MEHRDEUTIGKEIT WIE BEIM RELAY, nur mit anderer Technik. Ein
   /// Funk-Versand ist erst fertig, wenn das letzte Haeppchen bestaetigt ist;
   /// reisst die Verbindung DANACH, aber bevor die Bestaetigung ankommt, hat
@@ -95,11 +112,29 @@ class Wegbescheid {
 
 /// Ein Weg, ueber den ein Umschlag hinausgehen kann.
 abstract class Ausgang {
-  /// Ob er GERADE benutzbar ist. Darf nicht blockieren.
+  /// Ob er GERADE benutzbar ist — fuer irgendwen. Darf nicht blockieren.
   bool get bereit;
+
+  /// Ob er GERADE fuer [an] benutzbar ist. Darf nicht blockieren.
+  ///
+  /// Beim Relay dasselbe wie [bereit]; in der Naehe die eigentliche Frage:
+  /// steht DIESER Kontakt in Reichweite, nicht irgendeiner.
+  bool bereitFuer(String an);
 
   /// Schickt. Wirft, wenn es nicht geklappt hat.
   Future<void> schicke(String an, Uint8List umschlag);
+}
+
+/// Ein Fehlschlag, der sagen kann, ob sicher NICHTS hinausging.
+///
+/// Wofuer: [Wegbescheid.inDerNaehe] soll nur bei einem Versuch stehen, der
+/// moeglicherweise etwas zugestellt hat. "Niemand in Reichweite" oder "kein
+/// Leuchtfeuer fuer diesen Kontakt" scheitern, bevor ein Byte in der Luft ist
+/// — daraus einen mehrdeutigen Versuch zu machen, sperrte die Nachricht fuer
+/// nichts. Wer diese Schnittstelle nicht umsetzt, gilt als mehrdeutig: das
+/// ist die vorsichtige Seite.
+abstract interface class Ausgangsfehler {
+  bool get nichtsHinaus;
 }
 
 /// Entscheidet je Nachricht, welcher Weg genommen wird.
@@ -127,11 +162,20 @@ class Wegwahl {
   /// Kerns: Netzprobleme sind Zustaende, keine Ausnahmen. Wer sie hier
   /// wuerfe, zwaenge jede aufrufende Stelle in ein try/catch, das sie nicht
   /// sinnvoll behandeln kann.
+  ///
+  /// [schonInDerNaehe] sperrt seit 25.09.2026 nichts mehr (siehe Regel 2);
+  /// er wird nur im Bescheid weitergetragen, damit der Aufrufer den Vermerk
+  /// nicht verliert.
   Future<Wegbescheid> schicke(String an, Uint8List umschlag,
       {bool schonBeimRelay = false, bool schonInDerNaehe = false}) async {
-    // ignore: avoid_print
-    print('BitDM-Weg: waehle — nurNahbereich=$nurNahbereich '
-        'nahBereit=${naehe.bereit}');
+    // Nur in der Entwicklung: im Release-Log verriete jede Zeile, WANN
+    // gesendet wurde.
+    assert(() {
+      // ignore: avoid_print
+      print('BitDM-Weg: waehle — nurNahbereich=$nurNahbereich '
+          'nahBereit=${naehe.bereitFuer(an)}');
+      return true;
+    }());
     if (nurNahbereich) {
       // REGEL 3 GEGEN REGEL 2, und Regel 2 gewinnt.
       //
@@ -148,31 +192,27 @@ class Wegwahl {
             'ueber die Naehe waere er moeglicherweise zweimal draussen',
             beimRelay: true);
       }
-      if (!naehe.bereit) {
-        return const Wegbescheid(
-            Weg.liegt, 'nur in der Naehe, und niemand ist in Reichweite');
+      if (!naehe.bereitFuer(an)) {
+        return Wegbescheid(
+            Weg.liegt, 'nur in der Naehe, und der Empfaenger ist nicht in Reichweite',
+            inDerNaehe: schonInDerNaehe);
       }
       return _versuche(naehe, an, umschlag, Weg.naehe,
           sonst: 'nur in der Naehe, und die Uebertragung ging schief',
-          inDerNaehe: true);
+          inDerNaehe: true, schonInDerNaehe: schonInDerNaehe);
     }
 
-    // REGEL 2 IN DER GEGENRICHTUNG. Sie stand hier lange nur einseitig da:
-    // was beim Relay war, durfte nicht mehr ueber die Naehe — was in der
-    // Naehe war, durfte sehr wohl noch ueber den Relay. Dieselbe doppelte
-    // Zustellung, nur gespiegelt.
-    if (schonInDerNaehe) {
-      return const Wegbescheid(
-          Weg.liegt,
-          'dieser Umschlag war schon in der Naehe unterwegs — ueber den Relay '
-          'darf er deshalb nicht mehr',
-          inDerNaehe: true);
-    }
+    // KEINE SPERRE FUER `schonInDerNaehe` MEHR (bis 25.09.2026 stand hier
+    // eine). Siehe Regel 2: was mehrdeutig ueber die Naehe ging, darf ueber
+    // den Relay nachgereicht werden — die zweite Kopie verwirft der
+    // Empfaenger, eine fuer immer liegende Nachricht sieht der Absender.
 
     // REGEL 1. Erst wenn der Relay nicht kann, kommt die Naehe.
-    if (relay.bereit) {
+    if (relay.bereitFuer(an)) {
       final ueberRelay = await _versuche(relay, an, umschlag, Weg.relay,
-          sonst: 'der Relay hat abgelehnt', beimRelay: true);
+          sonst: 'der Relay hat abgelehnt',
+          beimRelay: true,
+          schonInDerNaehe: schonInDerNaehe);
       if (ueberRelay.weg == Weg.relay) return ueberRelay;
 
       // REGEL 2, UND HIER SITZT DIE FALLE.
@@ -190,7 +230,8 @@ class Wegwahl {
           Weg.liegt,
           '${ueberRelay.grund} — kein Wechsel auf die Naehe, weil die '
           'Nachricht schon unterwegs sein koennte',
-          beimRelay: true);
+          beimRelay: true,
+          inDerNaehe: schonInDerNaehe);
     }
 
     // DERSELBE SATZ, EINEN VERSUCH SPAETER. Ohne diese Zeile hielte Regel 2
@@ -198,19 +239,22 @@ class Wegwahl {
     // Naehe waere bereit, und der Umschlag ginge ein zweites Mal hinaus —
     // diesmal mit dem Zeichen "kein Server war beteiligt".
     if (schonBeimRelay) {
-      return const Wegbescheid(
+      return Wegbescheid(
           Weg.liegt,
           'kein Relay — und ueber die Naehe darf dieser Umschlag nicht mehr, '
           'er war dort schon einmal',
-          beimRelay: true);
+          beimRelay: true,
+          inDerNaehe: schonInDerNaehe);
     }
 
-    if (naehe.bereit) {
+    if (naehe.bereitFuer(an)) {
       return _versuche(naehe, an, umschlag, Weg.naehe,
-          sonst: 'kein Relay, und die Naehe ging schief', inDerNaehe: true);
+          sonst: 'kein Relay, und die Naehe ging schief',
+          inDerNaehe: true,
+          schonInDerNaehe: schonInDerNaehe);
     }
 
-    return const Wegbescheid(Weg.liegt, 'kein Weg offen');
+    return Wegbescheid(Weg.liegt, 'kein Weg offen', inDerNaehe: schonInDerNaehe);
   }
 
   Future<Wegbescheid> _versuche(
@@ -221,11 +265,12 @@ class Wegwahl {
     required String sonst,
     bool beimRelay = false,
     bool inDerNaehe = false,
+    bool schonInDerNaehe = false,
   }) async {
     try {
       await weg.schicke(an, umschlag);
       return Wegbescheid(art, 'gegangen',
-          beimRelay: beimRelay, inDerNaehe: inDerNaehe);
+          beimRelay: beimRelay, inDerNaehe: inDerNaehe || schonInDerNaehe);
     } catch (e) {
       // AUCH IM FEHLERFALL vermerken, und das ist der ganze Punkt: gerade der
       // gescheiterte Versuch ist der mehrdeutige.
@@ -236,8 +281,13 @@ class Wegwahl {
       // die genau hier weggeworfen wurde. Diese Zeile ist der Unterschied
       // zwischen "es geht nicht" und "es geht nicht, WEIL".
       final text = e is Exception || e is Error ? '$e' : e.runtimeType.toString();
+      // WAS SICHER NICHT HINAUSGING, IST NICHT MEHRDEUTIG. Siehe
+      // [Ausgangsfehler]: nur ein Versuch, bei dem Bytes in der Luft gewesen
+      // sein koennen, bekommt den Vermerk.
+      final nichts = e is Ausgangsfehler && e.nichtsHinaus;
       return Wegbescheid(Weg.liegt, '$sonst: $text',
-          beimRelay: beimRelay, inDerNaehe: inDerNaehe);
+          beimRelay: beimRelay && !nichts,
+          inDerNaehe: (inDerNaehe && !nichts) || schonInDerNaehe);
     }
   }
 }

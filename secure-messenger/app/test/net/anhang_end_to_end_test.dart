@@ -263,7 +263,10 @@ void main() {
       expect(await File(dort.pfad!).readAsBytes(), vorher);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
-    test('nach dem Holen ist das Lager wieder leer', () async {
+    // BIS 25.09.2026 HIESS DER TEST "nach dem Holen ist das Lager wieder
+    // leer" — und genau das war der Fehler: wer zuerst holte, nahm die Bloecke
+    // allen anderen weg (Zweitgeraete, Spiegel des Absenders, Gruppen).
+    test('NACH DEM HOLEN BLEIBT ES FUER DIE ANDEREN GERAETE LIEGEN', () async {
       if (relay == null || lager == null) return;
       final angekommen = bob.incomingMessages.first;
       await alice.sendeAnhang(
@@ -272,10 +275,11 @@ void main() {
 
       await bob.holeAnhang(alice.myId, beiBob.id);
 
-      // Wegwerfen laeuft ohne Warten — kurz Zeit lassen.
+      // Ein Wegwerfen liefe ohne Warten — kurz Zeit lassen, sonst bewiese
+      // der Test nichts.
       await Future<void>.delayed(const Duration(seconds: 1));
-      expect(await lager!.anzahlBloecke(), 0,
-          reason: 'was abgeholt ist, hat im Lager nichts mehr verloren');
+      expect(await lager!.anzahlBloecke(), greaterThan(0),
+          reason: 'das erste Geraet hat die Bloecke fuer alle anderen geloescht');
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('ZWEIMAL HOLEN GEHT NICHT SCHIEF', () async {

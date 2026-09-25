@@ -164,8 +164,12 @@ abstract class MessengerCore {
   /// Zeitpunkt hinaus (oder beim ersten Verbinden danach). Ihre Verfasszeit
   /// ist dann [um], nicht jetzt — die Gegenstelle soll sie dort einsortieren,
   /// wo sie hingehoert.
+  ///
+  /// [geheim]: der Text verschwindet nach der Zustellung aus dem eigenen
+  /// Verlauf und geht nicht an die eigenen Zweitgeraete (Teile der zwoelf
+  /// Woerter fuer Vertrauenskontakte).
   Future<Message> sendMessage(String contactId, String text,
-      {String? antwortAuf, DateTime? um});
+      {String? antwortAuf, DateTime? um, bool geheim = false});
 
   // ------------------------------------------ reactions, edits, deletions
 

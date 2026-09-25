@@ -14,6 +14,8 @@ import 'dart:typed_data';
 
 import 'package:bitdm/core/fido/client_pin.dart';
 import 'package:bitdm/core/fido/ctap.dart';
+import 'package:bitdm/core/fido/hmac_secret.dart';
+import 'package:bitdm/core/fido/pin_protocol.dart';
 import 'package:bitdm/core/lock/hardware_key_factor.dart';
 import 'package:bitdm/core/lock/key_vault.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +27,38 @@ Uint8List geheimnis() => Uint8List.fromList(List.generate(16, (i) => i * 3));
 /// Baut einen Faktor, der immer denselben Stick vorfindet.
 HardwareKeyFactor faktor(FakeStick stick, {String? pin = '123456'}) =>
     HardwareKeyFactor(oeffne: () async => stick, pin: pin);
+
+/// Ein Stick-Fach, wie die App es bis 24.09.2026 schrieb: ohne Angabe zur
+/// Nutzerpruefung, Zusatzdaten in Fassung 1. Mit PIN-Nachweis genau dann,
+/// wenn [mitPin] — so wie damals, je nachdem, ob der Stick schon eine hatte.
+Future<KeySlot> altesStickFach(FakeStick stick, {required bool mitPin}) async {
+  await stick.verbinde();
+  final ctap = Ctap2(stick);
+  final clientPin = ClientPin(ctap);
+  final PinProtocolV1 protokoll;
+  Uint8List? token;
+  if (mitPin) {
+    final sitzung = await clientPin.holeToken(stick.pin);
+    protokoll = sitzung.protokoll;
+    token = sitzung.token;
+  } else {
+    protokoll = await clientPin.holeSchluesselAustausch();
+  }
+  final hmac = HmacSecret(ctap);
+  final zugang = await hmac.legeZugangAn(pin: protokoll, pinToken: token);
+  final kek = await hmac.holeGeheimnis(
+      zugang: zugang, pin: protokoll, pinToken: token);
+  await stick.trenne();
+  return KeyVault.sealSlot(
+    secret: geheimnis(),
+    kek: kek,
+    kind: UnlockFactorKind.hardwareKey,
+    label: 'Stick',
+    handle: zugang.credentialId,
+    createdAt: 1,
+    fassung: 1,
+  );
+}
 
 void main() {
   group('Einrichten und wieder oeffnen', () {
@@ -198,6 +232,104 @@ void main() {
       final zurueck = KeyVault.fromJsonString(vault.toJsonString());
       expect(zurueck.slots.single.handle, slot.handle);
       expect(await faktor(stick).unlock(zurueck.slots.single), geheimnis());
+    });
+  });
+  // Befund 8 der Sicherheitspruefung vom 25.09.2026.
+  group('Derselbe Stick, mehrmals eingerichtet', () {
+    test('ZWEI Einrichtungen, BEIDE Faecher gehen auf', () async {
+      // Bis 25.09.2026: rk: true mit fester Nutzerkennung "bitdm-lock". Der
+      // Stick fuehrt dann nur EINEN gespeicherten Zugang, und die zweite
+      // Einrichtung (zweite Installation, zweites Telefon) ueberschrieb den
+      // ersten — dessen Fach ging nie wieder auf. Der nachgebaute Stick
+      // verhaelt sich hier wie ein echter.
+      final stick = FakeStick();
+      final erstes = await faktor(stick).createSlot(geheimnis(), createdAt: 1);
+      final zweites = await faktor(stick).createSlot(geheimnis(), createdAt: 2);
+
+      expect(await faktor(stick).unlock(erstes), geheimnis());
+      expect(await faktor(stick).unlock(zweites), geheimnis());
+      expect(stick.gespeichert, isEmpty,
+          reason: 'der Zugang soll keinen Speicherplatz auf dem Stick belegen');
+    });
+  });
+
+  group('Stick-PIN erst nach dem Einrichten gesetzt', () {
+    test('die Art der Pruefung steht im Fach und ueberlebt die Datei',
+        () async {
+      final mit = await faktor(FakeStick()).createSlot(geheimnis(), createdAt: 1);
+      final ohne = await faktor(FakeStick(hatPin: false))
+          .createSlot(geheimnis(), createdAt: 1);
+      expect(mit.uv, isTrue);
+      expect(ohne.uv, isFalse);
+      final zurueck =
+          KeyVault.fromJsonString(KeyVault(slots: [mit, ohne]).toJsonString());
+      expect(zurueck.slots.map((s) => s.uv), [true, false]);
+    });
+
+    test('ein Fach ohne PIN geht auch auf, nachdem der Stick eine bekam',
+        () async {
+      // DER FEHLER: der Stick rechnet mit PIN-Nachweis einen ANDEREN
+      // Schluessel als ohne. Die App verlangte die PIN, sobald der Stick eine
+      // hatte — und das Fach blieb fuer immer zu.
+      final stick = FakeStick(hatPin: false);
+      final slot = await faktor(stick).createSlot(geheimnis(), createdAt: 1);
+      stick.hatPin = true;
+
+      final vorher = stick.beruehrungen;
+      expect(await faktor(stick, pin: null).unlock(slot), geheimnis(),
+          reason: 'ohne Pruefung angelegt — also ohne PIN abfragen');
+      expect(stick.beruehrungen, vorher + 1);
+      expect(await faktor(stick).unlock(slot), geheimnis(),
+          reason: 'eine angegebene PIN stoert nicht');
+    });
+
+    test('ein Fach MIT PIN verlangt sie weiter', () async {
+      final stick = FakeStick();
+      final slot = await faktor(stick).createSlot(geheimnis(), createdAt: 1);
+      await expectLater(faktor(stick, pin: null).unlock(slot),
+          throwsA(isA<StickPinNoetigException>()));
+    });
+
+    test('ALTES Fach ohne PIN, danach PIN gesetzt: geht auf und wird umgeschrieben',
+        () async {
+      final stick = FakeStick(hatPin: false);
+      final alt = await altesStickFach(stick, mitPin: false);
+      stick.hatPin = true;
+
+      final vorher = stick.beruehrungen;
+      final o = await faktor(stick).oeffne(alt);
+      expect(o.geheimnis, geheimnis());
+      expect(stick.beruehrungen, vorher + 2,
+          reason: 'erst mit PIN (wie damals ueblich), dann ohne');
+      final neu = o.erneuert!;
+      expect(neu.uv, isFalse);
+      expect(neu.id, alt.id);
+      expect(neu.handle, alt.handle);
+
+      final danach = stick.beruehrungen;
+      expect(await faktor(stick, pin: null).unlock(neu), geheimnis());
+      expect(stick.beruehrungen, danach + 1,
+          reason: 'nach dem Umschreiben reicht wieder eine Beruehrung');
+    });
+
+    test('ALTES Fach mit PIN: eine Beruehrung, und die Art wird vermerkt',
+        () async {
+      final stick = FakeStick();
+      final alt = await altesStickFach(stick, mitPin: true);
+      final vorher = stick.beruehrungen;
+      final o = await faktor(stick).oeffne(alt);
+      expect(o.geheimnis, geheimnis());
+      expect(stick.beruehrungen, vorher + 1);
+      expect(o.erneuert!.uv, isTrue);
+      expect(await faktor(stick).unlock(o.erneuert!), geheimnis());
+    });
+
+    test('ALTES Fach eines Sticks ohne PIN bleibt, wie es war', () async {
+      final stick = FakeStick(hatPin: false);
+      final alt = await altesStickFach(stick, mitPin: false);
+      final o = await faktor(stick).oeffne(alt);
+      expect(o.geheimnis, geheimnis());
+      expect(o.erneuert!.uv, isFalse);
     });
   });
 }

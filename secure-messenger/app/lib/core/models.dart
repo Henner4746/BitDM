@@ -143,6 +143,11 @@ class Fernloeschung {
   static const verzug = Duration(minutes: 10);
   static const fenster = Duration(hours: 24);
 
+  /// Wie weit die Uhr eines Vertrauenskontakts VORgehen darf. Eine Anfrage,
+  /// die angeblich weiter aus der Zukunft kommt, zaehlt nicht — sonst liesse
+  /// sie sich "vorausdatieren" und galte laenger als 24 Stunden.
+  static const uhrVorlauf = Duration(minutes: 10);
+
   Fernloeschung copyWith({bool? an, int? schwelle, List<String>? vertraute,
           Map<String, int>? anfragen, DateTime? faellig, bool ohneFaellig = false}) =>
       Fernloeschung(
@@ -172,13 +177,29 @@ class Fernloeschung {
   /// Nimmt die Anfrage von [von] auf. Gibt den neuen Stand zurueck — mit
   /// [faellig], wenn damit genug zusammenkommen. Anfragen von Fremden, bei
   /// ausgeschaltetem Schutz oder nach der Ausloesung aendern nichts.
-  Fernloeschung nimmAnfrage(String von, DateTime jetzt) {
+  ///
+  /// [gesendet] ist der Zeitstempel des ABSENDERS (Payload.sentAt). Das
+  /// 24-Stunden-Fenster zaehlt ab dort und nicht ab der Ankunft: bis
+  /// 25.09.2026 zaehlte die Ankunft, und eine Anfrage, die zwei Wochen beim
+  /// Relay lag (oder die jemand so lange zurueckhielt), galt beim Eintreffen
+  /// als frisch — zwei solche zusammen loesten die Loeschung aus, obwohl die
+  /// Bitten Tage auseinanderlagen. Zu alt oder zu weit in der Zukunft
+  /// ([uhrVorlauf]) zaehlt nicht. Fehlt er, gilt [jetzt] (fruehere Aufrufer).
+  Fernloeschung nimmAnfrage(String von, DateTime jetzt, {DateTime? gesendet}) {
     if (!an || !vertraute.contains(von) || faellig != null) return this;
+    final wann = (gesendet ?? jetzt).toUtc();
+    if (wann.isAfter(jetzt.add(uhrVorlauf)) ||
+        wann.isBefore(jetzt.subtract(fenster))) {
+      return this;
+    }
     final grenze = jetzt.subtract(fenster).millisecondsSinceEpoch;
+    // Eine Uhr, die im Rahmen vorgeht, wird auf "jetzt" gekappt — sonst hielte
+    // sich ihre Anfrage bis zu zehn Minuten laenger im Fenster.
+    final gezaehlt = wann.isAfter(jetzt) ? jetzt : wann;
     final neu = {
       for (final e in anfragen.entries)
         if (e.value >= grenze && vertraute.contains(e.key)) e.key: e.value,
-      von: jetzt.millisecondsSinceEpoch,
+      von: gezaehlt.millisecondsSinceEpoch,
     };
     final genug = neu.length >= schwelle && schwelle >= 2;
     return copyWith(anfragen: neu, faellig: genug ? jetzt.add(verzug) : null);
@@ -217,6 +238,7 @@ class Gruppe {
     this.archiviert = false,
     this.stumm = false,
     this.fristSekunden,
+    this.verlassen = false,
   });
 
   final String id;
@@ -232,6 +254,22 @@ class Gruppe {
   final bool archiviert;
   final bool stumm;
   final int? fristSekunden;
+
+  /// ICH bin ausgetreten (oder mein Zweitgeraet) — nicht bloss entfernt.
+  ///
+  /// Dann holt mich kein verkuendeter Stand zurueck, auch keiner, in dem ich
+  /// noch stehe: der Admin kann den Austritt schlicht noch nicht kennen, und
+  /// sein naechster Stand (etwa eine Umbenennung) fuehrte mich weiter als
+  /// Mitglied. Bis 25.09.2026 machte mich genau das wieder aktiv. Eine
+  /// Einladungsnachricht gibt es im Protokoll nicht; wer nach einem Austritt
+  /// wieder dabei sein will, kommt in eine NEUE Gruppe.
+  final bool verlassen;
+
+  /// Die hoechste Fassung, die angenommen wird. Darueber waere es entweder
+  /// ein Fehler oder der Versuch, die Gruppe mit einem Sprung ans Ende der
+  /// Zahlen einzufrieren — danach liesse sich keine Aenderung mehr
+  /// verkuenden, weil keine hoehere Fassung mehr moeglich ist.
+  static const int maxVersion = 1 << 31;
 
   static const int maxMitglieder = 20;
 
@@ -267,6 +305,13 @@ class Gruppe {
 
   /// Liest einen verkuendeten Stand — oder null, wenn er nicht taugt. Kommt
   /// von draussen: jede Adresse wird geprueft, der Admin muss Mitglied sein.
+  ///
+  /// NUR DIE NORMALFORM (klein, ohne Leerzeichen und Bindestriche).
+  /// [adresseTaugt] ist nachsichtig wie `BitdmAddress.decode`, das
+  /// Formatierung fuer abgetippte Adressen hinnimmt. Hier kaeme dieselbe
+  /// Person unter zwei Schreibweisen in die Liste: "ABC.." haette mit dem
+  /// Absender "abc.." nichts zu tun, stuende aber als Mitglied da — und die
+  /// Pruefung `mitglieder.contains(von)` ginge fuer den echten ins Leere.
   static Gruppe? lies(String id, String text,
       {required bool Function(String) adresseTaugt}) {
     if (!istGruppenId(id)) return null;
@@ -282,12 +327,15 @@ class Gruppe {
     final m = j['m'];
     final v = j['v'];
     if (n is! String || n.trim().isEmpty || n.length > maxName) return null;
-    if (a is! String || !adresseTaugt(a)) return null;
-    if (v is! int || v < 1) return null;
+    if (a is! String || !_normal(a) || !adresseTaugt(a)) return null;
+    if (v is! int || v < 1 || v > maxVersion) return null;
     if (m is! List || m.length < 2 || m.length > maxMitglieder) return null;
     final mitglieder = <String>[];
     for (final x in m) {
-      if (x is! String || !adresseTaugt(x) || mitglieder.contains(x)) {
+      if (x is! String ||
+          !_normal(x) ||
+          !adresseTaugt(x) ||
+          mitglieder.contains(x)) {
         return null;
       }
       mitglieder.add(x);
@@ -295,6 +343,11 @@ class Gruppe {
     if (!mitglieder.contains(a)) return null;
     return Gruppe(id: id, name: n, admin: a, mitglieder: mitglieder, version: v);
   }
+
+  /// Dieselbe Regel wie `BitdmAddress.normalize`, nur als Frage: steht die
+  /// Adresse schon so da, wie sie nach dem Normalisieren aussaehe?
+  static bool _normal(String adresse) =>
+      adresse == adresse.toLowerCase() && !adresse.contains(RegExp(r'[\s\-]'));
 
   Gruppe copyWith({
     String? name,
@@ -306,6 +359,7 @@ class Gruppe {
     bool? archiviert,
     bool? stumm,
     Object? fristSekunden = _unveraendert,
+    bool? verlassen,
   }) =>
       Gruppe(
         id: id,
@@ -320,6 +374,7 @@ class Gruppe {
         fristSekunden: identical(fristSekunden, _unveraendert)
             ? this.fristSekunden
             : fristSekunden as int?,
+        verlassen: verlassen ?? this.verlassen,
       );
 }
 
@@ -503,6 +558,13 @@ class Message {
   /// draussen ist.
   final DateTime? geplantFuer;
 
+  /// Mit welcher Lebensdauer diese EIGENE Nachricht verfasst wurde, in
+  /// Sekunden: 0 = ohne Frist, null = unbekannt (vor Schema 14 gespeichert).
+  ///
+  /// Fuer den Nachversand: er schickt die Frist, die beim Verfassen galt, und
+  /// nicht die, die gerade eingestellt ist.
+  final int? fristSekunden;
+
   const Message({
     required this.id,
     required this.chatId,
@@ -521,6 +583,7 @@ class Message {
     this.angeheftetAm,
     this.geplantFuer,
     this.sternAm,
+    this.fristSekunden,
   });
 
   Message copyWith(
@@ -549,6 +612,7 @@ class Message {
         angeheftetAm: angeheftetAm,
         geplantFuer: geplantFuer,
         sternAm: ohneStern ? null : (sternAm ?? this.sternAm),
+        fristSekunden: fristSekunden,
       );
 }
 

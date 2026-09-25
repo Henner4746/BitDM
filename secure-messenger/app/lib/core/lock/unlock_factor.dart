@@ -19,6 +19,7 @@
 // Schluesselspeicher gar nicht anbinden — und damit der beste verfuegbare
 // Schutz nicht nutzen.
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -51,8 +52,23 @@ abstract class UnlockFactor {
   Future<Uint8List> unlock(KeySlot slot);
 }
 
+/// Faktoren, die beim Oeffnen ein altes Fach gleich neu versiegeln koennen.
+///
+/// Eine EIGENE Schnittstelle und kein weiteres Pflichtstueck von
+/// [UnlockFactor]: sonst muesste jeder nachgebaute Faktor in den Tests sie
+/// mitbringen. Der Tresor fragt mit `is` nach und faellt sonst auf
+/// [UnlockFactor.unlock] zurueck — dann bleibt das Fach eben, wie es ist.
+///
+/// Moeglich ist das Neuversiegeln ohne Zutun des Nutzers, weil jeder Faktor
+/// seinen Fachschluessel beim Oeffnen ohnehin in der Hand hat: das Passwort
+/// laeuft durch Argon2id, der Stick hat geantwortet, der Schluesselspeicher
+/// hat nach dem Fingerabdruck herausgegeben. Keine zweite Abfrage noetig.
+abstract class ErneuerndesOeffnen {
+  Future<FachOeffnung> oeffne(KeySlot slot);
+}
+
 /// Faktoren, die einen Schluessel liefern koennen.
-abstract class KekUnlockFactor implements UnlockFactor {
+abstract class KekUnlockFactor implements UnlockFactor, ErneuerndesOeffnen {
   /// Besorgt den 32-Byte-Schluessel fuer dieses Fach.
   ///
   /// [slot] ist beim Anlegen noch nicht vorhanden; dann steckt alles Noetige
@@ -77,17 +93,22 @@ abstract class KekUnlockFactor implements UnlockFactor {
   }
 
   @override
-  Future<Uint8List> unlock(KeySlot slot) async {
-    final Uint8List kek;
+  Future<Uint8List> unlock(KeySlot slot) async => (await oeffne(slot)).geheimnis;
+
+  @override
+  Future<FachOeffnung> oeffne(KeySlot slot) async =>
+      KeyVault.oeffneUndErneuere(slot, await _kekOhneGrund(slot));
+
+  /// Besorgt den Schluessel und verschweigt, woran es scheiterte.
+  Future<Uint8List> _kekOhneGrund(KeySlot slot) async {
     try {
-      kek = await deriveKek(slot: slot, kdf: slot.kdf);
+      return await deriveKek(slot: slot, kdf: slot.kdf);
     } catch (_) {
       // Auch ein Fehlschlag beim Beschaffen des Schluessels — etwa ein Stick,
       // der nicht anliegt — darf sich nach aussen nicht von einem falschen
       // Schluessel unterscheiden.
       throw const UnlockFailedException();
     }
-    return KeyVault.openSlot(slot, kek);
   }
 }
 
@@ -136,9 +157,27 @@ class PassphraseFactor extends KekUnlockFactor {
     return Argon2Params.owasp();
   }
 
+  /// Leitet den Fachschluessel aus den UTF-8-BYTES des Passworts ab.
+  ///
+  /// BIS 24.09.2026 STAND HIER `SecretKey(passphrase.codeUnits)`. codeUnits
+  /// sind UTF-16-Einheiten, also Zahlen bis 65535 — Argon2id nimmt aber
+  /// Bytes und behielt von jeder Einheit nur die unteren acht Bit. "абв"
+  /// (U+0430..U+0432) wurde damit zu denselben Bytes wie "012": zwei
+  /// verschiedene Passwoerter, ein Schluessel. Wer kyrillisch, griechisch
+  /// oder mit Emoji tippte, hatte weit weniger Passwortraum als gedacht.
+  ///
+  /// Fuer reines ASCII sind beide Wege Byte fuer Byte gleich; fuer alles
+  /// andere nicht. Deshalb gibt es [_leiteAltAb] noch — siehe [oeffne].
   @override
-  Future<Uint8List> deriveKek({KeySlot? slot, Argon2Params? kdf}) async {
-    final p = kdf ?? slot?.kdf;
+  Future<Uint8List> deriveKek({KeySlot? slot, Argon2Params? kdf}) =>
+      _argon2(kdf ?? slot?.kdf, SecretKey(utf8.encode(passphrase)));
+
+  /// Die Ableitung von vor dem 25.09.2026, UNVERAENDERT — nur damit alte
+  /// Faecher noch aufgehen. Neue Faecher entstehen damit nie.
+  Future<Uint8List> _leiteAltAb(Argon2Params? p) =>
+      _argon2(p, SecretKey(passphrase.codeUnits));
+
+  static Future<Uint8List> _argon2(Argon2Params? p, SecretKey eingabe) async {
     if (p == null) {
       throw const VaultFormatException('Passwort-Fach ohne Ableitung');
     }
@@ -148,10 +187,63 @@ class PassphraseFactor extends KekUnlockFactor {
       iterations: p.iterations,
       hashLength: 32,
     ).deriveKey(
-      secretKey: SecretKey(passphrase.codeUnits),
+      secretKey: eingabe,
       nonce: p.salt,
     );
     return Uint8List.fromList(await schluessel.extractBytes());
+  }
+
+  /// Ob die alte Ableitung etwas anderes ergaebe als die neue.
+  bool get _ausserhalbAscii => passphrase.codeUnits.any((c) => c > 0x7F);
+
+  /// Oeffnet ein Fach — auch eines, das noch mit der alten Ableitung
+  /// verschlossen wurde — und schreibt es dann mit der neuen neu.
+  ///
+  /// DER ABLAUF:
+  ///   1. Neue Ableitung (UTF-8). Passt sie, ist alles gut; ein Fach in
+  ///      Fassung 1 wird dabei nur neu versiegelt, mit demselben Schluessel.
+  ///   2. Nur wenn das Passwort Zeichen ausserhalb von ASCII enthaelt: die
+  ///      alte Ableitung. Passt SIE, war es ein altes Fach — es wird mit dem
+  ///      Schluessel aus Schritt 1 neu versiegelt. Danach oeffnet es nur
+  ///      noch das richtige Passwort, und "012" nicht mehr das Fach von
+  ///      "абв".
+  ///
+  /// Fuer reines ASCII gibt es Schritt 2 nicht: beide Ableitungen sind dann
+  /// gleich, ein zweiter Versuch waere doppelte Arbeit fuer nichts. Damit ist
+  /// der Uebergang fuer ASCII-Passwoerter trivial sicher.
+  ///
+  /// NICHT SICHTBAR IN DER DATEI: ob ein Fach schon umgeschrieben wurde,
+  /// steht nirgends im Klartext. Stuende es dort, verriete ein altes
+  /// Panik-Fach neben einem umgeschriebenen echten Fach, welches welches ist
+  /// — das Panik-Fach wird ja nie mit seinem Passwort geoeffnet und bliebe
+  /// fuer immer alt. So sehen beide gleich aus, und beide werden beim
+  /// Entsperren gleich behandelt.
+  ///
+  /// EHRLICHE EINSCHRAENKUNG: solange ein altes Fach eines Nicht-ASCII-
+  /// Passworts noch nicht umgeschrieben ist, oeffnet es weiterhin auch ein
+  /// Passwort mit denselben unteren Bytes. Das ist der Zustand von vorher,
+  /// nicht schlechter; er endet mit dem ersten Entsperren durch das echte
+  /// Passwort.
+  @override
+  Future<FachOeffnung> oeffne(KeySlot slot) async {
+    final neu = await _kekOhneGrund(slot);
+    try {
+      return await KeyVault.oeffneUndErneuere(slot, neu);
+    } on UnlockFailedException {
+      if (!_ausserhalbAscii) rethrow;
+    }
+    final Uint8List alt;
+    try {
+      alt = await _leiteAltAb(slot.kdf);
+    } catch (_) {
+      throw const UnlockFailedException();
+    }
+    final (geheimnis, _) = await KeyVault.oeffneFach(slot, alt);
+    return FachOeffnung(
+      geheimnis,
+      warAktuell: false,
+      erneuert: await KeyVault.versiegleNeu(slot, geheimnis, neu),
+    );
   }
 
   /// Grobe Schaetzung der Staerke: Zeichenvorrat hoch Laenge.

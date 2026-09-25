@@ -286,6 +286,60 @@ class AppState extends ChangeNotifier {
     return _nachDemOeffnen();
   }
 
+  // ══════════════════════════════════════════════ Frisch bestaetigen
+
+  /// Ob eine folgenreiche Aenderung eine FRISCHE Anmeldung verlangt.
+  ///
+  /// Nur mit Faktor: ohne Sperre gibt es nichts, womit man sich ausweisen
+  /// koennte, und die Oberflaeche fragt dann hoechstens nach.
+  bool get brauchtFrischeAnmeldung => sichtbareFaktoren.isNotEmpty;
+
+  /// Weist sich mit dem Fingerabdruck aus — ohne neu zu entsperren.
+  Future<bool> bestaetigeMitBiometrie() =>
+      _bestaetigeMit(_keystoreFaktor(UnlockFactorKind.biometric));
+
+  Future<bool> bestaetigeMitGeraetePin() =>
+      _bestaetigeMit(_keystoreFaktor(UnlockFactorKind.deviceCredential));
+
+  Future<bool> bestaetigeMitPasswort(String passwort) => _bestaetigeMit(
+      PassphraseFactor(passwort, geraeteGebunden: false, label: 'Passwort'));
+
+  Future<bool> bestaetigeMitStick({String? pin, StickWeg weg = StickWeg.usb}) =>
+      _bestaetigeMit(HardwareKeyFactor(oeffne: _wegZum(weg), pin: pin));
+
+  /// Legt einen Faktor erneut vor, NUR als Beweis ([VaultSecretStore.weiseNach]):
+  /// Kern, Datenbank und Tresor bleiben, wie sie sind. Ein offener Bildschirm
+  /// allein ist kein Ausweis — wer das entsperrte Telefon in der Hand hat,
+  /// soll damit nicht die Sperre, die Fernloeschung oder die zwoelf Woerter
+  /// erreichen.
+  ///
+  /// Der Beleg wird fuer [entferneFaktor] aufgehoben: den LETZTEN Faktor
+  /// nimmt der Tresor nur mit frischem Nachweis heraus.
+  ///
+  /// Das Panik-Passwort wirkt hier genauso wie am Sperrbildschirm.
+  Future<bool> _bestaetigeMit(UnlockFactor faktor) async {
+    final t = tresor;
+    if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    _amFaktor = true;
+    try {
+      _nachweis = await t.weiseNach(faktor);
+      return true;
+    } on PanikAusgeloestException {
+      _amFaktor = false;
+      await allesLoeschen();
+      notifyListeners();
+      return false;
+    } on UnlockFailedException {
+      return false;
+    } finally {
+      _amFaktor = false;
+    }
+  }
+
+  /// Der Beleg der letzten frischen Anmeldung — einmal verwendbar, nur kurz
+  /// gueltig (das prueft der Tresor selbst).
+  FrischerNachweis? _nachweis;
+
   /// Richtet das PANIK-PASSWORT ein oder ersetzt es.
   ///
   /// Wirft [PanikGleichException], wenn es ein echtes Passwort oeffnet — dann
@@ -343,7 +397,21 @@ class AppState extends ChangeNotifier {
       hatIdentitaet = await core.initialize();
       gesperrt = false;
       _weggelegtUm = null;
-      if (hatIdentitaet) await _nachIdentitaet();
+      if (hatIdentitaet) {
+        await _nachIdentitaet();
+        // DIE OFFENE UNTERHALTUNG GANZ. `_ladeVorschauen` holt je Chat nur die
+        // letzte Nachricht — nach Sperren und Entsperren stand im offenen Chat
+        // sonst genau eine.
+        final offen = offeneUnterhaltung;
+        if (offen != null) {
+          try {
+            await unterhaltungOeffnen(offen);
+          } on MessengerException {
+            // Die Unterhaltung gibt es nicht mehr — dann bleibt sie leer.
+          }
+        }
+        await _holeEinmalNach();
+      }
       notifyListeners();
       return true;
     } on LockedException {
@@ -442,12 +510,16 @@ class AppState extends ChangeNotifier {
     // aufzuraeumen: der Stick behaelt seinen Zugang, und das Passwort steht
     // nirgends.
     final art = slot?.kind;
+    final nachweis = _nachweis;
+    _nachweis = null;
     await t.entferne(
       slotId,
       faktor: (art == UnlockFactorKind.biometric ||
               art == UnlockFactorKind.deviceCredential)
           ? _keystoreFaktor(art!)
           : null,
+      // Die Oberflaeche verlangt vorher `frischBestaetigt` — dessen Beleg.
+      nachweis: nachweis,
     );
     await _ladeFaktoren();
     notifyListeners();
@@ -496,6 +568,14 @@ class AppState extends ChangeNotifier {
     await _ladeVerteiler();
     await _ladeFernloeschung();
     _hoereZu();
+    _planeVerfall();
+    // EINE UEBERFAELLIGE FERNLOESCHUNG verbindet nicht mehr. Sie laeuft in
+    // ihre Nachfrist (siehe [_planeFernloeschung]); erst wenn jemand sie
+    // abbricht, geht die App wieder ins Netz.
+    if (_fernNachfrist) {
+      _verbindeNachAbbruch = true;
+      return;
+    }
     // Nicht abwarten: der Kern wirft bei Netzproblemen nicht, er meldet den
     // Zustand. Die Oberflaeche soll sofort da sein, auch im Funkloch.
     unawaited(core.connect());
@@ -538,27 +618,43 @@ class AppState extends ChangeNotifier {
     _imVordergrund = sichtbar;
     if (sichtbar) {
       unawaited(_beendeHintergrundempfang());
+      // DIE MELDUNGEN ZUERST, auch wenn gleich gesperrt wird: sonst blieb die
+      // Benachrichtigung nach dem Zurueckkommen stehen, und der Zaehler zaehlte
+      // beim naechsten Weglegen von der alten Zahl weiter.
+      _ungelesen = 0;
+      unawaited(Benachrichtigungen.instanz.raeumeAuf());
       if (_sollWiederSperren()) {
         unawaited(sperreWieder());
         return;
       }
-      _ungelesen = 0;
       // Was im Hintergrund in die offene Unterhaltung kam, ist jetzt gesehen.
       final offen = offeneUnterhaltung;
       if (offen != null && ungelesen.remove(offen) != null) {
         unawaited(core.markRead(offen));
       }
-      unawaited(Benachrichtigungen.instanz.raeumeAuf());
       unawaited(raeumeAbgelaufeneWeg());
       _fehlversuche = 0;
-      if (verbindung != ConnectionState.online) unawaited(_versucheVerbindung());
+      if (verbindung != ConnectionState.online && !_fernNachfrist) {
+        unawaited(_versucheVerbindung());
+      }
     } else {
       _weggelegtUm = DateTime.now();
+      _verfallTakt?.cancel();
+      _verfallTakt = null;
+      // AM RECHNER UND IM BROWSER BLEIBT DIE LEITUNG. Dort gibt es weder
+      // Akku-Noete noch einen Vordergrunddienst; ein verstecktes Fenster, das
+      // die Verbindung kappt und nur alle 15 Minuten nachsieht, kam einfach
+      // zu spaet an.
+      if (verbindungImHintergrund) return;
       _wiederverbindung?.cancel();
       _wiederverbindung = null;
       unawaited(_starteHintergrundempfang());
     }
   }
+
+  /// Ob die Verbindung stehen bleibt, wenn die App verdeckt ist — am Rechner
+  /// und im Browser. Nur Android trennt und uebergibt an den Hintergrundempfang.
+  bool verbindungImHintergrund = false;
 
   // ═══════════════════════════════════════════════════ Empfang im Hintergrund
 
@@ -660,7 +756,9 @@ class AppState extends ChangeNotifier {
     if (!PushAnbindung.eigenerServer(endpunkt)) {
       // Ein fremder Server wuerde vom Relay ohnehin abgelehnt. Hier faellt es
       // frueher auf, und die Meldung kann sagen, WARUM.
-      letzterFehler = 'Push-Endpunkt auf fremdem Server: $endpunkt';
+      // Als Schluessel, nicht als Satz: die Oberflaeche uebersetzt ihn, und
+      // der Endpunkt selbst gehoert in keine Bildschirmaufnahme.
+      letzterFehler = 'pushFremd';
       notifyListeners();
       return;
     }
@@ -811,20 +909,51 @@ class AppState extends ChangeNotifier {
     gruppen = const [];
     meineAdresse = '';
     frischePhrase = null;
+    // UND ALLES ANDERE, WAS AUS DER DATENBANK KAM: markierte Nachrichten
+    // (Klartext), Anhaenge samt Pfaden und Namen, der Suchtext, die
+    // Verteilerlisten, wer gerade tippt. Die Fernloeschung selbst laeuft
+    // weiter — ihr Wecker haengt nicht an der Anzeige (siehe
+    // [_planeFernloeschung]); nur ihr Stand wird hier vergessen.
+    _vergissAngezeigtes();
+    fernloeschung = const Fernloeschung();
 
     gesperrt = true;
     notifyListeners();
   }
 
+  /// Vergisst alles, was die Oberflaeche aus der Datenbank geholt hat — beim
+  /// Sperren und beim Loeschen.
+  void _vergissAngezeigtes() {
+    sterne = const [];
+    anhaenge.clear();
+    fortschritt.clear();
+    suchText = '';
+    suchTreffer = const [];
+    verteiler = const [];
+    _tipptBis.clear();
+    ungelesen = {};
+    frischeNachrichten.clear();
+    _fruehStatus.clear();
+    _verfallTakt?.cancel();
+    _verfallTakt = null;
+    _nachweis = null;
+  }
+
+  /// Ob gerade jemand eine Verbindung will: im Vordergrund immer, verdeckt nur
+  /// dort, wo sie stehen bleibt ([verbindungImHintergrund]). Nie waehrend der
+  /// Nachfrist einer Fernloeschung und nie gesperrt.
+  bool get _leitungGewollt =>
+      (_imVordergrund || verbindungImHintergrund) && !gesperrt && !_fernNachfrist;
+
   Future<void> _versucheVerbindung() async {
     _wiederverbindung?.cancel();
     _wiederverbindung = null;
-    if (!hatIdentitaet || !_imVordergrund) return;
+    if (!hatIdentitaet || !_leitungGewollt) return;
     await core.connect();
   }
 
   void _planeWiederverbindung() {
-    if (!_imVordergrund || _wiederverbindung != null) return;
+    if (!_leitungGewollt || _wiederverbindung != null) return;
     // Kein Wiederverbinden gegen den Willen des Nutzers. Ohne diese Zeile
     // versuchte der Zeitgeber im Hintergrund weiter, sich zu verbinden — der
     // Kern lehnte jedes Mal ab, aber es waere ein Wecker, der alle paar
@@ -913,6 +1042,8 @@ class AppState extends ChangeNotifier {
               text: _ungelesen == 1 ? einNeuText : mehrereNeuText(_ungelesen)));
         }
         unawaited(_ladeKontakteNeu());
+        // Sie kann eine kuerzere Frist haben als alles, was schon da war.
+        _planeVerfall();
       }))
       ..add(core.contactEvents.listen((_) => unawaited(_ladeKontakteNeu())))
       // Bearbeitet, widerrufen, Reaktion gesetzt: die ganze Unterhaltung neu
@@ -1001,31 +1132,65 @@ class AppState extends ChangeNotifier {
   }
 
   /// Bricht einen laufenden Countdown ab und vergisst die Anfragen.
+  ///
+  /// Die Oberflaeche verlangt vorher eine frische Anmeldung (main.dart,
+  /// `frischBestaetigt`) — sonst koennte jeder mit dem entsperrten Telefon
+  /// die Loeschung aufhalten, die gerade wegen ihm laeuft.
   Future<void> brichFernloeschungAb() async {
     _fernTakt?.cancel();
+    unawaited(Benachrichtigungen.instanz.nimmWarnungWeg());
+    fernFrist = null;
+    _fernNachfrist = false;
     await setzeFernloeschung(fernloeschung.copyWith(anfragen: const {}, ohneFaellig: true));
+    if (_verbindeNachAbbruch) {
+      _verbindeNachAbbruch = false;
+      unawaited(core.connect());
+    }
   }
 
   Future<void> sendeLoeschanfrage(String contactId) => core.sendeLoeschanfrage(contactId);
 
-  /// Stellt den Wecker auf die Faelligkeit — und loescht sofort, wenn sie
-  /// schon vorbei ist (die App war zu, als der Countdown ablief).
+  /// Stellt den Wecker auf die Faelligkeit.
+  ///
+  /// NICHT SOFORT, WENN SIE SCHON VORBEI IST. Lief der Countdown ab, waehrend
+  /// die App zu war oder gesperrt, bekommt der Nutzer nach dem Oeffnen eine
+  /// kurze letzte Frist ([fernNachfrist]) mit dem Balken — und die App geht
+  /// solange nicht ins Netz (siehe [_nachIdentitaet]).
   void _planeFernloeschung() {
     _fernTakt?.cancel();
     final f = fernloeschung.faellig;
-    if (f == null) return;
-    final rest = f.difference(DateTime.now().toUtc());
-    if (rest <= Duration.zero) {
-      unawaited(allesLoeschen());
+    if (f == null) {
+      fernFrist = null;
+      _fernNachfrist = false;
       return;
     }
-    unawaited(Benachrichtigungen.instanz.zeigeNeueNachricht(anzahl: 1, text: fernWarnText));
-    _fernTakt = Timer(rest, () => unawaited(allesLoeschen()));
+    final jetzt = DateTime.now().toUtc();
+    var ziel = f;
+    _fernNachfrist = !f.isAfter(jetzt);
+    if (_fernNachfrist) ziel = jetzt.add(fernNachfrist);
+    fernFrist = ziel;
+    unawaited(Benachrichtigungen.instanz.zeigeWarnung(text: fernWarnText));
+    _fernTakt = Timer(ziel.difference(jetzt), () => unawaited(allesLoeschen()));
     notifyListeners();
   }
 
-  /// Text der Warnung — von der Oberflaeche uebersetzt gesetzt.
-  String fernWarnText = 'Remote wipe in 10 minutes. Open BitDM to cancel.';
+  /// Die letzte Frist fuer eine Fernloeschung, die schon faellig war.
+  static const Duration fernNachfrist = Duration(seconds: 60);
+
+  /// Wann wirklich geloescht wird — die Faelligkeit oder das Ende der
+  /// Nachfrist. Null, solange nichts laeuft. Fuer den Balken.
+  DateTime? fernFrist;
+
+  /// Ob gerade die Nachfrist laeuft.
+  bool _fernNachfrist = false;
+
+  /// Ob nach einem Abbruch noch verbunden werden muss (die Nachfrist hat das
+  /// Verbinden beim Start ausgelassen).
+  bool _verbindeNachAbbruch = false;
+
+  /// Text der Warnung — von der Oberflaeche uebersetzt gesetzt. NEUTRAL: die
+  /// Benachrichtigung sieht auch, wer das Telefon gerade nicht haben sollte.
+  String fernWarnText = 'BitDM needs your attention.';
 
   /// Verteilerlisten (siehe [Verteiler]).
   List<Verteiler> verteiler = const [];
@@ -1054,21 +1219,42 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Schickt [text] an jedes Mitglied einzeln. Rueckgabe: an wie viele.
+  /// Schickt [text] an jedes Mitglied einzeln. Rueckgabe: an wie viele es
+  /// ging und bei wie vielen es scheiterte.
   ///
   /// NACHEINANDER, nicht gleichzeitig: jede Nachricht geht durch die Sitzung
   /// ihres Empfaengers, und fuenfzig parallele Versuche beim Wiederverbinden
   /// waeren fuenfzig Last auf einmal.
-  Future<int> sendeAnVerteiler(String id, String text) async {
+  ///
+  /// JE MITGLIED GEFANGEN. Vorher brach der erste Fehler die Schleife ab: die
+  /// Haelfte der Liste bekam die Nachricht, der Rest nicht, und die Meldung
+  /// sagte nichts davon.
+  Future<({int gesendet, int fehlgeschlagen})> sendeAnVerteiler(
+      String id, String text) async {
     final v = verteiler.where((x) => x.id == id).firstOrNull;
-    if (v == null || text.trim().isEmpty) return 0;
-    var n = 0;
+    if (v == null || text.trim().isEmpty) return (gesendet: 0, fehlgeschlagen: 0);
+    var gesendet = 0;
+    var fehlgeschlagen = 0;
     for (final m in v.mitglieder) {
       if (!aktiveKontakte.any((k) => k.id == m)) continue;
-      await senden(m, text);
-      n++;
+      final fehlerVorher = letzterFehler;
+      try {
+        letzterFehler = null;
+        await senden(m, text);
+        // [senden] faengt "zu lang" selbst und merkt es sich nur.
+        if (letzterFehler == 'zuLang') {
+          fehlgeschlagen++;
+        } else {
+          gesendet++;
+          letzterFehler = fehlerVorher;
+        }
+      } catch (e) {
+        fehlgeschlagen++;
+        _merkeTechnisch(e);
+        letzterFehler = fehlerVorher;
+      }
     }
-    return n;
+    return (gesendet: gesendet, fehlgeschlagen: fehlgeschlagen);
   }
 
   Future<void> _ladeUngelesen() async {
@@ -1098,6 +1284,7 @@ class AppState extends ChangeNotifier {
         ? m
         : m.copyWith(status: frueh);
     verlaeufe[chatId] = [...?verlaeufe[chatId], mit];
+    _planeVerfall();
   }
 
   Future<void> _ladeKontakteNeu() async {
@@ -1151,6 +1338,8 @@ class AppState extends ChangeNotifier {
     try {
       await core.restoreIdentity(woerter);
       hatIdentitaet = true;
+      // Eine alte Meldung vom Fehlversuch davor gehoert nicht mehr hierher.
+      if (letzterFehler == 'phraseUngueltig') letzterFehler = null;
       await _nachIdentitaet();
       notifyListeners();
       return true;
@@ -1188,6 +1377,7 @@ class AppState extends ChangeNotifier {
   Future<bool> kontaktHinzufuegen(String adresse) async {
     try {
       await core.addContact(adresse);
+      if (letzterFehler == 'adresseUngueltig') letzterFehler = null;
       await _ladeKontakteNeu();
       return true;
     } on InvalidAddressException {
@@ -1535,17 +1725,59 @@ class AppState extends ChangeNotifier {
   }
 
   /// Schickt eine fertige Aufnahme als Anhang.
+  ///
+  /// DIE AUFNAHME GEHT DANACH WEG, auch wenn der Versand scheitert. Sie liegt
+  /// unverschluesselt im Speicher der App; der Kern legt sich fuer den
+  /// eigenen Verlauf eine eigene Kopie an (bei einer Einmal-Ansicht gerade
+  /// nicht) und liest die Quelle nur, solange `sendeAnhang` laeuft —
+  /// spaetere Wiederholungen schicken nur die Anleitung, nicht die Datei
+  /// (real_messenger_core.dart, `sendeAnhang`).
   Future<void> sendeSprachnachricht(String chatId, Aufnahme a, {bool einmal = false}) async {
     final datei = File(a.pfad);
-    await anhangSenden(chatId, datei,
-        name: sprachDateiname(DateTime.now()), groesse: await datei.length(), einmal: einmal);
+    try {
+      await anhangSenden(chatId, datei,
+          name: sprachDateiname(DateTime.now()), groesse: await datei.length(), einmal: einmal);
+    } finally {
+      try {
+        await datei.delete();
+      } catch (_) {}
+    }
   }
 
   /// Eine Einmal-Ansicht wurde angesehen — die Datei geht, die Blase bleibt.
-  Future<void> verbraucheEinmal(String chatId, String messageId) async {
-    await core.verbraucheEinmal(chatId, messageId);
-    anhaenge[chatId] = await core.getAnhaenge(chatId);
-    notifyListeners();
+  ///
+  /// AUCH WENN INZWISCHEN GESPERRT WURDE. Dann ist der Kern zu; die Datei
+  /// selbst ([pfad]) geht trotzdem sofort, und der Eintrag wird nach dem
+  /// naechsten Entsperren nachgeholt ([_holeEinmalNach]).
+  Future<void> verbraucheEinmal(String chatId, String messageId, {String? pfad}) async {
+    try {
+      if (gesperrt) throw StateError('gesperrt');
+      await core.verbraucheEinmal(chatId, messageId);
+      anhaenge[chatId] = await core.getAnhaenge(chatId);
+      notifyListeners();
+    } catch (_) {
+      _einmalNachholen.add((chatId, messageId));
+      if (pfad != null) {
+        try {
+          await File(pfad).delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Einmal-Ansichten, die angesehen wurden, waehrend der Kern zu war.
+  final Set<(String, String)> _einmalNachholen = {};
+
+  Future<void> _holeEinmalNach() async {
+    for (final (chat, id) in _einmalNachholen.toList()) {
+      try {
+        await core.verbraucheEinmal(chat, id);
+        _einmalNachholen.remove((chat, id));
+        if (anhaenge.containsKey(chat)) anhaenge[chat] = await core.getAnhaenge(chat);
+      } catch (_) {
+        // Beim naechsten Entsperren wieder.
+      }
+    }
   }
 
   Future<void> setzeOrdnung(String chatId,
@@ -1603,13 +1835,36 @@ class AppState extends ChangeNotifier {
       // METADATEN RAUS, bevor irgendetwas das Geraet verlaesst: GPS, Kamera,
       // Aufnahmezeit, Kommentare (siehe core/anhang/metadaten.dart). Der
       // Kern bekommt die bereinigte Kopie und einen neutralen Namen.
-      final sauber = await _ohneMetadaten(datei);
-      if (sauber != null) {
-        bereinigt = sauber.$1;
-        datei = sauber.$1;
-        name = sauber.$2;
+      //
+      // Eine Sprachnachricht behaelt ihren Namen: an ihm erkennt der
+      // Empfaenger, dass er einen Abspielknopf zeigen soll (sprache.dart).
+      final sprache = name != null && sprachName.hasMatch(name);
+      final pruefung = await _ohneMetadaten(datei);
+      if (pruefung.datei != null) {
+        bereinigt = pruefung.datei;
+        datei = pruefung.datei!;
         groesse = await datei.length();
+      }
+      if (pruefung.name != null && !sprache) {
+        // IMMER UNTER NEUTRALEM NAMEN, sobald es ein Bild oder Video ist —
+        // auch wenn nichts zu entfernen war. "PXL_20260925_123456.jpg"
+        // verraet Telefon und Sekunde der Aufnahme ohne ein einziges Byte
+        // EXIF.
+        name = pruefung.name;
         schwebenderName = name;
+      }
+      // NICHT STILL WEITER, WENN DIE METADATEN BLEIBEN. Vorher ging eine
+      // Datei, die sich nicht bereinigen liess, einfach so hinaus — mit Ort
+      // und Kamera. Jetzt entscheidet der Nutzer, und ohne Rueckfrage (etwa
+      // ohne Oberflaeche) geht sie gar nicht.
+      final warnung = pruefung.warnung;
+      if (warnung != null && !sprache) {
+        final frage = frageOhneBereinigung;
+        final trotzdem = frage != null && await frage(warnung);
+        if (!trotzdem) {
+          if (frage == null) letzterFehler = 'metaNichtEntfernt';
+          return;
+        }
       }
       final m = await core.sendeAnhang(chatId, datei,
           name: name, groesse: groesse, einmal: einmal);
@@ -1643,40 +1898,79 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Eine Kopie von [datei] ohne Metadaten und mit neutralem Namen — oder
-  /// null, wenn es kein bekanntes Bild oder Video ist oder nichts zu
-  /// entfernen war.
+  /// Fragt, ob eine Datei trotz verbliebener Metadaten hinausgehen soll.
+  /// [grund] ist 'metaZuGross' oder 'metaFehler'. Von der Oberflaeche gesetzt;
+  /// ohne sie geht eine solche Datei nicht hinaus.
+  Future<bool> Function(String grund)? frageOhneBereinigung;
+
+  /// Groesste Datei, die als Bild bereinigt wird — sie liegt dafuer einmal
+  /// ganz im Speicher.
+  static const int bildGrenze = 40 * 1024 * 1024;
+
+  /// Groesstes Video: dort wird an Ort und Stelle ueberschrieben (`vorOrt`),
+  /// es liegt also auch nur EINE Kopie im Speicher, nicht zwei.
+  static const int videoGrenze = 300 * 1024 * 1024;
+
+  /// Prueft [datei] auf Metadaten.
   ///
-  /// Bilder nur bis 40 MB: groessere sind selten, und die ganze Datei liegt
-  /// dafuer einmal im Speicher. Videos bis 300 MB: dort wird an Ort und
-  /// Stelle umbenannt und ueberschrieben (`vorOrt`), es liegt also auch nur
-  /// EINE Kopie im Speicher, nicht zwei. Groessere Videos gehen unveraendert.
-  Future<(File, String)?> _ohneMetadaten(File datei) async {
+  /// Rueckgabe:
+  ///   * `datei` — eine bereinigte Kopie, oder null, wenn es keine braucht;
+  ///   * `name`  — ein neutraler Name, sobald es ein Bild oder Video ist;
+  ///   * `warnung` — 'metaZuGross' oder 'metaFehler', wenn es ein Bild oder
+  ///     Video ist, dessen Metadaten NICHT entfernt werden konnten.
+  ///
+  /// Ueber [bereinige] und nicht mehr ueber `ohneMetadaten`: das gab null
+  /// zurueck, sowohl wenn nichts zu tun war als auch wenn sich die Datei
+  /// nicht zerlegen liess — und im zweiten Fall ging sie still MIT Ort und
+  /// Kamera hinaus.
+  Future<({File? datei, String? name, String? warnung})> _ohneMetadaten(File datei) async {
+    const nichts = (datei: null, name: null, warnung: null);
+    Uint8List kopf;
+    int laenge;
     try {
-      final laenge = await datei.length();
-      if (laenge > 300 * 1024 * 1024) return null;
-      if (laenge > 40 * 1024 * 1024) {
-        // Ueber der Bildgrenze nur weiter, wenn der Anfang ein Video ist.
-        final zugriff = await datei.open();
-        final Uint8List kopf;
-        try {
-          kopf = await zugriff.read(256);
-        } finally {
-          await zugriff.close();
-        }
-        if (!istVideo(kopf)) return null;
+      laenge = await datei.length();
+      final zugriff = await datei.open();
+      try {
+        kopf = await zugriff.read(256);
+      } finally {
+        await zugriff.close();
       }
-      final bytes = await datei.readAsBytes();
-      final sauber = ohneMetadaten(bytes, vorOrt: true);
-      if (sauber == null) return null;
-      final name = neutralerBildname(sauber, Random.secure().nextInt(0x10000));
-      final ordner = await getTemporaryDirectory();
-      final ziel = File('${ordner.path}${Platform.pathSeparator}'
-          'bitdm-rein-${DateTime.now().microsecondsSinceEpoch}-$name');
-      await ziel.writeAsBytes(sauber, flush: true);
-      return (ziel, name);
     } catch (_) {
-      return null;
+      // Nicht einmal der Anfang ist lesbar — dann scheitert gleich der
+      // Versand selbst mit einer eigenen Meldung.
+      return nichts;
+    }
+    if (!istBereinigbar(kopf)) return nichts;
+    final zufall = Random.secure().nextInt(0x10000);
+    final neutral = neutralerBildname(kopf, zufall);
+    final video = istVideo(kopf);
+    if (laenge > (video ? videoGrenze : bildGrenze)) {
+      return (datei: null, name: neutral, warnung: 'metaZuGross');
+    }
+    try {
+      final bytes = await datei.readAsBytes();
+      switch (bereinige(bytes, vorOrt: true)) {
+        case Bereinigt(bytes: final sauber):
+          final name = neutralerBildname(sauber, zufall);
+          final ordner = await getTemporaryDirectory();
+          final ziel = File('${ordner.path}${Platform.pathSeparator}'
+              'bitdm-rein-${DateTime.now().microsecondsSinceEpoch}-$name');
+          await ziel.writeAsBytes(sauber, flush: true);
+          return (datei: ziel, name: name, warnung: null);
+        case NichtsZuTun():
+          // Schon sauber: das Original geht, aber unter neutralem Namen.
+          return (datei: null, name: neutral, warnung: null);
+        case Unlesbar():
+          // Bekanntes Format, nicht sicher zerlegbar: die Metadaten koennen
+          // noch drin sein. Das entscheidet der Nutzer, nicht diese Stelle.
+          return (datei: null, name: neutral, warnung: 'metaFehler');
+        case NichtUnterstuetzt():
+          // Der Kopf sah nach Bild oder Video aus, die ganze Datei nicht.
+          return nichts;
+      }
+    } catch (_) {
+      // Lesen oder Schreiben der Kopie scheiterte — bereinigt ist dann nichts.
+      return (datei: null, name: neutral, warnung: 'metaFehler');
     }
   }
 
@@ -1778,12 +2072,12 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> senden(String id, String text,
-      {String? antwortAuf, DateTime? um}) async {
+      {String? antwortAuf, DateTime? um, bool geheim = false}) async {
     final sauber = text.trim();
     if (sauber.isEmpty) return;
     try {
       final m =
-          await core.sendMessage(id, sauber, antwortAuf: antwortAuf, um: um);
+          await core.sendMessage(id, sauber, antwortAuf: antwortAuf, um: um, geheim: geheim);
       // NICHT `.add(...)` AUF DIE LISTE DES KERNS.
       //
       // Was in `verlaeufe` liegt, kommt aus `core.history(...)` — und ob das
@@ -1842,14 +2136,42 @@ class AppState extends ChangeNotifier {
     // Die Sperre wird beim Start in MainActivity.onCreate gesetzt, bevor
     // ueberhaupt gezeichnet wird. Hier wird sie nur an die gespeicherte
     // Einstellung angeglichen — moeglicherweise also geloest.
-    await Fenster.screenshotSperre(einstellungen.blockScreenshots);
-    notifyListeners();
+    await _wendeSchutzAn();
   }
 
   Future<void> setzeEinstellungen(AppPreferences neu) async {
     await core.setPreferences(neu);
     einstellungen = neu;
-    await Fenster.screenshotSperre(neu.blockScreenshots);
+    await _wendeSchutzAn();
+  }
+
+  // ══════════════════════════════════════════════════ Screenshot-Schutz
+
+  /// Ob der Schutz WIRKLICH greift — also ob die Plattform "gesetzt" gemeldet
+  /// hat. Am Rechner ohne Gegenseite bleibt das false, und der Hinweis
+  /// "Screenshot-Schutz aktiv" erscheint dort nicht mehr, nur weil der
+  /// Schalter an ist.
+  bool screenshotSchutzAktiv = false;
+
+  /// Wie viele geheime Ansichten gerade offen sind (Woerter, Teile,
+  /// Einmal-Bild). Solange es eine gibt, gilt der Schutz — gleich, was in den
+  /// Einstellungen steht.
+  int _geheimOffen = 0;
+
+  /// Meldet eine geheime Ansicht an ([sichtbar] true) oder ab.
+  ///
+  /// GEZAEHLT, nicht geschaltet: ein Einmal-Bild, das waehrend der offenen
+  /// Woerter geschlossen wird, darf den Schutz nicht fuer die Woerter
+  /// mitloesen.
+  Future<void> geheimnisSichtbar(bool sichtbar) async {
+    _geheimOffen = max(0, _geheimOffen + (sichtbar ? 1 : -1));
+    await _wendeSchutzAn();
+  }
+
+  Future<void> _wendeSchutzAn() async {
+    final soll = einstellungen.blockScreenshots || _geheimOffen > 0;
+    final ok = await Fenster.screenshotSperre(soll);
+    screenshotSchutzAktiv = soll && ok;
     notifyListeners();
   }
 
@@ -1931,14 +2253,70 @@ class AppState extends ChangeNotifier {
   /// sonst saehe der Nutzer nach dem Aufwachen noch Nachrichten, die laengst
   /// haetten verschwinden sollen.
   Future<void> raeumeAbgelaufeneWeg() async {
-    if (!hatIdentitaet) return;
-    final weg = await core.purgeExpiredMessages();
+    if (!hatIdentitaet || gesperrt) return;
+    final int weg;
+    try {
+      weg = await core.purgeExpiredMessages();
+    } on MessengerException {
+      return;
+    }
+    _planeVerfall();
     if (weg == 0) return;
     // Betroffene Verlaeufe neu laden statt zu raten, welche es traf.
     for (final id in verlaeufe.keys.toList()) {
       verlaeufe[id] = await core.getMessages(id);
     }
+    // UND ALLES, WAS DIE VERSCHWUNDENEN NOCH ZEIGEN KOENNTE: der Zaehler, die
+    // Sterne (Klartext!) und die Suchtreffer. Vorher standen verschwundene
+    // Nachrichten in der Suche und unter ★ weiter da.
+    await _ladeUngelesen();
+    if (sterne.isNotEmpty) sterne = await core.sterne();
+    if (suchText.trim().isNotEmpty) {
+      suchTreffer = await core.suche(suchText);
+    }
     notifyListeners();
+  }
+
+  // ═══════════════════════════════════════ Verschwinden im Vordergrund
+
+  Timer? _verfallTakt;
+
+  /// Woher die naechste Faelligkeit kommt. Nur der echte Kern kennt sie
+  /// (`naechsterVerfall` steht nicht im eingefrorenen Vertrag); in Tests
+  /// hereinreichbar.
+  @visibleForTesting
+  DateTime? Function()? verfallsQuelle;
+
+  DateTime? get _naechsterVerfall {
+    final quelle = verfallsQuelle;
+    if (quelle != null) return quelle();
+    final c = core;
+    return c is RealMessengerCore ? c.naechsterVerfall : null;
+  }
+
+  /// Stellt einen Wecker auf die naechste Nachricht, die verschwinden soll.
+  ///
+  /// BIS HIERHER RAEUMTE NUR DER START UND DAS ZURUECKKOMMEN AUF. Wer die App
+  /// offen liess, sah eine Nachricht mit "1 Stunde" auch nach drei Stunden
+  /// noch — bis er die App einmal weglegte.
+  void _planeVerfall() {
+    _verfallTakt?.cancel();
+    _verfallTakt = null;
+    if (!hatIdentitaet || gesperrt || !_imVordergrund) return;
+    final DateTime? naechster;
+    try {
+      naechster = _naechsterVerfall;
+    } catch (_) {
+      return;
+    }
+    if (naechster == null) return;
+    var rest = naechster.toUtc().difference(DateTime.now().toUtc());
+    // Eine Sekunde Luft: der Kern loescht erst, was WIRKLICH vorbei ist.
+    if (rest < Duration.zero) rest = Duration.zero;
+    _verfallTakt = Timer(rest + const Duration(seconds: 1), () {
+      _verfallTakt = null;
+      unawaited(raeumeAbgelaufeneWeg());
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════ Loeschen
@@ -1953,6 +2331,7 @@ class AppState extends ChangeNotifier {
     _wiederverbindung?.cancel();
     _wiederverbindung = null;
     _fehlversuche = 0;
+    unawaited(Benachrichtigungen.instanz.nimmWarnungWeg());
 
     await core.wipeEverything();
     // DIE FACHDATEI AUCH HIER, nicht nur im Kern. Der echte Kern loescht sie
@@ -1964,19 +2343,63 @@ class AppState extends ChangeNotifier {
     faktoren = const [];
 
     hatIdentitaet = false;
+    // Nach dem Loeschen gibt es nichts mehr, das gesperrt sein koennte — auch
+    // wenn die Fernloeschung waehrend der Sperre ablief.
+    gesperrt = false;
     meineAdresse = '';
     kontakte = const [];
+    gruppen = const [];
     verlaeufe.clear();
+    reaktionen.clear();
+    stimmen.clear();
     frischePhrase = null;
     letzterFehler = null;
+    letzteTechnischeMeldung = null;
     verbindung = ConnectionState.disconnected;
+    // ALLES, WAS DIE OBERFLAECHE NOCH IM KLARTEXT HIELT. Vorher blieben
+    // Sterne, Suchtreffer, Verteilerlisten und die Einstellungen der alten
+    // Identitaet stehen — nach dem Panik-Passwort sah die "frisch
+    // installierte" App dann die Themenwahl und die Sterne von vorher.
+    _vergissAngezeigtes();
+    _fernTakt?.cancel();
+    _fernTakt = null;
+    fernloeschung = const Fernloeschung();
+    fernFrist = null;
+    _fernNachfrist = false;
+    _verbindeNachAbbruch = false;
+    _einmalNachholen.clear();
+    offeneUnterhaltung = null;
+    schwebendeKennung = null;
+    schwebenderName = null;
+    schwebenderChat = null;
+    _ungelesen = 0;
+    _weggelegtUm = null;
+    _tipptIn = null;
+    _letzteTippMeldung = null;
+    unawaited(Benachrichtigungen.instanz.raeumeAuf());
+    einstellungen = const AppPreferences();
+    await _wendeSchutzAn();
     notifyListeners();
+  }
+
+  /// Ob [dispose] schon lief. Ein Kernereignis, das danach noch ankommt
+  /// (ein Nachladen, das vor dem Abbau begann), soll ins Leere laufen und
+  /// nicht mit "used after being disposed" werfen.
+  bool _entsorgt = false;
+
+  @override
+  void notifyListeners() {
+    if (_entsorgt) return;
+    super.notifyListeners();
   }
 
   @override
   void dispose() {
+    _entsorgt = true;
     _wiederverbindung?.cancel();
     _wiederverbindung = null;
+    _verfallTakt?.cancel();
+    _empfangsTimer?.cancel();
     _fernTakt?.cancel();
     for (final a in _abos) {
       unawaited(a.cancel());

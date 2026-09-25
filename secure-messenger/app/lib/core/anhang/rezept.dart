@@ -173,7 +173,24 @@ class Rezept {
         if (einmal) 'e': true,
       });
 
+  /// Liest eine Anleitung von der Gegenstelle.
+  ///
+  /// Wirft AUSSCHLIESSLICH [RezeptFormatException]. Bis 25.09.2026 liess ein
+  /// Stueck, das kein JSON-Objekt ist (`"st":[1]`), einen TypeError durch —
+  /// die aufrufenden Stellen hoeren nur auf den Formatfehler, und der
+  /// TypeError riss den ganzen Empfang mit (kein Sitzungsfortschritt, kein
+  /// Nachweis, Wiederholung bei jedem Verbinden).
   static Rezept ausText(String text) {
+    try {
+      return _lies(text);
+    } on RezeptFormatException {
+      rethrow;
+    } catch (e) {
+      throw RezeptFormatException('unlesbare Anleitung: $e');
+    }
+  }
+
+  static Rezept _lies(String text) {
     final Map<String, Object?> j;
     try {
       j = (jsonDecode(text) as Map).cast<String, Object?>();
@@ -197,9 +214,13 @@ class Rezept {
       // ausloesen.
       throw const RezeptFormatException('zu viele Stuecke');
     }
-    final stuecke = roh
-        .map((e) => Stueck.ausJson((e as Map).cast<String, Object?>()))
-        .toList();
+    final stuecke = [
+      for (final e in roh)
+        if (e is Map)
+          Stueck.ausJson(e.cast<String, Object?>())
+        else
+          throw const RezeptFormatException('ein Stueck ist kein Objekt'),
+    ];
 
     final g = j['g'];
     if (g is! int || g <= 0) {

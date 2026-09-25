@@ -139,6 +139,56 @@ class GeraeteFach implements SchluesselAblage {
     }
   }
 
+  /// Raeumt ALLES weg, was der gesicherte Bereich fuer BitDM haelt: jede
+  /// `bitdm_slot_kek_*.bin` in [verzeichnis] und die Schluessel BEIDER Arten
+  /// im Geraet.
+  ///
+  /// FUER DAS PANIK-LOESCHEN. Bis 25.09.2026 blieb danach beides liegen —
+  /// `VaultSecretStore.delete()` entfernte nur die Fachdatei. Die Reste
+  /// oeffnen nichts mehr (die Faecher sind weg), aber sie verraten, dass hier
+  /// eine Sperre eingerichtet war: eine App, die nach dem Panik-Passwort wie
+  /// frisch installiert aussehen soll, darf keine Fachschluessel neben sich
+  /// liegen haben.
+  ///
+  /// Nach Namensanfang und nicht nach Fachliste: auch Reste frueherer Faecher
+  /// (etwa nach einem abgebrochenen Aufraeumen) gehen so mit.
+  ///
+  /// Wirft nie. Jeder Schritt fuer sich; ein Fehler bei einem haelt die
+  /// anderen nicht auf. Auf einem Geraet ohne den Kanal (Rechner, Tests)
+  /// schlaegt der Aufruf still fehl — dort gibt es auch nichts zu loeschen.
+  static Future<void> loescheAlles({
+    required String verzeichnis,
+    MethodChannel? kanal,
+  }) async {
+    try {
+      final ordner = Directory(verzeichnis);
+      if (ordner.existsSync()) {
+        for (final e in ordner.listSync(followLinks: false)) {
+          if (e is! File) continue;
+          final name = e.uri.pathSegments.last;
+          if (name.startsWith(KeystoreFactor.schluesselPraefix) &&
+              name.endsWith('.bin')) {
+            try {
+              e.deleteSync();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {
+      // Ein unlesbarer Ordner haelt das Loeschen der Geraeteschluessel nicht
+      // auf — ohne die sind die Dateien ohnehin wertlos.
+    }
+    final k = kanal ?? const MethodChannel('bitdm/schluesselfach');
+    for (final art in GeraeteArt.values) {
+      try {
+        await k.invokeMethod<bool>('loesche', {'art': art.kennung});
+      } catch (_) {
+        // Siehe oben: ein Rest schadet weniger als ein abgebrochenes
+        // Aufraeumen.
+      }
+    }
+  }
+
   Future<Uint8List> _rufe(String methode, Uint8List daten) async {
     try {
       final antwort = await _kanal.invokeMethod<Uint8List>(

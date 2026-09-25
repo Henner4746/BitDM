@@ -228,7 +228,7 @@ class FakeMessengerCore implements MessengerCore {
 
   @override
   Future<Message> sendMessage(String contactId, String text,
-      {String? antwortAuf, DateTime? um}) async {
+      {String? antwortAuf, DateTime? um, bool geheim = false}) async {
     if (!_init) throw const NotInitializedException();
     if (!_kennt(contactId)) throw UnknownContactException(contactId);
     final bytes = utf8.encode(text).length;

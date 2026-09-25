@@ -32,6 +32,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import 'stueckelung.dart';
+import 'wegwahl.dart' show Ausgangsfehler;
 
 /// Ein Geraet in Reichweite, das Leuchtfeuer aussendet.
 ///
@@ -152,10 +153,35 @@ enum Rechtelage {
   zuAlt,
 }
 
-class FunkFehler implements Exception {
+class FunkFehler implements Exception, Ausgangsfehler {
   const FunkFehler(this.code, this.grund);
   final String code;
   final String grund;
+
+  /// Die Fehler, bei denen sicher KEIN Byte beim Empfaenger ankam — sie
+  /// scheitern vor dem ersten Schreibvorgang (in Dart, oder im nativen Teil
+  /// vor `connectGatt`; siehe NahfunkKanal.kt `sende`).
+  static const _vorDemSenden = {
+    'NICHT_DA', // nahbereich.dart: nicht in Reichweite
+    'KEIN_FEUER', // nahbereich.dart: kein Leuchtfeuer fuer diesen Kontakt
+    'ZERLEGEN', // sende(): Umschlag liess sich nicht zerlegen
+    'ZU_GROSS', // sende(): Umschlag zu gross fuer den Funk
+    'RECHT', // Bluetooth-Recht fehlt
+    'FORM', // unbrauchbare Angaben
+    'BESETZT', // an dieses Geraet laeuft schon etwas
+    'ZU_ALT', // Android zu alt fuer die Naehe
+    'VOR_SENDEN', // NahfunkKanal.kt fertig(): vor dem ersten Haeppchen gescheitert
+  };
+
+  /// Siehe [Ausgangsfehler]. "FUNK" mit `ZU_GROSS:<n>` ist die MTU-Auskunft
+  /// nach dem Verbinden, aber vor dem ersten Haeppchen — auch dort ging
+  /// nichts hinaus. Jeder andere "FUNK"-Fehler kann mitten in der Sendung
+  /// gekommen sein und bleibt mehrdeutig.
+  @override
+  bool get nichtsHinaus =>
+      _vorDemSenden.contains(code) ||
+      (code == 'FUNK' && grund.startsWith('ZU_GROSS:'));
+
   @override
   String toString() => 'FunkFehler($code): $grund';
 }
@@ -196,6 +222,20 @@ class Nahfunk {
   /// naechsten Mal wird gleich damit zerlegt, statt denselben Fehlschlag zu
   /// wiederholen.
   final _mass = <String, int>{};
+
+  /// Das kleinste Mass, das angenommen wird: 20 Byte, die ATT-Nutzlast der
+  /// Standard-MTU von 23, die JEDES BLE-Geraet kann.
+  ///
+  /// WARUM EINE UNTERGRENZE: `ZU_GROSS:<n>` kommt aus dem nativen Teil und
+  /// letztlich von der Gegenstelle. Bis 25.09.2026 wurde jedes n uebernommen
+  /// — bei n <= 9 bliebe nach dem Rahmen keine Nutzlast, `zerlege` warf bei
+  /// JEDEM weiteren Versand an dieses Geraet, und weil das Mass gemerkt wird,
+  /// war dieser Weg bis zum Neustart zu. Ein kleines, aber gueltiges Mass ist
+  /// dagegen nie falsch, nur langsam.
+  static const int kleinstesMass = 20;
+
+  /// Und das groesste: 512 ist die hoechste Laenge eines ATT-Werts.
+  static const int groesstesMass = 512;
 
   var _sendungsnummer = 0;
 
@@ -295,8 +335,18 @@ class Nahfunk {
     var mass = _mass[geraet] ?? _erstesMass;
 
     for (var versuch = 0; versuch < 2; versuch++) {
-      final stuecke = zerlege(umschlag,
-          sendungsnummer: nummer, nutzlastJeStueck: mass - Rahmen.laenge);
+      final List<Uint8List> stuecke;
+      try {
+        stuecke = zerlege(umschlag,
+            sendungsnummer: nummer, nutzlastJeStueck: mass - Rahmen.laenge);
+      } on StueckKaputt catch (e) {
+        // Der Vertrag dieser Methode ist FunkFehler — die Wegwahl macht daraus
+        // "liegt". Ein roher StueckKaputt waere derselbe Zustand mit einem
+        // Namen, den oben niemand erwartet.
+        throw FunkFehler('ZERLEGEN', e.grund);
+      } on SendungZuGross catch (e) {
+        throw FunkFehler('ZU_GROSS', e.grund);
+      }
       try {
         await _kanal.invokeMethod<bool>(
             'sende', {'geraet': geraet, 'stuecke': stuecke});
@@ -307,7 +357,15 @@ class Nahfunk {
         // Gegenstelle hat eine kleinere MTU ausgehandelt, als angenommen.
         final m = RegExp(r'^ZU_GROSS:(\d+)$').firstMatch(e.message ?? '');
         if (m != null && versuch == 0) {
-          mass = int.parse(m.group(1)!);
+          // tryParse: "\d+" passt auch auf eine Zahl, die kein int mehr ist.
+          final gemeldet = int.tryParse(m.group(1)!);
+          // Eine "Auskunft", die nicht kleiner ist als das, was eben zu gross
+          // war, hilft nicht weiter — ein zweiter Anlauf damit scheiterte
+          // genauso.
+          if (gemeldet == null || gemeldet >= mass) {
+            throw FunkFehler(e.code, e.message ?? 'ohne Angabe');
+          }
+          mass = gemeldet.clamp(kleinstesMass, groesstesMass);
           _mass[geraet] = mass;
           continue;
         }

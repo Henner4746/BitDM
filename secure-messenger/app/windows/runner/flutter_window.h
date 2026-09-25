@@ -3,6 +3,8 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
+#include <flutter/encodable_value.h>
 
 #include <memory>
 
@@ -28,6 +30,10 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // Kanal "bitdm/fenster" — auf Windows nur die Screenshot-Sperre. Die
+  // Gegenstelle ist lib/core/fenster.dart.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> fenster_kanal_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

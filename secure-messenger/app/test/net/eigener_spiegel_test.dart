@@ -400,6 +400,26 @@ void main() {
               'ist am Absender gescheitert, und der Knopf wirft bei jedem '
               'Tippen');
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('EINE GESPIEGELTE EINMAL-ANSICHT BLEIBT EINE (Befund M2)', () async {
+      // Bis 25.09.2026 liess `_nimmSpiegel` das Kennzeichen fallen: auf dem
+      // Zweitgeraet war die eigene Einmal-Ansicht ein gewoehnlicher Anhang —
+      // beliebig oft zu oeffnen und in jeder Sicherung.
+      final eigen = await eigenesBuendel();
+      final zweit = await Zweitgeraet.aus(woerter, 2);
+      lage.liste = null;
+      await kern.connect();
+
+      final bob = await Fremder.mitGeraeten([1]);
+      final einmal = Rezept.ausText(beispielRezept()).alsEinmal().alsText();
+      wirfEin(
+          await zweit.spiegelAn(kern.myId, eigen, bob.adresse,
+              Payload.anhang('a-2', einmal, DateTime.now().toUtc())),
+          2);
+      await warteBis(() =>
+          kern.ablageFuerTest.anhaenge(bob.adresse).containsKey('a-2'));
+      expect(kern.ablageFuerTest.anhaenge(bob.adresse)['a-2']!.einmal, isTrue);
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 
   // ═══════════════════════════════════════════════════════════════════ 9

@@ -45,6 +45,20 @@ class Netzweg {
   /// Der Proxy, oder null = direkt. Gesetzt vom Kern aus den Einstellungen.
   static SocksZiel? proxy;
 
+  /// Gegen welchen Namen das Zertifikat eines Hosts geprueft wird, wenn es
+  /// nicht sein eigener ist. Fuer den Relay als Onion-Dienst (seit
+  /// 25.09.2026): die Onion-Adresse ist derselbe Server wie relay.bitdm.net
+  /// und zeigt dessen Let's-Encrypt-Zertifikat.
+  ///
+  /// WARUM UEBERHAUPT TLS IN TOR: Tor verschluesselt bis zum Dienst, aber der
+  /// Weg bis Tor ist ein Klartext-Socket auf 127.0.0.1:9050. Laeuft Orbot
+  /// nicht, kann jede andere App mit Internetrecht diesen Port belegen, den
+  /// Proxy spielen und den Relay-Verkehr mitlesen und veraendern —
+  /// Anmeldungen, Empfaengeradressen, Zeiten. Mit TLS und diesem Namen sieht
+  /// ein falscher Proxy nur Chiffretext, und ein Zertifikat, das nicht auf
+  /// relay.bitdm.net lautet, bricht den Aufbau ab.
+  static final Map<String, String> zertifikatsName = {};
+
   /// Ein HttpClient, der dem aktuellen Weg folgt.
   static HttpClient httpClient() {
     final c = HttpClient();
@@ -93,7 +107,9 @@ class Netzweg {
       // spricht; stuende hier doch etwas, ginge es beim TLS-Anfang verloren.
       if (vorab.isNotEmpty) throw const SocksException('Daten nach dem Handschlag');
 
-      final sicher = await RawSecureSocket.secure(roh, host: host, subscription: leser.abo);
+      // `host` bestimmt SNI und die Namenspruefung des Zertifikats.
+      final sicher = await RawSecureSocket.secure(roh,
+          host: zertifikatsName[host] ?? host, subscription: leser.abo);
       return RohSocket(sicher);
     } catch (_) {
       roh.close();

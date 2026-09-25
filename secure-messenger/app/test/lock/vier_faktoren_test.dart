@@ -257,6 +257,8 @@ void main() {
       await st.fuegePasswortHinzu(starkesPasswort);
       final slot = st.faktoren.single.id;
 
+      // Nur mit frischem Nachweis (siehe frischBestaetigt in main.dart).
+      expect(await st.bestaetigeMitPasswort(starkesPasswort), isTrue);
       await st.entferneFaktor(slot);
 
       expect(st.faktoren, isEmpty);

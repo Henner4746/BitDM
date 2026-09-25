@@ -58,6 +58,8 @@ class NahAttrappe implements Nahbereich {
   @override
   bool get bereit => _laeuft;
   @override
+  bool bereitFuer(String an) => _laeuft;
+  @override
   List<String> get inReichweite => const [];
 
   @override

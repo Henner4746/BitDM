@@ -205,6 +205,19 @@ class Nahbereich implements Ausgang {
     return _laeuft && _reichweite.isNotEmpty;
   }
 
+  /// Ob GENAU [an] in Reichweite ist — die Frage, die die Wegwahl stellt.
+  ///
+  /// [bereit] sagt nur "irgendwer ist da" und taugt fuer den groben Blick
+  /// ("lohnt ein Nachversand"). Fuer eine einzelne Nachricht ist es die
+  /// falsche Frage: mit einem Nachbarn in Reichweite ging jede Nachricht an
+  /// jeden anderen Kontakt "ueber die Naehe" — und scheiterte dort an
+  /// NICHT_DA.
+  @override
+  bool bereitFuer(String an) {
+    _vergiss();
+    return _laeuft && _reichweite.containsKey(an);
+  }
+
   @override
   Future<void> schicke(String an, Uint8List umschlag) async {
     _vergiss();

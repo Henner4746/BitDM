@@ -78,6 +78,12 @@ class MainActivity : FlutterFragmentActivity() {
         super.onRequestPermissionsResult(nummer, rechte, ergebnisse)
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Nicht mehr sichtbar: das Mikrofon aus. Siehe SprachKanal.beimVerlassen.
+        sprache?.beimVerlassen()
+    }
+
     override fun onDestroy() {
         // Offene Dateikennungen schliessen. Davon hat ein Prozess nur eine
         // begrenzte Zahl, und ein abgebrochener Versand hinterlaesst sonst

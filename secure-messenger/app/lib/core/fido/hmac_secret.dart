@@ -15,16 +15,20 @@
 //                jedem Start.
 //
 // WAS AUF DEM STICK LANDET UND WAS NICHT
-// Auf dem Stick liegt ein Zugang mit dem Namen "bitdm" — nicht die Identitaet,
-// nicht die Nachrichten, nicht die Adresse. Wer den Stick findet, sieht daran,
-// dass jemand BitDM benutzt, und sonst nichts. Das Geheimnis selbst wird bei
-// jeder Abfrage neu gerechnet und nirgends gespeichert.
+// Seit 25.09.2026: nichts. Der Zugang wird nicht auf dem Stick gespeichert;
+// seine Kennung (die der Stick selbst wiedererkennt) steht im Fach der App.
+// Aeltere Einrichtungen haben einen gespeicherten Zugang mit dem Namen
+// "bitdm" hinterlassen — nicht die Identitaet, nicht die Nachrichten, nicht
+// die Adresse; wer den Stick findet, sieht daran nur, dass jemand BitDM
+// benutzt. Das Geheimnis selbst wird bei jeder Abfrage neu gerechnet und
+// nirgends gespeichert.
 //
 // DIE SALZE SIND VERSCHLUESSELT UNTERWEGS
 // Salz hin und Ergebnis zurueck laufen durch das gemeinsame Geheimnis aus
 // pin_protocol.dart. Sonst koennte jemand, der den Funk oder das Kabel
 // mitliest, die Antwort abfangen — und die IST der Schluessel zur Datenbank.
 
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cryptography/dart.dart';
@@ -85,7 +89,14 @@ class HmacSecret {
       3: {
         // Die Nutzerkennung ist bewusst NICHT die BitDM-Adresse. Wer den Stick
         // findet, soll daran nicht ablesen koennen, wer man ist.
-        'id': Uint8List.fromList('bitdm-lock'.codeUnits),
+        //
+        // UND SIE IST JEDES MAL NEU. Bis 25.09.2026 stand hier fest
+        // "bitdm-lock", zusammen mit rk: true. Ein Stick fuehrt je Dienst und
+        // Nutzerkennung aber nur EINEN gespeicherten Zugang — wer denselben
+        // Stick ein zweites Mal einrichtete (zweite Installation, zweites
+        // Telefon, nach einem Zuruecksetzen der App), ueberschrieb damit den
+        // ersten, und dessen Fach ging nie wieder auf.
+        'id': _zufallsKennung(),
         'name': 'BitDM',
         'displayName': 'BitDM',
       },
@@ -93,7 +104,13 @@ class HmacSecret {
         {'alg': -7, 'type': 'public-key'}, // ES256
       ],
       6: {'hmac-secret': true}, // die Erweiterung, um die es geht
-      7: {'rk': true}, // der Stick speichert den Zugang selbst
+      // KEIN "rk" MEHR (also: nicht auf dem Stick speichern). Die App braucht
+      // den gespeicherten Zugang nicht — sie legt die Zugangskennung ohnehin
+      // im Fach ab und nennt sie beim Abrufen ausdruecklich. Ein nicht
+      // gespeicherter Zugang belegt keinen der wenigen Speicherplaetze des
+      // Sticks und kann von keinem spaeteren Einrichten ueberschrieben
+      // werden. Faecher mit altem, gespeichertem Zugang gehen weiter auf:
+      // abgerufen wird in beiden Faellen ueber die Kennung.
       if (pinToken != null) ...{
         8: await pin.pinUvAuthParam(pinToken, clientDataHash),
         9: 1, // pinUvAuthProtocol
@@ -116,10 +133,22 @@ class HmacSecret {
         Uint8List.fromList(authData.sublist(55, 55 + laenge)));
   }
 
+  static final _zufall = Random.secure();
+
+  /// 16 zufaellige Bytes als Nutzerkennung — ohne Bezug zu irgendetwas.
+  static Uint8List _zufallsKennung() =>
+      Uint8List.fromList(List.generate(16, (_) => _zufall.nextInt(256)));
+
   /// Holt das Geheimnis. Bei jedem Entsperren.
   ///
   /// Wieder mit Beruehrung: ein steckengelassener Stick soll nicht ausreichen,
   /// um die App zu oeffnen.
+  ///
+  /// [pinToken] null heisst OHNE Nutzerpruefung — auch bei einem Stick, der
+  /// eine PIN hat. CTAP2 erlaubt das fuer getAssertion; der Stick rechnet
+  /// dann mit seinem Schluessel fuer "ohne Pruefung". Genau so muss ein Fach
+  /// geoeffnet werden, das angelegt wurde, bevor der Stick eine PIN bekam
+  /// (siehe KeySlot.uv).
   Future<Uint8List> holeGeheimnis({
     required StickZugang zugang,
     required PinProtocolV1 pin,

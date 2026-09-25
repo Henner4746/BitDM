@@ -116,7 +116,14 @@ void main() {
       // Hintergrund zur Ablehnung oben: Zu zwei Teilen einer 3-von-5-
       // Zerlegung passt JEDES Geheimnis. Wir konstruieren einen dritten Teil,
       // der zusammen mit den zwei echten ein voellig anderes Geheimnis ergibt.
-      final alle = teile(geheimnis, schwelle: 3, anzahl: 5);
+      //
+      // Gerechnet mit Teilen der Fassung 1 (ohne Fingerabdruck): dort ging das
+      // durch. Fassung 2 lehnt denselben Satz ab — siehe den Fingerabdruck.
+      final neu = teile(geheimnis, schwelle: 3, anzahl: 5);
+      final alle = [
+        for (final t in neu)
+          Teil(schwelle: t.schwelle, x: t.x, gruppenId: t.gruppenId, y: t.y),
+      ];
       final anderes = Uint8List(16)..fillRange(0, 16, 0xAA);
       // Aus (x=1, x=2 echt) und f(0) = anderes ergibt sich ein Polynom; der
       // dritte Punkt dieses Polynoms an x=3 ist ein "gefaelschter" Teil.
@@ -127,6 +134,9 @@ void main() {
         y: _dritterPunkt(alle[0], alle[1], anderes),
       );
       expect(setzeZusammen([alle[0], alle[1], gefaelscht]), anderes);
+      // Mit Fingerabdruck an den echten Teilen faellt die Faelschung auf.
+      expect(() => setzeZusammen([neu[0], neu[1], gefaelscht]),
+          throwsA(isA<TeilgeheimnisException>()));
     });
 
     test('Teile aus zwei Zerlegungen werden nicht vermischt', () {
@@ -309,6 +319,69 @@ void main() {
     test('Teile ohne 16 Byte Entropie ergeben keine Woerter', () {
       final alle = teile(Uint8List(8), schwelle: 2, anzahl: 2);
       expect(() => woerterAusTeilen(alle),
+          throwsA(isA<TeilgeheimnisException>()));
+    });
+  });
+
+  group('Fingerabdruck (Fassung 2)', () {
+    final geheimnis = Uint8List.fromList(List.generate(16, (i) => 100 + i));
+
+    test('neue Zerlegungen schreiben Fassung 2 und lesen sich zurueck', () {
+      final alle = teile(geheimnis, schwelle: 3, anzahl: 5);
+      for (final t in alle) {
+        expect(t.fingerabdruck, hasLength(Teil.fingerabdruckLaenge));
+        expect(t.alsText(), startsWith('BITDM-TEIL-2-3-${t.x}-'));
+      }
+      final zurueck = [for (final t in alle) Teil.ausText(t.alsText())];
+      expect(zurueck, alle);
+      expect(setzeZusammen(zurueck.sublist(0, 3)), geheimnis);
+    });
+
+    test('Fassung 1 bleibt lesbar und setzt sich zusammen', () {
+      // Wie eine alte App sie schrieb: ohne Fingerabdruck.
+      final alt = [
+        for (final t in teile(geheimnis, schwelle: 2, anzahl: 3))
+          Teil(schwelle: t.schwelle, x: t.x, gruppenId: t.gruppenId, y: t.y),
+      ];
+      final texte = [for (final t in alt) t.alsText()];
+      expect(texte.first, startsWith('BITDM-TEIL-1-'));
+      expect(setzeZusammen([Teil.ausText(texte[0]), Teil.ausText(texte[2])]),
+          geheimnis);
+    });
+
+    test('GENAU k Teile mit einem veraenderten werden abgelehnt', () {
+      // Bisher lieferte das stillschweigend ein falsches Geheimnis: es gibt
+      // keinen ueberzaehligen Teil zum Gegenpruefen, und die Pruefsumme des
+      // Textes kann jeder neu rechnen.
+      final alle = teile(geheimnis, schwelle: 2, anzahl: 3);
+      final y = Uint8List.fromList(alle[1].y)..[0] ^= 0x01;
+      final gefaelscht = Teil(
+          schwelle: 2,
+          x: alle[1].x,
+          gruppenId: alle[1].gruppenId,
+          y: y,
+          fingerabdruck: alle[1].fingerabdruck);
+      // Auch ueber den Text: die Pruefsumme passt, der Inhalt nicht.
+      final ueberText = Teil.ausText(gefaelscht.alsText());
+      expect(() => setzeZusammen([alle[0], ueberText]),
+          throwsA(isA<TeilgeheimnisException>()));
+    });
+
+    test('verschiedene Fingerabdruecke widersprechen sich', () {
+      final alle = teile(geheimnis, schwelle: 2, anzahl: 3);
+      final fremd = Teil(
+          schwelle: 2,
+          x: alle[1].x,
+          gruppenId: alle[1].gruppenId,
+          y: alle[1].y,
+          fingerabdruck: [1, 2, 3, 4]);
+      expect(() => setzeZusammen([alle[0], fremd]),
+          throwsA(isA<TeilgeheimnisException>()));
+    });
+
+    test('ein Versionstausch im Text faellt ueber die Pruefsumme auf', () {
+      final text = teile(geheimnis, schwelle: 2, anzahl: 2).first.alsText();
+      expect(() => Teil.ausText(text.replaceFirst('-2-2-1-', '-1-2-1-')),
           throwsA(isA<TeilgeheimnisException>()));
     });
   });

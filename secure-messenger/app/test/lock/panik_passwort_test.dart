@@ -146,6 +146,9 @@ void main() {
   test('DER LETZTE ECHTE FAKTOR NIMMT DAS PANIK-FACH MIT', () async {
     await st.fuegePasswortHinzu(echtes);
     await st.setzePanikPasswort(panik);
+    // Den letzten Faktor nimmt der Tresor nur mit frischem Nachweis heraus
+    // (die Oberflaeche holt ihn ueber frischBestaetigt).
+    expect(await st.bestaetigeMitPasswort(echtes), isTrue);
     await st.entferneFaktor(st.sichtbareFaktoren.single.id);
     expect(st.faktoren, isEmpty,
         reason: 'uebrig blieb eine Sperre, deren einziger Schluessel loescht');

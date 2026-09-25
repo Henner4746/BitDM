@@ -31,6 +31,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -171,6 +172,19 @@ class NahfunkKanal(private val activity: Activity) :
         /** Hoechstens so viel darf EINE Gegenstelle unangefordert schicken,
          *  bevor sie getrennt wird. Zwei volle Umschlaege plus Rahmen. */
         const val JE_GEGENSTELLE_MAX = 150 * 1024
+
+        /** Wer in dieser Frist nach dem Verbinden nichts schreibt, fliegt. Ohne
+         *  das hielten vier stumme Gegenstellen alle Plaetze besetzt — vier
+         *  billige Funkplatinen, und kein echter Kontakt kaeme mehr durch. */
+        const val STUMM_MS = 10_000L
+
+        /** Wer die Grenze ueberschreitet, bleibt so lange draussen — auch nach
+         *  dem Neuverbinden. Bis 25.09.2026 setzte das Trennen den Zaehler auf
+         *  null, und das Vollschreiben ging von vorn los. */
+        const val SPERRE_MS = 10 * 60_000L
+
+        /** Obergrenze je Adresse und Minute, ueber Verbindungen hinweg. */
+        const val JE_MINUTE_MAX = 600 * 1024
     }
 
     private val hauptfaden = Handler(Looper.getMainLooper())
@@ -553,8 +567,37 @@ class NahfunkKanal(private val activity: Activity) :
     private var server: BluetoothGattServer? = null
     private var postfach: BluetoothGattCharacteristic? = null
 
-    /** Wie viel jede Gegenstelle bisher geschickt hat — gegen Vollschreiben. */
+    /** Wie viel jede Gegenstelle bisher geschickt hat — gegen Vollschreiben.
+     *  NUR ANGENOMMENE Verbindungen stehen hier; wer abgewiesen wurde, darf
+     *  auch nicht schreiben. */
     private val angekommen = ConcurrentHashMap<String, Int>()
+
+    /** Adresse -> bis wann (elapsedRealtime) sie abgewiesen wird. */
+    private val gesperrt = ConcurrentHashMap<String, Long>()
+
+    /** Adresse -> [Bytes, Beginn der Minute] — ueberlebt das Trennen. */
+    private val minutenKonto = ConcurrentHashMap<String, LongArray>()
+
+    private fun sperre(g: BluetoothDevice, adr: String, grund: String) {
+        gesperrt[adr] = SystemClock.elapsedRealtime() + SPERRE_MS
+        angekommen.remove(adr)
+        melde("fehler", mapOf("wo" to "postfach", "geraet" to adr, "grund" to grund))
+        try { server?.cancelConnection(g) } catch (_: SecurityException) {}
+    }
+
+    private fun istGesperrt(adr: String): Boolean {
+        val bis = gesperrt[adr] ?: return false
+        if (SystemClock.elapsedRealtime() < bis) return true
+        gesperrt.remove(adr)
+        return false
+    }
+
+    /** Haelt die beiden Buecher klein: abgelaufene Sperren und alte Minuten weg. */
+    private fun raeumeKontenAuf() {
+        val jetzt = SystemClock.elapsedRealtime()
+        gesperrt.entries.removeIf { it.value <= jetzt }
+        minutenKonto.entries.removeIf { jetzt - it.value[1] > 60_000L }
+    }
 
     /**
      * Oeffnet das Postfach: einen GATT-Dienst, in den jeder in Reichweite
@@ -580,13 +623,22 @@ class NahfunkKanal(private val activity: Activity) :
             override fun onConnectionStateChange(g: BluetoothDevice?, status: Int, neu: Int) {
                 val adr = g?.address ?: return
                 if (neu == BluetoothProfile.STATE_CONNECTED) {
-                    if (angekommen.size >= GEGENSTELLEN_MAX) {
+                    raeumeKontenAuf()
+                    if (istGesperrt(adr) || angekommen.size >= GEGENSTELLEN_MAX) {
                         // Mehr als eine Handvoll gleichzeitig ist kein
                         // Normalfall, sondern jemand, der etwas versucht.
                         try { server?.cancelConnection(g) } catch (_: SecurityException) {}
                         return
                     }
                     angekommen[adr] = 0
+                    // Stumm verbunden = Platz besetzt. Nach der Frist raus,
+                    // wenn bis dahin kein einziges Byte kam.
+                    hauptfaden.postDelayed({
+                        if (angekommen[adr] == 0) {
+                            angekommen.remove(adr)
+                            try { server?.cancelConnection(g) } catch (_: SecurityException) {}
+                        }
+                    }, STUMM_MS)
                 } else {
                     angekommen.remove(adr)
                 }
@@ -606,13 +658,21 @@ class NahfunkKanal(private val activity: Activity) :
                 }
                 val adr = g?.address ?: return
                 if (wert == null || wert.isEmpty()) return
+                // Abgewiesen oder gesperrt: nichts annehmen. Bis 25.09.2026
+                // nahm das Postfach auch von einer Verbindung, die es gerade
+                // wegen Ueberfuellung getrennt hatte (die Trennung ist
+                // asynchron), und zaehlte dabei von null.
+                val stand = angekommen[adr] ?: return
+                if (istGesperrt(adr)) return
 
-                val bisher = (angekommen[adr] ?: 0) + wert.size
-                if (bisher > JE_GEGENSTELLE_MAX) {
-                    melde("fehler", mapOf("wo" to "postfach", "geraet" to adr,
-                        "grund" to "zu viel geschickt"))
-                    try { server?.cancelConnection(g) } catch (_: SecurityException) {}
-                    angekommen.remove(adr)
+                val jetzt = SystemClock.elapsedRealtime()
+                val konto = minutenKonto.getOrPut(adr) { longArrayOf(0L, jetzt) }
+                if (jetzt - konto[1] > 60_000L) { konto[0] = 0L; konto[1] = jetzt }
+                konto[0] += wert.size.toLong()
+
+                val bisher = stand + wert.size
+                if (bisher > JE_GEGENSTELLE_MAX || konto[0] > JE_MINUTE_MAX) {
+                    sperre(g, adr, "zu viel geschickt")
                     return
                 }
                 angekommen[adr] = bisher
@@ -675,6 +735,8 @@ class NahfunkKanal(private val activity: Activity) :
         var merkmal: BluetoothGattCharacteristic? = null
         var an = 0
         var erledigt = false
+        /** Ob schon ein Haeppchen an den Funk ging — auch ein unbestaetigtes. */
+        var geschrieben = false
     }
 
     private val laufend = ConcurrentHashMap<String, Zustellung>()
@@ -786,6 +848,7 @@ class NahfunkKanal(private val activity: Activity) :
         val c = z.merkmal ?: return
         if (z.an >= z.stuecke.size) return
         val teil = z.stuecke[z.an]
+        z.geschrieben = true
         try {
             val ok = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 g.writeCharacteristic(c, teil,
@@ -817,9 +880,15 @@ class NahfunkKanal(private val activity: Activity) :
         // Die Antwort geht ueber den Haupt-Thread: `result` darf nicht von
         // einem Binder-Thread aus gerufen werden, und genau von dort kommen
         // alle GATT-Rueckrufe.
+        // VOR_SENDEN (seit 25.09.2026): scheiterte es, bevor auch nur ein
+        // Haeppchen an den Funk ging (kein Postfach drueben, connectGatt
+        // verweigert, Verbindung schon beim Aufbau weg), ist sicher nichts
+        // angekommen. Dart (FunkFehler.nichtsHinaus) merkt sich die Naehe dann
+        // nicht als "versucht" — sonst blieb die Nachricht haengen.
+        val code = if (!gelungen && !z.geschrieben) "VOR_SENDEN" else "FUNK"
         hauptfaden.post {
             if (gelungen) z.ergebnis.success(true)
-            else z.ergebnis.error("FUNK", grund, null)
+            else z.ergebnis.error(code, grund, null)
         }
     }
 

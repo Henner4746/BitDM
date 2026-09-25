@@ -11,7 +11,7 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
-import android.os.Build
+import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
@@ -130,7 +130,11 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
 
         if (!usb.hasPermission(geraet)) {
             frageErlaubnis(geraet) { erteilt ->
-                if (erteilt) oeffneJetzt(geraet, ergebnis)
+                // DEM EXTRA NICHT GLAUBEN, sondern beim System nachfragen: der
+                // Broadcast kam bis 25.09.2026 unter Android 13 von jeder App
+                // an, und ein gefaelschtes "erteilt" liess openDevice mit einer
+                // SecurityException auf dem Hauptfaden abstuerzen.
+                if (erteilt && usb.hasPermission(geraet)) oeffneJetzt(geraet, ergebnis)
                 else ergebnis.error("verweigert", "Zugriff auf den Stick abgelehnt", null)
             }
             return
@@ -151,13 +155,13 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
         }
         erlaubnisEmpfaenger = empfaenger
 
-        val filter = IntentFilter(AKTION_ERLAUBNIS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(empfaenger, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            context.registerReceiver(empfaenger, filter)
-        }
+        // NICHT EXPORTIERT AUF ALLEN FASSUNGEN. ContextCompat setzt unter
+        // Android 13 eine app-eigene Berechtigung auf den Empfaenger — vorher
+        // konnte jede andere App ihn mit einem erfundenen Ergebnis ausloesen.
+        ContextCompat.registerReceiver(
+            context, empfaenger, IntentFilter(AKTION_ERLAUBNIS),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         // FLAG_MUTABLE ist noetig: das System traegt das Ergebnis in den
         // Intent ein. Mit FLAG_IMMUTABLE kaeme die Antwort nie an.
@@ -170,7 +174,11 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
 
     private fun oeffneJetzt(geraet: UsbDevice, ergebnis: MethodChannel.Result) {
         schliesse()
-        val v = usb.openDevice(geraet)
+        val v = try {
+            usb.openDevice(geraet)
+        } catch (e: SecurityException) {
+            null
+        }
         if (v == null) {
             ergebnis.error("oeffnen", "Der Stick liess sich nicht oeffnen", null)
             return

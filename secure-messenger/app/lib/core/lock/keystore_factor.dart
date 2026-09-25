@@ -39,7 +39,7 @@ abstract class SchluesselAblage {
 }
 
 /// Fingerabdruck, Gesicht, Geraete-PIN oder Muster — was das Geraet anbietet.
-class KeystoreFactor implements UnlockFactor {
+class KeystoreFactor implements UnlockFactor, ErneuerndesOeffnen {
   KeystoreFactor({
     required this.ablage,
     this.kind = UnlockFactorKind.biometric,
@@ -55,7 +55,12 @@ class KeystoreFactor implements UnlockFactor {
   final String label;
 
   /// Unter welchem Namen der Fachschluessel im gesicherten Bereich liegt.
-  static String schluesselFuer(String slotId) => 'bitdm_slot_kek_$slotId';
+  static String schluesselFuer(String slotId) => '$schluesselPraefix$slotId';
+
+  /// Der gemeinsame Anfang aller Fachschluessel-Namen. Das Panik-Loeschen
+  /// raeumt alles weg, was so anfaengt (siehe geraete_fach.dart) — auch
+  /// Reste von Faechern, die laengst nicht mehr in der Fachdatei stehen.
+  static const String schluesselPraefix = 'bitdm_slot_kek_';
 
   @override
   Future<KeySlot> createSlot(Uint8List secret, {required int createdAt}) async {
@@ -83,7 +88,15 @@ class KeystoreFactor implements UnlockFactor {
   }
 
   @override
-  Future<Uint8List> unlock(KeySlot slot) async {
+  Future<Uint8List> unlock(KeySlot slot) async => (await oeffne(slot)).geheimnis;
+
+  /// Oeffnet und schreibt ein Fach von vor dem 25.09.2026 gleich neu.
+  ///
+  /// Mit DEMSELBEN Fachschluessel und derselben Kennung — der Eintrag im
+  /// gesicherten Bereich bleibt, wie er ist, und es braucht keinen zweiten
+  /// Fingerabdruck. Neu sind nur die Zusatzdaten (Fassung 2).
+  @override
+  Future<FachOeffnung> oeffne(KeySlot slot) async {
     final Uint8List kek;
     try {
       final b64 = await ablage.lies(schluesselFuer(slot.id));
@@ -97,7 +110,7 @@ class KeystoreFactor implements UnlockFactor {
       // sein.
       throw const UnlockFailedException();
     }
-    return KeyVault.openSlot(slot, kek);
+    return KeyVault.oeffneUndErneuere(slot, kek);
   }
 
   /// Raeumt den Fachschluessel weg, wenn das Fach entfernt wird.

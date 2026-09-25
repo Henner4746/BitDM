@@ -73,11 +73,17 @@ const String lagerBasis = String.fromEnvironment('BITDM_LAGER');
 /// gibt seine eigene mit BITDM_RELAY_ONION an (oder keine — dann geht es
 /// ueber einen Tor-Ausgang zur normalen Adresse).
 const String relayOnion = String.fromEnvironment('BITDM_RELAY_ONION');
+// HTTPS SEIT 1.8.1: auch im Onion-Dienst TLS mit dem Zertifikat von
+// relay.bitdm.net (Netzweg.zertifikatsName) — der Weg bis Orbot ist sonst ein
+// Klartext-Socket, den eine andere App belegen koennte.
 const String _relayOnionStandard =
-    'http://tpbryhlguq6bhrxzv3qlcqk2ogkrv4hot7auqa54pnmeksaoiwsnuqqd.onion';
+    'https://tpbryhlguq6bhrxzv3qlcqk2ogkrv4hot7auqa54pnmeksaoiwsnuqqd.onion';
 Uri? get relayTorUri => relayOnion.isNotEmpty
     ? Uri.parse(relayOnion)
     : (relayBasis == 'https://relay.bitdm.net' ? Uri.parse(_relayOnionStandard) : null);
+
+/// Laeuft die App als Android-App (nicht im Browser auf einem Telefon)?
+bool get _aufAndroid => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -168,7 +174,12 @@ Future<void> main() async {
       verzeichnis: ablageWeg,
     ),
   )
-    ..empfangsDienst = EmpfangsDienst()
+    // DER HINTERGRUNDEMPFANG IST ANDROID. Am Rechner und im Browser gibt es
+    // den Kanal bitdm/empfang nicht; mit dem Dienst hier trennte das
+    // Verdecken des Fensters die Verbindung und sah danach nur alle 15
+    // Minuten nach. Dort bleibt die Leitung einfach stehen.
+    ..empfangsDienst = _aufAndroid ? EmpfangsDienst() : null
+    ..verbindungImHintergrund = !_aufAndroid
     // Die Bluetooth-Strecke. Hier angehaengt und nicht im Konstruktor
     // verlangt, weil sie in Tests fehlt: `flutter test` hat keine
     // Plattformkanaele, und ein Pflichtfeld haette jeden Zustandstest an
@@ -643,6 +654,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         }
       });
     st.addListener(_aktualisiere);
+    st.frageOhneBereinigung = _frageMetadaten;
     // Material You: die Akzentfarbe des Systems faerbt die Material-Themen.
     unawaited(SystemFarbe.akzent().then((farbe) {
       if (farbe == null || !mounted) return;
@@ -677,18 +689,73 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     });
   }
 
+  /// Ob der Schutz fuer den Woerter-Bildschirm gerade angemeldet ist.
+  bool _phraseGeschuetzt = false;
+
+  /// Was beim letzten Horchen galt — um den WECHSEL zu erkennen, nicht den
+  /// Zustand.
+  bool _warGesperrt = false;
+  bool _hatteIdentitaet = false;
+
   void _aktualisiere() {
     if (!mounted) return;
+    // GERADE ZUGESPERRT ODER GELOESCHT: alles, was UEBER dem Bildschirm liegt,
+    // muss mit. Der Sperrbildschirm ersetzt nur den Inhalt von Home — ein
+    // offener Dialog, ein Blatt, das Einmal-Bild oder die Teile der zwoelf
+    // Woerter lagen bis hierher als eigene Route DARUEBER und blieben
+    // sichtbar und bedienbar.
+    final gesperrtJetzt = st.gesperrt;
+    final identitaetJetzt = st.hatIdentitaet;
+    final gesperrtWorden = gesperrtJetzt && !_warGesperrt;
+    final geloeschtWorden = st.bereit && !identitaetJetzt && _hatteIdentitaet;
+    _warGesperrt = gesperrtJetzt;
+    _hatteIdentitaet = identitaetJetzt;
+    if (gesperrtWorden || geloeschtWorden) _raeumeOberflaecheAuf();
+    if (geloeschtWorden) {
+      // Filter und Suche der alten Identitaet gehoeren nicht zur neuen.
+      _filter = 'alle';
+      _zeigeArchiv = false;
+    }
     // DIE IDENTITAET IST WEG — etwa durch eine Fernloeschung, die ablief,
     // waehrend die Chatliste offen war. Dann gehoert der Bildschirm zum
     // Anfang, nicht zu Unterhaltungen, die es nicht mehr gibt.
     if (st.bereit && !st.hatIdentitaet && !st.gesperrt &&
-        const {'chats', 'chat', 'id', 'settings'}.contains(screen)) {
+        const {'chats', 'chat', 'id', 'set'}.contains(screen)) {
       screen = 'onboard';
       chat = null;
     }
+    _planeFernAnzeige();
     _uebernimmEinstellungen();
     setState(() {});
+  }
+
+  /// Schliesst alles, was ueber dem Bildschirm liegt, und vergisst, was
+  /// eingetippt oder angezeigt war — beim Sperren und beim Loeschen.
+  void _raeumeOberflaecheAuf() {
+    try {
+      Navigator.maybeOf(context)?.popUntil((r) => r.isFirst);
+    } catch (_) {
+      // Mitten in einem anderen Navigatorschritt: dann eben ein Bild spaeter.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.maybeOf(context)?.popUntil((r) => r.isFirst);
+      });
+    }
+    ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+    sheet = false;
+    panic = false;
+    enroll = null;
+    stickSchritt = null;
+    laeuftZeile = null;
+    pruefnummer = null;
+    pruefnummerFehler = null;
+    _antwortZiel = null;
+    _bearbeitungsZiel = null;
+    suchCtl.clear();
+    stickPinCtl.clear();
+    pwCtl.clear();
+    pwCtl2.clear();
+    // DAS MIKROFON LAEUFT NICHT HINTER DER SPERRE WEITER.
+    if (_aufnahmeSeit != null) unawaited(_verwirfAufnahme());
   }
 
   /// Reicht die uebersetzten Texte fuer Benachrichtigungen durch. Der Kern
@@ -698,7 +765,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     st.einNeuText = t('notifOne');
     st.empfangTitelText = t('bgNotifTitle');
     st.empfangLaeuftText = t('bgNotifText');
-    st.mehrereNeuText = (n) => t('notifMany').replaceFirst('{n}', '');
+    // MIT der Zahl — hier stand '' als Ersatz, und die Meldung hiess
+    // " new messages".
+    st.mehrereNeuText = (n) => t('notifMany').replaceFirst('{n}', '$n');
   }
 
   @override
@@ -719,6 +788,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
+        // EINE LAUFENDE AUFNAHME GEHT WEG. Sonst nahm das Mikrofon weiter auf,
+        // waehrend die App laengst verdeckt war.
+        if (_aufnahmeSeit != null) unawaited(_verwirfAufnahme());
         st.vordergrund(false);
       case AppLifecycleState.inactive:
         break;
@@ -1179,8 +1251,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     // dieselbe Frage neu aufkommt.
     FocusManager.instance.removeListener(_fokusNachfassen);
     st.removeListener(_aktualisiere);
+    if (st.frageOhneBereinigung == _frageMetadaten) st.frageOhneBereinigung = null;
     _chatScroll.dispose();
+    _fernAnzeigeTakt?.cancel();
     draftCtl.dispose();
+    suchCtl.dispose();
     addCtl.dispose();
     codeCtl.dispose();
     stickPinCtl.dispose();
@@ -1413,11 +1488,27 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
   /// Zeigt ein Bild bildschirmfuellend. Bei einer Einmal-Ansicht mit
   /// erzwungener Bildschirmsperre, und beim Schliessen ist die Datei weg.
+  ///
+  /// IM `finally`: sperrt die App, waehrend das Bild offen ist, schliesst die
+  /// Sperre die Route (siehe [_raeumeOberflaecheAuf]) — und die Datei muss
+  /// trotzdem weg. [AppState.verbraucheEinmal] kommt mit einem gesperrten
+  /// Kern zurecht.
   Future<void> zeigeBild(String cid, AnhangEintrag a) async {
     final pfad = a.pfad;
     if (pfad == null) return;
-    if (a.einmal) await Fenster.screenshotSperre(true);
-    if (!mounted) return;
+    if (a.einmal) await st.geheimnisSichtbar(true);
+    try {
+      if (!mounted) return;
+      await _zeigeBildRoute(pfad, a);
+    } finally {
+      if (a.einmal) {
+        await st.geheimnisSichtbar(false);
+        await st.verbraucheEinmal(cid, a.messageId, pfad: pfad);
+      }
+    }
+  }
+
+  Future<void> _zeigeBildRoute(String pfad, AnhangEintrag a) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       fullscreenDialog: true,
       builder: (ctx) => Scaffold(
@@ -1445,10 +1536,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ),
       ),
     ));
-    if (a.einmal) {
-      await Fenster.screenshotSperre(st.einstellungen.blockScreenshots);
-      await st.verbraucheEinmal(cid, a.messageId);
-    }
   }
 
   /// Holt (falls noetig) und oeffnet eine empfangene Einmal-Ansicht.
@@ -1464,7 +1551,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       // Abspielen und sofort verbrauchen: der Spieler haelt die Datei offen,
       // das Loeschen nimmt nur den Namen weg.
       if (a.pfad != null) await Sprache.spiele(a.pfad!);
-      await st.verbraucheEinmal(cid, m.id);
+      await st.verbraucheEinmal(cid, m.id, pfad: a.pfad);
       return;
     }
     await zeigeBild(cid, a);
@@ -1472,8 +1559,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
   Future<void> _verwirfAufnahme() async {
     _aufnahmeTakt?.cancel();
-    setState(() => _aufnahmeSeit = null);
-    await Sprache.verwirf();
+    _aufnahmeTakt = null;
+    if (mounted) setState(() => _aufnahmeSeit = null);
+    // Am Rechner gibt es den Kanal nicht — dann laeuft auch nichts.
+    try {
+      await Sprache.verwirf();
+    } on MissingPluginException {
+      // nichts zu verwerfen
+    } on PlatformException {
+      // die Aufnahme war schon zu Ende
+    }
   }
 
   /// Ein kurzer Auszug einer Nachricht — fuer Zitat, Antwortleiste und Liste.
@@ -1639,7 +1734,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           _hinweis(t('cmdThemeBad'));
           return true;
         }
-        await st.setzeEinstellungen(st.einstellungen.copyWith(thema: ziel.first.id));
+        await _waehleThema(ziel.first.id);
         return true;
       case 'wipe':
         if (st.gruppeZu(cid) != null || st.istNotizen(cid)) {
@@ -1664,7 +1759,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         }
         return true;
       case 'shrug':
-        final rest = eingabe.substring(1 + befehl.length).trim();
+        // Der Rest NACH dem Befehlswort, nicht nach einer festen Stelle: bei
+        // "/ shrug hi" schnitt `substring(1 + 5)` mitten ins Wort ("g hi").
+        final rest = eingabe.substring(1).trimLeft().substring(befehl.length).trim();
         await st.senden(cid, rest.isEmpty ? r'¯\_(ツ)_/¯' : '$rest ' r'¯\_(ツ)_/¯');
         return true;
     }
@@ -2218,9 +2315,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
             }, accent: false, padding: const EdgeInsets.all(10))),
             const SizedBox(width: 8),
             Expanded(child: outlineBtn(t('send'), () async {
-              final n = await st.sendeAnVerteiler(v.id, text.text);
+              final r = await st.sendeAnVerteiler(v.id, text.text);
               if (ctx.mounted) Navigator.pop(ctx);
-              _hinweis(t('listSent').replaceFirst('{n}', '$n'));
+              // Auch die, bei denen es scheiterte — sonst hielt man die Liste
+              // fuer erledigt, waehrend die Haelfte nichts bekam.
+              _hinweis(r.fehlgeschlagen == 0
+                  ? t('listSent').replaceFirst('{n}', '${r.gesendet}')
+                  : t('listSentFailed')
+                      .replaceFirst('{n}', '${r.gesendet}')
+                      .replaceFirst('{f}', '${r.fehlgeschlagen}'));
             }, padding: const EdgeInsets.all(10))),
           ]),
         ]),
@@ -2485,7 +2588,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
   String _filter = 'alle';
 
-  bool _passt(String id, bool gruppe) => switch (_filter) {
+  /// Der Filter, der gerade WIRKT: im Archiv keiner. Die Leiste ist dort
+  /// ausgeblendet — ein unsichtbarer Filter liess archivierte Chats einfach
+  /// verschwinden, und unter "Archiv" stand dann die Sternliste.
+  String get _wirksamerFilter => _zeigeArchiv ? 'alle' : _filter;
+
+  bool _passt(String id, bool gruppe) => switch (_wirksamerFilter) {
         'gruppen' => gruppe,
         'ungelesen' => st.ungelesenIn(id) > 0,
         _ => true,
@@ -2527,25 +2635,61 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   }
 
   /// Der rote Balken ueber der Chatliste, solange eine Fernloeschung laeuft.
+  ///
+  /// Die Zeit ist die ECHTE: bis zur Faelligkeit oder, wenn sie schon vorbei
+  /// war, bis zum Ende der Nachfrist ([AppState.fernFrist]). In der letzten
+  /// Minute in Sekunden.
   Widget fernBanner() {
-    final f = st.fernloeschung.faellig!;
-    final rest = f.difference(DateTime.now().toUtc());
-    final min = rest.isNegative ? 0 : rest.inMinutes + 1;
+    final f = st.fernFrist ?? st.fernloeschung.faellig!;
+    // Aufgerundet: "noch 0 s", solange es noch nicht passiert ist, waere
+    // falsch. Die Nachfrist (genau 60 s) steht damit sofort in Sekunden da.
+    final sek = (f.difference(DateTime.now().toUtc()).inMilliseconds / 1000).ceil();
+    final text = sek <= 60
+        ? t('wipeBannerSec').replaceFirst('{s}', '${sek < 0 ? 0 : sek}')
+        : t('wipeBanner').replaceFirst('{m}', '${(sek / 60).ceil()}');
     return Container(
       key: const ValueKey('fern-banner'),
       margin: const EdgeInsets.fromLTRB(17, 8, 17, 0),
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
       child: Row(children: [
-        Expanded(child: Text(t('wipeBanner').replaceFirst('{m}', '$min'),
+        Expanded(child: Text(text,
             style: mono(size: 12, weight: FontWeight.w600, color: p.tintInk, height: 1.4))),
         const SizedBox(width: 8),
         outlineBtn(t('cancel'), () async {
+          // NUR MIT FRISCHER ANMELDUNG. Sonst haelt jeder, der das entsperrte
+          // Telefon gerade hat, die Loeschung auf, die wegen ihm laeuft.
+          if (!await frischBestaetigt(frage: t('wipeCancelAsk'))) return;
           await st.brichFernloeschungAb();
           _hinweis(t('wipeCancelled'));
         }, padding: const EdgeInsets.all(8)),
       ]),
     );
+  }
+
+  /// Zeichnet den Balken nach, solange eine Fernloeschung laeuft — einmal je
+  /// Minute, in der letzten Minute jede Sekunde. Ohne Wecker stand "10 Min."
+  /// bis zur Loeschung da.
+  Timer? _fernAnzeigeTakt;
+
+  void _planeFernAnzeige() {
+    final f = st.fernFrist ?? st.fernloeschung.faellig;
+    if (f == null) {
+      _fernAnzeigeTakt?.cancel();
+      _fernAnzeigeTakt = null;
+      return;
+    }
+    if (_fernAnzeigeTakt != null) return;
+    final rest = f.difference(DateTime.now().toUtc());
+    final abstand = rest.inSeconds <= 61
+        ? const Duration(seconds: 1)
+        : Duration(seconds: rest.inSeconds % 60 == 0 ? 60 : rest.inSeconds % 60);
+    _fernAnzeigeTakt = Timer(abstand, () {
+      _fernAnzeigeTakt = null;
+      if (!mounted) return;
+      setState(() {});
+      _planeFernAnzeige();
+    });
   }
 
   Future<void> _richteFernloeschungEin() async {
@@ -2602,12 +2746,102 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       ),
     );
     if (ok != true) return;
+    // ABSCHALTEN ODER UMSTELLEN NUR MIT FRISCHER ANMELDUNG. Wer die Liste der
+    // Vertrauten oder die Schwelle aendert, kann die Fernloeschung genauso
+    // aushebeln wie jemand, der sie abschaltet. Das erste Einschalten
+    // schwaecht nichts und braucht es nicht.
+    final vorher = st.fernloeschung;
+    final geaendert = !an ||
+        k != vorher.schwelle ||
+        gewaehlt.length != vorher.vertraute.length ||
+        !gewaehlt.containsAll(vorher.vertraute);
+    if (vorher.an && geaendert && !await frischBestaetigt(frage: t('wipeChangeAsk'))) {
+      return;
+    }
     await st.setzeFernloeschung(st.fernloeschung.copyWith(
         an: an, schwelle: k, vertraute: gewaehlt.toList(), anfragen: const {}));
   }
 
+  /// Zeigt die zwoelf Woerter — nach frischer Anmeldung und mit erzwungenem
+  /// Screenshot-Schutz, gleich was in den Einstellungen steht.
+  Future<void> _zeigeWoerter() async {
+    if (!await frischBestaetigt()) return;
+    final List<String> woerter;
+    try {
+      woerter = await st.phraseAusEinstellungen();
+    } catch (_) {
+      _hinweis(t('phraseShowFailed'));
+      return;
+    }
+    if (!mounted) return;
+    await st.geheimnisSichtbar(true);
+    try {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const ValueKey('woerter-dialog'),
+          backgroundColor: p.surf,
+          title: Text(t('phraseTitle'), style: doto(size: 17, color: p.ink)),
+          content: SizedBox(
+            width: 340,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(t('phraseShowWarn'), style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+                const SizedBox(height: 12),
+                _zweiSpaltenGitter(
+                  woerter.length,
+                  (i) => Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                    decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(4)),
+                    child: Row(children: [
+                      SizedBox(width: 20, child: Text('${i + 1}', style: mono(size: 10, color: p.dim))),
+                      Expanded(child: Text(woerter[i],
+                          style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 0.6))),
+                    ]),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('close'))),
+          ],
+        ),
+      );
+    } finally {
+      await st.geheimnisSichtbar(false);
+    }
+  }
+
+  /// Kopiert etwas Geheimes und raeumt die Zwischenablage nach 30 Sekunden
+  /// wieder — aber nur, wenn dort noch GENAU das steht. Was der Nutzer
+  /// inzwischen selbst kopiert hat, bleibt.
+  ///
+  /// Die Zwischenablage lesen andere Apps, Tastaturen und auf manchen
+  /// Telefonen auch die Cloud-Synchronisation; ein Teil der zwoelf Woerter
+  /// hat dort nichts auf Dauer verloren.
+  static const Duration ablageFrist = Duration(seconds: 30);
+
+  void _kopiereGeheim(String text) {
+    unawaited(Clipboard.setData(ClipboardData(text: text)));
+    Timer(ablageFrist, () async {
+      try {
+        final jetzt = await Clipboard.getData(Clipboard.kTextPlain);
+        if (jetzt?.text == text) {
+          await Clipboard.setData(const ClipboardData(text: ''));
+        }
+      } catch (_) {
+        // Keine Zwischenablage — dann gibt es auch nichts zu raeumen.
+      }
+    });
+  }
+
   /// Fragt nach k von n, zerlegt die Woerter und zeigt die Teile.
   Future<void> _erzeugeTeile() async {
+    // Die Teile SIND die zwoelf Woerter, nur zerlegt — also erst ausweisen.
+    if (!await frischBestaetigt()) return;
+    if (!mounted) return;
     var wahl = '3/5';
     final ok = await showDialog<bool>(
       context: context,
@@ -2637,7 +2871,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       return;
     }
     if (!mounted) return;
-    showModalBottomSheet<void>(
+    // Die Teile sind die Woerter in Stuecken: Screenshot-Schutz, solange das
+    // Blatt offen ist — auch wenn er in den Einstellungen aus ist.
+    await st.geheimnisSichtbar(true);
+    if (!mounted) {
+      await st.geheimnisSichtbar(false);
+      return;
+    }
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => SafeArea(
@@ -2665,8 +2906,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                   const SizedBox(height: 8),
                   Row(children: [
                     Expanded(child: outlineBtn(t('copy'), () {
-                      Clipboard.setData(ClipboardData(text: teile[i].alsText()));
-                      _hinweis(t('copied'));
+                      _kopiereGeheim(teile[i].alsText());
+                      _hinweis(t('copiedSecret'));
                     }, padding: const EdgeInsets.all(8))),
                     const SizedBox(width: 8),
                     Expanded(child: outlineBtn(t('trustSend'), () => _sendeTeil(teile[i]),
@@ -2677,7 +2918,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           ]),
         ),
       ),
-    );
+    ).whenComplete(() => st.geheimnisSichtbar(false));
   }
 
   /// Schickt einen Teil verschluesselt an einen Kontakt.
@@ -2701,7 +2942,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       ),
     );
     if (ziel == null) return;
-    await st.senden(ziel, '${t('trustMsg')}\n\n${teil.alsText()}');
+    // GEHEIM: nach der Zustellung aus dem eigenen Verlauf geschwaerzt und
+    // nicht an die eigenen Zweitgeraete gespiegelt — sonst laegen alle Teile
+    // hier im Klartext, und die frische Anmeldung vor "Teile erzeugen" waere
+    // mit einem Blick in den Verlauf umgangen.
+    await st.senden(ziel, '${t('trustMsg')}\n\n${teil.alsText()}', geheim: true);
     _hinweis(t('trustSent'));
   }
 
@@ -2864,6 +3109,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
     final vorhanden = st.sichtbareFaktoren.where((s) => s.kind == art).toList();
     if (vorhanden.isNotEmpty) {
+      // Einen Faktor herausnehmen schwaecht die Sperre — also erst ausweisen.
+      if (!await frischBestaetigt()) return;
       await _entferneFaktor(key, vorhanden.first.id);
       return;
     }
@@ -2963,6 +3210,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
   /// Stellt um, wann die App sich von selbst wieder abschliesst.
   Future<void> _setzeSperrfrist(int sekunden) async {
+    if (sekunden == st.sperrfristAlsZahl) return;
+    // Eine laengere Frist ist eine schwaechere Sperre — erst ausweisen.
+    if (!await frischBestaetigt()) return;
     try {
       await st.setzeSperrfrist(sekunden);
     } catch (e) {
@@ -3172,6 +3422,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       wiped = true; copied = false;
       enroll = null;
       lang = l;
+      // Auch Filter und Suche: "ungelesen" oder ein Suchwort der alten
+      // Identitaet stuenden sonst ueber der leeren Liste der neuen.
+      _filter = 'alle';
+      _zeigeArchiv = false;
+      suchCtl.clear();
       draftCtl.clear(); addCtl.clear(); codeCtl.clear();
     });
   }
@@ -3289,6 +3544,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     // Fuer den Zaehler: eine Nachricht in die gerade offene Unterhaltung gilt
     // sofort als gelesen (AppState.offeneUnterhaltung).
     st.offeneUnterhaltung = screen == 'chat' ? chat : null;
+
+    // DIE ZWOELF WOERTER NACH DEM ANLEGEN: Screenshot-Schutz, solange sie
+    // dastehen — gleich, was in den Einstellungen steht (die gelten fuer die
+    // Unterhaltungen). Am Bildschirmwechsel gemessen und nicht an jedem Weg
+    // dorthin: 'phrase' wird an mehreren Stellen direkt gesetzt.
+    final phraseSichtbar = st.bereit && !st.gesperrt && screen == 'phrase';
+    if (phraseSichtbar != _phraseGeschuetzt) {
+      _phraseGeschuetzt = phraseSichtbar;
+      unawaited(st.geheimnisSichtbar(phraseSichtbar));
+    }
 
     final Widget geruest = Scaffold(
       backgroundColor: p.bg,
@@ -4061,17 +4326,149 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     }
   }
 
+  /// Verlangt eine FRISCHE Anmeldung, bevor etwas Folgenreiches passiert: die
+  /// Sperre aendern, die Fernloeschung aufhalten oder umstellen, die zwoelf
+  /// Woerter oder ihre Teile zeigen.
+  ///
+  /// EIN OFFENER BILDSCHIRM IST KEIN AUSWEIS. Wer das entsperrte Telefon
+  /// einen Moment in der Hand hat, soll damit weder die Sperre abschalten
+  /// noch die Woerter abfotografieren koennen.
+  ///
+  /// Ohne eingerichteten Faktor gibt es nichts, womit man sich ausweisen
+  /// koennte; dann fragt die App nur nach, wenn [frage] gesetzt ist.
+  /// Rueckgabe: ob weitergemacht werden darf.
+  Future<bool> frischBestaetigt({String? frage}) async {
+    if (!st.brauchtFrischeAnmeldung) {
+      if (frage == null) return true;
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const ValueKey('nachfrage'),
+          title: Text(t('confirmTitle')),
+          content: Text(frage, style: mono(size: 12, color: p.muted, height: 1.5)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('cancel'))),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('confirmYes'))),
+          ],
+        ),
+      );
+      return ok == true;
+    }
+    // Nur, was hier auch geht — am Rechner bleibt vom Faktor-Satz nur das
+    // Passwort (siehe [_faktorGehtHier]).
+    final arten = [
+      for (final k in zugriffsZeilen.where(_faktorGehtHier))
+        if (st.hatFaktor(zeilenArt[k]!)) k,
+    ];
+    if (arten.isEmpty) {
+      _hinweis(t('freshAuthNone'));
+      return false;
+    }
+    var wahl = arten.first;
+    if (arten.length > 1) {
+      final gewaehlt = await showDialog<String>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: Text(t('freshAuthTitle')),
+          children: [
+            for (final k in arten)
+              SimpleDialogOption(
+                key: ValueKey('frisch-$k'),
+                onPressed: () => Navigator.pop(ctx, k),
+                child: Text(t(k), style: mono(size: 13, color: p.ink)),
+              ),
+          ],
+        ),
+      );
+      if (gewaehlt == null || !mounted) return false;
+      wahl = gewaehlt;
+    }
+    try {
+      final bool? ok;
+      switch (zeilenArt[wahl]!) {
+        case UnlockFactorKind.biometric:
+          ok = await st.bestaetigeMitBiometrie();
+        case UnlockFactorKind.deviceCredential:
+          ok = await st.bestaetigeMitGeraetePin();
+        case UnlockFactorKind.passphrase:
+          pwCtl.clear();
+          final eingegeben = await _frageGeheimnis(
+              titel: t('freshAuthTitle'), ctl: pwCtl, hinweis: t('freshAuthPw'));
+          final pw = pwCtl.text;
+          pwCtl.clear();
+          if (eingegeben != true || !mounted) return false;
+          ok = await st.bestaetigeMitPasswort(pw);
+        case UnlockFactorKind.hardwareKey:
+          ok = await _mitStickPin(
+              (pin) => st.bestaetigeMitStick(weg: stickWeg, pin: pin));
+          if (ok == null) return false;
+      }
+      if (ok != true) _hinweis(t('unlockFailed'));
+      return ok == true;
+    } on AnmeldungFehlgeschlagen catch (e) {
+      if (!e.abgebrochen) _hinweis(e.grund);
+      return false;
+    } on UnlockFailedException {
+      _hinweis(t('unlockFailed'));
+      return false;
+    } catch (e) {
+      _hinweis(_stickMeldung(e));
+      return false;
+    } finally {
+      stickPinCtl.clear();
+    }
+  }
+
   /// Entsperrt mit dem Stick, und fragt nach der PIN, wenn er eine verlangt.
   Future<void> _entsperreMitStick() async {
     setState(() => lockFehler = null);
     try {
-      await st.entsperreMitStick(
-          weg: stickWeg,
-          pin: stickPinCtl.text.isEmpty ? null : stickPinCtl.text);
-    } on StickPinNoetigException {
-      if (mounted) await _fragePin();
+      final ok = await _mitStickPin(
+          (pin) => st.entsperreMitStick(weg: stickWeg, pin: pin));
+      if (ok == false && mounted) setState(() => lockFehler = t('unlockFailed'));
     } catch (e) {
       if (mounted) setState(() => lockFehler = _stickMeldung(e));
+    } finally {
+      stickPinCtl.clear();
+    }
+  }
+
+  /// Bedient den Stick und fragt die PIN nach, wenn er sie verlangt — oder
+  /// wenn sie falsch war. Rueckgabe: was [tun] meldet, oder null, wenn der
+  /// Nutzer die PIN-Abfrage abbricht.
+  ///
+  /// NIE STILL EIN ZWEITES MAL. Vorher blieb eine falsche PIN im Feld stehen,
+  /// und das naechste Antippen von "Mit Schluessel oeffnen" schickte sie
+  /// ungefragt wieder — jeder Druck kostete einen der acht Versuche, nach
+  /// denen sich der Stick endgueltig sperrt. Jetzt wird nach jedem
+  /// Fehlversuch neu gefragt, mit der Zahl der verbleibenden Versuche.
+  Future<bool?> _mitStickPin(Future<bool> Function(String? pin) tun) async {
+    String? pin;
+    while (true) {
+      String? meldung;
+      try {
+        return await tun(pin);
+      } on StickPinNoetigException {
+        meldung = null;
+      } on PinFalschException catch (e) {
+        // Bei null Versuchen ist der Stick zu — fragen hilft dann nicht mehr.
+        if (e.verbleibend == 0) rethrow;
+        meldung = _stickMeldung(e);
+      } finally {
+        pin = null;
+        stickPinCtl.clear();
+      }
+      if (!mounted) return null;
+      final ok = await _frageGeheimnis(
+          titel: t('stickPinLabel'),
+          ctl: stickPinCtl,
+          hinweis: meldung == null
+              ? t('stickPinHint')
+              : '$meldung\n\n${t('stickPinHint')}',
+          nurZahlen: true);
+      pin = stickPinCtl.text;
+      stickPinCtl.clear();
+      if (ok != true || pin.isEmpty || !mounted) return null;
     }
   }
 
@@ -4119,20 +4516,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     );
   }
 
-  /// Fragt die PIN DES STICKS ab — nicht die des Telefons.
-  ///
-  /// Sie verlaesst das Telefon nie im Klartext: uebertragen werden die ersten
-  /// 16 Byte ihres SHA-256, und auch die nur verschluesselt.
-  Future<void> _fragePin() async {
-    stickPinCtl.clear();
-    final ok = await _frageGeheimnis(
-        titel: t('stickPinLabel'),
-        ctl: stickPinCtl,
-        hinweis: t('stickPinHint'),
-        nurZahlen: true);
-    if (ok != true || !mounted) return;
-    await _entsperreMitStick();
-  }
+  // Die PIN DES STICKS (nicht die des Telefons) fragt [_mitStickPin] ab. Sie
+  // verlaesst das Telefon nie im Klartext: uebertragen werden die ersten 16
+  // Byte ihres SHA-256, und auch die nur verschluesselt.
 
   // ---- WIEDERHERSTELLEN ----
   //
@@ -4759,23 +5145,28 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         // Das Schluesselbild: wer die Adresse weitergibt, kann das Bild gleich
         // mit vergleichen lassen — schneller als 56 Zeichen.
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SchluesselbildAnsicht(schluessel: st.meineAdresse, farbe: p.accLight, leer: p.line, punkt: 9),
+          SchluesselbildAnsicht(schluessel: st.meineAdresse, farbe: p.accLight, leer: p.line, punkt: 9, beschriftung: t('keyArtLabel')),
           const SizedBox(width: 14),
           Expanded(child: Text(t('keyArtSelf'), style: mono(size: 11, color: p.dim, height: 1.5))),
         ]),
         const SizedBox(height: 16),
         Row(children: [
           Expanded(child: outlineBtn(copied ? t('copied') : t('copy'), copyId, padding: const EdgeInsets.all(11))),
-          const SizedBox(width: 8),
-          Expanded(child: outlineBtn(t('share'), () async {
-            // Geteilt wird die Adresse MIT Strichen — genau das, was der
-            // Empfaenger dann in sein Eingabefeld einfuegt und dort auch als
-            // Beispiel stehen sieht.
-            final ok = await FremdeApp.teile(
-                adresseFormatiert(st.meineAdresse),
-                titel: t('share'));
-            if (!ok && mounted) setState(() => lockFehler = t('shareFailed'));
-          }, accent: false, padding: const EdgeInsets.all(11), weight: FontWeight.w400)),
+          // TEILEN NUR AUF ANDROID: der Teilen-Dialog haengt am Kotlin-Kanal.
+          // Am Rechner und im Browser war der Knopf da und tat nichts — die
+          // Meldung ging in `lockFehler`, und den zeigt dieser Bildschirm nicht.
+          if (_nurAufAndroid) ...[
+            const SizedBox(width: 8),
+            Expanded(child: outlineBtn(t('share'), () async {
+              // Geteilt wird die Adresse MIT Strichen — genau das, was der
+              // Empfaenger dann in sein Eingabefeld einfuegt und dort auch als
+              // Beispiel stehen sieht.
+              final ok = await FremdeApp.teile(
+                  adresseFormatiert(st.meineAdresse),
+                  titel: t('share'));
+              if (!ok && mounted) _hinweis(t('shareFailed'));
+            }, accent: false, padding: const EdgeInsets.all(11), weight: FontWeight.w400)),
+          ],
         ]),
         const SizedBox(height: 16),
 
@@ -5048,7 +5439,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       Expanded(
         child: st.suchText.trim().isNotEmpty
             ? ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [suchTreffer()])
-            : _filter == 'stern'
+            : _wirksamerFilter == 'stern'
             ? ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
                 suchTreffer(liste: st.sterne, leer: t('starEmpty')),
               ])
@@ -5071,7 +5462,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           // ANGEHEFTET HEISST GANZ OBEN — ueber beide Arten hinweg. Vorher
           // standen erst alle Gruppen, dann alle Kontakte, und ein angehefteter
           // Kontakt blieb unter jeder Gruppe (Emulatorlauf 25.09.2026).
-          if (!_zeigeArchiv && _filter == 'alle')
+          if (!_zeigeArchiv && _wirksamerFilter == 'alle')
             for (final v in st.verteiler) verteilerZeile(v),
           for (final g in sichtbareGruppen.where((g) => g.angeheftet && _passt(g.id, true))) gruppenZeile(g),
           for (final k in sichtbareKontakte.where((k) => k.angeheftet && _passt(k.id, false))) contactRow(k.id),
@@ -5270,7 +5661,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     // bitdm/fenster fehlt, und eine Webseite kann das Abfotografieren
     // grundsaetzlich nicht verhindern). "Screenshot-Schutz aktiv" stand dort
     // bis 25.09.2026 trotzdem ueber jedem Chat.
-    if (st.einstellungen.blockScreenshots && !kIsWeb) hints.add(t("hintShot"));
+    // UND NUR, WENN DIE PLATTFORM "GESETZT" GEMELDET HAT — nicht schon, weil
+    // der Schalter an ist. Am Rechner ohne Gegenseite stand der Hinweis sonst
+    // ueber jedem Chat und versprach etwas, das nicht galt.
+    if (st.screenshotSchutzAktiv && !kIsWeb) hints.add(t("hintShot"));
     hints.add(t("hintEnc"));
     // ZUERST in der Zeile, weil es das Wichtigste ist: was hier geschrieben
     // wird, geht gerade nirgendwo hin. Wer das nicht sieht, haelt eine
@@ -5594,6 +5988,26 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     }
   }
 
+  /// Fragt, ob ein Bild oder Video hinausgehen soll, obwohl seine Metadaten
+  /// (Ort, Kamera, Zeit) nicht entfernt werden konnten.
+  Future<bool> _frageMetadaten(String grund) async {
+    if (!mounted) return false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: const ValueKey('meta-frage'),
+        title: Text(t('metaAskTitle')),
+        content: Text(grund == 'metaZuGross' ? t('metaTooBig') : t('metaFailed'),
+            style: mono(size: 12, color: p.muted, height: 1.5)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('sendAnyway'))),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
   Future<void> oeffneAnhang(AnhangEintrag a) async {
     final pfad = a.pfad;
     if (pfad == null) return;
@@ -5642,6 +6056,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     if (f == 'anhangKeineApp') return t('attachNoApp');
     if (f == 'nurNahbereich') return t('nearOnlyNoAttach');
     if (f.startsWith('anhangZuGross:')) return t('attachTooBig');
+    if (f == 'metaNichtEntfernt') return t('metaNotRemoved');
+    // Schluessel, die anderswo gesetzt werden, aber hier landen koennen —
+    // roh stand dann "phraseUngueltig" ueber der Eingabezeile.
+    if (f == 'phraseUngueltig') return t('phraseInvalid');
+    if (f == 'adresseUngueltig') return t('badAddress');
+    if (f == 'pushFremd') return t('pushForeign');
+    if (f == 'sicherungPasstNicht') return t('backupWrong');
     // WAS HIER NICHT AUFGEZAEHLT IST, WIRD TROTZDEM GEZEIGT.
     //
     // Vorher stand hier `return null` — jeder Fehler ohne eigenen Satz
@@ -6324,10 +6745,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ])),
         const SizedBox(height: 3),
         // TOR: alles, was zum Relay und ins Zwischenlager geht, ueber Orbot.
-        toggleRow(t('torTitle'), t('torSub').replaceFirst('{port}', '${st.einstellungen.torPort}'),
-            st.einstellungen.tor,
-            () => st.setzeEinstellungen(st.einstellungen.copyWith(tor: !st.einstellungen.tor))),
-        const SizedBox(height: 3),
+        // Nicht im Browser: der kann weder SOCKS noch .onion.
+        if (!kIsWeb) ...[
+          toggleRow(t('torTitle'), t('torSub').replaceFirst('{port}', '${st.einstellungen.torPort}'),
+              st.einstellungen.tor,
+              () => st.setzeEinstellungen(st.einstellungen.copyWith(tor: !st.einstellungen.tor))),
+          const SizedBox(height: 3),
+        ],
         toggleRow(t('coverTitle'), t('coverSub'), st.einstellungen.tarnverkehr,
             () => st.setzeEinstellungen(st.einstellungen.copyWith(tarnverkehr: !st.einstellungen.tarnverkehr))),
         const SizedBox(height: 3),
@@ -6379,9 +6803,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         // Ort, an dem man es eingeben koennte.
         if (st.sichtbareFaktoren.isNotEmpty) ...[
           toggleRow(t('panicPw'), t('panicPwSub'), st.hatPanikPasswort,
-              () => st.hatPanikPasswort
-                  ? st.entfernePanikPasswort()
-                  : _richtePanikPasswortEin()),
+              () async {
+                // Das Panik-Passwort ist Teil der Sperre: erst ausweisen.
+                if (!await frischBestaetigt()) return;
+                if (st.hatPanikPasswort) {
+                  await st.entfernePanikPasswort();
+                } else {
+                  await _richtePanikPasswortEin();
+                }
+              }),
           const SizedBox(height: 3),
         ],
         toggleRow(t("typingSetting"), t("typingSettingSub"), st.einstellungen.tippAnzeige,
@@ -6433,13 +6863,33 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           ]),
         ),
         const SizedBox(height: 3),
+        // DIE ZWOELF WOERTER NOCH EINMAL. Bis hierher standen sie genau einmal
+        // da, direkt nach dem Anlegen; wer sie damals nicht sauber notiert
+        // hatte, kam nie wieder heran — obwohl die App sie die ganze Zeit
+        // hatte. Hinter einer frischen Anmeldung und mit Screenshot-Schutz.
+        KeyedSubtree(
+          key: const ValueKey('woerter-zeigen'),
+          child: settingCard(
+            onTap: _zeigeWoerter,
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(t('phraseShow'), style: TextStyle(fontSize: 13.5, color: p.ink)),
+                  Text(t('phraseShowSub'), style: mono(size: 11, color: p.dim)),
+                ]),
+              ),
+              Text('›', style: TextStyle(fontSize: 18, color: p.dim)),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 3),
         // DAS SCHLUESSELBILD. Hier stand bis 25.09.2026 ein erfundener
         // "Fingerabdruck" ('b7d2 4e10 9af3') — derselbe Fehler, den die
         // Pruefnummer im Verschluesselungsblatt schon hinter sich hatte: er sah
         // nach Sicherheit aus und war keine. Das Bild entsteht aus der eigenen
         // Adresse, und die Kontakte sehen fuer diesen Schluessel dasselbe.
         settingCard(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SchluesselbildAnsicht(schluessel: st.meineAdresse, farbe: p.accLight, leer: p.line, punkt: 7),
+          SchluesselbildAnsicht(schluessel: st.meineAdresse, farbe: p.accLight, leer: p.line, punkt: 7, beschriftung: t('keyArtLabel')),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(t('keyArt'), style: TextStyle(fontSize: 13.5, color: p.ink)),
@@ -6538,6 +6988,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     );
   }
 
+  /// Waehlt ein Thema — auch das, das schon gespeichert ist.
+  ///
+  /// DAS WANDERN laesst die Anzeige vom gespeicherten Thema wegziehen, ohne
+  /// die Einstellung zu aendern. Wer dann das gespeicherte erneut antippt,
+  /// aenderte bisher nichts: `setzeEinstellungen` mit demselben Wert, und
+  /// [_uebernimmEinstellungen] sah keinen Unterschied. Jetzt gleitet die
+  /// Anzeige zurueck.
+  Future<void> _waehleThema(String id) async {
+    if (id == st.einstellungen.thema) {
+      final ziel = _themen.firstWhere((th) => th.id == id, orElse: () => _themen.first);
+      if (ziel.id != _thema.id || _vonThema != null) wechsleThema(ziel);
+      return;
+    }
+    await st.setzeEinstellungen(st.einstellungen.copyWith(thema: id));
+  }
+
   /// Die Themen als Kacheln: jede zeigt ihre eigenen Farben und Schrift, nicht
   /// die des gerade gueltigen Themas — sonst saehe man nicht, wohin man geht.
   Widget themenWahl() {
@@ -6553,7 +7019,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
             excludeSemantics: true,
             child: GestureDetector(
               key: ValueKey('thema-${th.id}'),
-              onTap: () => st.setzeEinstellungen(st.einstellungen.copyWith(thema: th.id)),
+              onTap: () => _waehleThema(th.id),
               child: Container(
                 width: breite,
                 padding: const EdgeInsets.all(8),
@@ -7239,7 +7705,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         const SizedBox(height: 14),
         label6(t('keyArt')),
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SchluesselbildAnsicht(schluessel: chat ?? c1, farbe: p.accLight, leer: p.line, punkt: 8),
+          SchluesselbildAnsicht(schluessel: chat ?? c1, farbe: p.accLight, leer: p.line, punkt: 8, beschriftung: t('keyArtLabel')),
           const SizedBox(width: 12),
           Expanded(child: Text(t('keyArtPeer'), style: mono(size: 10.5, color: p.dim, height: 1.45))),
         ]),

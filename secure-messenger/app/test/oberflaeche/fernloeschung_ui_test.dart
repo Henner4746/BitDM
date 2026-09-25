@@ -4,7 +4,7 @@ import 'package:bitdm/app_state.dart';
 import 'package:bitdm/core/fake_messenger_core.dart';
 import 'package:bitdm/core/models.dart';
 import 'package:bitdm/main.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -61,9 +61,48 @@ void main() {
         of: find.byKey(const ValueKey('fern-banner')),
         matching: find.byWidgetPredicate((w) => w is Text && (w.data ?? '').toUpperCase() == 'CANCEL')));
     await warte(tester);
+    // OHNE SPERRE FRAGT DIE APP NACH, statt auf einen Tipp hin abzubrechen
+    // (mit Sperre verlangt sie eine frische Anmeldung, siehe frischBestaetigt).
+    expect(find.byKey(const ValueKey('nachfrage')), findsOneWidget,
+        reason: 'ein einziger Tipp hielt die Fernloeschung auf');
+    expect(st.fernloeschung.faellig, isNotNull);
+    await tester.tap(find.text('Yes'));
+    await warte(tester);
     expect(find.byKey(const ValueKey('fern-banner')), findsNothing);
     expect(st.fernloeschung.faellig, isNull);
     expect(st.hatIdentitaet, isTrue);
+  });
+
+  testWidgets('SCHON UEBERFAELLIG BEIM START: NACHFRIST MIT BALKEN, KEIN NETZ, DANN LOESCHEN',
+      (tester) async {
+    // Die App war zu, als der Countdown ablief. Vorher loeschte sie beim
+    // Oeffnen sofort — ohne dass der Nutzer den Balken je gesehen hatte.
+    kern.simulateExistingIdentity = true;
+    await tester.runAsync(() => kern.setzeFernloeschung(Fernloeschung(
+        an: true,
+        schwelle: 2,
+        vertraute: const ['a', 'b'],
+        faellig: DateTime.now().toUtc().subtract(const Duration(minutes: 1)))));
+    await tester.runAsync(() async => st.boot());
+    await tester.pumpWidget(BitApp(state: st));
+    await warte(tester);
+    expect(st.hatIdentitaet, isTrue, reason: 'sofort geloescht, ohne Nachfrist');
+    expect(find.byKey(const ValueKey('fern-banner')), findsOneWidget);
+    // In Sekunden: die Nachfrist ist kuerzer als eine Minute.
+    expect(find.textContaining(' s — '), findsOneWidget);
+    expect(kern.connectionState, ConnectionState.disconnected,
+        reason: 'waehrend der Nachfrist geht die App nicht ins Netz');
+    await tester.pump(AppState.fernNachfrist + const Duration(seconds: 1));
+    await warte(tester, 800);
+    expect(st.hatIdentitaet, isFalse, reason: 'nach der Nachfrist lief nichts');
+  });
+
+  testWidgets('DIE WARNUNG SAGT NICHT, WAS PASSIERT', (tester) async {
+    await tester.runAsync(() async => st.boot());
+    await tester.pumpWidget(BitApp(state: st));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(st.fernWarnText.toLowerCase(), isNot(contains('wipe')));
+    expect(st.fernWarnText.toLowerCase(), isNot(contains('cancel')));
   });
 
   testWidgets('NACH ZEHN MINUTEN IST ALLES WEG', (tester) async {

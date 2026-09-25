@@ -91,6 +91,11 @@ dependencies:
   cryptography: 2.9.0
   libsignal_protocol_dart: 0.8.2
 
+  # @visibleForTesting im Kern. Kam bisher nur ueber andere Pakete mit —
+  # `flutter analyze` meldete den Import als nicht angegeben. Gleiche
+  # Fassung wie im Lock, damit sich nichts verschiebt.
+  meta: 1.18.0
+
   # Verschluesselte lokale Datenbank.
   #
   # sqlite3 statt sqflite: die FFI-Anbindung arbeitet synchron und ohne

@@ -418,7 +418,22 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
 ## Bekannte Lücken
 
 - **Keine unabhängige Prüfung.** Niemand außerhalb dieses Projekts hat die
-  Kryptografie, das Protokoll oder die Umsetzung durchgesehen.
+  Kryptografie, das Protokoll oder die Umsetzung durchgesehen. Eine eigene
+  Prüfung am 25.09.2026 fand und behob rund 80 Befunde (CHANGELOG 1.8.1); der
+  Weg zu einer externen steht in [`docs/AUDIT.md`](secure-messenger/docs/AUDIT.md).
+- **Die Signal-Bibliothek ist eine Portierung aus der Gemeinschaft**
+  (`libsignal_protocol_dart`), nicht Signals eigene, geprüfte libsignal.
+- **Der Nahbereich verrät, dass jemand mit BitDM in der Nähe ist.** Die
+  Bluetooth-Werbung trägt feste Dienstkennungen; der Inhalt ist verschlüsselt,
+  die Anwesenheit sieht jeder Scanner. Wechselnde Kennungen müssen erst auf
+  echten Telefonen erprobt werden.
+- **Die Fernlöschung wirkt nur bei entsperrter, verbundener App.** Ein
+  gesperrtes Telefon hat den Datenbankschlüssel nicht im Speicher und kann die
+  Anfragen nicht lesen — das ist die Sperre, die ihre Arbeit tut, und heißt: ein
+  beschlagnahmtes, gesperrtes Telefon wird nicht aus der Ferne gelöscht.
+- **Windows installiert je Benutzer** (ohne Adminrechte); jedes Programm unter
+  demselben Benutzer könnte die Dateien ändern, und ohne Signatur prüft danach
+  niemand ihre Unversehrtheit.
 - **Der Nahbereich in der zweiten Richtung** ist unbewiesen: das Telefon sendet
   nur, wenn es etwas in der Warteschlange hat, und der Kontakt des
   ESP32-Aufbaus bleibt schwebend, weil der Beweis libsignal-taugliches X3DH auf

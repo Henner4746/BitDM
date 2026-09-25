@@ -79,7 +79,7 @@ class EncryptedDatabase {
   CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 13;
+  static const int schemaVersion = 14;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -278,6 +278,8 @@ class EncryptedDatabase {
             _schemaV12(db);
           case 13:
             _schemaV13(db);
+          case 14:
+            _schemaV14(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -551,6 +553,27 @@ class EncryptedDatabase {
   /// "duplicate column name" scheitert, rollt zurueck und ist danach nie
   /// wieder erreichbar. Jede Spalte nur, wenn sie fehlt; jede Tabelle mit
   /// IF NOT EXISTS.
+  /// ZWEI SPALTEN, WIEDERHOLBAR wie [_schemaV8].
+  ///
+  /// `messages.frist`: die Lebensdauer, mit der eine EIGENE Nachricht verfasst
+  /// wurde, in Sekunden; 0 = ohne Frist. NULL heisst "unbekannt" und steht an
+  /// allem, was vor dieser Stufe geschrieben wurde — der Nachversand nimmt
+  /// dann wie bisher die aktuelle Einstellung. Vorher schickte er IMMER die
+  /// aktuelle: wer die Frist nach dem Tippen umstellte, verschickte eine
+  /// liegengebliebene Nachricht mit einer Lebensdauer, die sie nie hatte.
+  ///
+  /// `gruppen.verlassen`: 1, wenn ICH (oder mein Zweitgeraet) ausgetreten bin.
+  /// Nicht dasselbe wie `aktiv = 0` — das steht auch bei einem, den der Admin
+  /// entfernt hat, und DEN darf ein spaeterer Stand wieder aufnehmen. Wer
+  /// selbst gegangen ist, bleibt draussen: ein veralteter Stand des Admins,
+  /// der den Austritt noch nicht kennt, holte ihn sonst zurueck. Bestehende
+  /// Zeilen bekommen die 0 — ob ein alter Austritt freiwillig war, weiss
+  /// niemand mehr, und die 0 ist das bisherige Verhalten.
+  static void _schemaV14(CommonDatabase db) {
+    _spalteDazu(db, 'messages', 'frist', 'INTEGER');
+    _spalteDazu(db, 'gruppen', 'verlassen', 'INTEGER NOT NULL DEFAULT 0');
+  }
+
   /// GRUPPENHAKEN: welches Mitglied eine eigene Gruppennachricht schon hat.
   static void _schemaV13(CommonDatabase db) {
     db.execute('''

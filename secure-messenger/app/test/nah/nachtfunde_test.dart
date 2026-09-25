@@ -18,6 +18,12 @@
 //   C  Regel 2 galt nur in EINE Richtung. Was beim Relay war, durfte nicht
 //      mehr ueber die Naehe — was in der Naehe war, durfte sehr wohl noch
 //      ueber den Relay. Dieselbe doppelte Zustellung, gespiegelt.
+//
+//      SEIT 25.09.2026 UMGEKEHRT (Befund H1): die Sperre war der teurere
+//      Irrtum. Eine Nachricht nach einem mehrdeutigen Funkversuch blieb fuer
+//      immer liegen; eine doppelte Zustellung dagegen verwirft der Empfaenger
+//      am eindeutigen Index. C prueft jetzt, dass sie ueber den Relay
+//      nachgereicht wird — D und E die beiden Nachbarfaelle.
 
 import 'dart:async';
 import 'dart:io';
@@ -140,7 +146,7 @@ void main() {
             'werden — und fuer sie wird auch noch geleuchtet');
   });
 
-  test('C: Regel 2 in der Gegenrichtung', () async {
+  test('C: nach einem MEHRDEUTIGEN Funkversuch reicht der Relay nach', () async {
     legeAnnaAn();
     await funkAn();
     await sitzungAufbauen();
@@ -152,8 +158,9 @@ void main() {
     funk.sendeFehler = const FunkFehler('FUNK', 'Ack blieb aus');
     await kern.sendMessage(anna.adresse, 'koennte schon drueben liegen');
     await Future<void>.delayed(const Duration(milliseconds: 100));
-    expect((await kern.getMessages(anna.adresse)).last.status,
-        MessageStatus.sending);
+    final vorher = (await kern.getMessages(anna.adresse)).last;
+    expect(vorher.status, MessageStatus.sending);
+    expect(vorher.schonInDerNaehe, isTrue, reason: 'der Vermerk steht');
 
     // Der Relay kommt zurueck; Anna geht und kommt wieder, das stoesst den
     // Nachversand an.
@@ -162,8 +169,91 @@ void main() {
     await annaInReichweite();
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
-    expect(relay!.gesendet, isEmpty,
-        reason: 'dieselbe Nachricht ueber zwei Wege — dieselbe Regel 2, nur '
-            'die andere Richtung');
+    expect(relay!.gesendet, hasLength(1),
+        reason: 'bis 25.09.2026 blieb sie hier fuer immer liegen — Anna '
+            'entdoppelt eine zweite Kopie selbst');
+    expect((await kern.getMessages(anna.adresse)).last.status,
+        MessageStatus.sent);
+  });
+
+  test('D: WAS SICHER NICHT HINAUSGING, bekommt keinen Vermerk', () async {
+    legeAnnaAn();
+    await funkAn();
+    await sitzungAufbauen();
+    await annaInReichweite();
+
+    // "Nicht in Reichweite" scheitert, bevor ein Byte in der Luft ist.
+    relay!.verbunden = false;
+    funk.sendeFehler = const FunkFehler('BESETZT', 'an AA:11 laeuft schon etwas');
+    await kern.sendMessage(anna.adresse, 'ging nie hinaus');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final m = (await kern.getMessages(anna.adresse)).last;
+    expect(m.status, MessageStatus.sending);
+    expect(m.schonInDerNaehe, isFalse,
+        reason: 'ein Versuch ohne ein einziges gesendetes Byte ist nicht '
+            'mehrdeutig');
+  });
+
+  test('D2: EIN NACHBAR IN REICHWEITE MACHT DIE NAEHE NICHT "BEREIT" FUER ANNA',
+      () async {
+    legeAnnaAn();
+    final bert = await Gegenstelle.neu();
+    gegenstellen[bert.adresse] = bert;
+    kern.ablageFuerTest.speichereKontakt(
+        Contact(id: bert.adresse, addedAt: DateTime.now().toUtc()));
+    await funkAn();
+    await sitzungAufbauen();
+    // NUR BERT ist da.
+    funk.sieh(Gesehen(geraet: 'BB:22', rssi: -40, leuchtfeuer: [
+      await bert.leuchtfeuerFuer(BitdmAddress.decode(kern.myId), jetzt)
+    ]));
+    await Future<void>.delayed(Duration.zero);
+    expect(nah.inReichweite, [bert.adresse]);
+
+    relay!.verbunden = false;
+    await kern.sendMessage(anna.adresse, 'an Anna, nicht an Bert');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(funk.gesendet, isEmpty,
+        reason: 'bis 25.09.2026 genuegte irgendwer in Reichweite');
+    expect((await kern.getMessages(anna.adresse)).last.schonInDerNaehe, isFalse);
+  });
+
+  test('E: NUR UEBER DIE NAEHE IST VORLAEUFIG — der Relay reicht nach', () async {
+    // Ein Leuchtfeuer ist oeffentlich. Wer es aufzeichnet und wieder
+    // aussendet, sieht aus wie Anna in Reichweite und verschluckt, was wir
+    // ihm geben. Bis 25.09.2026 stand die Nachricht danach fuer immer auf
+    // "gesendet".
+    legeAnnaAn();
+    await funkAn();
+    await sitzungAufbauen();
+    await annaInReichweite();
+
+    relay!.verbunden = false;
+    await kern.sendMessage(anna.adresse, 'ueber Bluetooth');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(funk.gesendet, hasLength(1));
+    var m = (await kern.getMessages(anna.adresse)).last;
+    expect(m.status, MessageStatus.sent);
+    expect(m.ueberNaehe, isTrue);
+
+    // Der Relay ist wieder da, der Nachversand laeuft.
+    relay!.verbunden = true;
+    jetzt = jetzt.add(const Duration(seconds: 91));
+    await annaInReichweite();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(relay!.gesendet, hasLength(1),
+        reason: 'ohne Quittung geht sie zusaetzlich ueber den Relay');
+    m = (await kern.getMessages(anna.adresse)).last;
+    expect(m.status, MessageStatus.sent);
+    expect(m.ueberNaehe, isFalse,
+        reason: 'jetzt war ein Server beteiligt — das Zeichen faellt');
+
+    // Und danach ist Ruhe: kein weiterer Nachtrag.
+    relay!.gesendet.clear();
+    jetzt = jetzt.add(const Duration(seconds: 91));
+    await annaInReichweite();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(relay!.gesendet, isEmpty);
   });
 }

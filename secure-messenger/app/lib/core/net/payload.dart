@@ -439,7 +439,27 @@ class Payload {
     return Uint8List.fromList([...mitMarke, ...List.filled(fehlend, 0)]);
   }
 
+  /// Die groesste Zahl, die DateTime als Millisekunden annimmt (±10^8 Tage).
+  static const int _zeitGrenze = 8640000000000000;
+
   static Payload fromBytes(Uint8List roh) {
+    // JEDER FEHLER BEIM LESEN IST EIN FORMATFEHLER. Bis 25.09.2026 konnten ein
+    // `r`, das keine Liste ist, oder ein Zeitstempel ausserhalb des Bereichs
+    // von DateTime einen TypeError bzw. ArgumentError werfen. Beim aeusseren
+    // Umschlag fing das ein allgemeines catch — bei einer INNEREN Nutzlast
+    // (Gruppe, Spiegel), die nur auf PayloadFormatException hoert, flog es
+    // bis ganz nach oben: kein Sitzungsfortschritt gespeichert, kein Nachweis
+    // an den Relay, und derselbe Umschlag kam bei jedem Verbinden wieder.
+    try {
+      return _lies(roh);
+    } on PayloadFormatException {
+      rethrow;
+    } catch (e) {
+      throw PayloadFormatException('unlesbarer Inhalt: $e');
+    }
+  }
+
+  static Payload _lies(Uint8List roh) {
     // Diese Bytes stammen aus einer entschluesselten Nachricht — sie sind also
     // echt von der Gegenstelle. Aber die Gegenstelle kann selbst fehlerhaft
     // oder boesartig sein, deshalb wird alles geprueft.
@@ -491,6 +511,9 @@ class Payload {
       throw const PayloadFormatException('Kennung fehlt oder taugt nicht');
     }
     if (t is! int) throw const PayloadFormatException('Zeitstempel fehlt');
+    if (t < -_zeitGrenze || t > _zeitGrenze) {
+      throw const PayloadFormatException('Zeitstempel ausserhalb jedes Bereichs');
+    }
 
     // Eine unsinnige Lebensdauer wird verworfen, nicht uebernommen: eine
     // negative liesse die Nachricht sofort verschwinden, eine absurd grosse
@@ -539,7 +562,11 @@ class Payload {
     if (text != null && text is! String) {
       throw const PayloadFormatException('Text ist keine Zeichenkette');
     }
-    final refs = ((j['r'] ?? const []) as List).map((e) => '$e').toList();
+    final r = j['r'];
+    if (r != null && r is! List) {
+      throw const PayloadFormatException('Bezuege sind keine Liste');
+    }
+    final refs = ((r as List?) ?? const []).map((e) => '$e').toList();
 
     // DIE DREI ARTEN, DIE AUF EINE NACHRICHT ZEIGEN, zeigen auf GENAU EINE.
     // Eine Liste wuerde bedeuten, dass eine einzige Nutzlast den halben

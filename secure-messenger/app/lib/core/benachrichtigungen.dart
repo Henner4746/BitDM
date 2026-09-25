@@ -132,4 +132,40 @@ class Benachrichtigungen {
       await _plugin.cancel(id: 1);
     } catch (_) {}
   }
+
+  /// Die Warnung vor einer Fernloeschung — mit EIGENER Kennung (2). Bis
+  /// 25.09.2026 teilte sie sich die 1 mit den Nachrichten: die naechste
+  /// Nachricht ersetzte sie, und [raeumeAuf] beim Oeffnen der App nahm sie
+  /// weg, obwohl der Countdown weiterlief. Der Text ist neutral (siehe
+  /// AppState.fernWarnText); auch diese Meldung ist auf dem Sperrbildschirm
+  /// unsichtbar.
+  Future<void> zeigeWarnung({required String text}) async {
+    if (!_bereit) return;
+    try {
+      await _plugin.show(
+        id: 2,
+        title: 'BitDM',
+        body: text,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _kanalId,
+            'Nachrichten',
+            importance: Importance.high,
+            priority: Priority.high,
+            visibility: NotificationVisibility.secret,
+            showWhen: false,
+            ongoing: true,
+          ),
+        ),
+      );
+    } catch (_) {}
+  }
+
+  /// Nimmt die Warnung weg — beim Abbruch der Fernloeschung und danach.
+  Future<void> nimmWarnungWeg() async {
+    if (!_bereit) return;
+    try {
+      await _plugin.cancel(id: 2);
+    } catch (_) {}
+  }
 }

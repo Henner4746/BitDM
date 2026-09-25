@@ -414,7 +414,15 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
         // Android leitet den Typ NICHT aus dem Inhalt ab. Bei "*/*" zeigt der
         // Auswahldialog alles, was in Frage kommt — das ist besser als ein
         // falscher Typ, der die richtige App ausschliesst.
-        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(endung) ?: "*/*"
+        //
+        // AKTIVE INHALTE ALS TEXT (seit 25.09.2026). Den Namen bestimmt die
+        // Gegenstelle. Ein empfangenes "rechnung.html" oder ".svg" oeffnete
+        // bis dahin der Browser — mit Skripten, Formularen und Nachladen von
+        // fremden Servern, also mit der IP-Adresse des Empfaengers. Als
+        // text/plain zeigt ein Texteditor den Inhalt, ohne ihn auszufuehren.
+        if (endung in AKTIVE_ENDUNGEN) return "text/plain"
+        val typ = MimeTypeMap.getSingleton().getMimeTypeFromExtension(endung) ?: return "*/*"
+        return if (typ in AKTIVE_TYPEN) "text/plain" else typ
     }
 
     /** Beim Beenden: was noch offen ist, schliessen und wegraeumen. */
@@ -444,3 +452,12 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
         }
     }
 }
+
+/** Dateitypen, die ein Betrachter AUSFUEHRT statt nur zeigt — siehe DateiKanal.mimeTyp. */
+private val AKTIVE_ENDUNGEN = setOf(
+    "html", "htm", "xhtml", "shtml", "svg", "svgz", "mht", "mhtml", "js", "xml", "hta",
+)
+private val AKTIVE_TYPEN = setOf(
+    "text/html", "application/xhtml+xml", "image/svg+xml", "application/xml",
+    "text/xml", "text/javascript", "application/javascript", "application/x-javascript",
+)

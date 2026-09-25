@@ -151,6 +151,26 @@ class ChatRepository {
       // waere ein Lebenszeichen, das der Nutzer gerade abgestellt hat.
       raw.execute('DELETE FROM ausgang WHERE chat_id = ?', [adresse]);
       raw.execute('DELETE FROM contacts WHERE address = ?', [adresse]);
+      // UND SEIN LOESCHRECHT. Bis 25.09.2026 blieb ein entfernter Kontakt in
+      // der Liste der Vertrauten stehen: wer ihn rauswarf, weil er ihm nicht
+      // mehr traute, liess ihm ausgerechnet die Stimme fuer "loesch dieses
+      // Telefon". In DERSELBEN Transaktion — ein Kontakt, der weg ist, aber
+      // noch vertraut, darf auch nach einem Absturz dazwischen nicht bleiben.
+      final roh = raw
+          .select("SELECT value FROM meta WHERE key = 'fernloeschung'");
+      if (roh.isNotEmpty) {
+        final vorher = _fernloeschungAus(roh.first['value'] as String?);
+        if (vorher.vertraute.contains(adresse) ||
+            vorher.anfragen.containsKey(adresse)) {
+          final nachher = vorher.copyWith(
+            vertraute: [...vorher.vertraute]..remove(adresse),
+            anfragen: {...vorher.anfragen}..remove(adresse),
+          );
+          raw.execute(
+              "UPDATE meta SET value = ? WHERE key = 'fernloeschung'",
+              [jsonEncode(nachher.alsJson())]);
+        }
+      }
     });
     return Aufgeraeumt(0, dateien);
   }
@@ -192,6 +212,20 @@ class ChatRepository {
     // wieder umgedreht.
     return zeilen.map(_zuNachricht).toList().reversed.toList();
   }
+
+  /// Ist [messageId] in [chatId] schon an einen ANDEREN Absender vergeben?
+  ///
+  /// Die Kennung vergibt der Absender selbst; eindeutig ist sie nur zusammen
+  /// mit ihm (Index auf chat_id, sender_id, id). Mehrere Stellen fragen aber
+  /// nur nach (chat_id, id) — Reaktionen, Anheften, Einmal-Ansicht, die Karte
+  /// der Anhaenge, der Dateiname. Eine Gegenstelle, die eine Kennung von MIR
+  /// wiederverwendet, haette damit an meiner Nachricht gedreht. Der Empfang
+  /// fragt hier und verwirft eine solche Nachricht.
+  bool kennungFremdBelegt(String chatId, String messageId, String senderId) =>
+      db.raw.select(
+          'SELECT 1 FROM messages WHERE chat_id = ? AND id = ? AND sender_id <> ? '
+          'LIMIT 1',
+          [chatId, messageId, senderId]).isNotEmpty;
 
   int? seqVon(String chatId, String messageId, String senderId) {
     final r = db.raw.select(
@@ -347,7 +381,11 @@ class ChatRepository {
     );
   }
 
-  /// Eine Einmal-Ansicht ist angesehen: Zustand "verbraucht", der Pfad weg.
+  /// Eine Einmal-Ansicht ist angesehen: Zustand "verbraucht", der Pfad weg —
+  /// UND DIE ANLEITUNG. Bis 25.09.2026 blieb sie stehen; mit ihr liess sich
+  /// dieselbe Datei aus dem Lager einfach noch einmal holen (die Bloecke
+  /// bleiben dort liegen, bis die Marke ablaeuft). Die Spalte ist NOT NULL,
+  /// deshalb die leere Zeichenkette statt NULL.
   /// Gibt den alten Pfad zurueck, damit der Aufrufer die Datei loescht.
   String? verbraucheAnhang(String chatId, String messageId) {
     final r = db.raw.select(
@@ -355,7 +393,7 @@ class ChatRepository {
         [chatId, messageId]);
     if (r.isEmpty) return null;
     db.transaction((raw) => raw.execute(
-        'UPDATE anhaenge SET zustand = ?, pfad = NULL '
+        "UPDATE anhaenge SET zustand = ?, pfad = NULL, rezept = '' "
         'WHERE chat_id = ? AND message_id = ? AND einmal = 1',
         [AnhangZustand.verbraucht.index, chatId, messageId]));
     return r.first['pfad'] as String?;
@@ -396,6 +434,16 @@ class ChatRepository {
 
   static bool _schreibeNachricht(CommonDatabase raw, Message m,
       {required bool empfangen, Duration? lebensdauer}) {
+    // DAS NETZ UNTER [kennungFremdBelegt]: der Kern fragt vorher, aber eine
+    // Stelle, die es vergisst, soll trotzdem keine zweite Nachricht unter
+    // derselben Kennung in den Chat legen.
+    if (empfangen &&
+        raw.select(
+            'SELECT 1 FROM messages WHERE chat_id = ? AND id = ? AND sender_id <> ? '
+            'LIMIT 1',
+            [m.chatId, m.id, m.senderId]).isNotEmpty) {
+      return false;
+    }
     // Der Verfallszeitpunkt wird EINMAL beim Speichern festgelegt, nicht bei
     // jeder Abfrage aus Alter plus Frist gerechnet. Sonst wuerde eine spaeter
     // geaenderte Einstellung rueckwirkend Nachrichten loeschen — oder, noch
@@ -408,8 +456,8 @@ class ChatRepository {
       'INSERT OR IGNORE INTO messages '
       '(id, chat_id, sender_id, body, kind, is_mine, sent_at, received_at, '
       ' status, expires_at, ueber_naehe, schon_beim_relay, antwort_auf, '
-      ' faellig) '
-      'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      ' faellig, frist) '
+      'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       [
         m.id,
         m.chatId,
@@ -425,6 +473,9 @@ class ChatRepository {
         m.schonBeimRelay ? 1 : 0,
         m.antwortAuf,
         m.geplantFuer?.toUtc().millisecondsSinceEpoch,
+        // Die Frist beim VERFASSEN, fuer den Nachversand (Schema 14). 0 heisst
+        // "ohne"; bei Empfangenem bleibt es NULL — dort gilt `expires_at`.
+        empfangen ? null : (lebensdauer?.inSeconds ?? 0),
       ],
     );
     return raw.updatedRows > 0;
@@ -835,8 +886,9 @@ class ChatRepository {
           r['mitglied'] as String,
       };
 
-  Fernloeschung fernloeschung() {
-    final roh = db.meta('fernloeschung');
+  Fernloeschung fernloeschung() => _fernloeschungAus(db.meta('fernloeschung'));
+
+  static Fernloeschung _fernloeschungAus(String? roh) {
     if (roh == null || roh.isEmpty) return const Fernloeschung();
     try {
       return Fernloeschung.ausJson((jsonDecode(roh) as Map).cast<String, Object?>());
@@ -850,6 +902,45 @@ class ChatRepository {
         'INSERT INTO meta (key, value) VALUES (?,?) '
         'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
         ['fernloeschung', jsonEncode(f.alsJson())]));
+  }
+
+  /// GEHEIME NACHRICHTEN (seit 25.09.2026): Kennungen eigener Nachrichten,
+  /// deren Text nach der Zustellung aus dem eigenen Verlauf verschwindet und
+  /// die nicht an die eigenen Zweitgeraete gespiegelt werden — die Teile der
+  /// zwoelf Woerter fuer Vertrauenskontakte. In der Datenbank und nicht im
+  /// Speicher: ein Neustart vor der Zustellung darf das nicht vergessen.
+  Set<String> geheimeNachrichten() {
+    final roh = db.meta('geheim');
+    if (roh == null || roh.isEmpty) return <String>{};
+    try {
+      return (jsonDecode(roh) as List).whereType<String>().toSet();
+    } catch (_) {
+      return <String>{};
+    }
+  }
+
+  void setzeGeheim(String id, bool geheim) {
+    final alle = geheimeNachrichten();
+    if (geheim ? !alle.add(id) : !alle.remove(id)) return;
+    db.transaction((raw) => raw.execute(
+        'INSERT INTO meta (key, value) VALUES (?,?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['geheim', jsonEncode(alle.toList())]));
+  }
+
+  /// Ersetzt den Text einer EIGENEN Nachricht — fuer [geheimeNachrichten]
+  /// nach der Zustellung. Anders als [bearbeite] ohne Zaehler und Frist: das
+  /// ist keine Bearbeitung, die die Gegenstelle sieht, sondern ein lokales
+  /// Schwaerzen.
+  bool schwaerze(String chatId, String senderId, String id, String ersatz) {
+    var ging = false;
+    db.transaction((raw) {
+      raw.execute(
+          'UPDATE messages SET body = ? WHERE chat_id = ? AND sender_id = ? AND id = ?',
+          [ersatz, chatId, senderId, id]);
+      ging = raw.updatedRows > 0;
+    });
+    return ging;
   }
 
   /// Die Verteilerlisten — als JSON in der verschluesselten Datenbank.
@@ -1160,8 +1251,8 @@ class ChatRepository {
     db.transaction((raw) {
       raw.execute(
           'INSERT INTO gruppen (id, name, admin, mitglieder, version, aktiv, '
-          ' angeheftet, archiviert, stumm, frist, angelegt) '
-          'VALUES (?,?,?,?,?,?,?,?,?,?,?) '
+          ' angeheftet, archiviert, stumm, frist, angelegt, verlassen) '
+          'VALUES (?,?,?,?,?,?,?,?,?,?,?,?) '
           // `admin` MIT: er aendert sich, wenn der alte austritt
           // (Gruppe.nachfolger). Fehlte er hier, rueckte der Nachfolger nur im
           // Speicher nach und nach dem naechsten Lesen wieder heraus.
@@ -1170,12 +1261,13 @@ class ChatRepository {
           ' mitglieder = excluded.mitglieder, version = excluded.version, '
           ' aktiv = excluded.aktiv, angeheftet = excluded.angeheftet, '
           ' archiviert = excluded.archiviert, stumm = excluded.stumm, '
-          ' frist = excluded.frist',
+          ' frist = excluded.frist, verlassen = excluded.verlassen',
           [
             g.id, g.name, g.admin, jsonEncode(g.mitglieder), g.version,
             g.aktiv ? 1 : 0, g.angeheftet ? 1 : 0, g.archiviert ? 1 : 0,
             g.stumm ? 1 : 0, g.fristSekunden,
             DateTime.now().toUtc().millisecondsSinceEpoch,
+            g.verlassen ? 1 : 0,
           ]);
       if (store != null) SignalStoreRepository.schreibeDelta(raw, store);
     });
@@ -1194,6 +1286,7 @@ class ChatRepository {
         archiviert: (r['archiviert'] as int) != 0,
         stumm: (r['stumm'] as int) != 0,
         fristSekunden: r['frist'] as int?,
+        verlassen: ((r['verlassen'] as int?) ?? 0) != 0,
       );
 
   // ══════════════════════════════════════════════════════════ Sicherung
@@ -1213,34 +1306,49 @@ class ChatRepository {
 
   /// Alles, was in eine Sicherung gehoert — siehe sicherung.dart, was nicht.
   Map<String, Object?> sicherungsInhalt() {
-    final jetzt = DateTime.now().toUtc().millisecondsSinceEpoch;
     List<Map<String, Object?>> zeilen(String sql, [List<Object?> w = const []]) =>
         [for (final r in db.raw.select(sql, w)) Map<String, Object?>.from(r)];
     return {
       'v': 1,
       'kontakte': zeilen('SELECT ${_kontaktSpalten.join(',')} FROM contacts'),
-      // Was schon abgelaufen ist, gehoert nicht mehr dazu — es verschwaende
-      // sonst hier und tauchte in der Sicherung wieder auf.
+      // NUR WAS BLEIBEN SOLL. Bis 25.09.2026 standen hier auch verschwindende
+      // Nachrichten, solange sie noch nicht abgelaufen waren — und in der
+      // Sicherungsdatei lebten sie dann weiter, lange nachdem sie auf beiden
+      // Telefonen verschwunden waren. Wer "loescht sich nach einer Stunde"
+      // einstellt, meint auch: nicht in einer Datei auf dem Rechner.
       'nachrichten': zeilen(
           'SELECT ${_nachrichtSpalten.join(',')} FROM messages '
-          'WHERE expires_at IS NULL OR expires_at > ? ORDER BY seq',
-          [jetzt]),
-      'reaktionen': zeilen('SELECT * FROM reaktionen'),
-      'stimmen': zeilen('SELECT * FROM stimmen'),
+          'WHERE expires_at IS NULL ORDER BY seq'),
+      // Reaktionen und Stimmen nur an Nachrichten, die mitkommen — sonst
+      // verriete die Sicherung, dass es die verschwundene gab.
+      'reaktionen': zeilen('SELECT * FROM reaktionen r WHERE EXISTS ('
+          '  SELECT 1 FROM messages m WHERE m.chat_id = r.chat_id '
+          '  AND m.id = r.message_id AND m.expires_at IS NULL)'),
+      'stimmen': zeilen('SELECT * FROM stimmen s WHERE EXISTS ('
+          '  SELECT 1 FROM messages m WHERE m.chat_id = s.chat_id '
+          '  AND m.id = s.umfrage_id AND m.expires_at IS NULL)'),
       // Die Anleitung ja, der Ort auf diesem Telefon nein. EINMAL-ANSICHTEN
       // NICHT: sie liessen sich sonst aus der Sicherung ein zweites Mal holen.
+      // Und nicht die Anleitungen verschwindender Nachrichten (siehe oben).
       'anhaenge': zeilen(
-          'SELECT chat_id, sender_id, message_id, name, groesse, rezept '
-          'FROM anhaenge WHERE einmal = 0'),
+          'SELECT a.chat_id, a.sender_id, a.message_id, a.name, a.groesse, '
+          '  a.rezept '
+          'FROM anhaenge a JOIN messages m ON m.chat_id = a.chat_id '
+          '  AND m.sender_id = a.sender_id AND m.id = a.message_id '
+          'WHERE a.einmal = 0 AND m.expires_at IS NULL'),
     };
   }
 
   /// Die geholten Anhaenge fuer eine Sicherung mit Dateien — ohne
   /// Einmal-Ansichten, kleinste zuerst, bis [grenze] Bytes.
   List<AnhangEintrag> anhaengeFuerSicherung(int grenze) {
+    // Dieselbe Regel wie in [sicherungsInhalt]: nichts, was verschwinden soll.
     final zeilen = db.raw.select(
-        'SELECT * FROM anhaenge WHERE zustand = ? AND pfad IS NOT NULL AND einmal = 0 '
-        'ORDER BY groesse',
+        'SELECT a.* FROM anhaenge a JOIN messages m ON m.chat_id = a.chat_id '
+        '  AND m.sender_id = a.sender_id AND m.id = a.message_id '
+        'WHERE a.zustand = ? AND a.pfad IS NOT NULL AND a.einmal = 0 '
+        '  AND m.expires_at IS NULL '
+        'ORDER BY a.groesse',
         [AnhangZustand.da.index]);
     final aus = <AnhangEintrag>[];
     var summe = 0;
@@ -1311,8 +1419,21 @@ class ChatRepository {
   ///
   /// Nach einem Verbindungsabbruch oder App-Neustart die Liste dessen, was
   /// wiederholt werden muss.
-  List<Message> unversandt() => db.raw
-      .select('SELECT * FROM messages WHERE is_mine = 1 AND status = ? '
+  ///
+  /// [mitVorlaeufigen]: dazu die, die NUR ueber die Naehe gingen und fuer die
+  /// noch keine Empfangsquittung da ist (Status `sent`, `ueber_naehe = 1`).
+  /// Ein Leuchtfeuer ist oeffentlich; wer eines aufzeichnet und wieder
+  /// aussendet, sieht fuer uns aus wie der Kontakt in Reichweite und bekommt
+  /// den Umschlag — lesen kann er ihn nicht, aber verschlucken. Bis
+  /// 25.09.2026 stand eine solche Nachricht danach fuer immer auf "gesendet".
+  /// Jetzt geht sie zusaetzlich ueber den Relay, sobald er da ist; der
+  /// Empfaenger entdoppelt am eindeutigen Index. Siehe real_messenger_core
+  /// `_sendeUnversandtes`.
+  List<Message> unversandt({bool mitVorlaeufigen = false}) => db.raw
+      .select('SELECT * FROM messages WHERE is_mine = 1 '
+          'AND (status = ? '
+          '${mitVorlaeufigen ? 'OR (status = ? AND ueber_naehe = 1) ' : ''}'
+          ') '
           // Eine zurueckgenommene Nachricht wird nicht nachgeschickt. Der
           // Widerruf selbst geht trotzdem hinaus — falls sie beim ersten
           // Versuch doch schon draussen war.
@@ -1321,6 +1442,7 @@ class ChatRepository {
           'AND (faellig IS NULL OR faellig <= ?) '
           'ORDER BY seq', [
         MessageStatus.sending.index,
+        if (mitVorlaeufigen) MessageStatus.sent.index,
         DateTime.now().toUtc().millisecondsSinceEpoch,
       ])
       .map(_zuNachricht)
@@ -1353,5 +1475,6 @@ class ChatRepository {
             ? null
             : DateTime.fromMillisecondsSinceEpoch(r['faellig'] as int,
                 isUtc: true),
+        fristSekunden: r['frist'] as int?,
       );
 }

@@ -127,4 +127,15 @@ void main() {
     expect(st.verlaufVon(cid).where((m) => m.isMine).last.text, '/s war ironisch');
     await warte(tester, 2400);
   });
+
+  testWidgets('"/ shrug hi" NIMMT DEN REST NACH DEM WORT, NICHT NACH EINER FESTEN STELLE',
+      (tester) async {
+    // Vorher schnitt `substring(1 + 5)` mitten ins Wort: aus "/ shrug hi"
+    // wurde "g hi ¯\_(ツ)_/¯".
+    await inDieUnterhaltung(tester);
+    final cid = st.verlaeufe.keys.first;
+    await sende(tester, '/ shrug hi');
+    expect(st.verlaufVon(cid).where((m) => m.isMine).last.text, r'hi ¯\_(ツ)_/¯');
+    await warte(tester, 2400);
+  });
 }

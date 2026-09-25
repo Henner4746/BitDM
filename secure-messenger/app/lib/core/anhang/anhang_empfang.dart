@@ -154,6 +154,15 @@ class AnhangEmpfang {
       throw const AnhangKaputt('die Pruefsumme stimmt nicht');
     }
 
+    // NIE UEBER EINE VORHANDENE DATEI. `rename` ersetzt das Ziel stillschweigend
+    // — bis 25.09.2026 ueberschrieb so ein Anhang den eines anderen Chats mit
+    // gleicher Kennung und gleichem Namen. Der Aufrufer waehlt einen freien
+    // Namen; steht dort trotzdem etwas, wird abgebrochen statt ersetzt.
+    if (await ziel.exists()) {
+      await unfertig.delete();
+      throw const AnhangKaputt('am Ziel liegt schon eine Datei');
+    }
+
     // ERST JETZT umbenennen. Bis hierher heisst die Datei ".teil" und sieht
     // niemand fuer fertig an.
     final fertig = await unfertig.rename(ziel.path);

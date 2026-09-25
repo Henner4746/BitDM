@@ -243,7 +243,9 @@ void main() {
       await tresor.fuegeHinzu(finger());
       final slot = (await tresor.faecher())!.slots.single;
 
-      await tresor.entferne(slot.id, faktor: finger());
+      // Seit 25.09.2026 mit frischem Nachweis — siehe tresor_haertung_test.
+      await tresor.entferne(slot.id,
+          faktor: finger(), nachweis: await tresor.weiseNach(finger()));
 
       expect(basis.inhalt, entropie(), reason: 'sonst ist die Identitaet weg');
       expect(await tresor.hatFaecher(), isFalse);
@@ -258,7 +260,8 @@ void main() {
       await tresor.setzeEmpfangsTakt(60);
       final slot = (await tresor.faecher())!.slots.single;
 
-      await tresor.entferne(slot.id, faktor: finger());
+      await tresor.entferne(slot.id,
+          faktor: finger(), nachweis: await tresor.weiseNach(finger()));
 
       expect(vaultDateiIn(verzeichnis.path).existsSync(), isTrue);
       final danach = KeyVault.fromJsonString(
@@ -273,7 +276,8 @@ void main() {
       final slot = (await tresor.faecher())!.slots.single;
       expect(ablage.daten, isNotEmpty);
 
-      await tresor.entferne(slot.id, faktor: finger());
+      await tresor.entferne(slot.id,
+          faktor: finger(), nachweis: await tresor.weiseNach(finger()));
       expect(ablage.daten, isEmpty,
           reason: 'ein Rest, der zu nichts mehr gehoert — beim '
               'Panik-Loeschen ist "fast alles weg" nichts wert');

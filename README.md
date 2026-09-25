@@ -397,7 +397,20 @@ concerned. Two separate bugs in this project had that single root cause.
 ## Known gaps
 
 - **No independent audit.** Nobody outside this project has reviewed the
-  cryptography, the protocol, or the implementation.
+  cryptography, the protocol, or the implementation. An internal review on
+  25.09.2026 found and fixed ~80 issues (CHANGELOG 1.8.1); the way to an
+  external one is in [`docs/AUDIT.md`](secure-messenger/docs/AUDIT.md).
+- **The Signal library is a community port** (`libsignal_protocol_dart`), not
+  Signal's own audited libsignal.
+- **Nearby mode reveals that a BitDM user is near.** The Bluetooth adverts carry
+  fixed service identifiers; the content is encrypted, but presence is visible
+  to any scanner. Rotating identifiers need testing on real phones first.
+- **Remote wipe only acts on an unlocked, connected app.** A locked phone has no
+  database key in memory and cannot read the requests — that is the lock doing
+  its job, and it means a seized, locked phone is not wiped remotely.
+- **Windows installs per user** (no admin rights), so any program running as
+  the same user could modify the files; together with the missing signature
+  there is no integrity check after installation.
 - **Nearby, second direction** is unproven: the phone only transmits when it has
   something queued, and the ESP32 rig's contact stays pending because proving it
   needs libsignal-compatible X3DH on the rig. Blocked on a second Android with

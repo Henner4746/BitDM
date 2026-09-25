@@ -31,6 +31,28 @@
 //
 // Beim Einlesen werden Gross-/Kleinschreibung, Leerzeichen, Zeilenumbrueche
 // und zusaetzliche Bindestriche toleriert.
+//
+// FASSUNG 2 (seit 25.09.2026): BITDM-TEIL-2-<k>-<x>-<Nutzlast>-<Pruefsumme>
+// mit Nutzlast = 4 Byte Gruppenkennung ++ 4 Byte Fingerabdruck ++ y-Bytes.
+// Der Fingerabdruck sind die ersten 4 Byte SHA-256 ueber das GEHEIMNIS.
+//
+// WARUM: aus genau k Teilen laesst sich immer IRGENDEIN Geheimnis
+// interpolieren — auch aus einem Teil, dessen Tippfehler die Pruefsumme
+// zufaellig nicht fing, oder aus einem, den jemand absichtlich veraendert hat
+// (die Pruefsumme ist ungeheim, jeder kann sie neu rechnen). Die einzige
+// Kontrolle danach war die 4-Bit-Pruefsumme der BIP39-Woerter: jeder
+// sechzehnte falsche Satz ging als "gueltig" durch, und die App stellte eine
+// FREMDE Identitaet her. Mit dem Fingerabdruck faellt ein falsches Ergebnis
+// bis auf 2^-32 auf.
+//
+// DER PREIS: jeder Teil verraet 32 Bit eines Hashs des Geheimnisses.
+// "k-1 Teile verraten nichts" gilt damit nicht mehr informationstheoretisch —
+// praktisch bleibt es beim Durchprobieren von 2^128 Moeglichkeiten (16 Byte
+// Entropie); der Fingerabdruck filtert dabei nur. Fuer
+// Wiederherstellungswoerter ist das der richtige Tausch.
+//
+// Fassung 1 wird weiter gelesen (aeltere Teile liegen bei Freunden); sie hat
+// keinen Fingerabdruck, und fuer sie bleibt es bei der alten Pruefung.
 
 import 'dart:convert';
 import 'dart:math';
@@ -97,8 +119,16 @@ class Gf256 {
 
 /// Ein einzelner Teil eines zerlegten Geheimnisses.
 class Teil {
-  /// Aktuelle Formatversion im Text.
-  static const int formatVersion = 1;
+  /// Die Formatversion, die neue Zerlegungen schreiben. Siehe Kopf: Fassung
+  /// 2 traegt einen Fingerabdruck des Geheimnisses, Fassung 1 nicht.
+  static const int formatVersion = 2;
+
+  /// Die aeltere Fassung, die weiter gelesen (und fuer Teile ohne
+  /// Fingerabdruck weiter geschrieben) wird.
+  static const int formatVersionAlt = 1;
+
+  /// Laenge des Fingerabdrucks (Fassung 2) in Byte.
+  static const int fingerabdruckLaenge = 4;
 
   /// Laenge der Gruppenkennung in Byte.
   static const int gruppenIdLaenge = 4;
@@ -117,13 +147,25 @@ class Teil {
   /// Funktionswerte f(x), ein Byte pro Byte des Geheimnisses.
   final Uint8List y;
 
+  /// Die ersten [fingerabdruckLaenge] Byte SHA-256 ueber das Geheimnis — oder
+  /// null bei einem Teil der Fassung 1. Siehe Kopf der Datei.
+  final Uint8List? fingerabdruck;
+
   Teil({
     required this.schwelle,
     required this.x,
     required List<int> gruppenId,
     required List<int> y,
+    List<int>? fingerabdruck,
   })  : gruppenId = Uint8List.fromList(gruppenId),
-        y = Uint8List.fromList(y) {
+        y = Uint8List.fromList(y),
+        fingerabdruck =
+            fingerabdruck == null ? null : Uint8List.fromList(fingerabdruck) {
+    if (this.fingerabdruck != null &&
+        this.fingerabdruck!.length != fingerabdruckLaenge) {
+      throw TeilgeheimnisException(
+          'Fingerabdruck muss $fingerabdruckLaenge Byte lang sein');
+    }
     if (schwelle < minSchwelle || schwelle > maxAnzahl) {
       throw TeilgeheimnisException(
           'Schwelle muss zwischen $minSchwelle und $maxAnzahl liegen, '
@@ -145,14 +187,20 @@ class Teil {
   /// Textform zum Aufschreiben / Weitergeben.
   ///
   /// Beispiel: `BITDM-TEIL-1-3-2-ABCD-EFGH-...-WXYZ-QRST`
+  ///
+  /// Ein Teil MIT Fingerabdruck wird als Fassung 2 geschrieben, einer ohne als
+  /// Fassung 1 — so bleibt ein alter Teil beim Zurueckschreiben bitgleich.
   String alsText() {
-    final nutzlast = _base32Kodieren(Uint8List.fromList([...gruppenId, ...y]));
-    final pruefsumme = _pruefsumme(schwelle, x, nutzlast);
+    final fp = fingerabdruck;
+    final version = fp == null ? formatVersionAlt : formatVersion;
+    final nutzlast =
+        _base32Kodieren(Uint8List.fromList([...gruppenId, ...?fp, ...y]));
+    final pruefsumme = _pruefsumme(version, schwelle, x, nutzlast);
     final bloecke = <String>[
       for (var i = 0; i < nutzlast.length; i += 4)
         nutzlast.substring(i, min(i + 4, nutzlast.length)),
     ];
-    return '$_praefix-$formatVersion-$schwelle-$x-${bloecke.join('-')}-'
+    return '$_praefix-$version-$schwelle-$x-${bloecke.join('-')}-'
         '$pruefsumme';
   }
 
@@ -172,7 +220,7 @@ class Teil {
           'kein BitDM-Teil — der Text muss mit "BITDM-TEIL" beginnen');
     }
     final version = int.tryParse(token[2]);
-    if (version != formatVersion) {
+    if (version != formatVersion && version != formatVersionAlt) {
       throw TeilgeheimnisException(
           'unbekannte Formatversion "${token[2]}" — App aktualisieren?');
     }
@@ -192,25 +240,31 @@ class Teil {
     final nutzlast = rest.substring(0, rest.length - 4);
     final pruefsumme = rest.substring(rest.length - 4);
 
-    if (_pruefsumme(schwelle, x, nutzlast) != pruefsumme) {
+    // Die Fassung geht in die Pruefsumme ein: eine "1" statt einer "2" (oder
+    // umgekehrt) ist ein Tippfehler wie jeder andere und faellt hier auf.
+    if (_pruefsumme(version!, schwelle, x, nutzlast) != pruefsumme) {
       throw const TeilgeheimnisException(
           'Pruefsumme stimmt nicht — der Teil ist vertippt oder unvollstaendig');
     }
 
     final bytes = _base32Dekodieren(nutzlast);
-    if (bytes.length <= gruppenIdLaenge) {
+    final kopf =
+        gruppenIdLaenge + (version == formatVersion ? fingerabdruckLaenge : 0);
+    if (bytes.length <= kopf) {
       throw const TeilgeheimnisException('Teil enthaelt keine Daten');
     }
     return Teil(
       schwelle: schwelle,
       x: x,
       gruppenId: bytes.sublist(0, gruppenIdLaenge),
-      y: bytes.sublist(gruppenIdLaenge),
+      fingerabdruck:
+          version == formatVersion ? bytes.sublist(gruppenIdLaenge, kopf) : null,
+      y: bytes.sublist(kopf),
     );
   }
 
-  static String _pruefsumme(int schwelle, int x, String nutzlast) {
-    final kanonisch = '$_praefix-$formatVersion-$schwelle-$x-$nutzlast';
+  static String _pruefsumme(int version, int schwelle, int x, String nutzlast) {
+    final kanonisch = '$_praefix-$version-$schwelle-$x-$nutzlast';
     final hash = Sha256().toSync().hashSync(utf8.encode(kanonisch)).bytes;
     return _base32Kodieren(Uint8List.fromList(hash)).substring(0, 4);
   }
@@ -221,7 +275,9 @@ class Teil {
       other.schwelle == schwelle &&
       other.x == x &&
       _gleich(other.gruppenId, gruppenId) &&
-      _gleich(other.y, y);
+      _gleich(other.y, y) &&
+      (other.fingerabdruck == null) == (fingerabdruck == null) &&
+      (fingerabdruck == null || _gleich(other.fingerabdruck!, fingerabdruck!));
 
   @override
   int get hashCode =>
@@ -273,11 +329,24 @@ List<Teil> teile(
   }
   koeffizienten.fillRange(0, koeffizienten.length, 0);
 
+  final fp = _fingerabdruckVon(geheimnis);
   return [
     for (var t = 0; t < anzahl; t++)
-      Teil(schwelle: schwelle, x: t + 1, gruppenId: gruppenId, y: ys[t]),
+      Teil(
+          schwelle: schwelle,
+          x: t + 1,
+          gruppenId: gruppenId,
+          y: ys[t],
+          fingerabdruck: fp),
   ];
 }
+
+/// Die ersten [Teil.fingerabdruckLaenge] Byte SHA-256 ueber [geheimnis].
+Uint8List _fingerabdruckVon(Uint8List geheimnis) => Uint8List.fromList(Sha256()
+    .toSync()
+    .hashSync(geheimnis)
+    .bytes
+    .sublist(0, Teil.fingerabdruckLaenge));
 
 /// Setzt das Geheimnis aus [teile] wieder zusammen.
 ///
@@ -287,6 +356,10 @@ List<Teil> teile(
 /// ueberzaehligen zum selben Polynom passen — ein beschaedigter Teil faellt
 /// so auf. Wirft [TeilgeheimnisException] bei leerer Liste, gemischten
 /// Zerlegungen, doppelten Teilen, zu wenigen Teilen oder Widerspruechen.
+///
+/// TRAEGT EIN TEIL EINEN FINGERABDRUCK (Fassung 2), wird das Ergebnis
+/// dagegen geprueft — die einzige Kontrolle, die auch bei GENAU k Teilen
+/// greift, wo es keine ueberzaehligen zum Gegenpruefen gibt.
 Uint8List setzeZusammen(List<Teil> teile) {
   if (teile.isEmpty) {
     throw const TeilgeheimnisException('keine Teile angegeben');
@@ -307,6 +380,18 @@ Uint8List setzeZusammen(List<Teil> teile) {
     if (!nummern.add(t.x)) {
       throw TeilgeheimnisException('Teil ${t.x} ist doppelt angegeben');
     }
+  }
+  // Alle vorhandenen Fingerabdruecke muessen gleich sein. Verschiedene
+  // koennen nicht aus derselben Zerlegung stammen — einer ist beschaedigt.
+  Uint8List? fp;
+  for (final t in teile) {
+    final f = t.fingerabdruck;
+    if (f == null) continue;
+    if (fp != null && !_gleich(fp, f)) {
+      throw const TeilgeheimnisException(
+          'die Teile widersprechen sich — mindestens einer ist beschaedigt');
+    }
+    fp = f;
   }
   final schwelle = erster.schwelle;
   if (teile.length < schwelle) {
@@ -336,6 +421,12 @@ Uint8List setzeZusammen(List<Teil> teile) {
             '(auffaellig: Teil ${extra[e].x})');
       }
     }
+  }
+  if (fp != null && !_gleich(_fingerabdruckVon(geheimnis), fp)) {
+    geheimnis.fillRange(0, laenge, 0);
+    throw const TeilgeheimnisException(
+        'das zusammengesetzte Geheimnis passt nicht zum Fingerabdruck — '
+        'mindestens ein Teil ist beschaedigt oder veraendert');
   }
   return geheimnis;
 }

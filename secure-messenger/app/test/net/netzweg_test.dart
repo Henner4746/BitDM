@@ -32,6 +32,10 @@ class ProbeSocks {
   late final ServerSocket server;
   final verlangt = <String>[];
 
+  /// Host -> wohin der Proxy wirklich verbindet. Spielt Tor fuer eine
+  /// Onion-Adresse, die es im Test nicht gibt.
+  final umleitung = <String, String>{};
+
   Future<void> starte() async {
     server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     server.listen(_bediene);
@@ -62,7 +66,8 @@ class ProbeSocks {
         verlangt.add('$host:$port');
         stufe = 2;
         try {
-          ziel = await Socket.connect(host, port, timeout: const Duration(seconds: 10));
+          ziel = await Socket.connect(umleitung[host] ?? host, port,
+              timeout: const Duration(seconds: 10));
           client.add([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
           ziel!.listen(client.add, onDone: client.destroy, onError: (_) => client.destroy());
           if (puffer.isNotEmpty) ziel!.add(puffer);
@@ -112,6 +117,33 @@ void main() {
     } on SocketException {
       markTestSkipped('kein Netz');
     } finally {
+      c.close();
+    }
+  });
+
+  // DER RELAY ALS ONION-DIENST MIT TLS: der Name in der Adresse ist nicht der
+  // im Zertifikat. Ohne Eintrag in zertifikatsName muss der Aufbau scheitern
+  // (sonst prueft niemand etwas), mit Eintrag muss er gelingen.
+  test('ONION MIT TLS: das Zertifikat wird gegen den eingetragenen Namen geprueft', () async {
+    socks.umleitung['versteckt.onion'] = 'bitdm.net';
+    final c = Netzweg.httpClient();
+    try {
+      await expectLater(
+          () async => (await c.getUrl(Uri.parse('https://versteckt.onion/'))).close()
+              .timeout(const Duration(seconds: 30)),
+          throwsA(isA<HandshakeException>()),
+          reason: 'ohne Eintrag darf ein fremdes Zertifikat nicht durchgehen');
+      Netzweg.zertifikatsName['versteckt.onion'] = 'bitdm.net';
+      final antwort = await (await c.getUrl(Uri.parse('https://versteckt.onion/'))).close()
+          .timeout(const Duration(seconds: 30));
+      // Welcher Status, ist egal (Cloudflare kennt den Namen nicht) — dass
+      // eine HTTP-Antwort kommt, heisst: TLS stand, das Zertifikat passte.
+      expect(antwort.statusCode, greaterThan(0));
+      await antwort.drain<void>();
+    } on SocketException {
+      markTestSkipped('kein Netz');
+    } finally {
+      Netzweg.zertifikatsName.remove('versteckt.onion');
       c.close();
     }
   });

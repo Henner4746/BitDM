@@ -44,6 +44,18 @@ class SprachKanal(private val activity: Activity) : MethodChannel.MethodCallHand
     private var spieler: MediaPlayer? = null
     private var rechteWartet: MethodChannel.Result? = null
 
+    init {
+        // RESTE WEG (seit 25.09.2026). Eine Aufnahme gehoert nach dem Senden
+        // der Dart-Seite, die sie loescht; was beim Anlegen dieses Kanals noch
+        // hier liegt, stammt aus einem abgestuerzten oder beendeten Lauf und
+        // ist unverschluesselter Ton, den niemand mehr braucht. Waehrend der
+        // Kanal entsteht, laeuft keine Aufnahme — die gehoerte der alten
+        // Activity, und die hat sie in raeumeAuf() verworfen.
+        File(activity.filesDir, "sprache").listFiles()?.forEach { alt ->
+            if (alt.name.startsWith("aufnahme-")) alt.delete()
+        }
+    }
+
     override fun onMethodCall(aufruf: MethodCall, ergebnis: MethodChannel.Result) {
         when (aufruf.method) {
             // Die Dart-Seite fragt das, um den Knopf ueberhaupt zu zeigen. Auf
@@ -171,6 +183,17 @@ class SprachKanal(private val activity: Activity) : MethodChannel.MethodCallHand
             it.release()
         }
         spieler = null
+    }
+
+    /**
+     * Die App ist nicht mehr sichtbar (Activity.onStop). Eine laufende
+     * Aufnahme wird verworfen: sonst nahm das Mikrofon im Hintergrund weiter
+     * den Raum auf — auf Android 9/10 stundenlang, solange der Empfangsdienst
+     * den Prozess wach hielt —, und ein Tippen nach der Rueckkehr haette
+     * alles verschickt. Die Wiedergabe laeuft weiter; die nimmt nichts auf.
+     */
+    fun beimVerlassen() {
+        verwirf()
     }
 
     /** Beim Beenden: eine laufende Aufnahme verwerfen, nichts halb liegen lassen. */

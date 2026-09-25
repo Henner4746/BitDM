@@ -13,17 +13,30 @@
 // Die Formate sind Ketten aus Abschnitten, und die Metadaten sind eigene
 // Abschnitte, die sich herausnehmen lassen, ohne die Bilddaten anzufassen:
 //
-//   JPEG   APP1 (EXIF, XMP), APP3..APP13, APP15, COM fliegen raus. APP0
-//          (JFIF), APP14 (Adobe-Farbraum) und APP2 NUR als ICC-Profil
-//          bleiben — ohne die zeigt ein Bild falsche Farben.
+//   JPEG   APP1 (EXIF, XMP), APP3..APP13, APP15, COM fliegen raus. APP0 bleibt
+//          NUR als JFIF (ohne das Vorschaubild, das JFIF mitfuehren darf),
+//          APP14 nur als Adobe-Farbraum, APP2 nur als ICC-Profil — ohne die
+//          zeigt ein Bild falsche Farben.
 //          DIE AUSRICHTUNG BLEIBT: Telefone speichern Hochformat quer und
 //          vermerken die Drehung in EXIF. Wer EXIF ganz entfernt, schickt jedes
 //          Hochformatfoto auf der Seite liegend. Darum wird ein neuer,
 //          minimaler EXIF-Block geschrieben, der nichts als die Drehung
 //          enthaelt.
-//   PNG    eXIf, tEXt, zTXt, iTXt, tIME fliegen raus.
-//   WebP   die Abschnitte EXIF und "XMP " fliegen raus, die Kennbits im VP8X
-//          werden geloescht, die RIFF-Laenge neu gesetzt.
+//          HINTER DEN BILDDATEN: die Bilddaten werden bis zu ihrem Ende (EOI)
+//          durchgegangen, und dort ist Schluss. Was Telefone dahinter
+//          anhaengen, faellt weg — ein zweites JPEG mit eigenem EXIF und GPS
+//          (MPF: Samsung, Pixel), Samsungs SEFH/SEFT-Anhang (Aufnahmezeit,
+//          Netzkennung), das MP4 eines Bewegungsfotos (Motion Photo).
+//   PNG    ERLAUBNISLISTE: nur Abschnitte, die zum Bild gehoeren, bleiben
+//          (IHDR, PLTE, IDAT, IEND, Farbe, Transparenz, Aufloesung, APNG).
+//          Alles andere fliegt raus — Text, eXIf, tIME, C2PA (caBX) und jeder
+//          Abschnitt, den hier niemand kennt.
+//   WebP   ebenso: nur VP8, VP8L, VP8X, ALPH, ANIM, ANMF, ICCP bleiben, auch
+//          innerhalb der Einzelbilder einer Animation. Die Kennbits im VP8X
+//          werden angepasst, die RIFF-Laenge neu gesetzt.
+//
+// Bei allen drei gilt: was hinter dem Ende der eigentlichen Datei klebt (hinter
+// EOI, IEND bzw. der RIFF-Laenge), faellt weg.
 //
 // HEIC, AVIF UND VIDEO (MP4, MOV, 3GP) sind ISO-BMFF: Kaesten in Kaesten, und
 // Verweise darauf als ABSOLUTE Dateipositionen (iloc bei Bildern, stco/co64
@@ -40,13 +53,20 @@
 //   Video  moov/udta (Ort als ©xyz oder loci, ©mak, ©mod, ...), moov/meta und
 //          trak/udta, trak/meta (keys/ilst, bei Apple u. a.
 //          com.apple.quicktime.location.ISO6709, make, model, creationdate)
-//          und XMP-uuid-Kaesten bekommen den Typ "free" und einen genullten
-//          Inhalt — Leser springen darueber wie ueber Fuellmaterial. Die
-//          Aufnahmezeit in mvhd, tkhd und mdhd wird auf 0 gesetzt.
+//          und uuid-Kaesten (XMP und Herstellereigenes) bekommen den Typ "free"
+//          und einen genullten Inhalt — Leser springen darueber wie ueber
+//          Fuellmaterial. Die Aufnahmezeit in mvhd, tkhd und mdhd wird auf 0
+//          gesetzt.
+//   Beide  vorhandene Fuellkaesten (free, skip, wide) werden genullt. Schreiber
+//          lassen dort gern den alten Inhalt stehen, wenn sie Metadaten
+//          "loeschen" — ein GPS-Eintrag im free-Kasten ist fuer `strings`
+//          genauso lesbar wie im udta. Ausnahme: zeigt ein Verweis (iloc,
+//          stco/co64) hinein, sind es Nutzdaten, und der Kasten bleibt.
 //
 // Was sich nicht sicher zerlegen laesst (iloc-Version > 2, Verweise in andere
 // Dateien, construction_method 2, ...), bleibt unangetastet: lieber eine
-// Datei mit Metadaten als eine kaputte.
+// Datei mit Metadaten als eine kaputte. [bereinige] meldet diesen Fall
+// ausdruecklich (Unlesbar), damit die Oberflaeche warnen kann.
 //
 // Andere Formate (Dokumente, Audio) gehen unveraendert hinaus, ebenso
 // Ortsdaten in eigenen Spuren (etwa GoPro-GPMF als Datenspur). Das ist eine
@@ -54,26 +74,87 @@
 
 import 'dart:typed_data';
 
-/// Die Bytes ohne Metadaten — oder null, wenn es nichts zu entfernen gab
-/// oder das Format nicht bekannt ist. Wirft nie: eine Datei, die sich nicht
-/// zerlegen laesst, geht so hinaus, wie sie ist, statt den Versand zu stoppen.
+// ═══════════════════════════════════════════════════════════ Schnittstelle
+
+/// Was [bereinige] mit einer Datei gemacht hat. Vier Faelle, und die
+/// Oberflaeche soll sie unterscheiden koennen — vor allem [Unlesbar]: dort
+/// geht die Datei MIT ihren Metadaten hinaus, falls der Nutzer nicht
+/// gewarnt wird.
+///
+/// ```dart
+/// switch (bereinige(bytes, vorOrt: true)) {
+///   case Bereinigt(:final bytes): senden(bytes);
+///   case NichtsZuTun(): senden(original);        // schon sauber
+///   case NichtUnterstuetzt(): senden(original);  // kein Bild/Video
+///   case Unlesbar(:final grund): warnen(grund);  // Metadaten evtl. noch drin
+/// }
+/// ```
+sealed class BereinigungsErgebnis {
+  const BereinigungsErgebnis();
+}
+
+/// Metadaten wurden entfernt; [bytes] ist die bereinigte Datei. Mit `vorOrt`
+/// ist das bei ISO-BMFF (HEIC, AVIF, Video) dieselbe Liste wie die Eingabe,
+/// sonst eine neue.
+final class Bereinigt extends BereinigungsErgebnis {
+  const Bereinigt(this.bytes);
+  final Uint8List bytes;
+}
+
+/// Das Format ist bekannt und wurde vollstaendig zerlegt, aber es gab nichts
+/// zu entfernen — die Eingabe kann so hinaus, wie sie ist.
+final class NichtsZuTun extends BereinigungsErgebnis {
+  const NichtsZuTun();
+}
+
+/// Das Format ist bekannt (JPEG, PNG, WebP, HEIC/AVIF, Video), aber die Datei
+/// liess sich nicht sicher zerlegen: kaputt, abgeschnitten, oder eine
+/// Variante, die hier nicht verstanden wird. Die Eingabe ist UNVERAENDERT —
+/// und kann Metadaten enthalten. [grund] ist fuer Protokolle gedacht, nicht
+/// fuer den Nutzer, und enthaelt nichts aus der Datei selbst.
+final class Unlesbar extends BereinigungsErgebnis {
+  const Unlesbar(this.grund);
+  final String grund;
+}
+
+/// Kein Format, das hier bereinigt wird (Dokumente, Audio, Unbekanntes).
+final class NichtUnterstuetzt extends BereinigungsErgebnis {
+  const NichtUnterstuetzt();
+}
+
+/// Entfernt die Metadaten aus [b] und sagt, wie es ausging. Wirft nie.
 ///
 /// Mit [vorOrt] werden ISO-BMFF-Dateien (HEIC, AVIF, Video) in [b] SELBST
-/// geaendert und [b] zurueckgegeben, statt eine Kopie anzulegen — bei einem
-/// Video von 300 MB ist das der Unterschied zwischen einer und zwei Kopien im
-/// Speicher. Gibt es nichts zu tun oder ist etwas unklar, bleibt [b]
+/// geaendert und in [Bereinigt] zurueckgegeben, statt eine Kopie anzulegen —
+/// bei einem Video von 300 MB ist das der Unterschied zwischen einer und zwei
+/// Kopien im Speicher. In JEDEM anderen Fall als [Bereinigt] ist [b]
 /// unberuehrt: geschrieben wird erst, wenn alles gefunden und geprueft ist.
-Uint8List? ohneMetadaten(Uint8List b, {bool vorOrt = false}) {
+BereinigungsErgebnis bereinige(Uint8List b, {bool vorOrt = false}) {
   try {
     if (_istJpeg(b)) return _jpeg(b);
     if (_istPng(b)) return _png(b);
     if (_istWebp(b)) return _webp(b);
     if (_isoArt(b) != null) return _iso(b, vorOrt);
-  } catch (_) {
-    return null;
+  } catch (e) {
+    // Ein Zugriff ueber das Ende o. ae., den keine Pruefung abgefangen hat.
+    return Unlesbar('Ausnahme beim Zerlegen (${e.runtimeType})');
   }
-  return null;
+  return const NichtUnterstuetzt();
 }
+
+/// Die Bytes ohne Metadaten — oder null, wenn es nichts zu entfernen gab,
+/// das Format nicht bekannt ist ODER die Datei sich nicht zerlegen liess.
+/// Wirft nie: eine Datei, die sich nicht zerlegen laesst, geht so hinaus, wie
+/// sie ist, statt den Versand zu stoppen.
+///
+/// Duenne Huelle um [bereinige] fuer Aufrufer, die die Faelle nicht
+/// unterscheiden muessen. Wer den Nutzer warnen will, wenn das Bereinigen
+/// scheitert, nimmt [bereinige]. [vorOrt] wie dort.
+Uint8List? ohneMetadaten(Uint8List b, {bool vorOrt = false}) =>
+    switch (bereinige(b, vorOrt: vorOrt)) {
+      Bereinigt(:final bytes) => bytes,
+      _ => null,
+    };
 
 /// Ob die Datei ein Bild oder Video ist, dessen Metadaten hier entfernt
 /// werden koennen.
@@ -94,12 +175,43 @@ bool _istWebp(Uint8List b) =>
     String.fromCharCodes(b.sublist(0, 4)) == 'RIFF' &&
     String.fromCharCodes(b.sublist(8, 12)) == 'WEBP';
 
+/// [Bereinigt], wenn sich wirklich etwas geaendert hat, sonst [NichtsZuTun].
+/// Der Vergleich macht das Ganze wiederholbar: eine schon bereinigte Datei
+/// (mit ihrem minimalen EXIF-Block) ergibt beim zweiten Mal NichtsZuTun.
+BereinigungsErgebnis _ergebnis(Uint8List vorher, Uint8List nachher) {
+  if (vorher.length != nachher.length) return Bereinigt(nachher);
+  for (var i = 0; i < vorher.length; i++) {
+    if (vorher[i] != nachher[i]) return Bereinigt(nachher);
+  }
+  return const NichtsZuTun();
+}
+
 // ════════════════════════════════════════════════════════════════════ JPEG
 
-Uint8List? _jpeg(Uint8List b) {
-  final aus = BytesBuilder(copy: false)..add([0xFF, 0xD8]);
+// Aufbau: SOI, dann Abschnitte (Marke 0xFF xx, zwei Bytes Laenge, Inhalt),
+// dann SOS und die entropiekodierten Bilddaten. Die haben KEINE Laenge — sie
+// laufen bis zur naechsten Marke. Ein 0xFF in den Daten wird als 0xFF 0x00
+// geschrieben, und 0xFF D0..D7 (RSTn) sind Neustartmarken mitten in den
+// Daten; beides gehoert noch dazu. Jede andere Marke beendet den Scan.
+//
+// Progressive JPEGs haben MEHRERE Scans, dazwischen DHT, DQT, DRI — und
+// gelegentlich APPn oder COM, die hier ebenso wegfallen wie vorn. Das EOI,
+// das die Kette abschliesst, ist das Ende des Bildes; alles dahinter faellt
+// weg.
+
+Uint8List? _jfif(Uint8List daten) {
+  // JFIF-Inhalt: "JFIF\0", Version (2), Einheit (1), Dichte (2 + 2), Breite
+  // und Hoehe des Vorschaubilds (je 1), dann dessen Pixel. Behalten werden
+  // die ersten 12 Bytes, das Vorschaubild wird auf 0 x 0 gesetzt. Andere
+  // APP0-Arten (JFXX = nur Vorschaubild) fallen ganz weg.
+  if (!_beginntMit(daten, 'JFIF\u0000') || daten.length < 14) return null;
+  return Uint8List.fromList([0xFF, 0xE0, 0x00, 0x10, ...daten.sublist(0, 12), 0, 0]);
+}
+
+BereinigungsErgebnis _jpeg(Uint8List b) {
+  final aus = BytesBuilder(copy: false)..add(const [0xFF, 0xD8]);
   var i = 2;
-  var entfernt = false;
+  var inBildern = false; // ob der erste Scan (SOS) schon kam
   int? drehung;
   var drehungGeschrieben = false;
 
@@ -109,55 +221,94 @@ Uint8List? _jpeg(Uint8List b) {
     drehungGeschrieben = true;
   }
 
-  while (i + 4 <= b.length) {
-    if (b[i] != 0xFF) return null; // kein Abschnittsanfang: lieber nichts anfassen
-    var marke = b[i + 1];
-    // Fuellbytes (0xFF 0xFF ...) ueberspringen.
-    while (marke == 0xFF && i + 2 < b.length) {
+  // Die Datei hoert auf, bevor das EOI kommt — ein abgebrochener Download,
+  // eine halb geschriebene Kameradatei. Nach dem ersten Scan ist das ein Bild
+  // mit grauem unterem Rand, und die Metadaten davor sind schon heraus:
+  // abschliessen und weiter. Davor gibt es keine Bilddaten, die man retten
+  // koennte.
+  BereinigungsErgebnis abgeschnitten() {
+    if (!inBildern) return const Unlesbar('JPEG endet vor den Bilddaten');
+    aus.add(const [0xFF, 0xD9]);
+    return _ergebnis(b, aus.toBytes());
+  }
+
+  while (true) {
+    // Fuellbytes (0xFF 0xFF ...) vor einer Marke ueberspringen.
+    while (i + 1 < b.length && b[i] == 0xFF && b[i + 1] == 0xFF) {
       i++;
-      marke = b[i + 1];
     }
-    if (marke == 0xDA) {
-      // Beginn der Bilddaten: ab hier alles unveraendert.
-      schreibeDrehung();
-      aus.add(Uint8List.sublistView(b, i));
-      break;
-    }
+    if (i + 2 > b.length) return abgeschnitten();
+    if (b[i] != 0xFF) return const Unlesbar('JPEG: Abschnitt ohne Marke');
+    final marke = b[i + 1];
     if (marke == 0xD9) {
-      aus.add([0xFF, 0xD9]);
+      // Das Ende des Bildes. Was dahinter kommt, wird NICHT mitgenommen.
+      aus.add(const [0xFF, 0xD9]);
       break;
+    }
+    if (marke == 0x00 || marke == 0xD8) {
+      return const Unlesbar('JPEG: Marke an unerwarteter Stelle');
     }
     if ((marke >= 0xD0 && marke <= 0xD7) || marke == 0x01) {
+      // RSTn und TEM haben keinen Inhalt.
       aus.add([0xFF, marke]);
       i += 2;
       continue;
     }
+    if (i + 4 > b.length) return abgeschnitten();
     final laenge = (b[i + 2] << 8) | b[i + 3];
     final ende = i + 2 + laenge;
-    if (laenge < 2 || ende > b.length) return null;
+    if (laenge < 2) return const Unlesbar('JPEG: Abschnittslaenge unter 2');
+    if (ende > b.length) return abgeschnitten();
     final abschnitt = Uint8List.sublistView(b, i, ende);
     final daten = Uint8List.sublistView(b, i + 4, ende);
 
-    var behalten = true;
-    if (marke == 0xE1) {
-      behalten = false;
-      drehung ??= _drehungAusExif(daten);
-    } else if (marke == 0xE2) {
-      behalten = _beginntMit(daten, 'ICC_PROFILE');
-    } else if ((marke >= 0xE3 && marke <= 0xED) || marke == 0xEF || marke == 0xFE) {
-      behalten = false;
-    }
-    if (behalten) {
+    if (marke == 0xDA) {
+      // SOS: der Kopf hat eine Laenge, die Bilddaten dahinter nicht.
+      if (!inBildern) schreibeDrehung();
+      inBildern = true;
       aus.add(abschnitt);
+      var p = ende;
+      while (true) {
+        p = b.indexOf(0xFF, p);
+        if (p < 0 || p + 1 >= b.length) {
+          p = b.length; // Datei endet in den Bilddaten
+          break;
+        }
+        final n = b[p + 1];
+        if (n == 0x00 || (n >= 0xD0 && n <= 0xD7)) {
+          p += 2; // 0xFF 0x00 oder RSTn: gehoert zu den Daten
+          continue;
+        }
+        break; // eine echte Marke (oder Fuellbytes davor)
+      }
+      aus.add(Uint8List.sublistView(b, ende, p));
+      i = p;
+      continue;
+    }
+
+    // Was vor dem ersten Scan gebraucht wird, ist zwischen den Scans
+    // bedeutungslos: dort fallen ALLE APPn und COM weg.
+    Uint8List? behalten = abschnitt;
+    if (marke == 0xE0) {
+      behalten = inBildern ? null : _jfif(daten);
+    } else if (marke == 0xE1) {
+      behalten = null;
+      if (!inBildern) drehung ??= _drehungAusExif(daten);
+    } else if (marke == 0xE2) {
+      if (inBildern || !_beginntMit(daten, 'ICC_PROFILE')) behalten = null;
+    } else if (marke == 0xEE) {
+      if (inBildern || !_beginntMit(daten, 'Adobe')) behalten = null;
+    } else if ((marke >= 0xE3 && marke <= 0xEF) || marke == 0xFE) {
+      behalten = null;
+    }
+    if (behalten != null) {
+      aus.add(behalten);
       // Direkt hinter JFIF — dort, wo ein Leser EXIF erwartet.
       if (marke == 0xE0) schreibeDrehung();
-    } else {
-      entfernt = true;
     }
     i = ende;
   }
-  if (!entfernt) return null;
-  return aus.toBytes();
+  return _ergebnis(b, aus.toBytes());
 }
 
 bool _beginntMit(Uint8List d, String text) {
@@ -169,26 +320,32 @@ bool _beginntMit(Uint8List d, String text) {
 }
 
 /// Liest die Ausrichtung (Tag 0x0112) aus einem EXIF-Abschnitt, oder null.
+/// Ein kaputtes EXIF ergibt null statt einer Ausnahme: das EXIF faellt ohnehin
+/// weg, und die Datei soll deswegen nicht als unlesbar gelten.
 int? _drehungAusExif(Uint8List d) {
-  if (!_beginntMit(d, 'Exif') || d.length < 14) return null;
-  final t = Uint8List.sublistView(d, 6); // TIFF-Kopf
-  final klein = t[0] == 0x49 && t[1] == 0x49; // "II" = little endian
-  final gross = t[0] == 0x4D && t[1] == 0x4D; // "MM"
-  if (!klein && !gross) return null;
-  final bd = ByteData.sublistView(t);
-  final e = klein ? Endian.little : Endian.big;
-  final ifd = bd.getUint32(4, e);
-  if (ifd + 2 > t.length) return null;
-  final anzahl = bd.getUint16(ifd, e);
-  for (var k = 0; k < anzahl; k++) {
-    final eintrag = ifd + 2 + k * 12;
-    if (eintrag + 12 > t.length) return null;
-    if (bd.getUint16(eintrag, e) == 0x0112) {
-      final wert = bd.getUint16(eintrag + 8, e);
-      return (wert >= 1 && wert <= 8) ? wert : null;
+  try {
+    if (!_beginntMit(d, 'Exif') || d.length < 14) return null;
+    final t = Uint8List.sublistView(d, 6); // TIFF-Kopf
+    final klein = t[0] == 0x49 && t[1] == 0x49; // "II" = little endian
+    final gross = t[0] == 0x4D && t[1] == 0x4D; // "MM"
+    if (!klein && !gross) return null;
+    final bd = ByteData.sublistView(t);
+    final e = klein ? Endian.little : Endian.big;
+    final ifd = bd.getUint32(4, e);
+    if (ifd + 2 > t.length) return null;
+    final anzahl = bd.getUint16(ifd, e);
+    for (var k = 0; k < anzahl; k++) {
+      final eintrag = ifd + 2 + k * 12;
+      if (eintrag + 12 > t.length) return null;
+      if (bd.getUint16(eintrag, e) == 0x0112) {
+        final wert = bd.getUint16(eintrag + 8, e);
+        return (wert >= 1 && wert <= 8) ? wert : null;
+      }
     }
+    return null;
+  } catch (_) {
+    return null;
   }
-  return null;
 }
 
 /// Ein EXIF-Abschnitt, der NUR die Ausrichtung enthaelt.
@@ -209,56 +366,128 @@ Uint8List _minimalesExif(int drehung) {
 
 // ═════════════════════════════════════════════════════════════════════ PNG
 
-const _pngWeg = {'eXIf', 'tEXt', 'zTXt', 'iTXt', 'tIME'};
+/// Die Abschnitte, die bleiben. ERLAUBNISLISTE statt Sperrliste: PNG erlaubt
+/// beliebige eigene Abschnitte, und jede neue Metadaten-Art (C2PA als caBX,
+/// Herstellereigenes) waere an einer Sperrliste vorbeigegangen.
+///
+/// Bild: IHDR, PLTE, IDAT, IEND. Transparenz und Hintergrund: tRNS, bKGD.
+/// Farbe: gAMA, cHRM, sRGB, iCCP, sBIT, dazu cICP, mDCV, cLLI (HDR — reine
+/// Zahlen fester Laenge, ohne sie waeren HDR-Bilder zu blass). Aufloesung:
+/// pHYs (nur DPI). Animation (APNG): acTL, fcTL, fdAT.
+const _pngErlaubt = {
+  'IHDR', 'PLTE', 'IDAT', 'IEND', //
+  'tRNS', 'bKGD',
+  'gAMA', 'cHRM', 'sRGB', 'iCCP', 'sBIT', 'cICP', 'mDCV', 'cLLI',
+  'pHYs',
+  'acTL', 'fcTL', 'fdAT',
+};
 
-Uint8List? _png(Uint8List b) {
+bool _istBuchstabe(int c) => (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A);
+
+BereinigungsErgebnis _png(Uint8List b) {
   final aus = BytesBuilder(copy: false)..add(Uint8List.sublistView(b, 0, 8));
   final bd = ByteData.sublistView(b);
   var i = 8;
-  var entfernt = false;
-  while (i + 12 <= b.length) {
+  var erstes = true;
+  while (true) {
+    // Ohne IEND ist die Datei abgeschnitten oder etwas stimmt nicht.
+    if (i + 12 > b.length) return const Unlesbar('PNG: kein IEND');
     final laenge = bd.getUint32(i);
-    final typ = String.fromCharCodes(b.sublist(i + 4, i + 8));
     final ende = i + 12 + laenge;
-    if (ende > b.length) return null;
-    if (_pngWeg.contains(typ)) {
-      entfernt = true;
-    } else {
-      aus.add(Uint8List.sublistView(b, i, ende));
+    if (laenge > 0x7FFFFFFF || ende > b.length) {
+      return const Unlesbar('PNG: Abschnitt ragt ueber das Dateiende');
     }
+    for (var k = i + 4; k < i + 8; k++) {
+      if (!_istBuchstabe(b[k])) return const Unlesbar('PNG: ungueltiger Abschnittstyp');
+    }
+    final typ = String.fromCharCodes(b, i + 4, i + 8);
+    if (erstes && typ != 'IHDR') return const Unlesbar('PNG: IHDR fehlt am Anfang');
+    erstes = false;
+    // Abschnitte werden unveraendert samt Pruefsumme uebernommen.
+    if (_pngErlaubt.contains(typ)) aus.add(Uint8List.sublistView(b, i, ende));
     i = ende;
-    if (typ == 'IEND') break;
+    if (typ == 'IEND') break; // was dahinter klebt, faellt weg
   }
-  if (!entfernt) return null;
-  return aus.toBytes();
+  return _ergebnis(b, aus.toBytes());
 }
 
 // ════════════════════════════════════════════════════════════════════ WebP
 
-Uint8List? _webp(Uint8List b) {
+/// Die Abschnitte, die bleiben — ebenfalls eine Erlaubnisliste. EXIF, "XMP "
+/// und alles Unbekannte fallen weg.
+const _webpErlaubt = {'VP8 ', 'VP8L', 'VP8X', 'ALPH', 'ANIM', 'ANMF', 'ICCP'};
+
+/// Innerhalb eines Einzelbilds (ANMF) einer Animation. Die Norm erlaubt dort
+/// "unbekannte Abschnitte" — genug Platz fuer Metadaten.
+const _webpBildErlaubt = {'ALPH', 'VP8 ', 'VP8L'};
+
+/// Die Abschnitte zwischen [a] und [e], soweit in [erlaubt], als fertige
+/// Bytes (Kopf, Inhalt, Fuellbyte bei ungerader Laenge) — oder null, wenn
+/// einer ueber [e] hinausragt. ANMF wird dabei selbst gefiltert und seine
+/// Laenge neu gesetzt.
+List<(String, Uint8List)>? _webpAbschnitte(
+    Uint8List b, int a, int e, Set<String> erlaubt) {
   final bd = ByteData.sublistView(b);
-  final teile = <Uint8List>[];
-  var i = 12;
-  var entfernt = false;
-  while (i + 8 <= b.length) {
-    final typ = String.fromCharCodes(b.sublist(i, i + 4));
-    final laenge = bd.getUint32(i + 4, Endian.little);
-    final ende = i + 8 + laenge + (laenge.isOdd ? 1 : 0);
-    if (ende > b.length) return null;
-    if (typ == 'EXIF' || typ == 'XMP ') {
-      entfernt = true;
-    } else {
-      final kopie = Uint8List.fromList(b.sublist(i, ende));
-      // Im VP8X stehen Kennbits fuer EXIF (0x08) und XMP (0x04). Stehen sie
-      // noch, suchen Leser nach Abschnitten, die es nicht mehr gibt.
-      if (typ == 'VP8X' && kopie.length > 8) kopie[8] &= ~0x0C;
-      teile.add(kopie);
+  final liste = <(String, Uint8List)>[];
+  while (a < e) {
+    if (a + 8 > e) return null;
+    final typ = String.fromCharCodes(b, a, a + 4);
+    final laenge = bd.getUint32(a + 4, Endian.little);
+    if (a + 8 + laenge > e) return null;
+    // Das Fuellbyte darf am Ende fehlen (manche Schreiber lassen es weg);
+    // in der Ausgabe steht es immer.
+    final naechster = a + 8 + laenge + (laenge & 1);
+    if (erlaubt.contains(typ)) {
+      if (typ == 'ANMF') {
+        // 16 Bytes Rahmen (Lage, Groesse, Dauer, Kennbits), dann Abschnitte.
+        if (laenge < 16) return null;
+        final innen = _webpAbschnitte(b, a + 24, a + 8 + laenge, _webpBildErlaubt);
+        if (innen == null) return null;
+        final inhalt = BytesBuilder(copy: false)..add(Uint8List.sublistView(b, a + 8, a + 24));
+        for (final (_, t) in innen) {
+          inhalt.add(t);
+        }
+        liste.add((typ, _webpAbschnitt('ANMF', inhalt.toBytes())));
+      } else {
+        liste.add((typ, _webpAbschnitt(typ, Uint8List.sublistView(b, a + 8, a + 8 + laenge))));
+      }
     }
-    i = ende;
+    a = naechster;
   }
-  if (!entfernt) return null;
+  return liste;
+}
+
+/// Ein WebP-Abschnitt: Typ, Laenge (little endian), Inhalt, Fuellbyte.
+Uint8List _webpAbschnitt(String typ, Uint8List inhalt) {
+  final aus = Uint8List(8 + inhalt.length + (inhalt.length & 1));
+  aus.setRange(0, 4, typ.codeUnits);
+  ByteData.sublistView(aus).setUint32(4, inhalt.length, Endian.little);
+  aus.setRange(8, 8 + inhalt.length, inhalt);
+  return aus;
+}
+
+BereinigungsErgebnis _webp(Uint8List b) {
+  final riff = ByteData.sublistView(b).getUint32(4, Endian.little);
+  // Die RIFF-Laenge zaehlt ab Byte 8. Was dahinter steht, gehoert nicht zur
+  // Datei und faellt weg.
+  final dateiEnde = 8 + riff;
+  if (riff < 4 || dateiEnde > b.length) {
+    return const Unlesbar('WebP: RIFF-Laenge passt nicht zur Datei');
+  }
+  final teile = _webpAbschnitte(b, 12, dateiEnde, _webpErlaubt);
+  if (teile == null) return const Unlesbar('WebP: Abschnitt ragt ueber das Ende');
+  final hatIcc = teile.any((t) => t.$1 == 'ICCP');
+  for (final (typ, t) in teile) {
+    // Im VP8X stehen Kennbits fuer ICC (0x20), EXIF (0x08) und XMP (0x04).
+    // Stehen sie noch, suchen Leser nach Abschnitten, die es nicht mehr gibt.
+    // Alpha (0x10) und Animation (0x02) bleiben — die Abschnitte dazu auch.
+    if (typ == 'VP8X' && t.length > 8) {
+      t[8] &= ~0x0C;
+      if (!hatIcc) t[8] &= ~0x20;
+    }
+  }
   final koerper = BytesBuilder(copy: false);
-  for (final t in teile) {
+  for (final (_, t) in teile) {
     koerper.add(t);
   }
   final inhalt = koerper.toBytes();
@@ -266,10 +495,11 @@ Uint8List? _webp(Uint8List b) {
     ..setUint8(0, 0x52)..setUint8(1, 0x49)..setUint8(2, 0x46)..setUint8(3, 0x46) // RIFF
     ..setUint32(4, inhalt.length + 4, Endian.little)
     ..setUint8(8, 0x57)..setUint8(9, 0x45)..setUint8(10, 0x42)..setUint8(11, 0x50); // WEBP
-  return (BytesBuilder(copy: false)
+  final aus = (BytesBuilder(copy: false)
         ..add(kopf.buffer.asUint8List())
         ..add(inhalt))
       .toBytes();
+  return _ergebnis(b, aus);
 }
 
 // ═════════════════════════════════════════ ISO-BMFF (HEIC, AVIF, Video)
@@ -358,50 +588,108 @@ const _frei = [0x66, 0x72, 0x65, 0x65]; // "free"
 List<_Flicken> _alsFrei(_Kasten k) =>
     [(k.anfang + 4, _frei), (k.inhalt, Uint8List(k.ende - k.inhalt))];
 
-/// Die UUID, unter der Adobe XMP in ISO-BMFF ablegt.
-const _xmpUuid = [
-  0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, //
-  0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC,
-];
+/// Fuellkaesten. Ihr Inhalt hat keine Bedeutung — und genau deshalb steht
+/// dort oft, was ein Schreiber beim "Loeschen" einfach stehen liess.
+const _fuellTypen = {'free', 'skip', 'wide'};
 
-bool _istXmpUuid(Uint8List b, _Kasten k) {
-  if (k.typ != 'uuid' || k.inhalt + 16 > k.ende) return false;
-  for (var i = 0; i < 16; i++) {
-    if (b[k.inhalt + i] != _xmpUuid[i]) return false;
+/// Kaesten, die nur Kaesten enthalten und in denen Fuellkaesten vorkommen.
+/// moof/traf (fragmentierte Videos) bleiben aussen vor: dort zeigen
+/// Verweise relativ zum Fragment, und das wird hier nicht nachgerechnet.
+const _behaelter = {
+  'moov', 'trak', 'mdia', 'minf', 'stbl', 'dinf', 'edts', 'mvex', //
+  'iprp', 'ipco',
+};
+
+/// Alle Fuellkaesten in [kaesten] und den Behaeltern darin. Der HEIF-meta-
+/// Kasten der obersten Ebene zaehlt als Behaelter (mit vier Bytes Version
+/// und Kennbits vorneweg). Was sich nicht zerlegen laesst, wird uebergangen:
+/// dort wird dann eben nichts genullt.
+void _fuellkaesten(Uint8List b, List<_Kasten> kaesten, List<_Kasten> funde,
+    {bool oben = false}) {
+  for (final k in kaesten) {
+    List<_Kasten>? kinder;
+    if (_fuellTypen.contains(k.typ)) {
+      funde.add(k);
+    } else if (_behaelter.contains(k.typ)) {
+      kinder = _kaesten(b, k.inhalt, k.ende);
+    } else if (oben && k.typ == 'meta' && k.inhalt + 4 <= k.ende) {
+      kinder = _kaesten(b, k.inhalt + 4, k.ende);
+    }
+    if (kinder != null) _fuellkaesten(b, kinder, funde);
   }
-  return true;
 }
 
-Uint8List? _iso(Uint8List b, bool vorOrt) {
+BereinigungsErgebnis _iso(Uint8List b, bool vorOrt) {
   final oben = _kaesten(b, 0, b.length);
-  if (oben == null) return null;
+  if (oben == null) return const Unlesbar('ISO-BMFF: Kastenlaengen stimmen nicht');
   final flicken = <_Flicken>[];
+  // Bereiche, auf die Verweise zeigen (iloc, stco/co64): dort liegen
+  // Nutzdaten, auch wenn der Kasten "free" heisst. null = nicht bekannt.
+  List<(int, int)>? belegt = [];
   for (final k in oben) {
     if (k.typ == 'meta') {
       final f = _heifWaren(b, k);
-      if (f == null) return null;
+      if (f == null) return const Unlesbar('HEIF: Metadaten-Waren nicht sicher auffindbar');
       flicken.addAll(f);
+      final orte = _heifBelegt(b, k);
+      if (orte == null) {
+        belegt = null;
+      } else {
+        belegt?.addAll(orte);
+      }
     } else if (k.typ == 'moov') {
       final f = _moov(b, k);
-      if (f == null) return null;
+      if (f == null) return const Unlesbar('Video: moov-Kasten kaputt');
       flicken.addAll(f);
-    } else if (_istXmpUuid(b, k)) {
-      flicken.addAll(_alsFrei(k));
+      final stellen = _stueckStellen(b, k);
+      if (stellen == null) {
+        belegt = null;
+      } else {
+        belegt?.addAll(stellen.map((s) => (s, s + 1)));
+      }
     }
   }
-  // Nur, was wirklich etwas aendert: eine schon bereinigte Datei ergibt null.
+
+  bool nutzdaten(_Kasten k) =>
+      belegt != null && belegt.any((r) => r.$1 < k.ende && r.$2 > k.inhalt);
+
+  for (final k in oben) {
+    // XMP (Adobe) oder Herstellereigenes (Sony, Canon, 360-Grad-Angaben):
+    // zum Abspielen oder Anzeigen braucht es nichts davon — ausser ein
+    // Verweis zeigt hinein.
+    if (k.typ == 'uuid' && !nutzdaten(k)) flicken.addAll(_alsFrei(k));
+  }
+
+  final fuellung = <_Kasten>[];
+  _fuellkaesten(b, oben, fuellung, oben: true);
+  for (final k in fuellung) {
+    if (belegt == null) {
+      // Die Verweise liessen sich nicht vollstaendig lesen. Ist der Kasten
+      // leer, ist das egal; steht etwas drin, laesst sich nicht sagen, ob
+      // es Nutzdaten sind — dann lieber melden als raten.
+      for (var i = k.inhalt; i < k.ende; i++) {
+        if (b[i] != 0) return const Unlesbar('ISO-BMFF: Fuellkasten mit Inhalt, Verweise unklar');
+      }
+      continue;
+    }
+    if (nutzdaten(k)) continue;
+    flicken.add((k.inhalt, Uint8List(k.ende - k.inhalt)));
+  }
+
+  // Nur, was wirklich etwas aendert: eine schon bereinigte Datei ergibt
+  // NichtsZuTun.
   flicken.removeWhere((f) {
     for (var i = 0; i < f.$2.length; i++) {
       if (b[f.$1 + i] != f.$2[i]) return false;
     }
     return true;
   });
-  if (flicken.isEmpty) return null;
+  if (flicken.isEmpty) return const NichtsZuTun();
   final aus = vorOrt ? b : Uint8List.fromList(b);
   for (final (stelle, bytes) in flicken) {
     aus.setRange(stelle, stelle + bytes.length, bytes);
   }
-  return aus;
+  return Bereinigt(aus);
 }
 
 // ── Video: umbenennen statt entfernen
@@ -412,7 +700,7 @@ List<_Flicken>? _moov(Uint8List b, _Kasten moov) {
   if (kinder == null) return null;
   final flicken = <_Flicken>[];
   for (final k in kinder) {
-    if (k.typ == 'udta' || k.typ == 'meta' || _istXmpUuid(b, k)) {
+    if (k.typ == 'udta' || k.typ == 'meta' || k.typ == 'uuid') {
       flicken.addAll(_alsFrei(k));
     } else if (k.typ == 'mvhd') {
       flicken.addAll(_ohneZeit(b, k));
@@ -420,7 +708,7 @@ List<_Flicken>? _moov(Uint8List b, _Kasten moov) {
       final spur = _kaesten(b, k.inhalt, k.ende);
       if (spur == null) return null;
       for (final s in spur) {
-        if (s.typ == 'udta' || s.typ == 'meta' || _istXmpUuid(b, s)) {
+        if (s.typ == 'udta' || s.typ == 'meta' || s.typ == 'uuid') {
           flicken.addAll(_alsFrei(s));
         } else if (s.typ == 'tkhd') {
           flicken.addAll(_ohneZeit(b, s));
@@ -437,6 +725,43 @@ List<_Flicken>? _moov(Uint8List b, _Kasten moov) {
   return flicken;
 }
 
+/// Wo die Stuecke (chunks) aller Spuren beginnen, laut stco/co64 — als
+/// absolute Dateipositionen. Null, wenn sich eine Tabelle nicht lesen laesst.
+List<int>? _stueckStellen(Uint8List b, _Kasten moov) {
+  final bd = ByteData.sublistView(b);
+  final stellen = <int>[];
+  List<_Kasten>? kinder(_Kasten k) => _kaesten(b, k.inhalt, k.ende);
+  final spuren = kinder(moov);
+  if (spuren == null) return null;
+  for (final trak in spuren.where((k) => k.typ == 'trak')) {
+    for (final mdia in (kinder(trak) ?? const <_Kasten>[]).where((k) => k.typ == 'mdia')) {
+      final minfs = kinder(mdia);
+      if (minfs == null) return null;
+      for (final minf in minfs.where((k) => k.typ == 'minf')) {
+        final stbls = kinder(minf);
+        if (stbls == null) return null;
+        for (final stbl in stbls.where((k) => k.typ == 'stbl')) {
+          final tabellen = kinder(stbl);
+          if (tabellen == null) return null;
+          for (final t in tabellen) {
+            if (t.typ != 'stco' && t.typ != 'co64') continue;
+            // Voll-Kasten: Version/Kennbits (4), Anzahl (4), dann Eintraege.
+            final breite = t.typ == 'stco' ? 4 : 8;
+            if (t.inhalt + 8 > t.ende) return null;
+            final anzahl = bd.getUint32(t.inhalt + 4);
+            if (t.inhalt + 8 + anzahl * breite > t.ende) return null;
+            for (var n = 0; n < anzahl; n++) {
+              final p = t.inhalt + 8 + n * breite;
+              stellen.add(breite == 4 ? bd.getUint32(p) : bd.getUint64(p));
+            }
+          }
+        }
+      }
+    }
+  }
+  return stellen;
+}
+
 /// Erstellungs- und Aenderungszeit in mvhd, tkhd, mdhd auf 0 (= 1904). Sie
 /// stehen direkt hinter Version und Kennbits: zweimal 32 Bit bei Version 0,
 /// zweimal 64 Bit bei Version 1.
@@ -449,9 +774,9 @@ List<_Flicken> _ohneZeit(Uint8List b, _Kasten k) {
 
 // ── HEIF: Waren an Ort und Stelle ueberschreiben
 
-/// Die Aenderungen fuer die Exif- und XMP-Waren eines HEIF-meta-Kastens —
-/// oder null, wenn sich eine davon nicht sicher finden laesst.
-List<_Flicken>? _heifWaren(Uint8List b, _Kasten meta) {
+/// Die Kinder eines HEIF-meta-Kastens und darin iinf, iloc, idat — oder null,
+/// wenn meta kaputt ist.
+({_Kasten? iinf, _Kasten? iloc, _Kasten? idat})? _metaTeile(Uint8List b, _Kasten meta) {
   // meta ist ein "Voll-Kasten": vier Bytes Version und Kennbits vorneweg.
   final kinder = _kaesten(b, meta.inhalt + 4, meta.ende);
   if (kinder == null) return null;
@@ -461,6 +786,15 @@ List<_Flicken>? _heifWaren(Uint8List b, _Kasten meta) {
     if (k.typ == 'iloc') iloc = k;
     if (k.typ == 'idat') idat = k;
   }
+  return (iinf: iinf, iloc: iloc, idat: idat);
+}
+
+/// Die Aenderungen fuer die Exif- und XMP-Waren eines HEIF-meta-Kastens —
+/// oder null, wenn sich eine davon nicht sicher finden laesst.
+List<_Flicken>? _heifWaren(Uint8List b, _Kasten meta) {
+  final teile = _metaTeile(b, meta);
+  if (teile == null) return null;
+  final (:iinf, :iloc, :idat) = teile;
   if (iinf == null) return const [];
   final ziele = _metadatenWaren(b, iinf);
   if (ziele == null) return null;
@@ -481,6 +815,20 @@ List<_Flicken>? _heifWaren(Uint8List b, _Kasten meta) {
     }
   }
   return flicken;
+}
+
+/// Alle Dateibereiche, auf die iloc zeigt (Bauart 0), als (Anfang, Ende).
+/// Null, wenn iloc sich nicht lesen laesst. Ohne iloc: keine.
+List<(int, int)>? _heifBelegt(Uint8List b, _Kasten meta) {
+  final teile = _metaTeile(b, meta);
+  if (teile == null) return null;
+  if (teile.iloc == null) return const [];
+  final orte = _warenOrte(b, teile.iloc!, null, const {}, alle: true);
+  if (orte == null) return null;
+  return [
+    for (final stuecke in orte.values)
+      for (final (stelle, laenge) in stuecke) (stelle, stelle + laenge),
+  ];
 }
 
 /// Ware-Nummer -> true fuer Exif, false fuer XMP. Null, wenn iinf kaputt ist.
@@ -535,8 +883,13 @@ Map<int, bool>? _metadatenWaren(Uint8List b, _Kasten iinf) {
 /// Wo die Waren [ids] liegen: Ware-Nummer -> Stuecke (Stelle, Laenge), als
 /// absolute Positionen in der Datei. Null bei allem, was hier nicht sicher
 /// verstanden wird.
+///
+/// Mit [alle] zaehlen alle Waren, deren Daten direkt in der Datei stehen
+/// (Bauart 0); was in idat, in anderen Waren oder anderen Dateien liegt,
+/// wird dann uebergangen statt abgelehnt — gefragt ist nur, welche Bytes der
+/// Datei belegt sind.
 Map<int, List<(int, int)>>? _warenOrte(
-    Uint8List b, _Kasten iloc, _Kasten? idat, Set<int> ids) {
+    Uint8List b, _Kasten iloc, _Kasten? idat, Set<int> ids, {bool alle = false}) {
   final bd = ByteData.sublistView(b);
   final e = iloc.ende;
   var i = iloc.inhalt;
@@ -589,8 +942,12 @@ Map<int, List<(int, int)>>? _warenOrte(
       if (versatz == null || laenge == null) return null;
       stuecke.add((versatz, laenge));
     }
-    if (!ids.contains(id)) continue;
-    if (quelle != 0) return null;
+    if (alle) {
+      if (quelle != 0 || bauart != 0) continue;
+    } else {
+      if (!ids.contains(id)) continue;
+      if (quelle != 0) return null;
+    }
     // Bauart 0: Stellen in der Datei. Bauart 1: im idat-Kasten. Bauart 2
     // (aus anderen Waren zusammengesetzt) wird hier nicht verstanden.
     final int anfang, ende;

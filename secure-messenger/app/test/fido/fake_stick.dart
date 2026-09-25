@@ -38,7 +38,10 @@ class FakeStick implements CtapTransport {
   /// Die PIN, die dieser Stick fuer richtig haelt.
   final String pin;
   final bool kannHmacSecret;
-  final bool hatPin;
+
+  /// Veraenderlich: ein Test kann dem Stick nachtraeglich eine PIN geben —
+  /// genau der Fall "Fach angelegt, danach PIN gesetzt".
+  bool hatPin;
 
   late final pc.AsymmetricKeyPair<pc.PublicKey, pc.PrivateKey> _paar;
 
@@ -46,7 +49,18 @@ class FakeStick implements CtapTransport {
       Uint8List.fromList(List.generate(32, (i) => (i * 7 + 3) & 0xFF));
 
   /// Angelegte Zugaenge: Kennung → der interne Schluessel dazu.
+  ///
+  /// Aus diesem einen Schluessel leitet der Stick ZWEI ab, wie CTAP2 es fuer
+  /// hmac-secret vorschreibt: CredRandomWithUV (Abfrage mit PIN-Nachweis)
+  /// und CredRandomWithoutUV (ohne). Siehe [_credRandom].
   final Map<String, Uint8List> zugaenge = {};
+
+  /// Gespeicherte Zugaenge (rk: true): "rpId|Nutzerkennung" → Kennung.
+  ///
+  /// Wie ein echter Stick fuehrt dieser je Dienst und Nutzerkennung nur
+  /// EINEN gespeicherten Zugang; ein neuer ueberschreibt den alten, und der
+  /// alte ist danach nicht mehr abrufbar. Das war der Fehler bis 25.09.2026.
+  final Map<String, String> gespeichert = {};
 
   /// Wie oft der Nutzer den Stick beruehren musste.
   int beruehrungen = 0;
@@ -180,6 +194,21 @@ class FakeStick implements CtapTransport {
         List.generate(32, (_) => _zufall.nextInt(256)));
 
     final rpId = _rpIdAus(p[2]);
+    final optionen = p[7];
+    final speichern = optionen is Map &&
+        optionen.entries.any((e) => '${e.key}' == 'rk' && e.value == true);
+    if (speichern) {
+      final nutzer = p[3];
+      final nutzerId = nutzer is Map
+          ? base64.encode(_bytes(nutzer.entries
+              .firstWhere((e) => '${e.key}' == 'id')
+              .value))
+          : '';
+      final platz = '$rpId|$nutzerId';
+      final alt = gespeichert[platz];
+      if (alt != null) zugaenge.remove(alt);
+      gespeichert[platz] = base64.encode(kennung);
+    }
     final authData = BytesBuilder()
       ..add(_sha256(Uint8List.fromList(utf8.encode(rpId))))
       ..addByte(0xC5) // ED | AT | UV | UP
@@ -212,7 +241,10 @@ class FakeStick implements CtapTransport {
   CborValue _getAssertion(Map<Object?, Object?> p) {
     final rpId = '${p[1]}';
     final clientDataHash = _bytes(p[2]);
-    _pruefeBeglaubigung(p, clientDataHash, feld: 6, protokollFeld: 7);
+    // CTAP2.0 getAssertion: ohne PIN-Nachweis ist die Abfrage auch bei einem
+    // Stick MIT PIN erlaubt — dann eben ohne Nutzerpruefung (uv = 0).
+    final uv = p[6] != null;
+    if (uv) _pruefeBeglaubigung(p, clientDataHash, feld: 6, protokollFeld: 7);
 
     // Den gemeinten Zugang aus der Liste holen.
     final liste = p[3];
@@ -248,15 +280,16 @@ class FakeStick implements CtapTransport {
         if (salz.length != 32 && salz.length != 64) {
           throw const CtapException(0x22);
         }
-        final roh = Uint8List.fromList(
-            _hmac(intern, Uint8List.sublistView(salz, 0, 32)));
+        final roh = Uint8List.fromList(_hmac(
+            _credRandom(intern, uv: uv), Uint8List.sublistView(salz, 0, 32)));
         ausgabe = _aes(geheimnis, roh, verschluesseln: true);
       }
     }
 
     final authData = BytesBuilder()
       ..add(_sha256(Uint8List.fromList(utf8.encode(rpId))))
-      ..addByte(ausgabe == null ? 0x05 : 0x85) // ED | UV | UP, KEIN AT
+      ..addByte((ausgabe == null ? 0x01 : 0x81) | (uv ? 0x04 : 0))
+      // ED | UV (nur mit Nachweis) | UP, KEIN AT
       ..add([0, 0, 0, 2]);
     if (ausgabe != null) {
       authData.add(cborEncode(CborMap({
@@ -275,6 +308,14 @@ class FakeStick implements CtapTransport {
   }
 
   // ------------------------------------------------------------------ Hilfen
+
+  /// CredRandomWithUV bzw. CredRandomWithoutUV — zwei verschiedene Schluessel
+  /// je Zugang. Ohne Pruefung ist es der gespeicherte selbst, mit Pruefung
+  /// ein davon abgeleiteter. So bleibt der Test "fremder Stick mit derselben
+  /// Kennung" gueltig, der nur den gespeicherten Schluessel austauscht.
+  static Uint8List _credRandom(Uint8List intern, {required bool uv}) => uv
+      ? Uint8List.fromList(_hmac(intern, Uint8List.fromList(utf8.encode('uv'))))
+      : intern;
 
   /// Prueft den Nachweis, dass die PIN vorlag.
   void _pruefeBeglaubigung(Map<Object?, Object?> p, Uint8List clientDataHash,
