@@ -483,6 +483,12 @@ class AppState extends ChangeNotifier {
     await _ladeEinstellungen();
     await raeumeAbgelaufeneWeg();
     kontakte = await core.getContacts();
+    // AUCH DIE GRUPPEN UND JE EINE VORSCHAU. Bis 25.09.2026 lud der Start nur
+    // die Kontakte: nach jedem Neustart fehlten alle Gruppen in der Liste,
+    // bis zufaellig ein Kontaktereignis sie nachlud, und jede Zeile sagte
+    // "Neuer Kontakt" statt der letzten Nachricht (Emulatorlauf).
+    gruppen = await core.getGruppen();
+    await _ladeVorschauen();
     _hoereZu();
     // Nicht abwarten: der Kern wirft bei Netzproblemen nicht, er meldet den
     // Zustand. Die Oberflaeche soll sofort da sein, auch im Funkloch.
@@ -911,11 +917,35 @@ class AppState extends ChangeNotifier {
 
   void _uebernehmeStatus(MessageStatusUpdate u) {
     final liste = verlaeufe[u.chatId];
-    if (liste == null) return;
-    final i = liste.indexWhere((m) => m.id == u.messageId);
-    if (i < 0) return;
-    liste[i] = liste[i].copyWith(status: u.status);
+    final i = liste?.indexWhere((m) => m.id == u.messageId) ?? -1;
+    if (i < 0) {
+      // DER STATUS KANN VOR DER NACHRICHT DA SEIN. Bei den Notizen setzt der
+      // Kern "sent" noch innerhalb von `sendMessage`, also bevor [senden] die
+      // Nachricht in den Verlauf haengt — ohne diesen Merkzettel verpuffte
+      // das Ereignis, und die Notiz stand bis zum Neuoeffnen auf ◷
+      // (gefunden am 25.09.2026 im Emulatorlauf).
+      _fruehStatus[u.messageId] = u.status;
+      if (_fruehStatus.length > 64) _fruehStatus.remove(_fruehStatus.keys.first);
+      return;
+    }
+    liste![i] = liste[i].copyWith(status: u.status);
     notifyListeners();
+  }
+
+  /// Status, die eintrafen, bevor ihre Nachricht im Verlauf stand.
+  final Map<String, MessageStatus> _fruehStatus = {};
+
+  /// Haengt eine EIGENE, gerade verschickte Nachricht an — mit dem Status,
+  /// der ihr womoeglich schon vorausgelaufen ist.
+  ///
+  /// Eine neue Liste statt `.add`: die Liste kann vom Kern stammen und
+  /// unveraenderlich sein (siehe [senden]).
+  void _haengeEigeneAn(String chatId, Message m) {
+    final frueh = _fruehStatus.remove(m.id);
+    final mit = frueh == null || frueh.index <= m.status.index
+        ? m
+        : m.copyWith(status: frueh);
+    verlaeufe[chatId] = [...?verlaeufe[chatId], mit];
   }
 
   Future<void> _ladeKontakteNeu() async {
@@ -1030,6 +1060,26 @@ class AppState extends ChangeNotifier {
 
   List<Message> verlaufVon(String id) => verlaeufe[id] ?? const [];
 
+  /// Die letzte Nachricht jeder Unterhaltung, fuer die Zeilen der Chatliste.
+  ///
+  /// NUR EINE je Unterhaltung, nicht der Verlauf: den holt erst das Oeffnen
+  /// ([unterhaltungOeffnen]). Und KEIN `markRead` — eine Vorschau ist kein
+  /// Lesen, und eine Lesebestaetigung beim App-Start waere gelogen.
+  Future<void> _ladeVorschauen() async {
+    for (final id in [
+      ...aktiveKontakte.map((k) => k.id),
+      ...gruppen.map((g) => g.id),
+    ]) {
+      if (verlaeufe.containsKey(id)) continue;
+      try {
+        final letzte = await core.getMessages(id, limit: 1);
+        if (letzte.isNotEmpty) verlaeufe[id] = letzte;
+      } on MessengerException {
+        // Eine Zeile ohne Vorschau ist kein Grund, den Start abzubrechen.
+      }
+    }
+  }
+
   Future<void> unterhaltungOeffnen(String id) async {
     verlaeufe[id] = await core.getMessages(id);
     // In EINEM Zug fuer die ganze Unterhaltung. Je Nachricht zu fragen hiesse
@@ -1109,7 +1159,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> sendeUmfrage(String chatId, Umfrage u) async {
     final m = await core.sendeUmfrage(chatId, u);
-    verlaeufe[chatId] = [...?verlaeufe[chatId], m];
+    _haengeEigeneAn(chatId, m);
     notifyListeners();
   }
 
@@ -1345,7 +1395,7 @@ class AppState extends ChangeNotifier {
       // Entwurfskern gibt eine unveraenderliche zurueck; das `.add` warf dort,
       // und der Anhang stand als "Fehler" da, obwohl er verschickt war
       // (gefunden am 25.09.2026 beim Test der Sprachnachrichten).
-      verlaeufe[chatId] = [...?verlaeufe[chatId], m];
+      _haengeEigeneAn(chatId, m);
       anhaenge[chatId] = await core.getAnhaenge(chatId);
     } on AnhangZuGross catch (e) {
       letzterFehler = 'anhangZuGross:${e.groesse}:${e.grenze}';
@@ -1474,7 +1524,7 @@ class AppState extends ChangeNotifier {
       //
       // Eine neue Liste zu bauen kostet bei Chatlaengen nichts und macht die
       // Annahme ueberfluessig.
-      verlaeufe[id] = [...?verlaeufe[id], m];
+      _haengeEigeneAn(id, m);
       notifyListeners();
     } on MessageTooLargeException {
       letzterFehler = 'zuLang';

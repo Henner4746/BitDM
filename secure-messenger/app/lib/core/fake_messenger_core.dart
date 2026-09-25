@@ -239,8 +239,13 @@ class FakeMessengerCore implements MessengerCore {
     // Eine geplante bleibt im Entwurfskern einfach liegen — es gibt keinen
     // Nachversand, der sie spaeter schicken koennte.
     if (geplant) return msg;
-    // Notizen bekommen keine Antwort vom Entwurfskern.
-    if (contactId == _me) return msg;
+    // Notizen bekommen keine Antwort vom Entwurfskern — aber sofort "sent",
+    // NOCH VOR DER RUECKKEHR, genau wie im echten Kern. Die Oberflaeche muss
+    // mit einem Status zurechtkommen, der vor seiner Nachricht eintrifft.
+    if (contactId == _me) {
+      _emitStatus(contactId, msg.id, MessageStatus.sent);
+      return msg;
+    }
     Timer(const Duration(milliseconds: 250), () => _emitStatus(contactId, msg.id, MessageStatus.sent));
     Timer(const Duration(milliseconds: 700), () => _emitStatus(contactId, msg.id, MessageStatus.delivered));
     // fake inbound auto-reply so the UI sees incomingMessages

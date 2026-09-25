@@ -139,4 +139,34 @@ void main() {
     expect(kern.ablageFuerTest.verlauf(chat).single.ueberNaehe, isTrue,
         reason: 'das Zeichen "ohne Server gegangen" ging verloren');
   });
+
+  test('eine Lesebestaetigung fuer eine spaetere Nachricht verschickt keine fruehere',
+      () {
+    // m-1 (aus setUp) haengt noch auf "sending" — geplant oder im Funkloch.
+    // m-2 ist draussen, m-3 ebenfalls; die Gegenseite liest bis m-3.
+    final ablage = kern.ablageFuerTest;
+    for (final id in ['m-2', 'm-3']) {
+      ablage.speichereEigene(Message(
+        id: id,
+        chatId: chat,
+        senderId: kern.myId,
+        text: id,
+        kind: MessageKind.text,
+        isMine: true,
+        timestamp: DateTime.now().toUtc(),
+        status: MessageStatus.sending,
+      ));
+      ablage.setzeStatus(chat, kern.myId, id, MessageStatus.delivered);
+    }
+    ablage.markiereGelesenBis(chat, kern.myId, ablage.seqVon(chat, 'm-3', kern.myId)!);
+
+    MessageStatus von(String id) =>
+        ablage.verlauf(chat).singleWhere((m) => m.id == id).status;
+    expect(von('m-1'), MessageStatus.sending,
+        reason: 'eine nie verschickte Nachricht stand auf "gelesen" und waere '
+            'nie mehr nachgeschickt worden');
+    expect(ablage.unversandt().map((m) => m.id), contains('m-1'));
+    expect(von('m-2'), MessageStatus.read);
+    expect(von('m-3'), MessageStatus.read);
+  });
 }

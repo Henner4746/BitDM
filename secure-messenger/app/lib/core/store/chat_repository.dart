@@ -614,16 +614,25 @@ class ChatRepository {
   ///
   /// Nur vorwaerts: eine bereits gelesene Nachricht faellt nicht auf
   /// "zugestellt" zurueck, wenn eine spaete Bestaetigung eintrudelt.
+  ///
+  /// NUR WAS DRAUSSEN IST. Bis 25.09.2026 hiess die Bedingung `status <
+  /// read` — und darunter liegt auch `sending`. Eine Lesebestaetigung fuer
+  /// eine SPAETERE Nachricht setzte damit jede fruehere, die noch gar nicht
+  /// verschickt war, auf "gelesen": eine geplante Nachricht (im Emulatorlauf
+  /// fuer 12:57 geplant, um 12:11 schon mit zwei Haken) ebenso wie eine, die
+  /// im Funkloch haengengeblieben war. Der Nachversand sucht nur nach
+  /// `sending` — beide waeren nie mehr hinausgegangen.
   void markiereGelesenBis(String chatId, String senderId, int bisSeq) {
     db.transaction((raw) => raw.execute(
         'UPDATE messages SET status = ? '
-        'WHERE chat_id=? AND sender_id=? AND seq <= ? AND status < ?',
+        'WHERE chat_id=? AND sender_id=? AND seq <= ? AND status IN (?, ?)',
         [
           MessageStatus.read.index,
           chatId,
           senderId,
           bisSeq,
-          MessageStatus.read.index
+          MessageStatus.sent.index,
+          MessageStatus.delivered.index,
         ]));
   }
 
