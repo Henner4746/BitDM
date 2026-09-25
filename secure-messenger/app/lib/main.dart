@@ -6114,6 +6114,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           outlineBtn(t('trustCreate'), _erzeugeTeile, padding: const EdgeInsets.all(9)),
         ])),
         const SizedBox(height: 3),
+        // TOR: alles, was zum Relay und ins Zwischenlager geht, ueber Orbot.
+        toggleRow(t('torTitle'), t('torSub').replaceFirst('{port}', '${st.einstellungen.torPort}'),
+            st.einstellungen.tor,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(tor: !st.einstellungen.tor))),
+        const SizedBox(height: 3),
         // SICHERUNG: Kontakte und Verlauf als verschluesselte Datei, die nur
         // mit den zwoelf Woertern aufgeht. Zwei Knoepfe, weil es zwei Wege
         // sind, und die Erklaerung darunter sagt, was NICHT darin ist.

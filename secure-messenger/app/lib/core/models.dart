@@ -694,6 +694,12 @@ class AppPreferences {
   /// Ob neu eintreffende Nachrichten sich sichtbar "entschluesseln".
   final bool entschluesseln;
 
+  /// TOR: alle Verbindungen zu Relay und Zwischenlager ueber einen
+  /// SOCKS5-Proxy auf diesem Geraet (Orbot, Standard 127.0.0.1:9050). Der
+  /// Relay sieht dann nicht mehr die IP-Adresse des Telefons.
+  final bool tor;
+  final int torPort;
+
   /// RUHEZEITEN: zwischen [ruheVon] und [ruheBis] (Minuten nach Mitternacht,
   /// Ortszeit) meldet sich das Telefon nicht — ausser fuer angeheftete
   /// Unterhaltungen. Die Nachrichten kommen trotzdem an.
@@ -716,6 +722,8 @@ class AppPreferences {
     this.themaWandern = 0,
     this.sprache,
     this.entschluesseln = true,
+    this.tor = false,
+    this.torPort = 9050,
     this.ruheAn = false,
     this.ruheVon = 22 * 60,
     this.ruheBis = 7 * 60,
@@ -734,6 +742,8 @@ class AppPreferences {
     int? themaWandern,
     String? sprache,
     bool? entschluesseln,
+    bool? tor,
+    int? torPort,
     bool? ruheAn,
     int? ruheVon,
     int? ruheBis,
@@ -753,6 +763,8 @@ class AppPreferences {
         themaWandern: themaWandern ?? this.themaWandern,
         sprache: sprache ?? this.sprache,
         entschluesseln: entschluesseln ?? this.entschluesseln,
+        tor: tor ?? this.tor,
+        torPort: torPort ?? this.torPort,
         ruheAn: ruheAn ?? this.ruheAn,
         ruheVon: ruheVon ?? this.ruheVon,
         ruheBis: ruheBis ?? this.ruheBis,

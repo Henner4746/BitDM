@@ -30,6 +30,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../net/netzweg.dart';
+
 class LagerException implements Exception {
   const LagerException(this.grund, {this.status});
   final String grund;
@@ -79,7 +81,7 @@ class LagerClient {
     HttpClient? httpClient,
     Duration? stille,
   })  : _eigenerClient = httpClient == null,
-        _http = httpClient ?? HttpClient(),
+        _http = httpClient ?? Netzweg.httpClient(),
         stille = stille ?? const Duration(seconds: 60) {
     _http.connectionTimeout = const Duration(seconds: 20);
   }

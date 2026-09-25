@@ -25,6 +25,7 @@ import 'dart:typed_data';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../crypto/signal_identity.dart';
+import 'netzweg.dart';
 import 'relay_protocol.dart';
 
 class RelayException implements Exception {
@@ -284,7 +285,9 @@ class RelayClient {
 
     final WebSocket ws;
     try {
-      ws = await WebSocket.connect(wsUri.toString());
+      // Ueber Tor, wenn eingeschaltet (netzweg.dart) — sonst wie immer.
+      ws = await WebSocket.connect(wsUri.toString(),
+          customClient: Netzweg.proxy == null ? null : Netzweg.httpClient());
     } on Object catch (e) {
       throw RelayException('Verbindung fehlgeschlagen: $e');
     }
@@ -691,7 +694,7 @@ class RelayClient {
 
   Future<Map<String, Object?>> _anfrage(String methode, String pfad,
       Map<String, Object?>? body, [Map<String, String>? abfrage]) async {
-    final client = HttpClient();
+    final client = Netzweg.httpClient();
     try {
       // DIE ABFRAGE GEHOERT NICHT IN DEN PFAD. `Uri.replace(path: ...)`
       // kodiert das Fragezeichen zu %3F — daraus wuerde ein Pfad namens

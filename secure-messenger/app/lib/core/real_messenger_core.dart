@@ -42,6 +42,7 @@ import 'nah/leuchtfeuer.dart';
 import 'nah/nahbereich.dart';
 import 'nah/wegwahl.dart';
 import 'net/envelope.dart';
+import 'net/netzweg.dart';
 import 'net/payload.dart';
 import 'net/prekey_bundle_bridge.dart';
 import 'net/relay_protocol.dart';
@@ -384,6 +385,7 @@ class RealMessengerCore implements MessengerCore {
     }
 
     _prefs = _chats!.ladeEinstellungen();
+    _setzeNetzweg();
     _planeGeplante();
     // Was waehrend der App-Pause abgelaufen ist, verschwindet beim Start —
     // nicht erst, wenn jemand die Unterhaltung oeffnet und es noch sieht.
@@ -3043,6 +3045,13 @@ class RealMessengerCore implements MessengerCore {
 
   LagerClient _lager() => _lagerClient ??= LagerClient(basis: lagerUri);
 
+  /// Stellt den Weg aller Verbindungen nach der Einstellung "Tor".
+  void _setzeNetzweg() {
+    Netzweg.proxy = _prefs.tor ? SocksZiel('127.0.0.1', _prefs.torPort) : null;
+    // Der Lager-Client haelt seinen HttpClient; er muss neu entstehen.
+    _lagerClient = null;
+  }
+
   /// relay.bitdm.net → dateien.bitdm.net, 127.0.0.1:8099 → 127.0.0.1:8099.
   ///
   /// Der zweite Fall ist der Testfall: dort laeuft beides auf demselben
@@ -3092,8 +3101,19 @@ class RealMessengerCore implements MessengerCore {
     if (_chats == null) throw const NotInitializedException();
     final vorher = _prefs.nurNahbereich;
     final vorherFunk = _prefs.naheAn;
+    final vorherTor = (_prefs.tor, _prefs.torPort);
     _prefs = prefs;
     _chats!.speichereEinstellungen(prefs);
+
+    // TOR SOFORT: die offene Verbindung laeuft noch auf dem alten Weg. Neu
+    // verbinden, damit ab jetzt nichts mehr an Tor vorbei geht.
+    if ((prefs.tor, prefs.torPort) != vorherTor) {
+      _setzeNetzweg();
+      if (!prefs.nurNahbereich) {
+        await disconnect();
+        await connect();
+      }
+    }
 
     // Nur beim WECHSEL. Ohne den Vergleich riefe jedes Speichern der
     // Einstellungen — auch das der Lesebestaetigungen — ein vollstaendiges
@@ -4171,7 +4191,7 @@ class _KernUmgebung implements TestUmgebung {
   int get naheInReichweite => _k._nah?.inReichweite.length ?? 0;
 
   @override
-  HttpClient httpClient() => HttpClient();
+  HttpClient httpClient() => Netzweg.httpClient();
 
   /// EIN EIGENER CLIENT je Lauf und nicht der des Kerns: der Test wirft ihn
   /// am Ende weg, und ein laufender Anhang-Versand soll davon nichts merken.
