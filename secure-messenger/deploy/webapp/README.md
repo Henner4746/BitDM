@@ -41,9 +41,17 @@ location ^~ /app/ {
     # nginx 1.18 kennt .wasm noch nicht; ein types-Block ersetzt die ganze Liste,
     # darum stehen hier alle Arten, die ein Flutter-Webbau enthaelt.
     types { application/wasm wasm; application/javascript js mjs; text/html html; application/json json; image/png png; image/svg+xml svg; image/x-icon ico; text/css css; font/ttf ttf; font/otf otf; font/woff2 woff2; application/octet-stream bin frag symbols; }
+    # Flutter-Dateien tragen keinen Inhalts-Hash im Namen: ohne no-cache
+    # hielt Cloudflare sie 4 h und mischte nach einem Update alt und neu.
+    # no-cache heisst "jedes Mal nachfragen" — meist ein 304.
+    add_header Cache-Control "no-cache" always;
     try_files $uri $uri/ /app/index.html;
 }
 ```
+
+Das `no-cache` kam erst nach dem ersten Ausliefern dazu (25.09.2026). Was
+Cloudflare vorher schon zwischengespeichert hatte, bleibt bis zum Ablauf dort
+(bis 4 h) — oder man leert den Cache im Cloudflare-Dashboard.
 
 Ohne den types-Block kommt `sqlite3mc.wasm` als `application/octet-stream`,
 und `WebAssembly.instantiateStreaming` verweigert es.
