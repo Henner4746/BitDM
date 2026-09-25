@@ -537,6 +537,30 @@ class RelayClient {
     }
   }
 
+  /// TARNVERKEHR: ein Rahmen, der von aussen aussieht wie eine Nachricht —
+  /// gleicher Aufbau, "geraeus" ist genauso lang wie "message", eine
+  /// zufaellige Zieladresse und ein Chiffretext aus Zufall in den Groessen, in
+  /// denen echte Umschlaege vorkommen. Der Relay verwirft ihn (er nimmt nur
+  /// "message"); wer die Leitung beobachtet, kann ihn nicht von einer echten
+  /// unterscheiden. Gegen den Relay selbst hilft das nicht — das waere ein
+  /// Tarnverkehr, den er speichern muesste.
+  void sendeGeraeusch() {
+    final ws = _ws;
+    if (ws == null) return;
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+    final to = String.fromCharCodes(
+        List.generate(56, (_) => alphabet.codeUnitAt(_zufall.nextInt(32))));
+    // Echte Umschlaege: Nutzlast auf 256er-Bloecke aufgefuellt plus
+    // Signal-Kopf; meist ein bis drei Bloecke.
+    final laenge = 256 * (1 + _zufall.nextInt(3)) + 60 + _zufall.nextInt(40);
+    ws.add(jsonEncode({
+      'type': 'geraeus',
+      'id': '${_laufendeNummer++}-${_zufall.nextInt(1 << 32)}',
+      'to': to,
+      'ciphertext': base64.encode(List.generate(laenge, (_) => _zufall.nextInt(256))),
+    }));
+  }
+
   /// Wie [send], nur an ein bestimmtes GERAET der Adresse.
   ///
   /// EIGENE METHODE UND KEIN ZUSATZPARAMETER AN [send]: `send` steht in

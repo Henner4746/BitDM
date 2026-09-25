@@ -6257,6 +6257,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
             st.einstellungen.tor,
             () => st.setzeEinstellungen(st.einstellungen.copyWith(tor: !st.einstellungen.tor))),
         const SizedBox(height: 3),
+        toggleRow(t('coverTitle'), t('coverSub'), st.einstellungen.tarnverkehr,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(tarnverkehr: !st.einstellungen.tarnverkehr))),
+        const SizedBox(height: 3),
         // SICHERUNG: Kontakte und Verlauf als verschluesselte Datei, die nur
         // mit den zwoelf Woertern aufgeht. Zwei Knoepfe, weil es zwei Wege
         // sind, und die Erklaerung darunter sagt, was NICHT darin ist.

@@ -527,6 +527,7 @@ class RealMessengerCore implements MessengerCore {
       if (ueberholt()) return _gibAuf(relay);
 
       _setzeVerbindung(ConnectionState.online);
+      _planeGeraeusch();
       // DIE EIGENEN GERAETE NACH JEDEM VERBINDEN, nicht nach dem
       // Sechs-Stunden-Fenster wie bei Kontakten (Spezifikation §4). Das ist
       // Henriks Kernszenario: das zweite Telefon soll sehen, was das erste
@@ -791,6 +792,7 @@ class RealMessengerCore implements MessengerCore {
 
   @override
   Future<void> disconnect() async {
+    _geraeuschTakt?.cancel();
     await _raeumeVerbindungAb();
     _setzeVerbindung(ConnectionState.disconnected);
   }
@@ -3095,6 +3097,24 @@ class RealMessengerCore implements MessengerCore {
 
   LagerClient _lager() => _lagerClient ??= LagerClient(basis: lagerUri);
 
+  Timer? _geraeuschTakt;
+
+  /// Der naechste Tarnrahmen — in einem zufaelligen Abstand mit einem Mittel
+  /// von 45 Sekunden (Exponentialverteilung: ohne erkennbaren Takt), solange
+  /// verbunden und eingeschaltet.
+  void _planeGeraeusch() {
+    _geraeuschTakt?.cancel();
+    _geraeuschTakt = null;
+    if (!_prefs.tarnverkehr || _conn != ConnectionState.online) return;
+    final u = 1 - _zufall.nextDouble();
+    final ms = (-log(u) * 45000).clamp(4000, 180000).round();
+    _geraeuschTakt = Timer(Duration(milliseconds: ms), () {
+      if (_conn != ConnectionState.online) return;
+      _relay?.sendeGeraeusch();
+      _planeGeraeusch();
+    });
+  }
+
   /// Stellt den Weg aller Verbindungen nach der Einstellung "Tor".
   void _setzeNetzweg() {
     Netzweg.proxy = _prefs.tor ? SocksZiel('127.0.0.1', _prefs.torPort) : null;
@@ -3154,6 +3174,7 @@ class RealMessengerCore implements MessengerCore {
     final vorherTor = (_prefs.tor, _prefs.torPort);
     _prefs = prefs;
     _chats!.speichereEinstellungen(prefs);
+    _planeGeraeusch();
 
     // TOR SOFORT: die offene Verbindung laeuft noch auf dem alten Weg. Neu
     // verbinden, damit ab jetzt nichts mehr an Tor vorbei geht.
@@ -4127,6 +4148,7 @@ class RealMessengerCore implements MessengerCore {
 
   @override
   Future<void> dispose() async {
+    _geraeuschTakt?.cancel();
     await _raeumeVerbindungAb();
     await _nahAbo?.cancel();
     _nahAbo = null;

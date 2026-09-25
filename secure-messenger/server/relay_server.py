@@ -1877,6 +1877,13 @@ async def ws_endpoint(ws: WebSocket):
                 })
                 continue
 
+            # TARNVERKEHR ("geraeus", seit 25.09.2026): sieht von aussen aus
+            # wie eine Nachricht und wird hier ohne Antwort verworfen — kein
+            # Speichern, keine Bestaetigung, keine Bremse verbraucht. Ausdruecklich
+            # benannt, damit niemand spaeter "unbekannte Art" zu einem Fehler macht.
+            if data.get("type") == "geraeus":
+                continue
+
             if data.get("type") != "message":
                 continue
 

@@ -2906,3 +2906,22 @@ def test_die_tagesmenge_des_zwischenlagers_bleibt_an_der_adresse(relay):
     spalten = {r[1] for r in rs.db.execute("PRAGMA table_info(blob_marken)")}
     assert "device_id" not in spalten
     assert spalten == {"id", "user_id", "groesse", "ts"}
+
+
+def test_tarnverkehr_wird_still_verworfen(relay):
+    """Ein "geraeus"-Rahmen sieht aus wie eine Nachricht und darf nichts tun:
+    keine Antwort (ein ack oder error verriete ihn), keine Zeile in der
+    Warteschlange — und die Verbindung bleibt fuer echte Nachrichten offen."""
+    rs = relay
+    alice, bob = make_user(), make_user()
+    _lege_an(rs, alice)
+    _lege_an(rs, bob)
+    raus = _sitzung(rs, alice, [
+        {"type": "geraeus", "to": bob["user_id"], "ciphertext": b64(os.urandom(600)), "id": "g1"},
+        {"type": "message", "to": bob["user_id"], "ciphertext": b64(b"x"), "id": "m1"},
+    ])
+    assert not [m for m in raus if m.get("id") == "g1"], "der Relay hat auf Tarnverkehr geantwortet"
+    assert [m for m in raus if m.get("type") == "ack" and m.get("id") == "m1"]
+    assert rs.db.execute(
+        "SELECT COUNT(*) FROM queue WHERE recipient=?", (bob["user_id"],)
+    ).fetchone()[0] == 1, "der Tarnrahmen landete in der Warteschlange"

@@ -775,6 +775,10 @@ class AppPreferences {
   final bool tor;
   final int torPort;
 
+  /// TARNVERKEHR: solange die App verbunden ist, in zufaelligen Abstaenden
+  /// Rahmen, die wie Nachrichten aussehen. Ab Werk aus (kostet Daten).
+  final bool tarnverkehr;
+
   /// RUHEZEITEN: zwischen [ruheVon] und [ruheBis] (Minuten nach Mitternacht,
   /// Ortszeit) meldet sich das Telefon nicht — ausser fuer angeheftete
   /// Unterhaltungen. Die Nachrichten kommen trotzdem an.
@@ -798,6 +802,7 @@ class AppPreferences {
     this.sprache,
     this.entschluesseln = true,
     this.tor = false,
+    this.tarnverkehr = false,
     this.torPort = 9050,
     this.ruheAn = false,
     this.ruheVon = 22 * 60,
@@ -819,6 +824,7 @@ class AppPreferences {
     bool? entschluesseln,
     bool? tor,
     int? torPort,
+    bool? tarnverkehr,
     bool? ruheAn,
     int? ruheVon,
     int? ruheBis,
@@ -839,6 +845,7 @@ class AppPreferences {
         sprache: sprache ?? this.sprache,
         entschluesseln: entschluesseln ?? this.entschluesseln,
         tor: tor ?? this.tor,
+        tarnverkehr: tarnverkehr ?? this.tarnverkehr,
         torPort: torPort ?? this.torPort,
         ruheAn: ruheAn ?? this.ruheAn,
         ruheVon: ruheVon ?? this.ruheVon,

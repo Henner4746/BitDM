@@ -512,6 +512,7 @@ class ChatRepository {
       sprache: (lies('sprache') ?? '').isEmpty ? null : lies('sprache'),
       entschluesseln: lies('entschluesseln') != '0',
       tor: lies('tor') == '1',
+      tarnverkehr: lies('tarnverkehr') == '1',
       torPort: int.tryParse(lies('tor_port') ?? '') ?? 9050,
       ruheAn: lies('ruhe_an') == '1',
       ruheVon: int.tryParse(lies('ruhe_von') ?? '') ?? 22 * 60,
@@ -546,6 +547,7 @@ class ChatRepository {
       setze('sprache', p.sprache ?? '');
       setze('entschluesseln', p.entschluesseln ? '1' : '0');
       setze('tor', p.tor ? '1' : '0');
+      setze('tarnverkehr', p.tarnverkehr ? '1' : '0');
       setze('tor_port', '${p.torPort}');
       setze('ruhe_an', p.ruheAn ? '1' : '0');
       setze('ruhe_von', '${p.ruheVon}');
