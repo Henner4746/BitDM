@@ -394,11 +394,9 @@ class Nahbereich implements Ausgang {
       return;
     }
 
-    var getroffen = 0;
     for (final l in g.leuchtfeuer) {
       final wer = t.wer(l);
       if (wer == null) continue;
-      getroffen++;
       final da = _reichweite[wer];
       if (da == null) {
         _reichweite[wer] =

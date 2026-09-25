@@ -63,8 +63,15 @@ void main() {
       // Gegen Bip39 geprueft, nicht gegen den Entwurfskern: der prueft nur die
       // Form der Woerter, keine Pruefsumme. Das steht so in seinem Kommentar,
       // und ein Test, der durch die falsche Schicht laeuft, prueft nichts.
+      //
+      // 200 VERSUCHE UND NICHT 20. Eine Vertauschung besteht die 4-Bit-
+      // Pruefsumme mit 1/16. Bei 20 Versuchen und der Schwelle "mehr als 15"
+      // riss der Test in rund einem Prozent der Laeufe (Poisson, lambda 1,25:
+      // P(mindestens 5 bestanden) = 0,9 %) — am 25.09.2026 einmal gesehen. Bei
+      // 200 sind 187,5 zu erwarten, Streuung 3,4; die Schwelle 170 liegt fuenf
+      // Streuungen darunter und prueft trotzdem, dass die Pruefsumme greift.
       var vertauschtGefunden = 0;
-      for (var versuch = 0; versuch < 20; versuch++) {
+      for (var versuch = 0; versuch < 200; versuch++) {
         final woerter = Bip39.generate();
         final vertauscht = [...woerter];
         final h = vertauscht[0];
@@ -72,7 +79,7 @@ void main() {
         vertauscht[1] = h;
         if (!Bip39.validate(vertauscht)) vertauschtGefunden++;
       }
-      expect(vertauschtGefunden, greaterThan(15),
+      expect(vertauschtGefunden, greaterThan(170),
           reason: 'vertauschte Woerter muessen fast immer durchfallen — sonst '
               'waere die Pruefsumme wirkungslos');
     });

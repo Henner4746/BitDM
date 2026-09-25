@@ -79,7 +79,7 @@ class EncryptedDatabase {
   CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 9;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -265,6 +265,10 @@ class EncryptedDatabase {
             _schemaV6(db);
           case 7:
             _schemaV7(db);
+          case 8:
+            _schemaV8(db);
+          case 9:
+            _schemaV9(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -489,6 +493,149 @@ class EncryptedDatabase {
   static void _schemaV7(CommonDatabase db) {
     db.execute('ALTER TABLE messages '
         'ADD COLUMN schon_in_der_naehe INTEGER NOT NULL DEFAULT 0');
+  }
+
+  /// Wann zuletzt nachgesehen wurde, welche GERAETE ein Kontakt hat.
+  ///
+  /// EINE SPALTE UND KEINE TABELLE, KEINE META-ZEILE JE KONTAKT. Es ist ein
+  /// Zeitstempel je Kontakt, gelesen und geschrieben von genau der Abfrage,
+  /// die die Kontaktzeile ohnehin anfasst. Eine Nebentabelle waere ein JOIN
+  /// fuer ein Feld und ein zweiter Ort, an dem eine Zeile fehlen kann; Meta-
+  /// Zeilen je Kontakt waeren dasselbe in unsortiert.
+  ///
+  /// 0 HEISST "NIE GEFRAGT" und ist damit sofort faellig — richtig fuer jeden
+  /// bestehenden Kontakt: seine Geraeteliste ist bisher `{1}` aus dem
+  /// Sitzungsspeicher, und ob daneben inzwischen ein zweites Telefon steht,
+  /// hat noch niemand nachgesehen. NOT NULL, weil ein NULL hier nichts
+  /// bedeuten wuerde, was die 0 nicht schon sagt.
+  /// NUR WENN SIE FEHLT, und das ist der einzige Schritt, der so vorgeht.
+  ///
+  /// `ALTER TABLE ADD COLUMN` auf eine vorhandene Spalte ist in SQLite ein
+  /// harter Fehler ("duplicate column name"), und der rollt die ganze Stufe
+  /// zurueck. Die Stufe bliebe damit dauerhaft unerreichbar — eine Datei, die
+  /// diesen Zustand einmal hat, laesst sich nie wieder oeffnen. Das kann
+  /// vorkommen: eine Fassung dazwischen hat die Spalte angelegt, die
+  /// Fassungsnummer aber nicht erhoeht, oder ein Abbruch traf genau zwischen
+  /// ALTER und COMMIT.
+  ///
+  /// Der Preis ist eine Abfrage beim Wandern von 7 auf 8, also genau einmal je
+  /// Installation.
+  static void _schemaV8(CommonDatabase db) {
+    final spalten = db
+        .select('PRAGMA table_info(contacts)')
+        .map((r) => r['name'] as String);
+    if (spalten.contains('geraete_geprueft')) return;
+    db.execute('ALTER TABLE contacts '
+        'ADD COLUMN geraete_geprueft INTEGER NOT NULL DEFAULT 0');
+    // KEIN INDEX. Die Spalte wird nur gelesen, wenn die Zeile ohnehin geholt
+    // wird — nie gesucht, nie sortiert. Derselbe Grund wie bei ueber_naehe.
+  }
+
+  /// Antworten, Bearbeiten, Fuer-alle-loeschen, Reaktionen, der Ausgang fuer
+  /// Steuernachrichten und die oertlichen Ordnungsschalter der Unterhaltungen.
+  ///
+  /// ALLES IN EINER STUFE, weil es zusammen ausgeliefert wird: eine App, die
+  /// Reaktionen kennt, aber keinen Ausgang, verloere jede Reaktion, die sie
+  /// ohne Verbindung setzt.
+  ///
+  /// WIEDERHOLBAR WIE [_schemaV8], aus demselben Grund: eine Stufe, die an
+  /// "duplicate column name" scheitert, rollt zurueck und ist danach nie
+  /// wieder erreichbar. Jede Spalte nur, wenn sie fehlt; jede Tabelle mit
+  /// IF NOT EXISTS.
+  static void _schemaV9(CommonDatabase db) {
+    _spalteDazu(db, 'messages', 'antwort_auf', 'TEXT');
+    // Zahl UND Zeitpunkt: die Zahl deckelt (Signal: zehnmal), der Zeitpunkt
+    // ordnet — zwei Bearbeitungen koennen ueber zwei Wege in vertauschter
+    // Reihenfolge ankommen, und dann darf die aeltere die neuere nicht
+    // ueberschreiben.
+    _spalteDazu(db, 'messages', 'bearbeitet_zahl', 'INTEGER NOT NULL DEFAULT 0');
+    _spalteDazu(db, 'messages', 'bearbeitet_at', 'INTEGER');
+    _spalteDazu(db, 'messages', 'widerrufen', 'INTEGER NOT NULL DEFAULT 0');
+
+    // Je Person und Nachricht EINE Zeile — der Primaerschluessel ist die
+    // Regel "eine neue Reaktion ersetzt die alte".
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS reaktionen (
+        chat_id    TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        von        TEXT NOT NULL,
+        zeichen    TEXT NOT NULL,
+        at         INTEGER NOT NULL,
+        PRIMARY KEY (chat_id, message_id, von)
+      )
+    ''');
+
+    // DER AUSGANG: Steuernachrichten, die nicht verloren gehen duerfen, aber
+    // keine Zeile im Verlauf haben — Reaktion, Bearbeitung, Widerruf. Eine
+    // Textnachricht wartet als `sending` in `messages`; fuer diese drei gab es
+    // keinen solchen Platz, und eine Reaktion ohne Verbindung waere still
+    // verschwunden.
+    //
+    // Die fertigen Nutzlast-Bytes, nicht ihre Einzelteile: was nachgeschickt
+    // wird, soll bitgenau das sein, was beim ersten Versuch hinausging. Die
+    // Datenbank ist verschluesselt; Klartext liegt hier nicht offener als im
+    // Verlauf daneben.
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS ausgang (
+        seq     INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT NOT NULL,
+        nutzlast BLOB NOT NULL,
+        angelegt INTEGER NOT NULL
+      )
+    ''');
+
+    // Nur auf diesem Geraet — sie reisen nicht, der Relay erfaehrt nichts.
+    _spalteDazu(db, 'contacts', 'angeheftet', 'INTEGER NOT NULL DEFAULT 0');
+    _spalteDazu(db, 'contacts', 'archiviert', 'INTEGER NOT NULL DEFAULT 0');
+    _spalteDazu(db, 'contacts', 'stumm', 'INTEGER NOT NULL DEFAULT 0');
+    // NULL = folgt der Grundeinstellung, 0 = hier nie, sonst Sekunden.
+    _spalteDazu(db, 'contacts', 'frist', 'INTEGER');
+    // ANGEHEFTET: positiv = angeheftet um t (ms), NEGATIV = geloest um |t|,
+    // NULL = nie beruehrt. Das Vorzeichen ist der Grabstein: ohne ihn liesse
+    // ein verspaetetes "anheften" von gestern eine heute geloeste Nachricht
+    // wieder oben erscheinen.
+    _spalteDazu(db, 'messages', 'angeheftet', 'INTEGER');
+    // GEPLANT: wann eine eigene Nachricht fruehestens hinausgeht (ms), sonst
+    // NULL. Bis dahin steht sie auf `sending` und wird vom Nachversand
+    // uebersprungen.
+    _spalteDazu(db, 'messages', 'faellig', 'INTEGER');
+
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS gruppen (
+        id         TEXT PRIMARY KEY NOT NULL,
+        name       TEXT NOT NULL,
+        admin      TEXT NOT NULL,
+        mitglieder TEXT NOT NULL,
+        version    INTEGER NOT NULL,
+        aktiv      INTEGER NOT NULL DEFAULT 1,
+        angeheftet INTEGER NOT NULL DEFAULT 0,
+        archiviert INTEGER NOT NULL DEFAULT 0,
+        stumm      INTEGER NOT NULL DEFAULT 0,
+        frist      INTEGER,
+        angelegt   INTEGER NOT NULL
+      )
+    ''');
+
+    // Je Person und Umfrage EINE Zeile; eine neue Stimme ersetzt die alte.
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS stimmen (
+        chat_id    TEXT NOT NULL,
+        umfrage_id TEXT NOT NULL,
+        von        TEXT NOT NULL,
+        auswahl    TEXT NOT NULL,
+        at         INTEGER NOT NULL,
+        PRIMARY KEY (chat_id, umfrage_id, von)
+      )
+    ''');
+  }
+
+  /// `ALTER TABLE ... ADD COLUMN`, aber nur, wenn die Spalte fehlt.
+  static void _spalteDazu(
+      CommonDatabase db, String tabelle, String spalte, String art) {
+    final da = db
+        .select('PRAGMA table_info($tabelle)')
+        .any((r) => r['name'] == spalte);
+    if (!da) db.execute('ALTER TABLE $tabelle ADD COLUMN $spalte $art');
   }
 
   static String? _metaLesen(CommonDatabase db, String key) {

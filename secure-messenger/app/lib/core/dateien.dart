@@ -24,6 +24,7 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// Eine ausgewaehlte Datei — und der Zettel, mit dem man sie wieder loslaesst.
 class GewaehlteDatei {
@@ -84,6 +85,14 @@ abstract class DateiWahl {
   Future<GewaehlteDatei?> waehlen();
   Future<void> gibFrei(String zettel);
   Future<bool> oeffne(String pfad, {String? name});
+
+  /// Legt die Datei [quelle] unter dem Vorschlag [name] dort ab, wo der
+  /// Nutzer es waehlt. Rueckgabe: eine Beschreibung des Orts, oder null, wenn
+  /// abgebrochen wurde.
+  ///
+  /// Mit Rumpf statt abstrakt: Attrappen in Tests, die davon nichts wissen,
+  /// bleiben so unveraendert gueltig.
+  Future<String?> speichere(String quelle, String name) async => null;
 }
 
 /// Die echte, ueber den Kanal in DateiKanal.kt.
@@ -97,6 +106,9 @@ class SystemDateiWahl extends DateiWahl {
   @override
   Future<bool> oeffne(String pfad, {String? name}) =>
       Dateien.oeffne(pfad, name: name);
+  @override
+  Future<String?> speichere(String quelle, String name) =>
+      Dateien.speichere(quelle, name);
 }
 
 class Dateien {
@@ -123,6 +135,28 @@ class Dateien {
       // Auf dem Entwicklungsrechner gibt es diesen Kanal nicht. Kein Absturz —
       // die Oberflaeche zeigt dann einfach nichts an.
       return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// Speichert eine Datei an einem Ort nach Wahl des Nutzers.
+  ///
+  /// ANDROID: der "Speichern unter"-Dialog des Systems (ACTION_CREATE_DOCUMENT)
+  /// — wieder ohne Berechtigung, der Nutzer waehlt genau diesen einen Ort.
+  /// AM RECHNER gibt es diesen Kanal nicht; die Datei landet dann im
+  /// Download-Ordner, und die Rueckgabe sagt, wo.
+  static Future<String?> speichere(String quelle, String name) async {
+    try {
+      final ok = await _kanal
+          .invokeMethod<bool>('speichern', {'pfad': quelle, 'name': name});
+      return ok == true ? name : null;
+    } on MissingPluginException {
+      final ordner = await getDownloadsDirectory() ??
+          await getApplicationDocumentsDirectory();
+      final ziel = '${ordner.path}${Platform.pathSeparator}$name';
+      await File(quelle).copy(ziel);
+      return ziel;
     } on PlatformException {
       return null;
     }

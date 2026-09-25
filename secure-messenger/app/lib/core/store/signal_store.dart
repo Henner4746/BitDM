@@ -354,16 +354,33 @@ class BitdmSignalStore implements SignalProtocolStore {
   @override
   Future<List<int>> getSubDeviceSessions(String name) async {
     // Geraet 1 ist das Hauptgeraet und zaehlt nicht als Zweitgeraet — so
-    // macht es auch die Referenz. Bei BitDM v1 ist die Liste immer leer, weil
-    // es nur ein Geraet je Identitaet gibt; die Methode gehoert trotzdem zur
-    // Schnittstelle.
-    return _state.sessions.keys
-        .where((k) => _nameOf(k) == name)
-        .map(_deviceOf)
-        .whereType<int>()
-        .where((d) => d != 1)
-        .toList();
+    // macht es auch die Referenz. Seit der Mehrgeraete-Umstellung ist diese
+    // Liste NICHT mehr immer leer: eine Adresse kann bis zu fuenf Geraete
+    // haben (Spezifikation §6). Wer alle braucht — und das tut das Fanout —
+    // nimmt [geraeteVon]; diese Methode hier gehoert libsignals
+    // Schnittstelle und behaelt deren Bedeutung.
+    return geraeteVon(name).where((d) => d != 1).toList();
   }
+
+  /// ALLE Geraete, mit denen zu [name] eine Sitzung besteht — aufsteigend.
+  ///
+  /// DAS IST DIE GERAETELISTE, UND ES BRAUCHT KEINE ZWEITE.
+  ///
+  /// Sitzungen sind ohnehin je Geraetepaar geschluesselt ("adresse:geraetId",
+  /// siehe [storeSession]), das Schema haelt sie einzeln
+  /// (encrypted_database.dart `sessions.address TEXT PRIMARY KEY`), und der
+  /// Schluessel wird hier schon zerlegt. Eine eigene Tabelle "bekannte
+  /// Geraete" waere ein zweiter Ort fuer dieselbe Wahrheit — und der eine, der
+  /// dann irgendwann nicht mehr stimmt.
+  ///
+  /// "Bekanntes Geraet" heisst damit genau: "Geraet, an das wir verschluesseln
+  /// koennen". Etwas anderes hilft dem Versand ohnehin nicht.
+  List<int> geraeteVon(String name) => _state.sessions.keys
+      .where((k) => _nameOf(k) == name)
+      .map(_deviceOf)
+      .whereType<int>()
+      .toList()
+    ..sort();
 
   // SignalProtocolAddress.toString() liefert "name:geraeteId" — nachgelesen in
   // signal_protocol_address.dart, nicht geraten. Eine BitDM-Adresse besteht

@@ -39,12 +39,25 @@ class SignalIdentity {
   /// Schluesselpaar in der Form, die libsignal erwartet.
   final IdentityKeyPair keyPair;
 
-  /// Fortlaufende Kennung dieser Installation.
+  /// Fortlaufende Kennung dieser Installation. libsignal verlangt sie.
   ///
-  /// libsignal verlangt sie je Geraet. Sie ist NICHT aus dem Seed abgeleitet:
-  /// bei einer Wiederherstellung soll bewusst eine neue entstehen, damit die
-  /// Gegenstellen die alten Sitzungen verwerfen ("letzte Wiederherstellung
-  /// gewinnt", siehe PLAN.md §2).
+  /// SIE BEWIRKT NICHTS DARUEBER HINAUS. Hier stand "damit die Gegenstellen
+  /// die alten Sitzungen verwerfen (letzte Wiederherstellung gewinnt)" — das
+  /// war eine Absicht aus PLAN.md §2, die nie umgesetzt wurde: es gibt in
+  /// `lib/` keinen Vergleich dieser Zahl (18 Fundstellen, alle nur
+  /// durchreichend), und in libsignal_protocol_dart 0.8.2 lesen weder
+  /// `session_builder.dart` noch `session_cipher.dart` sie.
+  ///
+  /// MIT MEHREREN ERLAUBTEN GERAETEN WAERE EINE SOLCHE AUSWERTUNG SCHAEDLICH:
+  /// zwei Geraete derselben Adresse fuehren verschiedene Nummern, und "andere
+  /// Nummer, also Sitzung wegwerfen" traefe damit den Normalfall statt eines
+  /// Sonderfalls. Geraete unterscheidet die `device_id`; ob am anderen Ende
+  /// wirklich der Richtige sitzt, entscheidet die Nachrechnung der Adresse aus
+  /// dem Schluessel (signal_store `_keyMatchesAddress`) — und die ist staerker
+  /// als jede Heuristik, weil sie nicht glaubt, sondern rechnet.
+  ///
+  /// Sie ist weiterhin NICHT aus dem Seed abgeleitet: zwei Geraete sollen
+  /// verschiedene fuehren, so wie es libsignal vorsieht.
   final int registrationId;
 
   const SignalIdentity({required this.keyPair, required this.registrationId});
@@ -87,8 +100,8 @@ class SignalIdentityBridge {
   ///
   /// `generateRegistrationId` ist in libsignal eine freie Funktion, keine
   /// Klassenmethode. Der Parameter `extendedRange` bleibt false: der grosse
-  /// Bereich ist fuer Installationen mit sehr vielen Geraeten gedacht, BitDM
-  /// hat eines je Identitaet.
+  /// Bereich ist fuer Installationen mit sehr vielen Geraeten gedacht, und
+  /// BitDM laesst hoechstens fuenf je Adresse zu — der kleine Bereich reicht.
   static int newRegistrationId() => generateRegistrationId(false);
 
   /// Rohe 32 Bytes aus einem libsignal-Identitaetsschluessel.

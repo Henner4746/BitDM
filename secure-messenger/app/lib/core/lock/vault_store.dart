@@ -27,6 +27,7 @@
 // Ablauf gibt es schon: die App kennt den Zustand "es gibt eine Identitaet,
 // sie ist nur nicht zu haben".
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -37,7 +38,36 @@ import 'key_vault.dart';
 import 'keystore_factor.dart';
 import 'unlock_factor.dart';
 
+/// Jemand hat das PANIK-PASSWORT eingegeben. Der Aufrufer loescht jetzt
+/// alles — ohne Rueckfrage, das ist der ganze Sinn.
+class PanikAusgeloestException implements Exception {
+  const PanikAusgeloestException();
+  @override
+  String toString() => 'PanikAusgeloestException';
+}
+
 class VaultSecretStore implements SecretStore {
+  /// Was ein PANIK-FACH statt einer Identitaet enthaelt.
+  ///
+  /// SECHZEHN BYTE, wie eine echte Entropie, damit das Fach nach aussen genau
+  /// so gross und genau so gebaut ist wie ein gewoehnliches Passwort-Fach.
+  /// Wer die Fachdatei untersucht, sieht zwei Passwort-Faecher und kann nicht
+  /// sagen, welches wohin fuehrt — so wie bei SimpleX' Selbstzerstoerungs-
+  /// Passwort.
+  ///
+  /// Eine echte Entropie trifft diese Bytes mit Wahrscheinlichkeit 2^-128.
+  static final Uint8List panikMarke =
+      Uint8List.fromList(utf8.encode('BITDM-PANIK-v1!!'));
+
+  static bool istPanik(Uint8List b) {
+    if (b.length != panikMarke.length) return false;
+    var unterschied = 0;
+    for (var i = 0; i < b.length; i++) {
+      unterschied |= b[i] ^ panikMarke[i];
+    }
+    return unterschied == 0;
+  }
+
   VaultSecretStore({
     required this.datei,
     required this.basis,
@@ -154,17 +184,41 @@ class VaultSecretStore implements SecretStore {
     for (final slot in passende) {
       try {
         final entropie = await faktor.unlock(slot);
+        // SOFORT UND OHNE WEITERZUPROBIEREN. Die Schleife faengt Fehler, um
+        // das naechste Fach zu versuchen — dieser hier darf nicht gefangen
+        // werden, sonst oeffnete ein zweites Fach mit demselben Passwort am
+        // Ende doch noch.
+        if (istPanik(entropie)) throw const PanikAusgeloestException();
         if (entropie.length != 16) {
           throw const StorageException(
               'Das Fach enthielt etwas anderes als eine Identitaet');
         }
         _offen = entropie;
         return entropie;
+      } on PanikAusgeloestException {
+        rethrow;
       } catch (e) {
         letzter = e;
       }
     }
     throw letzter ?? const UnlockFailedException();
+  }
+
+  /// Legt ein PANIK-FACH an: [faktor] (ein Passwort) oeffnet dann kein
+  /// Geheimnis, sondern loest das Loeschen aus.
+  ///
+  /// Nur bei offenem Tresor und nur, wenn es schon einen echten Faktor gibt:
+  /// ein Panik-Fach allein waere eine Sperre, deren einziger Schluessel alles
+  /// vernichtet.
+  Future<KeySlot> fuegePanikHinzu(UnlockFactor faktor) async {
+    final alt = await faecher();
+    if (alt == null || alt.isEmpty) {
+      throw StateError('Ein Panik-Passwort braucht eine eingerichtete Sperre');
+    }
+    if (!istOffen) throw const LockedException();
+    final slot = await faktor.createSlot(panikMarke, createdAt: jetzt());
+    await _schreibe(alt.mitSlot(slot));
+    return slot;
   }
 
   /// Schliesst wieder ab, ohne etwas zu loeschen. Fuer die Bildschirmsperre.

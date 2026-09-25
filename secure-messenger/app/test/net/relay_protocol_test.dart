@@ -42,6 +42,17 @@ void main() {
       final b = (fall['bundle'] as Map).cast<String, Object?>();
 
       final bundle = RelayPreKeyBundle(
+        // NULL IST HIER EINE AUSSAGE, KEINE LUECKE. Die vier alten Faelle
+        // tragen `device_id: null` und muessen dieselben Bytes ergeben wie vor
+        // dem Mehrgeraete-Umbau — daran haengt der Besitznachweis jedes
+        // Telefons, das die alte App laeuft. Die drei neuen tragen eine
+        // Kennung und pruefen, dass sie VOR `identity_key` sortiert
+        // (`json.dumps(sort_keys=True)` auf der Serverseite, Dart schreibt in
+        // Einfuegereihenfolge). Wer diese Zeile weglaesst, prueft die neuen
+        // Faelle gegen ein Bundle ohne Kennung — und genau das tat sie bis zum
+        // 01.08.2026: sechs Faelle rot, weil der Rahmen die Kennung nie
+        // durchreichte.
+        deviceId: b['device_id'] as int?,
         userId: b['user_id']! as String,
         identityKey: b['identity_key']! as String,
         registrationId: b['registration_id']! as int,

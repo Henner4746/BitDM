@@ -53,11 +53,26 @@ class RelayMessage extends RelayEvent {
   final Uint8List ciphertext;
   final DateTime at;
   final int? q;
+
+  /// Von WELCHEM Geraet des Absenders — die wichtigste Erweiterung des ganzen
+  /// Mehrgeraete-Vorhabens, und sie liegt auf der Empfangsseite.
+  ///
+  /// Ohne sie waere jedes Fanout wirkungslos: zwei Chiffretexte kaemen an,
+  /// beide wuerden gegen die Sitzung `name:1` probiert, einer scheitert immer
+  /// — und der Ratchet-Fortschritt wird auch beim Fehlschlag festgeschrieben
+  /// (real_messenger_core `_behandleEingangsfehler`). Die zweite Nachricht
+  /// waere unwiederbringlich weg, ohne Fehler und ohne Spur.
+  ///
+  /// Der Relay setzt sie aus der ANGEMELDETEN VERBINDUNG des Absenders, nie
+  /// aus dem Rahmen. Fehlt sie, ist es Geraet 1 (Spezifikation §3).
+  final int vonGeraet;
+
   const RelayMessage(
       {required this.from,
       required this.ciphertext,
       required this.at,
-      this.q});
+      this.q,
+      this.vonGeraet = 1});
 }
 
 /// Der Vorrat an One-Time-Prekeys geht zur Neige.
@@ -107,6 +122,7 @@ class RelayClient {
     required this.identity,
     Duration? ackTimeout,
     Duration? handshakeTimeout,
+    this.geraeteKennung,
   })  : ackTimeout = ackTimeout ?? const Duration(seconds: 20),
         handshakeTimeout = handshakeTimeout ?? const Duration(seconds: 15);
 
@@ -115,6 +131,22 @@ class RelayClient {
   final SignalIdentity identity;
   final Duration ackTimeout;
   final Duration handshakeTimeout;
+
+  /// Welches Geraet dieser Adresse hier spricht. NULL HEISST GERAET 1.
+  ///
+  /// ═══════════════ DIE EINE REGEL, DIE DIE UMSTELLUNG TRAEGT
+  ///
+  /// Geraet 1 schickt seine Kennung auf KEINEM Weg mit: nicht in der
+  /// Challenge, nicht im Buendel, nicht in der WebSocket-Query, nicht im
+  /// Rahmen. Damit sind seine Bytes Zeichen fuer Zeichen die von vor der
+  /// Umstellung — und ein Relay, der `device_id` noch nicht kennt, bedient es
+  /// unveraendert weiter. Die Spezifikation macht das ausdruecklich
+  /// gleichwertig: "fehlt device_id / to_device, ist es Geraet 1" (§3).
+  ///
+  /// Nicht `final`, weil die Kennung erst feststeht, wenn der Relay einmal
+  /// nach der eigenen Geraeteliste gefragt wurde (§1) — und dafuer braucht es
+  /// diesen Client schon.
+  int? geraeteKennung;
 
   final _events = StreamController<RelayEvent>.broadcast();
   final _wartendeAcks = <String, Completer<void>>{};
@@ -154,8 +186,13 @@ class RelayClient {
       throw RelayException('Bundle gehoert zu einer anderen Adresse');
     }
 
+    // DIE KENNUNG GEHOERT SCHON IN DIE CHALLENGE: der Server haelt die Nonces
+    // ab jetzt unter (user_id, device_id) (Spezifikation §2.1). Ohne sie
+    // holte ein zweites Geraet dem ersten das Nonce weg, waehrend beide sich
+    // gerade anmelden.
     final challenge = await _postJson('/register/challenge', {
       'user_id': address,
+      if (bundle.deviceId != null) 'device_id': bundle.deviceId,
     });
     final nonce = base64.decode(challenge['nonce']! as String);
 
@@ -172,10 +209,60 @@ class RelayClient {
   }
 
   /// Holt das Bundle einer Gegenstelle, um eine Sitzung aufzubauen.
+  ///
+  /// Traegt der Relay `geraete` mit, steht in [RelayBundleResponse.alleGeraete]
+  /// je Geraet ein eigenes Buendel MIT EIGENEM Einmalschluessel — genau einer
+  /// je Geraet, nicht einer je Antwort.
   Future<RelayBundleResponse> fetchBundle(String userId) async {
     final j = await _getJson('/prekey/$userId');
     return RelayBundleResponse.fromJson(j);
   }
+
+  /// Welche Geraete diese Adresse hat — OHNE Schluessel und ohne Verbrauch.
+  ///
+  /// Das ist der Aufruf, der oft kommt (alle sechs Stunden je Kontakt, nach
+  /// jedem Verbinden fuer die eigene Adresse), und genau deshalb zieht er
+  /// keinen Einmalschluessel: `?nur_geraete=1` kostet nur den IP-Eimer
+  /// (Spezifikation §3.3).
+  ///
+  /// NULL HEISST "DIESER RELAY KENNT DIE FRAGE NICHT" und nicht "keine
+  /// Geraete". Ein Relay vor der Umstellung ignoriert den Parameter und
+  /// antwortet mit dem gewoehnlichen Buendel — ohne `geraete`. Der Unterschied
+  /// entscheidet: bei null bleibt es beim heutigen Verhalten (ein Geraet), bei
+  /// einer leeren Liste ist die Adresse unbekannt.
+  ///
+  /// ═══════════════ UND DANN WIRD NICHT MEHR GEFRAGT — siehe [_kenntGeraete]
+  Future<List<int>?> geraeteliste(String userId) async {
+    if (!_kenntGeraete) return null;
+    final j = await _getJson('/prekey/$userId', abfrage: {'nur_geraete': '1'});
+    final roh = j['geraete'];
+    if (roh is! List) {
+      _kenntGeraete = false;
+      return null;
+    }
+    return [
+      for (final g in roh)
+        if (g is Map && g['device_id'] is int) g['device_id']! as int,
+    ];
+  }
+
+  /// Ob dieser Relay `?nur_geraete=1` ueberhaupt versteht.
+  ///
+  /// GEGEN DEN RELAY, DER HEUTE LAEUFT, IST DIE FRAGE NICHT KOSTENLOS. Er
+  /// kennt den Parameter nicht, FastAPI verwirft ihn stumm, und der Handler
+  /// laeuft seinen Normalweg — samt `DELETE FROM one_time_prekeys ...
+  /// RETURNING`. Jede Frage zieht also einen Einmalschluessel der ABGEFRAGTEN
+  /// Adresse, und die Antwort wird hier weggeworfen, weil `geraete` fehlt.
+  ///
+  /// Ohne dieses Gedaechtnis wiederholt sich das je gesendeter Nutzlast:
+  /// `_frischeGeraeteAuf` vermerkt bei null bewusst nichts, also ist die
+  /// Geraeteliste dauerhaft faellig. Text, Anhang, Lese- und Empfangsquittung
+  /// — jedes Mal ein Umlauf und ein fremder Einmalschluessel.
+  ///
+  /// EINMAL JE VERBINDUNG genuegt: `connect()` baut fuer jeden Versuch einen
+  /// frischen RelayClient (real_messenger_core `_neuerRelay`), ein
+  /// aktualisierter Relay wird also beim naechsten Verbinden erkannt.
+  bool _kenntGeraete = true;
 
   // ═══════════════════════════════════════════════════════════ Verbindung
 
@@ -189,7 +276,10 @@ class RelayClient {
     final wsUri = baseUri.replace(
       scheme: baseUri.scheme == 'https' ? 'wss' : 'ws',
       path: '$_pfadOhneSchraegstrich/ws',
-      queryParameters: {'user_id': address},
+      queryParameters: {
+        'user_id': address,
+        if (geraeteKennung != null) 'device_id': '$geraeteKennung',
+      },
     );
 
     final WebSocket ws;
@@ -236,6 +326,13 @@ class RelayClient {
           : baseUri.path;
 
   void _verarbeite(dynamic roh, Completer<void> angemeldet) {
+    // NACH `dispose()` KOMMT NOCH POST. `ws.close()` haelt Rahmen nicht auf,
+    // die schon in der Leitung stecken; ein `add` auf den geschlossenen
+    // Strom warf dann "Cannot add new events after calling close" (4 von 6
+    // Laeufen von anhang_end_to_end_test). Verwerfen verliert nichts: der
+    // Empfangsnachweis geht erst nach dem Speichern hinaus, der Relay
+    // behaelt die Zeile also und stellt sie beim naechsten Verbinden zu.
+    if (_events.isClosed) return;
     final Map<String, Object?> m;
     try {
       m = (jsonDecode(roh as String) as Map).cast<String, Object?>();
@@ -249,9 +346,25 @@ class RelayClient {
     switch (m['type']) {
       case 'challenge':
         final nonce = base64.decode(m['nonce']! as String);
+        // DIE GERAETEKENNUNG WIRD MITSIGNIERT, sobald sie in der Query steht
+        // (Spezifikation §2.2): nonce ‖ uint32be(device_id), also 36 statt 32
+        // Byte. Ein Herunterhandeln faellt damit geschlossen aus — streicht
+        // jemand `device_id` aus der Query, erwartet der Server 32 Byte, wir
+        // haben 36 signiert, und die Verbindung endet mit 4403.
+        //
+        // Bei Geraet 1 steht sie NICHT in der Query, es werden also die
+        // heutigen 32 Byte signiert. Siehe [geraeteKennung].
+        final g = geraeteKennung;
         final sig = Curve.calculateSignature(
           identity.keyPair.getPrivateKey(),
-          Uint8List.fromList(nonce),
+          g == null
+              ? Uint8List.fromList(nonce)
+              : Uint8List.fromList([
+                  ...nonce,
+                  ...(ByteData(4)..setUint32(0, g, Endian.big))
+                      .buffer
+                      .asUint8List(),
+                ]),
         );
         // Das Koennen steht im SELBEN Rahmen wie die Signatur — der muss
         // ohnehin raus, und damit liegt es dem Relay VOR der ersten
@@ -270,6 +383,7 @@ class RelayClient {
 
       case 'auth_result':
         if (m['ok'] == true) {
+          _kannFluechtig = m['fluechtig'] == true;
           if (!angemeldet.isCompleted) angemeldet.complete();
         } else if (!angemeldet.isCompleted) {
           angemeldet.completeError(
@@ -288,6 +402,10 @@ class RelayClient {
           // double ankommen, und ein Wurf hier verschluckte den ganzen
           // Rahmen — die Nachricht selbst waere weg, nicht nur ihre Kennung.
           q: (m['q'] as num?)?.toInt(),
+          // Fehlt das Feld, ist es Geraet 1 — dieselbe Regel wie ueberall
+          // sonst. Ein Relay vor der Umstellung schickt es nicht, und dort
+          // gibt es je Adresse ohnehin nur ein Geraet.
+          vonGeraet: (m['from_device'] as num?)?.toInt() ?? 1,
         ));
 
       case 'prekeys_low':
@@ -376,7 +494,57 @@ class RelayClient {
   /// Die Kennung ist der Grund, warum das ueberhaupt zuverlaessig geht: ohne
   /// sie traegt die Bestaetigung nur die Zieladresse, und bei zwei Nachrichten
   /// an denselben Kontakt liesse sich nicht sagen, welche gemeint ist.
-  Future<void> send(String to, Uint8List ciphertext) async {
+  Future<void> send(String to, Uint8List ciphertext) =>
+      sendeAnGeraet(to, null, ciphertext);
+
+  /// Ob der Relay fluechtige Rahmen kennt — gesagt bei der Anmeldung.
+  ///
+  /// Nur dann darf [sendeFluechtig] benutzt werden. Ein alter Relay kennt das
+  /// Feld nicht, pufferte den Rahmen wie jede Nachricht und weckte den
+  /// Empfaenger dafuer.
+  bool get kannFluechtig => _kannFluechtig;
+  bool _kannFluechtig = false;
+
+  /// Schickt etwas, das nur im Augenblick zaehlt: der Relay reicht es an eine
+  /// bestehende Verbindung weiter und verwirft es sonst — ohne
+  /// Warteschlange, ohne Anstoss.
+  Future<void> sendeFluechtig(
+      String to, int? geraet, Uint8List ciphertext) async {
+    final ws = _ws;
+    if (ws == null) throw const RelayException('nicht verbunden');
+    if (!_kannFluechtig) {
+      throw const RelayException('dieser Relay kennt keine fluechtigen Rahmen');
+    }
+    final id = '${_laufendeNummer++}-${_zufall.nextInt(1 << 32)}';
+    final warte = Completer<void>();
+    _wartendeAcks[id] = warte;
+    ws.add(jsonEncode({
+      'type': 'message',
+      'id': id,
+      'to': to,
+      'to_device': ?geraet,
+      'ciphertext': base64.encode(ciphertext),
+      'fluechtig': true,
+    }));
+    try {
+      await warte.future.timeout(ackTimeout);
+    } on TimeoutException {
+      _wartendeAcks.remove(id);
+      throw const RelayException('keine Bestaetigung vom Server');
+    }
+  }
+
+  /// Wie [send], nur an ein bestimmtes GERAET der Adresse.
+  ///
+  /// EIGENE METHODE UND KEIN ZUSATZPARAMETER AN [send]: `send` steht in
+  /// Attrappen der Tests als Zweiparameter-Methode und ist damit Teil der
+  /// Schnittstelle, gegen die andere bauen. Ein zusaetzlicher Parameter waere
+  /// eine Aenderung an fremden Dateien.
+  ///
+  /// [geraet] null laesst `to_device` weg und erzeugt damit den heutigen
+  /// Rahmen — siehe [geraeteKennung].
+  Future<void> sendeAnGeraet(
+      String to, int? geraet, Uint8List ciphertext) async {
     final ws = _ws;
     if (ws == null) throw const RelayException('nicht verbunden');
 
@@ -388,6 +556,9 @@ class RelayClient {
       'type': 'message',
       'id': id,
       'to': to,
+      // `?geraet` laesst den Schluessel ganz weg, wenn nichts dasteht — und
+      // genau das ist gemeint: kein `to_device` heisst Geraet 1.
+      'to_device': ?geraet,
       'ciphertext': base64.encode(ciphertext),
     }));
 
@@ -513,15 +684,20 @@ class RelayClient {
     return _anfrage('POST', pfad, body);
   }
 
-  Future<Map<String, Object?>> _getJson(String pfad) async {
-    return _anfrage('GET', pfad, null);
+  Future<Map<String, Object?>> _getJson(String pfad,
+      {Map<String, String>? abfrage}) async {
+    return _anfrage('GET', pfad, null, abfrage);
   }
 
-  Future<Map<String, Object?>> _anfrage(
-      String methode, String pfad, Map<String, Object?>? body) async {
+  Future<Map<String, Object?>> _anfrage(String methode, String pfad,
+      Map<String, Object?>? body, [Map<String, String>? abfrage]) async {
     final client = HttpClient();
     try {
-      final uri = baseUri.replace(path: '$_pfadOhneSchraegstrich$pfad');
+      // DIE ABFRAGE GEHOERT NICHT IN DEN PFAD. `Uri.replace(path: ...)`
+      // kodiert das Fragezeichen zu %3F — daraus wuerde ein Pfad namens
+      // "/prekey/aaa?nur_geraete=1" und der Server antwortete mit 404.
+      final uri = baseUri.replace(
+          path: '$_pfadOhneSchraegstrich$pfad', queryParameters: abfrage);
       final req = methode == 'POST'
           ? await client.postUrl(uri)
           : await client.getUrl(uri);

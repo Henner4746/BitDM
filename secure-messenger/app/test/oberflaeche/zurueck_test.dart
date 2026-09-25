@@ -12,7 +12,6 @@
 // einzelne Funktion tut das Richtige, es ruft sie nur niemand. Deshalb geht
 // dieser Test ueber `handlePopRoute` — denselben Weg, den Android nimmt.
 
-import 'dart:typed_data';
 
 import 'package:bitdm/app_state.dart';
 import 'package:bitdm/core/fake_messenger_core.dart';

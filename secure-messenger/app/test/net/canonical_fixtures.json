@@ -4,6 +4,7 @@
     "bundle": {
       "user_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "identity_key": "SWRLZXk=",
+      "device_id": null,
       "registration_id": 1234,
       "signed_prekey_id": 1,
       "signed_prekey": "U1BL",
@@ -18,6 +19,7 @@
     "bundle": {
       "user_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "identity_key": "SWRLZXky",
+      "device_id": null,
       "registration_id": 1,
       "signed_prekey_id": 42,
       "signed_prekey": "U1BLMg==",
@@ -37,6 +39,7 @@
     "bundle": {
       "user_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "identity_key": "a2V5Mw==",
+      "device_id": null,
       "registration_id": 16380,
       "signed_prekey_id": 999,
       "signed_prekey": "c3Ay",
@@ -64,6 +67,7 @@
     "bundle": {
       "user_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       "identity_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "device_id": null,
       "registration_id": 0,
       "signed_prekey_id": 16777215,
       "signed_prekey": "BQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
@@ -85,5 +89,64 @@
     },
     "canonical": "{\"identity_key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\",\"one_time_prekeys\":[[1,\"BQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB\"],[50,\"BTIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy\"],[100,\"BWRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRk\"]],\"registration_id\":0,\"signed_prekey\":\"BQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\",\"signed_prekey_id\":16777215,\"signed_prekey_sig\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw==\",\"user_id\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}",
     "sha256_b64": "PbsnADxkBHRg39/U3049GAUUN2PWlcVE1dfIxZBn6t0="
+  },
+  {
+    "name": "mit Geraetekennung — device_id steht vorne",
+    "bundle": {
+      "user_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "identity_key": "SWRLZXk=",
+      "device_id": 4711,
+      "registration_id": 1234,
+      "signed_prekey_id": 1,
+      "signed_prekey": "U1BL",
+      "signed_prekey_sig": "U2ln",
+      "one_time_prekeys": []
+    },
+    "canonical": "{\"device_id\":4711,\"identity_key\":\"SWRLZXk=\",\"one_time_prekeys\":[],\"registration_id\":1234,\"signed_prekey\":\"U1BL\",\"signed_prekey_id\":1,\"signed_prekey_sig\":\"U2ln\",\"user_id\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\"}",
+    "sha256_b64": "lNI9kP0fjLdpiK33q1XK6Uc0oi4Mog6B2xik0a52acY="
+  },
+  {
+    "name": "Geraet 1 wird ausgeschrieben",
+    "bundle": {
+      "user_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "identity_key": "SWRLZXky",
+      "device_id": 1,
+      "registration_id": 1,
+      "signed_prekey_id": 42,
+      "signed_prekey": "U1BLMg==",
+      "signed_prekey_sig": "U2lnMg==",
+      "one_time_prekeys": [
+        {
+          "key_id": 7,
+          "public_key": "T1RLNw=="
+        }
+      ]
+    },
+    "canonical": "{\"device_id\":1,\"identity_key\":\"SWRLZXky\",\"one_time_prekeys\":[[7,\"T1RLNw==\"]],\"registration_id\":1,\"signed_prekey\":\"U1BLMg==\",\"signed_prekey_id\":42,\"signed_prekey_sig\":\"U2lnMg==\",\"user_id\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff\"}",
+    "sha256_b64": "PCfCF7H41vd/+sHKCgMwDOprNyiJeIFkTNTFbdeXKyQ="
+  },
+  {
+    "name": "groesste Geraetekennung",
+    "bundle": {
+      "user_id": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "identity_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "device_id": 2147483647,
+      "registration_id": 16380,
+      "signed_prekey_id": 999,
+      "signed_prekey": "c3Ay",
+      "signed_prekey_sig": "c2lnMw==",
+      "one_time_prekeys": [
+        {
+          "key_id": 30,
+          "public_key": "ZHJlaXNzaWc="
+        },
+        {
+          "key_id": 2,
+          "public_key": "endlaQ=="
+        }
+      ]
+    },
+    "canonical": "{\"device_id\":2147483647,\"identity_key\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\",\"one_time_prekeys\":[[2,\"endlaQ==\"],[30,\"ZHJlaXNzaWc=\"]],\"registration_id\":16380,\"signed_prekey\":\"c3Ay\",\"signed_prekey_id\":999,\"signed_prekey_sig\":\"c2lnMw==\",\"user_id\":\"gggggggggggggggggggggggggggggggggggggggggggggggggggggggg\"}",
+    "sha256_b64": "z9EVWarWslTE7vToAtzowFBhTNEoWjNvZ2WfI6YQpIE="
   }
 ]

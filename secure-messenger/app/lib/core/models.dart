@@ -4,6 +4,8 @@
 // isolates. FROZEN v1 contract: change only by agreement between
 // Person A (UI) and Person B (core).
 
+import 'dart:convert';
+
 /// Delivery lifecycle of a single message.
 enum MessageStatus {
   sending, // created locally, not yet handed to the network
@@ -25,7 +27,209 @@ enum MessageKind {
   /// 23 KB. Sie beim Anzeigen einer Unterhaltung mitzuschleppen waere Arbeit
   /// fuer nichts.
   anhang,
+
+  /// Eine Umfrage. Im `text` steht [Umfrage.alsText] — Frage, Antworten und
+  /// ob mehrere gewaehlt werden duerfen. Die Stimmen stehen daneben.
+  umfrage,
 }
+
+/// Eine Umfrage: Frage, zwei bis zehn Antworten, Einzel- oder Mehrfachwahl.
+///
+/// UNVERAENDERLICH NACH DEM ABSENDEN. Die Stimmen beziehen sich auf die
+/// Stellen der Antworten; eine nachtraeglich umsortierte oder umbenannte
+/// Antwort liesse jede abgegebene Stimme etwas anderes bedeuten.
+class Umfrage {
+  const Umfrage(this.frage, this.optionen, {this.mehrfach = false});
+
+  final String frage;
+  final List<String> optionen;
+  final bool mehrfach;
+
+  static const int minOptionen = 2;
+  static const int maxOptionen = 10;
+  static const int maxFrage = 300;
+  static const int maxOption = 120;
+
+  String alsText() => jsonEncode({
+        'f': frage,
+        'o': optionen,
+        if (mehrfach) 'm': true,
+      });
+
+  /// Liest eine Umfrage — oder null, wenn der Text keine taugliche ist. Er
+  /// kommt von draussen: Laengen und Anzahl werden hier begrenzt, nicht erst
+  /// in der Anzeige.
+  static Umfrage? lies(String text) {
+    final Object? j;
+    try {
+      j = jsonDecode(text);
+    } on FormatException {
+      return null;
+    }
+    if (j is! Map) return null;
+    final f = j['f'];
+    final o = j['o'];
+    final m = j['m'];
+    if (f is! String || f.trim().isEmpty || f.length > maxFrage) return null;
+    if (o is! List || o.length < minOptionen || o.length > maxOptionen) {
+      return null;
+    }
+    final optionen = <String>[];
+    for (final x in o) {
+      if (x is! String || x.trim().isEmpty || x.length > maxOption) return null;
+      optionen.add(x);
+    }
+    if (m != null && m is! bool) return null;
+    return Umfrage(f, optionen, mehrfach: m == true);
+  }
+
+  /// Ob [auswahl] eine erlaubte Stimme ist. Leer heisst "zurueckgezogen".
+  bool gueltig(List<int> auswahl) =>
+      auswahl.toSet().length == auswahl.length &&
+      auswahl.every((i) => i >= 0 && i < optionen.length) &&
+      (mehrfach || auswahl.length <= 1);
+}
+
+/// Eine Gruppe: ein Name, ein Admin, bis zu [maxMitglieder] Mitglieder.
+///
+/// ═══════════════════════════════════════════════════ WIE GRUPPEN REISEN
+///
+/// OHNE GRUPPENSCHLUESSEL. Eine Gruppennachricht ist die gewoehnliche
+/// Nutzlast, eingepackt mit der Gruppenkennung, und geht einzeln ueber die
+/// Zweiersitzung an jedes Mitglied — so machten es Signals erste Gruppen und
+/// Sessions "Closed Groups". Es gibt dafuer keine neue Kryptografie und
+/// keinen Server, der die Mitglieder kennt: der Relay sieht nur Einzelpost.
+///
+/// DER PREIS ist ein Umschlag je Mitglied und Geraet. Der Relay bremst bei
+/// 180 im Schub und 6 je Sekunde (relay_server.py MSG_CAPACITY/REFILL); bei
+/// 20 Mitgliedern mit im Schnitt anderthalb Geraeten sind das rund 30 je
+/// Nachricht — sechs schnell hintereinander, danach eine alle fuenf Sekunden.
+/// Deshalb 20 und nicht 1000. Groessere Gruppen braeuchten Sender-Keys wie bei
+/// Signal heute; das ist ein eigenes Vorhaben.
+///
+/// NUR DER ADMIN aendert die Mitgliederliste, jede Aenderung mit einer
+/// hoeheren [version]. Austreten darf jeder selbst. Tritt der Admin aus,
+/// wird das naechste Mitglied der Liste Admin ([nachfolger]).
+class Gruppe {
+  const Gruppe({
+    required this.id,
+    required this.name,
+    required this.admin,
+    required this.mitglieder,
+    this.version = 1,
+    this.aktiv = true,
+    this.angeheftet = false,
+    this.archiviert = false,
+    this.stumm = false,
+    this.fristSekunden,
+  });
+
+  final String id;
+  final String name;
+  final String admin;
+  final List<String> mitglieder;
+  final int version;
+
+  /// Falsch, sobald man ausgetreten ist oder entfernt wurde. Der Verlauf
+  /// bleibt lesbar; schreiben laesst sich nicht mehr.
+  final bool aktiv;
+  final bool angeheftet;
+  final bool archiviert;
+  final bool stumm;
+  final int? fristSekunden;
+
+  static const int maxMitglieder = 20;
+
+  /// Wer Admin wird, wenn [admin] austritt: das Mitglied, das in der Liste
+  /// nach ihm steht (am Ende wieder von vorn).
+  ///
+  /// OHNE NACHRICHT UND OHNE ABSTIMMUNG. Alle Mitglieder haben dieselbe Liste
+  /// in derselben Reihenfolge — sie kam als ein verkuendeter Stand — und
+  /// rechnen deshalb denselben Nachfolger aus. Vorher fror eine Gruppe ein,
+  /// deren Admin ging: niemand konnte mehr jemanden hinzufuegen.
+  static String? nachfolger(List<String> mitglieder, String admin) {
+    final i = mitglieder.indexOf(admin);
+    final rest = [...mitglieder]..remove(admin);
+    if (rest.isEmpty) return null;
+    if (i < 0) return rest.first;
+    return rest[i % rest.length];
+  }
+  static const int maxName = 64;
+
+  static final RegExp _kennung = RegExp(r'^g-[A-Za-z0-9_-]{22}$');
+
+  /// Ob eine Chatkennung eine Gruppe meint. Adressen sind 56 Zeichen base32
+  /// ohne Bindestrich; eine Verwechslung ist ausgeschlossen.
+  static bool istGruppenId(String id) => _kennung.hasMatch(id);
+
+  /// Was der Admin an alle Mitglieder verkuendet.
+  String standText() => jsonEncode({
+        'n': name,
+        'a': admin,
+        'm': mitglieder,
+        'v': version,
+      });
+
+  /// Liest einen verkuendeten Stand — oder null, wenn er nicht taugt. Kommt
+  /// von draussen: jede Adresse wird geprueft, der Admin muss Mitglied sein.
+  static Gruppe? lies(String id, String text,
+      {required bool Function(String) adresseTaugt}) {
+    if (!istGruppenId(id)) return null;
+    final Object? j;
+    try {
+      j = jsonDecode(text);
+    } on FormatException {
+      return null;
+    }
+    if (j is! Map) return null;
+    final n = j['n'];
+    final a = j['a'];
+    final m = j['m'];
+    final v = j['v'];
+    if (n is! String || n.trim().isEmpty || n.length > maxName) return null;
+    if (a is! String || !adresseTaugt(a)) return null;
+    if (v is! int || v < 1) return null;
+    if (m is! List || m.length < 2 || m.length > maxMitglieder) return null;
+    final mitglieder = <String>[];
+    for (final x in m) {
+      if (x is! String || !adresseTaugt(x) || mitglieder.contains(x)) {
+        return null;
+      }
+      mitglieder.add(x);
+    }
+    if (!mitglieder.contains(a)) return null;
+    return Gruppe(id: id, name: n, admin: a, mitglieder: mitglieder, version: v);
+  }
+
+  Gruppe copyWith({
+    String? name,
+    String? admin,
+    List<String>? mitglieder,
+    int? version,
+    bool? aktiv,
+    bool? angeheftet,
+    bool? archiviert,
+    bool? stumm,
+    Object? fristSekunden = _unveraendert,
+  }) =>
+      Gruppe(
+        id: id,
+        name: name ?? this.name,
+        admin: admin ?? this.admin,
+        mitglieder: mitglieder ?? this.mitglieder,
+        version: version ?? this.version,
+        aktiv: aktiv ?? this.aktiv,
+        angeheftet: angeheftet ?? this.angeheftet,
+        archiviert: archiviert ?? this.archiviert,
+        stumm: stumm ?? this.stumm,
+        fristSekunden: identical(fristSekunden, _unveraendert)
+            ? this.fristSekunden
+            : fristSekunden as int?,
+      );
+}
+
+/// Wer in einer Umfrage was gewaehlt hat: Adresse → Stellen der Antworten.
+typedef Stimmen = Map<String, List<int>>;
 
 /// Was auf DIESEM Telefon von einem Anhang vorliegt.
 ///
@@ -165,6 +369,31 @@ class Message {
   /// keinen.
   final bool schonInDerNaehe;
 
+  /// Die Kennung der Nachricht, auf die diese antwortet — oder null.
+  ///
+  /// Nur die Kennung: was dort stand, schlaegt die Oberflaeche im EIGENEN
+  /// Verlauf nach (siehe Payload.antwortAuf, warum kein Zitat mitreist).
+  final String? antwortAuf;
+
+  /// Der Text wurde nach dem Absenden geaendert. Die Blase sagt es dazu —
+  /// eine stille Aenderung waere ein umgeschriebener Verlauf.
+  final bool bearbeitet;
+
+  /// "Fuer alle geloescht": der Inhalt ist weg, die Stelle bleibt.
+  ///
+  /// EINE LEERSTELLE STATT EINES LOCHS, wie bei Signal: verschwaende die
+  /// Blase ganz, stuenden die Antworten darauf ohne Bezug da, und niemand
+  /// saehe, dass hier etwas war.
+  final bool widerrufen;
+
+  /// Seit wann oben angeheftet — oder null. Hoechstens drei je Unterhaltung.
+  final DateTime? angeheftetAm;
+
+  /// Wann diese eigene Nachricht hinausgehen soll, wenn sie geplant ist. Nach
+  /// dem Zeitpunkt ist es nur noch ein Vermerk — der Status sagt, ob sie
+  /// draussen ist.
+  final DateTime? geplantFuer;
+
   const Message({
     required this.id,
     required this.chatId,
@@ -177,9 +406,19 @@ class Message {
     this.ueberNaehe = false,
     this.schonBeimRelay = false,
     this.schonInDerNaehe = false,
+    this.antwortAuf,
+    this.bearbeitet = false,
+    this.widerrufen = false,
+    this.angeheftetAm,
+    this.geplantFuer,
   });
 
-  Message copyWith({MessageStatus? status, String? text, bool? ueberNaehe}) =>
+  Message copyWith(
+          {MessageStatus? status,
+          String? text,
+          bool? ueberNaehe,
+          bool? bearbeitet,
+          bool? widerrufen}) =>
       Message(
         id: id,
         chatId: chatId,
@@ -192,8 +431,23 @@ class Message {
         ueberNaehe: ueberNaehe ?? this.ueberNaehe,
         schonBeimRelay: schonBeimRelay,
         schonInDerNaehe: schonInDerNaehe,
+        antwortAuf: antwortAuf,
+        bearbeitet: bearbeitet ?? this.bearbeitet,
+        widerrufen: widerrufen ?? this.widerrufen,
+        angeheftetAm: angeheftetAm,
+        geplantFuer: geplantFuer,
       );
 }
+
+/// "Tippt gerade" in einer Unterhaltung, oder "hat aufgehoert".
+class TippMeldung {
+  const TippMeldung(this.chatId, this.tippt);
+  final String chatId;
+  final bool tippt;
+}
+
+/// Wer auf eine Nachricht wie reagiert hat: Adresse → Zeichen.
+typedef Reaktionen = Map<String, String>;
 
 class Contact {
   final String id; // address (derived from the peer identity public key)
@@ -216,6 +470,29 @@ class Contact {
   /// ist. Nachrichten an ihn nehmen dann immer den Relay.
   final bool zeigtAnwesenheit;
 
+  /// Oben in der Liste festgehalten, unabhaengig von der letzten Nachricht.
+  ///
+  /// Wie Anwesenheit und Name nur auf DIESEM Geraet: der Relay erfaehrt
+  /// nichts, und die Gegenstelle auch nicht.
+  final bool angeheftet;
+
+  /// Aus der Hauptliste genommen, ohne etwas zu loeschen. Eine neue Nachricht
+  /// holt die Unterhaltung NICHT von selbst zurueck — wer archiviert, will
+  /// Ruhe, und Signal macht es genauso, sobald die Unterhaltung stumm ist.
+  final bool archiviert;
+
+  /// Keine Benachrichtigung fuer diese Unterhaltung. Die Nachrichten kommen
+  /// trotzdem an und werden gezaehlt; nur das Telefon schweigt.
+  final bool stumm;
+
+  /// Eigene Loeschfrist fuer DIESE Unterhaltung, in Sekunden.
+  ///
+  /// null folgt der Grundeinstellung, 0 heisst "hier nie", alles andere ist
+  /// die Frist. Sie gilt fuer das, was ICH hier schreibe — die Frist reist
+  /// mit jeder Nachricht mit, und die Gegenstelle richtet sich danach (siehe
+  /// Payload.ttlSeconds). Was sie schreibt, loescht sich nach IHRER Wahl.
+  final int? fristSekunden;
+
   const Contact({
     required this.id,
     required this.addedAt,
@@ -223,6 +500,10 @@ class Contact {
     this.state = ContactState.active,
     this.verified = false,
     this.zeigtAnwesenheit = true,
+    this.angeheftet = false,
+    this.archiviert = false,
+    this.stumm = false,
+    this.fristSekunden,
   });
 
   Contact copyWith({
@@ -230,6 +511,13 @@ class Contact {
     ContactState? state,
     bool? verified,
     bool? zeigtAnwesenheit,
+    bool? angeheftet,
+    bool? archiviert,
+    bool? stumm,
+    // Ein Waechter statt `int?`: null ist hier ein gueltiger neuer Wert
+    // ("folgt der Grundeinstellung") und muss sich von "nicht angegeben"
+    // unterscheiden lassen.
+    Object? fristSekunden = _unveraendert,
   }) =>
       Contact(
         id: id,
@@ -238,8 +526,16 @@ class Contact {
         state: state ?? this.state,
         verified: verified ?? this.verified,
         zeigtAnwesenheit: zeigtAnwesenheit ?? this.zeigtAnwesenheit,
+        angeheftet: angeheftet ?? this.angeheftet,
+        archiviert: archiviert ?? this.archiviert,
+        stumm: stumm ?? this.stumm,
+        fristSekunden: identical(fristSekunden, _unveraendert)
+            ? this.fristSekunden
+            : fristSekunden as int?,
       );
 }
+
+const Object _unveraendert = Object();
 
 /// Pushed on `MessengerCore.messageStatusUpdates` when a sent message changes.
 class MessageStatusUpdate {
@@ -334,6 +630,18 @@ class AppPreferences {
   /// sehen, was er geschrieben hat.
   final bool autoScroll;
 
+  /// "Tippt gerade" zeigen und senden. Ab Werk AUS — wie die
+  /// Lesebestaetigungen: beides verraet, wann jemand die App offen hat.
+  final bool tippAnzeige;
+
+  /// Die Kennung des PANIK-FACHS in der Fachdatei, oder null.
+  ///
+  /// STEHT HIER, IN DER VERSCHLUESSELTEN DATENBANK, und nicht in der
+  /// Fachdatei: dort saehe jeder, welches der Passwort-Faecher das Panik-Fach
+  /// ist. Hier ist es nur lesbar, wenn die App schon offen ist — und dann
+  /// braucht die Oberflaeche es, um es aus der Liste der Faktoren zu nehmen.
+  final String? panikFach;
+
   const AppPreferences({
     this.readReceipts = true,
     this.messageLifetime,
@@ -341,6 +649,8 @@ class AppPreferences {
     this.nurNahbereich = false,
     this.naheAn = false,
     this.autoScroll = true,
+    this.tippAnzeige = false,
+    this.panikFach,
   });
 
   AppPreferences copyWith({
@@ -351,6 +661,9 @@ class AppPreferences {
     bool? nurNahbereich,
     bool? naheAn,
     bool? autoScroll,
+    bool? tippAnzeige,
+    String? panikFach,
+    bool loeschePanikFach = false,
   }) =>
       AppPreferences(
         readReceipts: readReceipts ?? this.readReceipts,
@@ -360,6 +673,8 @@ class AppPreferences {
         nurNahbereich: nurNahbereich ?? this.nurNahbereich,
         naheAn: naheAn ?? this.naheAn,
         autoScroll: autoScroll ?? this.autoScroll,
+        tippAnzeige: tippAnzeige ?? this.tippAnzeige,
+        panikFach: loeschePanikFach ? null : (panikFach ?? this.panikFach),
       );
 }
 

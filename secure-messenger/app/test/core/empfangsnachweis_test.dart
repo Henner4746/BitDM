@@ -112,6 +112,13 @@ class NachweisDoppel implements RelayClient {
     if (!_ereignisse.isClosed) await _ereignisse.close();
   }
 
+  // Ein Relay ohne Mehrgeraete-Wissen antwortet `null` — daraus liest
+  // `_ermittleGeraetId` "Geraet 1", also das Verhalten von vor dem Umbau.
+  // Ohne diese Zeile faellt der Aufruf in `noSuchMethod`, und der Wurf
+  // reisst beim Verbinden die Leitung ab.
+  @override
+  Future<List<int>?> geraeteliste(String userId) async => null;
+
   @override
   dynamic noSuchMethod(Invocation i) =>
       throw UnsupportedError('${i.memberName} wird hier nicht gebraucht');

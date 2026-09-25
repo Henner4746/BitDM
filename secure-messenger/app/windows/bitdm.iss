@@ -2,7 +2,7 @@
 ;
 ; Bauen (nach `flutter build windows --release`):
 ;   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows\bitdm.iss
-; Ergebnis: releases\bitdm-windows-setup-1.5.1.exe
+; Ergebnis: releases\bitdm-windows-setup-1.6.0.exe
 ;
 ; WARUM OHNE ADMINRECHTE. `PrivilegesRequired=lowest` installiert nach
 ; %LOCALAPPDATA% statt nach "Program Files". Das kostet nichts und erspart die
@@ -22,7 +22,7 @@
 ; pruefbar wird statt geglaubt.
 
 #define Name      "BitDM"
-#define Version   "1.5.1"
+#define Version   "1.6.0"
 #define Publisher "BitDM"
 #define ExeName   "bitdm.exe"
 

@@ -76,6 +76,8 @@ Future<void> durchstich() async {
     final probe =
         Uint8List.fromList(List<int>.generate(64, (_) => zufall.nextInt(256)));
 
+    // Ein Messwerkzeug, kein App-Code: es braucht den Test-Einstieg.
+    // ignore: invalid_use_of_visible_for_testing_member
     final marke = await kern.markeFuerTest(kennung, probe.length);
     sag('   ok, gueltig bis ${DateTime.fromMillisecondsSinceEpoch(marke.ablauf * 1000)}');
 

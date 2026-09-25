@@ -15,6 +15,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'core/anhang/anhang_empfang.dart';
 import 'core/anhang/anhang_versand.dart';
@@ -38,6 +39,7 @@ import 'core/push.dart';
 import 'core/messenger_core.dart';
 import 'core/nah/funk.dart';
 import 'core/real_messenger_core.dart';
+import 'core/sprache.dart';
 import 'core/verbindungstest.dart';
 
 class AppState extends ChangeNotifier {
@@ -108,6 +110,25 @@ class AppState extends ChangeNotifier {
   final Future<CtapTransport> Function(StickWeg)? stickZugang;
 
   final MessengerCore core;
+
+  /// Wie viele Geraete auf dieser Identitaet sitzen — null, solange es
+  /// niemand gefragt hat.
+  ///
+  /// UEBER EINE TYPPRUEFUNG UND NICHT UEBER DEN VERTRAG. `MessengerCore` ist
+  /// ausdruecklich eingefroren und wird nur einvernehmlich geaendert; die
+  /// Attrappe kennt gar keinen Relay und koennte diese Zahl nie kennen. Ein
+  /// null von ihr ist die richtige Antwort, kein fehlendes Stueck.
+  int? get geraeteZahl {
+    final c = core;
+    return c is RealMessengerCore ? c.geraeteZahl : null;
+  }
+
+  /// Ob der Relay dieses Geraet endgueltig abgewiesen hat (§6) — dieselbe
+  /// Typpruefung und dieselbe Begruendung wie bei [geraeteZahl].
+  bool get abgewiesen {
+    final c = core;
+    return c is RealMessengerCore && c.abgewiesen;
+  }
 
   /// Ob [boot] durch ist. Vorher zeigt die App nichts an.
   bool bereit = false;
@@ -184,9 +205,23 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Die Faktoren OHNE das Panik-Fach — das, was die Einstellungen zeigen.
+  ///
+  /// Solange die App gesperrt ist, ist [AppPreferences.panikFach] nicht
+  /// lesbar (es liegt in der Datenbank), und das Panik-Fach zaehlt als
+  /// gewoehnliches Passwort. Genau das soll es: der Sperrbildschirm bietet
+  /// dann ein Passwortfeld an, und wer es mit dem Panik-Passwort fuellt,
+  /// loescht.
+  List<KeySlot> get sichtbareFaktoren =>
+      faktoren.where((s) => s.id != einstellungen.panikFach).toList();
+
+  bool get hatPanikPasswort =>
+      einstellungen.panikFach != null &&
+      faktoren.any((s) => s.id == einstellungen.panikFach);
+
   /// Ob es ueberhaupt einen Faktor dieser Art gibt.
   bool hatFaktor(UnlockFactorKind art) =>
-      faktoren.any((s) => s.kind == art);
+      sichtbareFaktoren.any((s) => s.kind == art);
 
   // ═══════════════════════════════════════════════════════════════ Entsperren
 
@@ -233,10 +268,61 @@ class AppState extends ChangeNotifier {
     _amFaktor = true;
     try {
       await t.entsperreMit(faktor);
+    } on PanikAusgeloestException {
+      // KEIN DIALOG, KEINE MELDUNG. Wer unter Zwang das Panik-Passwort
+      // eingibt, soll danach eine App sehen, die aussieht wie frisch
+      // installiert — und nicht eine, die "Alles geloescht" ruft.
+      _amFaktor = false;
+      await allesLoeschen();
+      gesperrt = false;
+      notifyListeners();
+      return false;
     } finally {
       _amFaktor = false;
     }
     return _nachDemOeffnen();
+  }
+
+  /// Richtet das PANIK-PASSWORT ein oder ersetzt es.
+  ///
+  /// Wirft [PanikGleichException], wenn es ein echtes Passwort oeffnet — dann
+  /// haette dasselbe Wort zwei Bedeutungen, und welche gilt, hinge an der
+  /// Reihenfolge der Faecher. Wirft [WeakPassphraseException] wie beim
+  /// echten Passwort: auch dieses Fach haengt an nichts als dem Passwort.
+  Future<void> setzePanikPasswort(String passwort) async {
+    final t = tresor;
+    if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    final faktor =
+        PassphraseFactor(passwort, geraeteGebunden: false, label: 'Passwort');
+    // DIE PROBE: oeffnet dieses Wort schon ein echtes Fach? Nur gegen die
+    // echten — das alte Panik-Fach loeste sonst hier schon das Loeschen aus.
+    for (final s in sichtbareFaktoren
+        .where((s) => s.kind == UnlockFactorKind.passphrase)) {
+      try {
+        await faktor.unlock(s);
+        throw const PanikGleichException();
+      } on UnlockFailedException {
+        // Gut so: es oeffnet dieses Fach nicht.
+      }
+    }
+    final alt = einstellungen.panikFach;
+    final slot = await t.fuegePanikHinzu(faktor);
+    if (alt != null && faktoren.any((s) => s.id == alt)) {
+      await t.entferne(alt);
+    }
+    await setzeEinstellungen(einstellungen.copyWith(panikFach: slot.id));
+    await _ladeFaktoren();
+    notifyListeners();
+  }
+
+  Future<void> entfernePanikPasswort() async {
+    final t = tresor;
+    final alt = einstellungen.panikFach;
+    if (t == null || alt == null) return;
+    if (faktoren.any((s) => s.id == alt)) await t.entferne(alt);
+    await setzeEinstellungen(einstellungen.copyWith(loeschePanikFach: true));
+    await _ladeFaktoren();
+    notifyListeners();
   }
 
   /// Zweiter Anlauf, ohne einen Faktor zu wechseln.
@@ -340,6 +426,13 @@ class AppState extends ChangeNotifier {
   Future<void> entferneFaktor(String slotId) async {
     final t = tresor;
     if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    // DER LETZTE ECHTE FAKTOR NIMMT DAS PANIK-FACH MIT. Bliebe es allein
+    // stehen, waere die App gesperrt, und der einzige Schluessel, der noch
+    // passt, loescht alles.
+    final echte = sichtbareFaktoren;
+    if (hatPanikPasswort && echte.length == 1 && echte.single.id == slotId) {
+      await entfernePanikPasswort();
+    }
     final slot = faktoren.where((s) => s.id == slotId).firstOrNull;
     // Beim Schluesselspeicher-Fach muss der Fachschluessel im gesicherten
     // Bereich mit weg. Beim Stick und beim Passwort gibt es nichts
@@ -694,7 +787,11 @@ class AppState extends ChangeNotifier {
     // Die Datenbank zu schliessen und den Text daneben liegen zu lassen waere
     // halbe Arbeit.
     verlaeufe.clear();
+    reaktionen.clear();
+    stimmen.clear();
+    suchTreffer = const [];
     kontakte = const [];
+    gruppen = const [];
     meineAdresse = '';
     frischePhrase = null;
 
@@ -716,6 +813,14 @@ class AppState extends ChangeNotifier {
     // Kern lehnte jedes Mal ab, aber es waere ein Wecker, der alle paar
     // Sekunden gegen eine verschlossene Tuer laeuft.
     if (einstellungen.nurNahbereich) return;
+
+    // UND NICHT GEGEN EIN ENDGUELTIGES NEIN. Der Relay antwortet einem Geraet
+    // ueber der Obergrenze mit 507 und nicht mit 429, gerade weil das keine
+    // Bremse ist, die nachgibt (Spezifikation §6). Weiterzuklopfen aendert
+    // daran nichts — es kostet nur Akku und laesst den Nutzer glauben, sein
+    // Netz sei schuld. Der naechste ausdrueckliche Versuch (Vordergrund,
+    // Einstellungen) fragt ohnehin neu.
+    if (abgewiesen) return;
 
     // Verdoppeln mit Zufallsanteil. Der Zufall ist nicht Zierrat: ohne ihn
     // kaemen nach einem Ausfall des Relays alle Clients gleichzeitig zurueck
@@ -750,10 +855,20 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       }))
       ..add(core.incomingMessages.listen((m) {
-        verlaeufe.putIfAbsent(m.chatId, () => []).add(m);
+        // Neue Liste statt `.add` — siehe [senden]: die Liste kann vom Kern
+        // stammen und unveraenderlich sein.
+        verlaeufe[m.chatId] = [...?verlaeufe[m.chatId], m];
         // Nur melden, wenn niemand hinsieht. Eine Benachrichtigung fuer eine
         // Nachricht, die gerade auf dem Bildschirm erscheint, waere Laerm.
-        if (!_imVordergrund) {
+        //
+        // UND NIE FUER EINE EIGENE. Seit dem Spiegel (§5) traegt dieser Strom
+        // auch das, was man selbst auf dem ANDEREN Geraet geschrieben hat —
+        // `_nimmSpiegel` legt es mit `isMine: true` ab und wirft es hier ein.
+        // Ohne diese Bedingung meldete das Tablet "eine neue Nachricht" fuer
+        // jeden Satz, den man gerade auf dem Handy getippt hat.
+        // UND NICHT FUER STUMMGESCHALTETE. Die Nachricht kommt trotzdem an
+        // und steht im Verlauf; nur das Telefon meldet sich nicht.
+        if (!_imVordergrund && !m.isMine && !_istStumm(m.chatId)) {
           _ungelesen++;
           unawaited(Benachrichtigungen.instanz.zeigeNeueNachricht(
               anzahl: _ungelesen,
@@ -762,6 +877,13 @@ class AppState extends ChangeNotifier {
         unawaited(_ladeKontakteNeu());
       }))
       ..add(core.contactEvents.listen((_) => unawaited(_ladeKontakteNeu())))
+      // Bearbeitet, widerrufen, Reaktion gesetzt: die ganze Unterhaltung neu
+      // lesen statt einzelne Felder nachzuziehen. Eine Unterhaltung sind ein
+      // paar Dutzend Zeilen; drei Sonderwege fuer drei Arten Aenderung waeren
+      // drei Stellen, an denen die Anzeige vom Speicher abweichen kann.
+      ..add(core.verlaufGeaendert.listen((chat) => unawaited(_ladeNeu(chat))))
+      ..add(core.tippen.listen(_nimmTippen))
+      ..add(core.gruppenGeaendert.listen((_) => unawaited(_ladeGruppenNeu())))
       ..add(core.messageStatusUpdates.listen(_uebernehmeStatus))
       ..add(core.anhangAenderungen.listen((a) {
         anhaenge.putIfAbsent(a.chatId, () => {})[a.messageId] = a;
@@ -798,8 +920,35 @@ class AppState extends ChangeNotifier {
 
   Future<void> _ladeKontakteNeu() async {
     kontakte = await core.getContacts();
+    gruppen = await core.getGruppen();
     notifyListeners();
   }
+
+  // ═══════════════════════════════════════════════════════════════ Gruppen
+
+  List<Gruppe> gruppen = const [];
+
+  Gruppe? gruppeZu(String id) => gruppen.where((g) => g.id == id).firstOrNull;
+
+  Future<void> _ladeGruppenNeu() async {
+    gruppen = await core.getGruppen();
+    notifyListeners();
+  }
+
+  Future<String> legeGruppeAn(String name, List<String> mitglieder) async {
+    final g = await core.legeGruppeAn(name, mitglieder);
+    await _ladeGruppenNeu();
+    return g.id;
+  }
+
+  Future<void> fuegeZuGruppeHinzu(String id, List<String> neue) =>
+      _versuche(() => core.fuegeZuGruppeHinzu(id, neue));
+  Future<void> entferneAusGruppe(String id, String mitglied) =>
+      _versuche(() => core.entferneAusGruppe(id, mitglied));
+  Future<void> benenneGruppe(String id, String name) =>
+      _versuche(() => core.benenneGruppe(id, name));
+  Future<void> verlasseGruppe(String id) =>
+      _versuche(() => core.verlasseGruppe(id));
 
   // ═══════════════════════════════════════════════════════════════ Identitaet
 
@@ -886,8 +1035,276 @@ class AppState extends ChangeNotifier {
     // In EINEM Zug fuer die ganze Unterhaltung. Je Nachricht zu fragen hiesse
     // bei fuenfzig Anhaengen fuenfzig Abfragen beim Zeichnen einer Liste.
     anhaenge[id] = await core.getAnhaenge(id);
+    reaktionen[id] = await core.getReaktionen(id);
+    stimmen[id] = await core.getStimmen(id);
     notifyListeners();
     unawaited(core.markRead(id));
+  }
+
+  // ═══════════════════════════ Antworten, Reaktionen, Bearbeiten, Loeschen
+
+  /// chatId → messageId → wer → Zeichen.
+  final Map<String, Map<String, Reaktionen>> reaktionen = {};
+
+  Reaktionen reaktionenZu(String chatId, String messageId) =>
+      reaktionen[chatId]?[messageId] ?? const {};
+
+  bool _istStumm(String chatId) =>
+      kontakte.any((k) => k.id == chatId && k.stumm) ||
+      gruppen.any((g) => g.id == chatId && g.stumm);
+
+  /// Liest eine Unterhaltung neu, aber nur, wenn sie schon geladen war —
+  /// sonst holte jede Reaktion in einer nie geoeffneten Unterhaltung deren
+  /// ganzen Verlauf in den Speicher.
+  Future<void> _ladeNeu(String chat) async {
+    if (!verlaeufe.containsKey(chat)) return;
+    verlaeufe[chat] = await core.getMessages(chat);
+    reaktionen[chat] = await core.getReaktionen(chat);
+    stimmen[chat] = await core.getStimmen(chat);
+    anhaenge[chat] = await core.getAnhaenge(chat);
+    notifyListeners();
+  }
+
+  /// Die Nachricht, auf die [m] antwortet, aus dem geladenen Verlauf — oder
+  /// null, wenn sie hier nicht (mehr) steht.
+  Message? bezugVon(Message m) {
+    final ziel = m.antwortAuf;
+    if (ziel == null) return null;
+    for (final x in verlaeufe[m.chatId] ?? const <Message>[]) {
+      if (x.id == ziel) return x;
+    }
+    return null;
+  }
+
+  /// Ob die Oberflaeche "Bearbeiten" anbieten darf — dieselben Regeln wie der
+  /// Kern, damit kein Menuepunkt erscheint, der dann scheitert.
+  static bool bearbeitbar(Message m) =>
+      m.isMine &&
+      m.kind == MessageKind.text &&
+      !m.widerrufen &&
+      DateTime.now().toUtc().difference(m.timestamp) <= kBearbeitungsFrist;
+
+  static bool widerrufbar(Message m) =>
+      m.isMine &&
+      !m.widerrufen &&
+      DateTime.now().toUtc().difference(m.timestamp) <= kWiderrufsFrist;
+
+  Future<void> reagiere(String chatId, String messageId, String? zeichen) =>
+      _versuche(() => core.reagiere(chatId, messageId, zeichen));
+
+  Future<void> bearbeite(String chatId, String messageId, String text) async {
+    final sauber = text.trim();
+    if (sauber.isEmpty) return;
+    await _versuche(() => core.bearbeite(chatId, messageId, sauber));
+  }
+
+  Future<void> widerrufe(String chatId, String messageId) =>
+      _versuche(() => core.widerrufe(chatId, messageId));
+
+  /// chatId → umfrageId → wer → Auswahl.
+  final Map<String, Map<String, Stimmen>> stimmen = {};
+
+  Stimmen stimmenZu(String chatId, String umfrageId) =>
+      stimmen[chatId]?[umfrageId] ?? const {};
+
+  Future<void> sendeUmfrage(String chatId, Umfrage u) async {
+    final m = await core.sendeUmfrage(chatId, u);
+    verlaeufe[chatId] = [...?verlaeufe[chatId], m];
+    notifyListeners();
+  }
+
+  Future<void> stimme(String chatId, String umfrageId, List<int> auswahl) =>
+      _versuche(() => core.stimme(chatId, umfrageId, auswahl));
+
+  Future<void> hefteAn(String chatId, String messageId, bool an) =>
+      _versuche(() => core.hefteAn(chatId, messageId, an));
+
+  /// Die angehefteten Nachrichten einer Unterhaltung, zuletzt angeheftete
+  /// zuerst.
+  List<Message> angeheftete(String chatId) =>
+      verlaufVon(chatId).where((m) => m.angeheftetAm != null).toList()
+        ..sort((a, b) => b.angeheftetAm!.compareTo(a.angeheftetAm!));
+
+  Future<void> loescheFuerMich(String chatId, String messageId) =>
+      _versuche(() => core.loescheFuerMich(chatId, messageId));
+
+  /// Fuehrt eine Aenderung aus und zeigt ein Scheitern an, statt es zu
+  /// verschlucken. Die Anzeige selbst zieht [_ladeNeu] nach, ausgeloest vom
+  /// Kern — nicht diese Stelle.
+  Future<void> _versuche(Future<Object?> Function() tun) async {
+    try {
+      await tun();
+    } on BearbeitungNichtMoeglichException {
+      letzterFehler = 'nichtMehrMoeglich';
+      notifyListeners();
+    } on MessageTooLargeException {
+      letzterFehler = 'zuLang';
+      notifyListeners();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════ Ordnung und Suche
+
+  // ═══════════════════════════════════════════════════════ Tipp-Anzeige
+
+  /// Wer gerade tippt: Kontakt → wann die Meldung verfaellt.
+  final Map<String, DateTime> _tipptBis = {};
+
+  /// Eine Meldung "tippt" gilt so lange. Kommt keine neue, hat die Gegenstelle
+  /// aufgehoert oder die Verbindung verloren — beides soll nicht als "tippt
+  /// noch" stehen bleiben.
+  static const Duration tippDauer = Duration(seconds: 8);
+
+  bool tipptGerade(String chatId) {
+    final bis = _tipptBis[chatId];
+    return bis != null && DateTime.now().isBefore(bis);
+  }
+
+  void _nimmTippen(TippMeldung t) {
+    if (t.tippt) {
+      _tipptBis[t.chatId] = DateTime.now().add(tippDauer);
+      // Nach Ablauf einmal neu zeichnen, damit die Anzeige verschwindet.
+      Timer(tippDauer, notifyListeners);
+    } else {
+      _tipptBis.remove(t.chatId);
+    }
+    notifyListeners();
+  }
+
+  DateTime? _letzteTippMeldung;
+  String? _tipptIn;
+
+  /// Vom Eingabefeld bei jeder Aenderung gerufen. Gedrosselt: hoechstens eine
+  /// Meldung alle [tippAbstand], und ein "aufgehoert", wenn das Feld leer wird.
+  ///
+  /// DIE DROSSEL IST KEIN KOMFORT. Jede Meldung rueckt den Ratchet weiter, und
+  /// jede, die der Relay verwirft, hinterlaesst beim Empfaenger eine Luecke,
+  /// die libsignal ueberspringen muss — das geht, aber nur begrenzt oft.
+  static const Duration tippAbstand = Duration(seconds: 5);
+
+  void eingabeGeaendert(String chatId, String text) {
+    if (!einstellungen.tippAnzeige) return;
+    final jetzt = DateTime.now();
+    if (text.isEmpty) {
+      if (_tipptIn == chatId) {
+        _tipptIn = null;
+        _letzteTippMeldung = null;
+        unawaited(core.meldeTippen(chatId, false));
+      }
+      return;
+    }
+    if (_tipptIn == chatId &&
+        _letzteTippMeldung != null &&
+        jetzt.difference(_letzteTippMeldung!) < tippAbstand) {
+      return;
+    }
+    _tipptIn = chatId;
+    _letzteTippMeldung = jetzt;
+    unawaited(core.meldeTippen(chatId, true));
+  }
+
+  /// Die Frist, die fuer das gilt, was man in [chatId] schreibt — dieselbe
+  /// Rechnung wie im Kern (`_fristFuer`), fuer die Anzeige.
+  Duration? fristFuer(String chatId) {
+    final eigen = Gruppe.istGruppenId(chatId)
+        ? gruppeZu(chatId)?.fristSekunden
+        : kontakte.where((k) => k.id == chatId).firstOrNull?.fristSekunden;
+    if (eigen == null) return einstellungen.messageLifetime;
+    return eigen == 0 ? null : Duration(seconds: eigen);
+  }
+
+  Future<void> setzeChatFrist(String chatId, Duration? frist) async {
+    await core.setzeChatFrist(chatId, frist);
+    await _ladeKontakteNeu();
+  }
+
+  /// Erstellt die Sicherung und laesst den Nutzer einen Ort waehlen.
+  /// Rueckgabe: wo sie liegt, oder null, wenn abgebrochen.
+  Future<String?> sichere() async {
+    final daten = await core.erstelleSicherung();
+    final tmp = await getTemporaryDirectory();
+    final heute = DateTime.now();
+    final name = 'bitdm-sicherung-'
+        '${heute.year}-${heute.month.toString().padLeft(2, '0')}-'
+        '${heute.day.toString().padLeft(2, '0')}.bitdm';
+    final datei = File('${tmp.path}${Platform.pathSeparator}$name');
+    await datei.writeAsBytes(daten, flush: true);
+    try {
+      return await dateien.speichere(datei.path, name);
+    } finally {
+      // Die Kopie im Zwischenspeicher ist verschluesselt, aber sie hat dort
+      // nichts verloren, sobald sie ihren Ort hat.
+      try {
+        await datei.delete();
+      } catch (_) {}
+    }
+  }
+
+  /// Laesst eine Sicherung waehlen und spielt sie ein. Rueckgabe: wie viele
+  /// Nachrichten dazukamen, oder null, wenn abgebrochen.
+  Future<int?> spieleSicherungEin() async {
+    final gewaehlt = await dateien.waehlen();
+    if (gewaehlt == null) return null;
+    try {
+      final n = await core
+          .spieleSicherungEin(await gewaehlt.datei.readAsBytes());
+      await _ladeKontakteNeu();
+      for (final id in verlaeufe.keys.toList()) {
+        await _ladeNeu(id);
+      }
+      return n;
+    } on SicherungPasstNichtException {
+      letzterFehler = 'sicherungPasstNicht';
+      notifyListeners();
+      return null;
+    } finally {
+      await dateien.gibFrei(gewaehlt.zettel);
+    }
+  }
+
+  /// Oeffnet die Notizen (legt sie beim ersten Mal an) und gibt ihre
+  /// Kennung zurueck.
+  Future<String> notizenOeffnen() async {
+    final id = await core.oeffneNotizen();
+    await _ladeKontakteNeu();
+    return id;
+  }
+
+  bool istNotizen(String id) => id == meineAdresse;
+
+  /// Ob dieses Geraet Sprachnachrichten aufnehmen kann — nur Android.
+  bool spracheMoeglich = false;
+
+  Future<void> pruefeSprache() async {
+    spracheMoeglich = await Sprache.verfuegbar();
+    notifyListeners();
+  }
+
+  /// Schickt eine fertige Aufnahme als Anhang.
+  Future<void> sendeSprachnachricht(String chatId, Aufnahme a) async {
+    final datei = File(a.pfad);
+    await anhangSenden(chatId, datei,
+        name: sprachDateiname(DateTime.now()), groesse: await datei.length());
+  }
+
+  Future<void> setzeOrdnung(String chatId,
+      {bool? angeheftet, bool? archiviert, bool? stumm}) async {
+    await core.setzeOrdnung(chatId,
+        angeheftet: angeheftet, archiviert: archiviert, stumm: stumm);
+    await _ladeKontakteNeu();
+  }
+
+  /// Was die letzte Suche gefunden hat. Leer, solange nicht gesucht wird.
+  List<Message> suchTreffer = const [];
+  String suchText = '';
+
+  Future<void> suche(String text) async {
+    suchText = text;
+    suchTreffer = text.trim().isEmpty ? const [] : await core.suche(text);
+    // Eine langsamere, aeltere Suche darf die Treffer einer neueren nicht
+    // ueberschreiben, wenn jemand schnell weitertippt.
+    if (suchText != text) return;
+    notifyListeners();
   }
 
   // ══════════════════════════════════════════════════════════════════ Anhaenge
@@ -923,7 +1340,12 @@ class AppState extends ChangeNotifier {
     try {
       final m = await core.sendeAnhang(chatId, datei,
           name: name, groesse: groesse);
-      verlaeufe.putIfAbsent(chatId, () => []).add(m);
+      // EINE NEUE LISTE, KEIN `.add`: dieselbe Falle wie in [senden] — die
+      // Liste kommt vom Kern, und ob sie wachsen darf, entscheidet er. Der
+      // Entwurfskern gibt eine unveraenderliche zurueck; das `.add` warf dort,
+      // und der Anhang stand als "Fehler" da, obwohl er verschickt war
+      // (gefunden am 25.09.2026 beim Test der Sprachnachrichten).
+      verlaeufe[chatId] = [...?verlaeufe[chatId], m];
       anhaenge[chatId] = await core.getAnhaenge(chatId);
     } on AnhangZuGross catch (e) {
       letzterFehler = 'anhangZuGross:${e.groesse}:${e.grenze}';
@@ -1034,11 +1456,13 @@ class AppState extends ChangeNotifier {
     return 'anhangFehler';
   }
 
-  Future<void> senden(String id, String text) async {
+  Future<void> senden(String id, String text,
+      {String? antwortAuf, DateTime? um}) async {
     final sauber = text.trim();
     if (sauber.isEmpty) return;
     try {
-      final m = await core.sendMessage(id, sauber);
+      final m =
+          await core.sendMessage(id, sauber, antwortAuf: antwortAuf, um: um);
       // NICHT `.add(...)` AUF DIE LISTE DES KERNS.
       //
       // Was in `verlaeufe` liegt, kommt aus `core.history(...)` — und ob das
@@ -1203,6 +1627,13 @@ class AppState extends ChangeNotifier {
     _fehlversuche = 0;
 
     await core.wipeEverything();
+    // DIE FACHDATEI AUCH HIER, nicht nur im Kern. Der echte Kern loescht sie
+    // ueber seinen Schluesselspeicher mit — aber "alles loeschen" ist genau
+    // die Stelle, an der ein vergessener Rest am teuersten ist: eine Fachdatei
+    // nach dem Panik-Passwort verriete, dass hier eine gesperrte Identitaet
+    // war. Doppelt geloescht schadet nicht.
+    await tresor?.delete();
+    faktoren = const [];
 
     hatIdentitaet = false;
     meineAdresse = '';

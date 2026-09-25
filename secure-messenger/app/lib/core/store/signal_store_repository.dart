@@ -53,8 +53,20 @@ class SignalStoreRepository {
   /// Sie wird NICHT aus der Seed-Phrase abgeleitet, obwohl es naheliegt. Sie
   /// bezeichnet ein GERAET, nicht eine Identitaet: wer dieselbe Seed-Phrase auf
   /// einem zweiten Telefon einspielt, soll dort eine andere Nummer bekommen.
-  /// Aus der Seed abgeleitet waeren beide gleich, und der Sinn der Nummer —
-  /// bemerken, dass die Gegenstelle neu aufgesetzt wurde — waere weg.
+  ///
+  /// SIE UNTERSCHEIDET TROTZDEM KEINE GERAETE, und hier stand bis zur
+  /// Mehrgeraete-Umstellung das Gegenteil ("der Sinn der Nummer — bemerken,
+  /// dass die Gegenstelle neu aufgesetzt wurde"). Nachgesehen:
+  /// `grep -rn "registrationId" lib/` liefert 18 Fundstellen und keinen
+  /// einzigen Vergleich, und in libsignal_protocol_dart 0.8.2 fassen weder
+  /// `session_builder.dart` noch `session_cipher.dart` sie an. Es hat also nie
+  /// jemand deswegen etwas verworfen — die Aussage war eine Absicht, keine
+  /// Wirkung.
+  ///
+  /// WOFUER SIE JETZT DA IST: libsignal verlangt sie im Prekey-Bundle, mehr
+  /// nicht. Was Geraete einer Adresse unterscheidet, ist die `device_id` in
+  /// `meta` (real_messenger_core `_ermittleGeraetId`) — und die darf sich bei
+  /// einer Wiederherstellung gerade NICHT aendern, waehrend diese hier es tut.
   int registrationId() {
     final vorhanden = db.meta(_metaRegistrationId);
     if (vorhanden != null) {

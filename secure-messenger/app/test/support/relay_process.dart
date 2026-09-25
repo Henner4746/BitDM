@@ -23,7 +23,16 @@ class Relay {
   /// [blobGeheimnis] setzt BITDM_BLOB_SECRET. Ohne das lehnt der Relay jede
   /// Marken-Anfrage mit "Zwischenlager nicht eingerichtet" ab — richtig so,
   /// aber fuer einen Anhang-Test muss es dastehen.
-  static Future<Relay?> starten({String? blobGeheimnis}) async {
+  ///
+  /// [umgebung] reicht weitere Umgebungsvariablen durch. Gebraucht fuer
+  /// BITDM_GERAETE_MAX: die Obergrenze steht sonst bei 5, und ein Test, der
+  /// sie erreicht, muesste sechs vollstaendige Clients aufsetzen — sechs
+  /// Datenbanken, sechs Identitaeten, sechs Anmeldungen fuer eine Zahl, die
+  /// der Betreiber ohnehin per Umgebungsvariable setzt (relay_server.py:186).
+  static Future<Relay?> starten({
+    String? blobGeheimnis,
+    Map<String, String>? umgebung,
+  }) async {
     final serverDir = Directory('../server').absolute.path.replaceAll('\\', '/');
     if (!Directory(serverDir).existsSync()) return null;
 
@@ -44,6 +53,7 @@ class Relay {
         environment: {
           'BITDM_DB': '${tmp.path}/relay.db',
           if (blobGeheimnis != null) 'BITDM_BLOB_SECRET': blobGeheimnis,
+          ...?umgebung,
         },
       );
     } on ProcessException {

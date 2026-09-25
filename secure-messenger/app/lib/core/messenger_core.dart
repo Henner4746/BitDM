@@ -11,17 +11,29 @@
 // =====================================================================
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'models.dart';
 
 export 'models.dart';
 export 'errors.dart';
+export 'store/sicherung.dart' show SicherungPasstNichtException;
 
 /// Max UTF-8 byte length of a single text message.
 const int kMaxTextBytes = 4096;
 
 /// Number of words in a recovery phrase (BIP39, 128 bits of entropy).
 const int kRecoveryPhraseWords = 12;
+
+/// Wie lange nach dem Absenden eine eigene Nachricht noch bearbeitet werden
+/// darf, und wie oft. Die Zahlen sind Signals (support.signal.org, "Edit
+/// Message"): Bearbeiten ist zum Ausbessern da, nicht zum Umschreiben der
+/// Vergangenheit.
+const Duration kBearbeitungsFrist = Duration(hours: 24);
+const int kMaxBearbeitungen = 10;
+
+/// Wie lange "fuer alle loeschen" angeboten wird — ebenfalls Signals Frist.
+const Duration kWiderrufsFrist = Duration(hours: 24);
 
 abstract class MessengerCore {
   // ------------------------------------------------------------- identity
@@ -144,7 +156,128 @@ abstract class MessengerCore {
   /// [messageStatusUpdates]. Encryption/session setup happen internally.
   /// Throws `UnknownContactException`, `MessageTooLargeException`,
   /// `NotInitializedException`.
-  Future<Message> sendMessage(String contactId, String text);
+  ///
+  /// [antwortAuf] nennt die Nachricht, auf die geantwortet wird. Es reist nur
+  /// die Kennung, kein Zitat (siehe Payload.antwortAuf).
+  ///
+  /// [um] plant die Nachricht: sie wird sofort gespeichert und geht zu diesem
+  /// Zeitpunkt hinaus (oder beim ersten Verbinden danach). Ihre Verfasszeit
+  /// ist dann [um], nicht jetzt — die Gegenstelle soll sie dort einsortieren,
+  /// wo sie hingehoert.
+  Future<Message> sendMessage(String contactId, String text,
+      {String? antwortAuf, DateTime? um});
+
+  // ------------------------------------------ reactions, edits, deletions
+
+  /// Setzt die eigene Reaktion auf eine Nachricht; null oder leer nimmt sie
+  /// zurueck. Je Person und Nachricht eine, eine neue ersetzt die alte.
+  ///
+  /// Geht auch ohne Verbindung: sie wartet im Ausgang.
+  Future<void> reagiere(String contactId, String messageId, String? zeichen);
+
+  /// Nachrichtenkennung → wer → Zeichen, fuer eine ganze Unterhaltung.
+  Future<Map<String, Reaktionen>> getReaktionen(String contactId);
+
+  /// Aendert den Text einer EIGENEN Textnachricht.
+  ///
+  /// Wirft `BearbeitungNichtMoeglichException`, wenn die Nachricht nicht
+  /// eigene Text ist, widerrufen wurde, aelter als [kBearbeitungsFrist] ist
+  /// oder schon [kMaxBearbeitungen] Mal bearbeitet wurde.
+  Future<Message> bearbeite(String contactId, String messageId, String neuerText);
+
+  /// "Fuer alle loeschen" — nur eigene Nachrichten, nur innerhalb von
+  /// [kWiderrufsFrist]. Wirft sonst `BearbeitungNichtMoeglichException`.
+  Future<void> widerrufe(String contactId, String messageId);
+
+  /// Schickt eine Umfrage. Wirft [ArgumentError], wenn sie nicht taugt (zu
+  /// wenige oder zu viele Antworten, zu lang).
+  Future<Message> sendeUmfrage(String contactId, Umfrage umfrage,
+      {String? antwortAuf});
+
+  /// Gibt die eigene Stimme ab; leer zieht sie zurueck.
+  Future<void> stimme(String contactId, String umfrageId, List<int> auswahl);
+
+  /// Umfrage → wer → Auswahl, fuer eine ganze Unterhaltung.
+  Future<Map<String, Stimmen>> getStimmen(String contactId);
+
+  /// Heftet eine Nachricht oben an ([an]) oder loest sie — fuer beide Seiten.
+  /// Hoechstens drei je Unterhaltung; die vierte verdraengt die aelteste.
+  Future<void> hefteAn(String contactId, String messageId, bool an);
+
+  /// "Fuer mich loeschen" — jede Nachricht, nur auf diesem Geraet.
+  Future<void> loescheFuerMich(String contactId, String messageId);
+
+  /// Meldet die Unterhaltung (Kontaktadresse), deren Verlauf sich geaendert
+  /// hat, OHNE dass eine neue Nachricht dazukam: bearbeitet, widerrufen,
+  /// Reaktion gesetzt. Die Oberflaeche laedt diese Unterhaltung dann neu.
+  Stream<String> get verlaufGeaendert;
+
+  /// Sucht in allen Textnachrichten (oder nur in [contactId]), neueste zuerst.
+  /// Nur lokal — es gibt keinen Server, den man fragen koennte.
+  Future<List<Message>> suche(String text, {String? contactId, int limit = 100});
+
+  /// Sagt der Gegenstelle, dass hier gerade getippt wird ([tippt]) oder
+  /// nicht mehr. Tut NICHTS, wenn die Anzeige aus ist, keine Verbindung
+  /// besteht, der Relay keine fluechtigen Rahmen kennt oder es noch keine
+  /// Sitzung gibt — eine Tipp-Meldung ist nie ein Grund, ein Schluesselbuendel
+  /// zu holen.
+  Future<void> meldeTippen(String contactId, bool tippt);
+
+  /// Tipp-Meldungen der Gegenstellen, nur wenn die eigene Anzeige an ist.
+  Stream<TippMeldung> get tippen;
+
+  /// Eigene Loeschfrist fuer eine Unterhaltung: null folgt der
+  /// Grundeinstellung, [Duration.zero] heisst "hier nie".
+  Future<void> setzeChatFrist(String contactId, Duration? frist);
+
+  /// Der Verlauf als verschluesselte Datei — Kontakte, Nachrichten,
+  /// Reaktionen, Stimmen, Anleitungen der Anhaenge; KEINE Schluessel und
+  /// Sitzungen (siehe lib/core/store/sicherung.dart). Aufgehen tut sie nur
+  /// mit denselben zwoelf Woertern.
+  Future<Uint8List> erstelleSicherung();
+
+  /// Spielt eine Sicherung ein, ohne Vorhandenes zu ueberschreiben. Rueckgabe:
+  /// wie viele Nachrichten dazukamen. Wirft `SicherungPasstNichtException`,
+  /// wenn sie zu einer anderen Identitaet gehoert oder beschaedigt ist.
+  Future<int> spieleSicherungEin(Uint8List daten);
+
+  /// Legt die Unterhaltung "Notizen" an, falls es sie noch nicht gibt, und
+  /// gibt ihre Kennung zurueck — die eigene Adresse.
+  ///
+  /// Was dort geschrieben wird, geht an niemanden; es wird nur an die eigenen
+  /// anderen Geraete gespiegelt (wie bei Signals "Notiz an mich").
+  Future<String> oeffneNotizen();
+
+  // ---------------------------------------------------------------- Gruppen
+
+  /// Legt eine Gruppe an; [mitglieder] muessen aktive Kontakte sein. Man
+  /// selbst ist Admin. Wirft [ArgumentError], wenn es zu viele sind oder der
+  /// Name nicht taugt.
+  ///
+  /// Alle Nachrichten-Methoden oben nehmen die Gruppenkennung wie eine
+  /// Kontaktadresse: getMessages, sendMessage, sendeAnhang, reagiere, ...
+  Future<Gruppe> legeGruppeAn(String name, List<String> mitglieder);
+
+  Future<List<Gruppe>> getGruppen();
+
+  /// Nur der Admin. Neue muessen aktive Kontakte sein.
+  Future<void> fuegeZuGruppeHinzu(String gruppeId, List<String> neue);
+
+  /// Nur der Admin.
+  Future<void> entferneAusGruppe(String gruppeId, String mitglied);
+
+  /// Nur der Admin.
+  Future<void> benenneGruppe(String gruppeId, String name);
+
+  /// Austreten. Der Verlauf bleibt lesbar; schreiben geht danach nicht mehr.
+  Future<void> verlasseGruppe(String gruppeId);
+
+  /// Eine Gruppe ist entstanden oder hat sich geaendert.
+  Stream<String> get gruppenGeaendert;
+
+  /// Anheften, archivieren, stummschalten — nur auf diesem Geraet.
+  Future<void> setzeOrdnung(String contactId,
+      {bool? angeheftet, bool? archiviert, bool? stumm});
 
   /// Broadcast stream of newly received, already-DECRYPTED inbound messages.
   /// The core also persists them; this is the live push for the UI.

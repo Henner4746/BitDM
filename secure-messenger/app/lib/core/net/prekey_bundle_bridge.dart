@@ -26,9 +26,11 @@ class PreKeyBundleBridge {
     required SignalIdentity identity,
     required SignedPreKeyRecord signedPreKey,
     required List<PreKeyRecord> oneTimePreKeys,
+    int? deviceId,
   }) {
     return RelayPreKeyBundle(
       userId: identity.address,
+      deviceId: deviceId,
       // ROH, 32 Bytes: der Server rechnet die Adresse daraus nach und prueft
       // damit die Signatur. Mit serialize() waeren es 33 und beides schlaegt
       // fehl.
@@ -54,7 +56,17 @@ class PreKeyBundleBridge {
   /// Macht aus der Antwort des Relays ein Bundle, mit dem libsignal eine
   /// Sitzung aufbauen kann.
   ///
-  /// [deviceId] ist bei BitDM immer 1 — eine Identitaet, ein Geraet.
+  /// [deviceId] sagt, MIT WELCHEM GERAET der Adresse die Sitzung entsteht.
+  ///
+  /// Frueher stand hier "bei BitDM immer 1 — eine Identitaet, ein Geraet". Das
+  /// gilt seit der Mehrgeraete-Umstellung nicht mehr: eine Adresse kann bis zu
+  /// fuenf Geraete haben, und je Geraetepaar MUSS eine eigene Sitzung
+  /// entstehen. Eine geteilte Sitzung waere kein Schoenheitsfehler, sondern
+  /// stiller Nachrichtenverlust — eine Signal-Sitzung ist eine Hashkette, und
+  /// jedes Entschluesseln wirft den benutzten Kettenschluessel weg.
+  ///
+  /// Der Standard 1 bleibt: das erste Geraet jeder Adresse ist 1, und ein
+  /// Relay ohne die Erweiterung kennt nur dieses eine.
   static PreKeyBundle fromRelay(RelayBundleResponse antwort,
       {int deviceId = 1}) {
     final identityRaw = base64.decode(antwort.identityKey);

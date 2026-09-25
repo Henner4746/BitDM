@@ -65,6 +65,7 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
     companion object {
         const val KANAL = "bitdm/dateien"
         const val ANFRAGE_WAEHLEN = 0x81D3
+        const val ANFRAGE_SPEICHERN = 0x81D4
 
         /** Der Name im Manifest, mit ${applicationId} davor. */
         private const val PROVIDER = ".dateien"
@@ -97,6 +98,8 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
             }
             "oeffne" -> ergebnis.success(
                 oeffne(aufruf.argument<String>("pfad"), aufruf.argument<String>("name")))
+            "speichern" -> speichern(
+                aufruf.argument<String>("pfad"), aufruf.argument<String>("name"), ergebnis)
             else -> ergebnis.notImplemented()
         }
     }
@@ -125,6 +128,54 @@ class DateiKanal(private val activity: Activity) : MethodChannel.MethodCallHandl
         } catch (e: ActivityNotFoundException) {
             wartend = null
             ergebnis.error("keineAuswahl", "Kein Dateiwaehler auf diesem Geraet", null)
+        }
+    }
+
+    private var speichernWartend: Pair<MethodChannel.Result, String>? = null
+
+    /**
+     * "Speichern unter" des Systems. Die Quelle ist eine Datei im privaten
+     * Bereich von BitDM (die fertige, verschluesselte Sicherung); kopiert wird
+     * erst, wenn der Nutzer einen Ort gewaehlt hat — auf dem Kopierfaden, nicht
+     * auf dem Hauptfaden.
+     */
+    private fun speichern(pfad: String?, name: String?, ergebnis: MethodChannel.Result) {
+        if (pfad == null || speichernWartend != null) {
+            ergebnis.error("laeuft", "Es ist schon ein Speichern offen", null)
+            return
+        }
+        speichernWartend = Pair(ergebnis, pfad)
+        val absicht = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_TITLE, name ?: "bitdm-sicherung.bin")
+        }
+        try {
+            activity.startActivityForResult(absicht, ANFRAGE_SPEICHERN)
+        } catch (e: ActivityNotFoundException) {
+            speichernWartend = null
+            ergebnis.error("keineAuswahl", "Kein Dateiwaehler auf diesem Geraet", null)
+        }
+    }
+
+    /** Wird aus MainActivity.onActivityResult gerufen, fuer ANFRAGE_SPEICHERN. */
+    fun gespeichert(ergebnisCode: Int, daten: Intent?) {
+        val (warte, quelle) = speichernWartend ?: return
+        speichernWartend = null
+        val uri = if (ergebnisCode == Activity.RESULT_OK) daten?.data else null
+        if (uri == null) {
+            warte.success(false)
+            return
+        }
+        kopierfaden.execute {
+            try {
+                activity.contentResolver.openOutputStream(uri)?.use { aus ->
+                    File(quelle).inputStream().use { it.copyTo(aus) }
+                } ?: throw java.io.IOException("Ziel laesst sich nicht oeffnen")
+                hauptfaden.post { warte.success(true) }
+            } catch (e: Exception) {
+                hauptfaden.post { warte.error("speichern", e.message, null) }
+            }
         }
     }
 

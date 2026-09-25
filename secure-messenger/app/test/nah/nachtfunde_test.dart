@@ -21,19 +21,12 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:bitdm/core/crypto/address.dart';
-import 'package:bitdm/core/crypto/bip39.dart';
-import 'package:bitdm/core/crypto/key_derivation.dart';
-import 'package:bitdm/core/crypto/signal_identity.dart';
 import 'package:bitdm/core/messenger_core.dart';
 import 'package:bitdm/core/nah/funk.dart';
 import 'package:bitdm/core/nah/nahbereich.dart';
-import 'package:bitdm/core/net/relay_client.dart';
-import 'package:bitdm/core/net/relay_protocol.dart';
 import 'package:bitdm/core/real_messenger_core.dart';
-import 'package:bitdm/core/secret_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/funk_attrappe.dart';

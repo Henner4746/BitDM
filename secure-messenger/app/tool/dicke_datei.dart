@@ -133,6 +133,8 @@ void main() {
 
       final lager = LagerClient(basis: kern.lagerUri);
       final rezept = await AnhangVersand(
+        // Ein Messwerkzeug, kein App-Code: es braucht den Test-Einstieg.
+        // ignore: invalid_use_of_visible_for_testing_member
         relay: kern.relayFuerTest,
         lager: lager,
       ).schicke(quelle, name: 'dick.bin');

@@ -23,6 +23,7 @@ import 'core/lock/geraete_fach.dart';
 import 'core/lock/key_vault.dart';
 import 'core/lock/vault_store.dart';
 import 'core/secret_store.dart';
+import 'core/sprache.dart';
 import 'core/benachrichtigungen.dart';
 import 'bewegung.dart';
 import 'masse.dart';
@@ -35,6 +36,7 @@ import 'core/qr_bild.dart';
 import 'core/verbindungstest.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'data.dart';
+import 'formatierung.dart';
 import 'painters.dart';
 import 'fido_probe_screen.dart';
 import 'qr_scan_screen.dart';
@@ -453,6 +455,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // leeren; das gehoert an den Vordergrunddienst, den es noch nicht gibt.
     WidgetsBinding.instance.addObserver(this);
     st.addListener(_aktualisiere);
+    // Ob es einen Mikrofonknopf gibt, entscheidet die Plattform — einmal
+    // gefragt, beim Start.
+    unawaited(st.pruefeSprache());
     // Der Rahmen der beiden mehrzeiligen Felder haengt am Fokus, also muss ein
     // Fokuswechsel neu zeichnen lassen.
     //
@@ -536,6 +541,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   String? laeuftZeile;
 
   final draftCtl = TextEditingController();
+
+  /// Worauf die naechste Nachricht antwortet, oder welche gerade bearbeitet
+  /// wird. Hoechstens eines von beiden: eine Bearbeitung antwortet nicht neu.
+  Message? _antwortZiel;
+  Message? _bearbeitungsZiel;
+
+  /// Zeigt die Chatliste das Archiv statt der gewoehnlichen Unterhaltungen?
+  bool _zeigeArchiv = false;
+  final suchCtl = TextEditingController();
   final addCtl = TextEditingController();
   final codeCtl = TextEditingController();
   final stickPinCtl = TextEditingController();
@@ -828,6 +842,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _aufnahmeTakt?.cancel();
     // OHNE `if (_imFenster)` und VOR `_tastenFokus.dispose()`: die Weiche haengt
     // an `defaultTargetPlatform`, und im Test setzt der Fenster-Fall sie zurueck,
     // BEVOR flutter_test den Baum abbaut — mit der Bedingung waere der Horcher
@@ -901,8 +916,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   /// Die Frist als Text — jetzt aus der ECHTEN Einstellung, nicht aus einer
   /// Anzeigevariablen.
-  String ephLabel() {
-    final d = st.einstellungen.messageLifetime;
+  String ephLabel() => fristText(st.einstellungen.messageLifetime);
+
+  String fristText(Duration? d) {
     if (d == null) return t("off");
     if (d.inHours <= 1) return t("h1");
     if (d.inHours <= 24) return t("h24");
@@ -969,12 +985,764 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final d = draftCtl.text.trim();
     if (d.isEmpty || chat == null) return;
     draftCtl.clear();
+    final bearbeitet = _bearbeitungsZiel;
+    final antwort = _antwortZiel;
+    setState(() {
+      _bearbeitungsZiel = null;
+      _antwortZiel = null;
+    });
+    if (bearbeitet != null) {
+      await st.bearbeite(chat!, bearbeitet.id, d);
+      return;
+    }
     // VOR dem Senden setzen, nicht danach: `senden` meldet die Aenderung
     // selbst, der Neubau laeuft also noch waehrend dieses `await`. Danach
     // waere die Marke zu spaet.
     _selbstGeschrieben = true;
-    await st.senden(chat!, d);
+    await st.senden(chat!, d, antwortAuf: antwort?.id);
   }
+
+  /// Fragt nach Tag und Uhrzeit und plant die Nachricht im Eingabefeld.
+  Future<void> _planeSenden() async {
+    final d = draftCtl.text.trim();
+    if (d.isEmpty || chat == null || _bearbeitungsZiel != null) return;
+    final jetzt = DateTime.now();
+    final tag = await showDatePicker(
+        context: context,
+        initialDate: jetzt,
+        firstDate: jetzt,
+        lastDate: jetzt.add(const Duration(days: 365)),
+        helpText: t('scheduleTitle'));
+    if (tag == null || !mounted) return;
+    final zeit = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(jetzt.add(const Duration(hours: 1))));
+    if (zeit == null) return;
+    final um = DateTime(tag.year, tag.month, tag.day, zeit.hour, zeit.minute);
+    if (!um.isAfter(DateTime.now())) {
+      st.setzeFehler('geplantVorbei');
+      return;
+    }
+    final antwort = _antwortZiel;
+    draftCtl.clear();
+    setState(() => _antwortZiel = null);
+    await st.senden(chat!, d, antwortAuf: antwort?.id, um: um);
+  }
+
+  /// Seit wann aufgenommen wird, oder null.
+  DateTime? _aufnahmeSeit;
+  Timer? _aufnahmeTakt;
+
+  String _aufnahmeDauer() {
+    final d = DateTime.now().difference(_aufnahmeSeit ?? DateTime.now());
+    return '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _starteAufnahme(String cid) async {
+    final recht = await Sprache.rechte();
+    if (recht != 'ja') {
+      st.setzeFehler(recht == 'dauerhaft' ? 'mikrofonDauerhaft' : 'mikrofonNein');
+      return;
+    }
+    if (!await Sprache.starte()) {
+      st.setzeFehler('aufnahmeFehler');
+      return;
+    }
+    setState(() => _aufnahmeSeit = DateTime.now());
+    // Die Anzeige der Dauer zaehlt sichtbar mit — sonst weiss niemand, ob
+    // das Mikrofon wirklich laeuft.
+    _aufnahmeTakt = Timer.periodic(
+        const Duration(seconds: 1), (_) => mounted ? setState(() {}) : null);
+  }
+
+  Future<void> _schickeAufnahme(String cid) async {
+    _aufnahmeTakt?.cancel();
+    setState(() => _aufnahmeSeit = null);
+    final a = await Sprache.stoppe();
+    if (a == null) return; // zu kurz — nichts aufgenommen
+    await st.sendeSprachnachricht(cid, a);
+  }
+
+  Future<void> _verwirfAufnahme() async {
+    _aufnahmeTakt?.cancel();
+    setState(() => _aufnahmeSeit = null);
+    await Sprache.verwirf();
+  }
+
+  /// Ein kurzer Auszug einer Nachricht — fuer Zitat, Antwortleiste und Liste.
+  String auszug(Message m) {
+    if (m.widerrufen) return t('deletedMsg');
+    if (m.kind == MessageKind.anhang && sprachName.hasMatch(m.text)) {
+      return t('voice');
+    }
+    if (m.kind == MessageKind.anhang) return '${t('attachment')}: ${m.text}';
+    if (m.kind == MessageKind.umfrage) {
+      return '${t('poll')}: ${Umfrage.lies(m.text)?.frage ?? ''}';
+    }
+    return m.text;
+  }
+
+  /// Die Zeile, die zeigt, worauf die naechste Nachricht antwortet oder dass
+  /// gerade bearbeitet wird. Das Kreuz bricht ab.
+  Widget eingabeBezug() {
+    final ziel = _bearbeitungsZiel ?? _antwortZiel;
+    if (ziel == null) return const SizedBox.shrink();
+    final bearbeitung = _bearbeitungsZiel != null;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(17, 0, 17, 8),
+      padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+      decoration: BoxDecoration(
+          color: p.surf2,
+          borderRadius: BorderRadius.circular(8),
+          border: Border(left: BorderSide(color: p.accent, width: 3))),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text((bearbeitung ? t('editing') : t('replyTo')).toUpperCase(),
+                style: mono(size: 9.5, weight: FontWeight.w600, color: p.accLight, spacing: 1)),
+            const SizedBox(height: 2),
+            Text(auszug(ziel), maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: mono(size: 12, color: p.muted)),
+          ]),
+        ),
+        Semantics(
+          button: true,
+          label: t('cancel'),
+          child: Masse.trefferflaeche(
+            onTap: () => setState(() {
+              if (bearbeitung) draftCtl.clear();
+              _antwortZiel = null;
+              _bearbeitungsZiel = null;
+            }),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text('×', style: TextStyle(color: p.muted, fontSize: 16, height: 1)),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  void plusMenue(String cid) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: p.surf,
+      // HOEHER ALS DIE VORGABE, WENN NOETIG. Ohne das darf ein Blatt nur
+      // 9/16 des Bildschirms hoch sein, und das Nachrichtenmenue lief im
+      // Querformat unten ueber (Widget-Test, 600 px Hoehe: 18 px zu viel).
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+      builder: (ctx) {
+        Widget eintrag(String text, VoidCallback tun) => InkWell(
+              onTap: () {
+                Navigator.pop(ctx);
+                tun();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                child: Text(text, style: mono(size: 13.5, color: p.ink)),
+              ),
+            );
+        return SafeArea(
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const SizedBox(height: 8),
+            eintrag(t('attach'), () => anhangWaehlen(cid)),
+            eintrag(t('pollNew'), () => _legeUmfrageAn(cid)),
+            const SizedBox(height: 6),
+          ])),
+        );
+      },
+    );
+  }
+
+  Future<void> _legeUmfrageAn(String cid) async {
+    final frage = TextEditingController();
+    final optionen = [TextEditingController(), TextEditingController()];
+    var mehrfach = false;
+    String? fehler;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, neu) => AlertDialog(
+          backgroundColor: p.surf,
+          title: Text(t('pollNew'), style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              TextField(controller: frage, maxLength: Umfrage.maxFrage, enableIMEPersonalizedLearning: false,
+                  style: mono(size: 13, color: p.ink),
+                  decoration: InputDecoration(hintText: t('pollQuestion'), counterText: '', hintStyle: mono(size: 13, color: p.dim))),
+              for (var i = 0; i < optionen.length; i++)
+                TextField(controller: optionen[i], maxLength: Umfrage.maxOption, enableIMEPersonalizedLearning: false,
+                    style: mono(size: 13, color: p.ink),
+                    decoration: InputDecoration(hintText: '${t('pollOption')} ${i + 1}', counterText: '', hintStyle: mono(size: 13, color: p.dim))),
+              if (optionen.length < Umfrage.maxOptionen)
+                TextButton(
+                  onPressed: () => neu(() => optionen.add(TextEditingController())),
+                  child: Text('+ ${t('pollOption')}'),
+                ),
+              Row(children: [
+                Checkbox(value: mehrfach, onChanged: (v) => neu(() => mehrfach = v ?? false)),
+                Expanded(child: Text(t('pollMulti'), style: mono(size: 12, color: p.muted))),
+              ]),
+              if (fehler != null)
+                Text(fehler!, style: mono(size: 11.5, color: p.tintInk)),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
+            TextButton(
+              onPressed: () async {
+                final antworten = [
+                  for (final o in optionen)
+                    if (o.text.trim().isNotEmpty) o.text.trim(),
+                ];
+                final u = Umfrage(frage.text.trim(), antworten, mehrfach: mehrfach);
+                if (Umfrage.lies(u.alsText()) == null) {
+                  neu(() => fehler = t('pollInvalid'));
+                  return;
+                }
+                Navigator.pop(ctx);
+                await st.sendeUmfrage(cid, u);
+              },
+              child: Text(t('send')),
+            ),
+          ],
+        ),
+      ),
+    );
+    _entsorgeNachDemSchliessen([frage, ...optionen]);
+  }
+
+  /// Eine Umfrage in der Blase: Frage, und je Antwort Anzahl und Balken.
+  /// Antippen waehlt oder nimmt die Wahl zurueck.
+  Widget umfrageInhalt(String cid, Message m) {
+    final u = Umfrage.lies(m.text);
+    if (u == null) return const SizedBox.shrink();
+    final stimmen = st.stimmenZu(cid, m.id);
+    final meine = stimmen[st.meineAdresse] ?? const <int>[];
+    final zaehler = List<int>.filled(u.optionen.length, 0);
+    for (final a in stimmen.values) {
+      for (final i in a) {
+        if (i >= 0 && i < zaehler.length) zaehler[i]++;
+      }
+    }
+    final gesamt = stimmen.length;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(u.frage, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: p.ink, height: 1.4)),
+      const SizedBox(height: 2),
+      Text(u.mehrfach ? t('pollMulti') : t('pollSingle'), style: mono(size: 9.5, color: p.dim)),
+      const SizedBox(height: 6),
+      for (var i = 0; i < u.optionen.length; i++)
+        Semantics(
+          button: true,
+          selected: meine.contains(i),
+          label: '${u.optionen[i]}, ${zaehler[i]}',
+          child: GestureDetector(
+            onTap: () {
+              final neu = meine.contains(i)
+                  ? (List.of(meine)..remove(i))
+                  : (u.mehrfach ? [...meine, i] : [i]);
+              st.stimme(cid, m.id, neu);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Text(meine.contains(i) ? (u.mehrfach ? '☑' : '◉') : (u.mehrfach ? '☐' : '○'),
+                      style: TextStyle(fontSize: 13, color: p.accLight)),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(u.optionen[i], style: TextStyle(fontSize: 13, color: p.ink))),
+                  Text('${zaehler[i]}', style: mono(size: 11, color: p.muted)),
+                ]),
+                const SizedBox(height: 3),
+                fortschrittsBalken(gesamt == 0 ? 0 : zaehler[i] / gesamt),
+              ]),
+            ),
+          ),
+        ),
+    ]);
+  }
+
+  /// Welche der angehefteten Nachrichten die Leiste gerade zeigt.
+  int _angeheftetStelle = 0;
+
+  /// Die Leiste unter der Kopfzeile: die angeheftete Nachricht, bei mehreren
+  /// schaltet Antippen zur naechsten weiter.
+  Widget angeheftetLeiste(String cid) {
+    final liste = st.angeheftete(cid);
+    if (liste.isEmpty) return const SizedBox.shrink();
+    final i = _angeheftetStelle % liste.length;
+    return Semantics(
+      button: liste.length > 1,
+      label: t('pinnedTitle'),
+      child: GestureDetector(
+        onTap: liste.length > 1 ? () => setState(() => _angeheftetStelle++) : null,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(17, 7, 17, 7),
+          decoration: BoxDecoration(
+              color: p.surf2, border: Border(bottom: BorderSide(color: p.lineSoft))),
+          child: Row(children: [
+            const Text('📌', style: TextStyle(fontSize: 12)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(auszug(liste[i]), maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: mono(size: 12, color: p.muted)),
+            ),
+            if (liste.length > 1)
+              Text('${i + 1}/${liste.length}', style: mono(size: 10.5, color: p.dim)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// Die sechs Reaktionen, die Signal zuerst anbietet.
+  static const schnellReaktionen = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  /// Das Menue an einer Nachricht: Reaktionen oben, Aktionen darunter.
+  void nachrichtMenue(String cid, Message m) {
+    final meine = st.reaktionenZu(cid, m.id)[st.meineAdresse];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: p.surf,
+      // HOEHER ALS DIE VORGABE, WENN NOETIG. Ohne das darf ein Blatt nur
+      // 9/16 des Bildschirms hoch sein, und das Nachrichtenmenue lief im
+      // Querformat unten ueber (Widget-Test, 600 px Hoehe: 18 px zu viel).
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+      builder: (ctx) {
+        Widget eintrag(String text, VoidCallback tun, {bool warnend = false}) =>
+            InkWell(
+              onTap: () {
+                Navigator.pop(ctx);
+                tun();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                child: Text(text,
+                    style: mono(size: 13.5, color: warnend ? p.tintInk : p.ink)),
+              ),
+            );
+        return SafeArea(
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const SizedBox(height: 10),
+            if (!m.widerrufen)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                  for (final z in schnellReaktionen)
+                    Semantics(
+                      button: true,
+                      selected: meine == z,
+                      label: z,
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          // Dieselbe noch einmal nimmt sie zurueck — wie bei Signal.
+                          st.reagiere(cid, m.id, meine == z ? null : z);
+                        },
+                        child: Container(
+                          width: 44, height: 44, alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                              color: meine == z ? p.tint : null,
+                              shape: BoxShape.circle,
+                              border: meine == z ? Border.all(color: p.tintLine) : null),
+                          child: Text(z, style: const TextStyle(fontSize: 22)),
+                        ),
+                      ),
+                    ),
+                ]),
+              ),
+            Container(height: 1, color: p.lineSoft),
+            if (!m.widerrufen)
+              eintrag(t('reply'), () {
+                setState(() {
+                  _bearbeitungsZiel = null;
+                  _antwortZiel = m;
+                });
+              }),
+            if (!m.widerrufen)
+              eintrag(m.angeheftetAm == null ? t('pinMsg') : t('unpinMsg'),
+                  () => st.hefteAn(cid, m.id, m.angeheftetAm == null)),
+            if (!m.widerrufen && m.kind == MessageKind.text)
+              eintrag(t('copyMsg'), () {
+                Clipboard.setData(ClipboardData(text: m.text));
+              }),
+            if (AppState.bearbeitbar(m))
+              eintrag(t('edit'), () {
+                setState(() {
+                  _antwortZiel = null;
+                  _bearbeitungsZiel = m;
+                  draftCtl.text = m.text;
+                });
+              }),
+            if (AppState.widerrufbar(m))
+              eintrag(t('deleteAll'), () => _bestaetigeWiderruf(cid, m), warnend: true),
+            eintrag(t('deleteMe'), () => st.loescheFuerMich(cid, m.id), warnend: true),
+            const SizedBox(height: 6),
+          ])),
+        );
+      },
+    );
+  }
+
+  Future<void> _bestaetigeWiderruf(String cid, Message m) async {
+    final ja = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surf,
+        title: Text(t('deleteAllAsk'), style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+        content: Text(t('deleteAllBody'), style: mono(size: 12.5, color: p.muted, height: 1.5)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('deleteAll'))),
+        ],
+      ),
+    );
+    if (ja == true) await st.widerrufe(cid, m.id);
+  }
+
+  /// Das Menue an einer Unterhaltung in der Liste.
+  void unterhaltungMenue(String id) {
+    final kontakt = st.kontakte.where((c) => c.id == id).firstOrNull;
+    final gruppe = st.gruppeZu(id);
+    if (kontakt == null && gruppe == null) return;
+    final k = (
+      angeheftet: kontakt?.angeheftet ?? gruppe!.angeheftet,
+      archiviert: kontakt?.archiviert ?? gruppe!.archiviert,
+      stumm: kontakt?.stumm ?? gruppe!.stumm,
+    );
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: p.surf,
+      // HOEHER ALS DIE VORGABE, WENN NOETIG. Ohne das darf ein Blatt nur
+      // 9/16 des Bildschirms hoch sein, und das Nachrichtenmenue lief im
+      // Querformat unten ueber (Widget-Test, 600 px Hoehe: 18 px zu viel).
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+      builder: (ctx) {
+        Widget eintrag(String text, VoidCallback tun) => InkWell(
+              onTap: () {
+                Navigator.pop(ctx);
+                tun();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                child: Text(text, style: mono(size: 13.5, color: p.ink)),
+              ),
+            );
+        return SafeArea(
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const SizedBox(height: 8),
+            eintrag(k.angeheftet ? t('unpin') : t('pin'),
+                () => st.setzeOrdnung(id, angeheftet: !k.angeheftet)),
+            eintrag(k.archiviert ? t('unarchive') : t('archive'),
+                () => st.setzeOrdnung(id, archiviert: !k.archiviert)),
+            eintrag(k.stumm ? t('unmute') : t('mute'),
+                () => st.setzeOrdnung(id, stumm: !k.stumm)),
+            const SizedBox(height: 6),
+          ])),
+        );
+      },
+    );
+  }
+
+  /// Die Unterhaltungen, die die Liste gerade zeigt: angeheftete zuerst, und
+  /// entweder das Archiv oder alles andere.
+  List<Gruppe> get sichtbareGruppen {
+    final hier = st.gruppen.where((g) => g.archiviert == _zeigeArchiv);
+    return [...hier.where((g) => g.angeheftet), ...hier.where((g) => !g.angeheftet)];
+  }
+
+  Widget gruppenZeile(Gruppe g) {
+    final list = st.verlaufVon(g.id);
+    final letzte = list.isEmpty ? null : list.last;
+    final marken = [if (g.angeheftet) '📌', if (g.stumm) '🔕'].join(' ');
+    final zeit = letzte == null ? '' : zeitVon(letzte.timestamp);
+    return InkWell(
+      onTap: () => oeffneChat(g.id),
+      onLongPress: () => unterhaltungMenue(g.id),
+      onSecondaryTap: () => unterhaltungMenue(g.id),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
+        child: Row(children: [
+          Container(
+            width: 40, height: 40, alignment: Alignment.center,
+            decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
+            child: Text('${g.mitglieder.length}', style: doto(size: 15, weight: FontWeight.w600, color: p.tintInk)),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(g.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: doto(size: 15, weight: FontWeight.w600, color: g.aktiv ? p.ink : p.dim, spacing: 0.8, height: 1.1)),
+              const SizedBox(height: 3),
+              Text(letzte == null ? (g.aktiv ? t('groupNew') : t('groupLeft')) : auszug(letzte),
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: mono(size: 12, color: p.dim)),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          Text(marken.isEmpty ? zeit : '$marken  $zeit', style: mono(size: 10.5, color: p.dim)),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _legeGruppeAnDialog() async {
+    final name = TextEditingController();
+    final gewaehlt = <String>{};
+    String? fehler;
+    final kandidaten = st.aktiveKontakte.where((k) => !st.istNotizen(k.id)).toList();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, neu) => AlertDialog(
+          backgroundColor: p.surf,
+          title: Text(t('groupCreate'), style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                TextField(controller: name, maxLength: Gruppe.maxName, enableIMEPersonalizedLearning: false,
+                    style: mono(size: 13, color: p.ink),
+                    decoration: InputDecoration(hintText: t('groupName'), counterText: '', hintStyle: mono(size: 13, color: p.dim))),
+                const SizedBox(height: 6),
+                if (kandidaten.isEmpty)
+                  Text(t('groupNoContacts'), style: mono(size: 12, color: p.muted)),
+                for (final k in kandidaten)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: gewaehlt.contains(k.id),
+                    onChanged: (v) => neu(() => v == true ? gewaehlt.add(k.id) : gewaehlt.remove(k.id)),
+                    title: Text(shortId(adresseFormatiert(k.id)), style: mono(size: 12, color: p.ink)),
+                  ),
+                if (fehler != null) Text(fehler!, style: mono(size: 11.5, color: p.tintInk)),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
+            TextButton(
+              onPressed: () async {
+                if (name.text.trim().isEmpty || gewaehlt.isEmpty ||
+                    gewaehlt.length + 1 > Gruppe.maxMitglieder) {
+                  neu(() => fehler = t('groupInvalid'));
+                  return;
+                }
+                Navigator.pop(ctx);
+                final id = await st.legeGruppeAn(name.text, gewaehlt.toList());
+                if (mounted) oeffneChat(id);
+              },
+              child: Text(t('create')),
+            ),
+          ],
+        ),
+      ),
+    );
+    _entsorgeNachDemSchliessen([name]);
+  }
+
+  /// Das Blatt einer Gruppe: Mitglieder, und fuer den Admin Hinzufuegen,
+  /// Entfernen, Umbenennen. Austreten fuer alle.
+  void gruppenBlatt(String gid) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: p.surf,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, neu) {
+        final g = st.gruppeZu(gid);
+        if (g == null) return const SizedBox.shrink();
+        final admin = g.admin == st.meineAdresse && g.aktiv;
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                h2(g.name, size: 20),
+                const SizedBox(height: 4),
+                Text('${g.mitglieder.length} / ${Gruppe.maxMitglieder} ${t('groupMembers')}',
+                    style: mono(size: 11, color: p.dim)),
+                const SizedBox(height: 10),
+                for (final m in g.mitglieder)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(children: [
+                      Identicon(m, 24, avp, 6),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                            st.istNotizen(m) ? t('groupYou') : shortId(adresseFormatiert(m)),
+                            style: mono(size: 12, color: p.ink)),
+                      ),
+                      if (m == g.admin) Text(t('groupAdmin'), style: mono(size: 10, color: p.accLight)),
+                      if (admin && m != st.meineAdresse)
+                        IconButton(
+                          tooltip: t('groupRemove'),
+                          onPressed: () async {
+                            await st.entferneAusGruppe(gid, m);
+                            neu(() {});
+                          },
+                          icon: Text('×', style: TextStyle(color: p.muted, fontSize: 16)),
+                        ),
+                    ]),
+                  ),
+                const SizedBox(height: 10),
+                if (admin) ...[
+                  outlineBtn(t('groupAdd'), () async {
+                    Navigator.pop(ctx);
+                    await _fuegeMitgliederHinzuDialog(gid);
+                  }, padding: const EdgeInsets.all(10)),
+                  const SizedBox(height: 6),
+                  outlineBtn(t('groupRename'), () async {
+                    Navigator.pop(ctx);
+                    await _benenneGruppeDialog(gid);
+                  }, accent: false, padding: const EdgeInsets.all(10)),
+                  const SizedBox(height: 6),
+                ],
+                if (g.aktiv)
+                  outlineBtn(t('groupLeave'), () async {
+                    Navigator.pop(ctx);
+                    await st.verlasseGruppe(gid);
+                  }, accent: false, padding: const EdgeInsets.all(10)),
+              ]),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Future<void> _fuegeMitgliederHinzuDialog(String gid) async {
+    final g = st.gruppeZu(gid);
+    if (g == null) return;
+    final gewaehlt = <String>{};
+    final kandidaten = st.aktiveKontakte
+        .where((k) => !st.istNotizen(k.id) && !g.mitglieder.contains(k.id))
+        .toList();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, neu) => AlertDialog(
+          backgroundColor: p.surf,
+          title: Text(t('groupAdd'), style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                if (kandidaten.isEmpty)
+                  Text(t('groupNoContacts'), style: mono(size: 12, color: p.muted)),
+                for (final k in kandidaten)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: gewaehlt.contains(k.id),
+                    onChanged: (v) => neu(() => v == true ? gewaehlt.add(k.id) : gewaehlt.remove(k.id)),
+                    title: Text(shortId(adresseFormatiert(k.id)), style: mono(size: 12, color: p.ink)),
+                  ),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                if (gewaehlt.isNotEmpty) await st.fuegeZuGruppeHinzu(gid, gewaehlt.toList());
+              },
+              child: Text(t('add')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _benenneGruppeDialog(String gid) async {
+    final name = TextEditingController(text: st.gruppeZu(gid)?.name ?? '');
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surf,
+        title: Text(t('groupRename'), style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+        content: TextField(controller: name, maxLength: Gruppe.maxName, enableIMEPersonalizedLearning: false,
+            style: mono(size: 13, color: p.ink)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              if (name.text.trim().isNotEmpty) await st.benenneGruppe(gid, name.text);
+            },
+            child: Text(t('create')),
+          ),
+        ],
+      ),
+    );
+    _entsorgeNachDemSchliessen([name]);
+  }
+
+  List<Contact> get sichtbareKontakte {
+    final hier = st.aktiveKontakte.where((c) => c.archiviert == _zeigeArchiv);
+    return [...hier.where((c) => c.angeheftet), ...hier.where((c) => !c.angeheftet)];
+  }
+
+  /// Suchfeld und Treffer. Ohne Suchtext steht hier nur das Feld.
+  Widget suchFeld() => Container(
+        margin: const EdgeInsets.fromLTRB(17, 8, 17, 4),
+        decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        child: TextField(
+          controller: suchCtl,
+          enableIMEPersonalizedLearning: false,
+          onChanged: st.suche,
+          style: mono(size: 13, color: p.ink),
+          cursorColor: p.accent,
+          decoration: InputDecoration.collapsed(
+              hintText: t('search'), hintStyle: mono(size: 13, color: p.dim)),
+        ),
+      );
+
+  Widget suchTreffer() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (st.suchTreffer.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 16, 22, 16),
+            child: Text(t('noResults'), style: mono(size: 12, color: p.dim)),
+          ),
+        for (final m in st.suchTreffer)
+          InkWell(
+            onTap: () {
+              suchCtl.clear();
+              st.suche('');
+              oeffneChat(m.chatId);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+              child: Row(children: [
+                Identicon(m.chatId, 32, avp, 8),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(shortId(adresseFormatiert(m.chatId)),
+                        style: doto(size: 13, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
+                    const SizedBox(height: 2),
+                    Text(m.text, maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: mono(size: 12, color: p.muted)),
+                  ]),
+                ),
+                const SizedBox(width: 8),
+                Text(zeitVon(m.timestamp), style: mono(size: 10.5, color: p.dim)),
+              ]),
+            ),
+          ),
+      ]);
 
   /// Richtet einen Faktor ein oder entfernt ihn.
   ///
@@ -986,7 +1754,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final art = zeilenArt[key];
     if (art == null || laeuftZeile != null) return;
 
-    final vorhanden = st.faktoren.where((s) => s.kind == art).toList();
+    final vorhanden = st.sichtbareFaktoren.where((s) => s.kind == art).toList();
     if (vorhanden.isNotEmpty) {
       await _entferneFaktor(key, vorhanden.first.id);
       return;
@@ -2830,6 +3598,35 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           }, accent: false, padding: const EdgeInsets.all(11), weight: FontWeight.w400)),
         ]),
         const SizedBox(height: 16),
+
+        // WIE VIELE GERAETE AUF DIESER IDENTITAET SITZEN.
+        //
+        // Verpflichtend und keine Kuer. Wer die zwoelf Woerter hat, kann
+        // vollstaendig als man selbst auftreten — das war schon immer so.
+        // Seit dem Mehrgeraetebetrieb bekommt er zusaetzlich von JEDEM
+        // Absender eine eigene Kopie jeder Nachricht, ohne dass irgendwo
+        // etwas auffiele. Und es gibt keinen Widerruf: ein Geraet abzumelden
+        // ist unmoeglich, weil kein Geraet mehr Recht auf die Adresse hat als
+        // ein anderes; die einzige Abhilfe ist eine neue Identitaet.
+        //
+        // Diese Zeile macht aus einem unsichtbaren Mitleser eine sichtbare
+        // Zahl, die nicht stimmt. KEINE VERWALTUNGSMASKE — es gaebe nichts zu
+        // verwalten, und ein Knopf "abmelden", der nichts abmeldet, waere
+        // schlimmer als keine Zahl.
+        //
+        // Nichts steht da, solange niemand gefragt hat (kein Relay erreicht,
+        // nur in der Naehe): eine erfundene 1 waere genau die Halbwahrheit,
+        // gegen die diese Zeile gebaut ist.
+        if (st.geraeteZahl != null) ...[
+          _hinweisKasten(
+            st.geraeteZahl! <= 1
+                ? t('geraeteEins')
+                : t('geraeteViele').replaceFirst('{n}', '${st.geraeteZahl}'),
+            warnend: st.geraeteZahl! > 1,
+          ),
+          const SizedBox(height: 16),
+        ],
+
         Text(t('idNote'), style: mono(size: 11, color: p.dim, height: 1.5)),
       ]),
     );
@@ -2975,7 +3772,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final (farbe, text, aktiv) = switch (st.verbindung) {
       ConnectionState.online => (p.accLight, t('connOnline'), false),
       ConnectionState.connecting => (p.muted, t('connConnecting'), true),
-      ConnectionState.error => (p.dim, t('connError'), false),
+      // ABGEWIESEN IST NICHT "KEIN NETZ". Der Relay hat mit 507 gesagt, dass
+      // diese Adresse schon genug Geraete hat (§6) — daran aendert Warten
+      // nichts, und die App versucht es auch nicht mehr. Wer hier "keine
+      // Verbindung" liest, sucht den Fehler bei seinem WLAN.
+      ConnectionState.error => (
+          p.dim,
+          st.abgewiesen ? t('connGeraeteVoll') : t('connError'),
+          false
+        ),
       ConnectionState.disconnected => (p.dim, t('connOffline'), false),
     };
     return Row(mainAxisSize: MainAxisSize.min, children: [
@@ -3048,14 +3853,60 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ]),
       ),
       Container(height: 1, color: p.lineSoft),
+      suchFeld(),
       Expanded(
-        child: ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
+        child: st.suchText.trim().isNotEmpty
+            ? ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [suchTreffer()])
+            : ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
+          if (_zeigeArchiv)
+            InkWell(
+              onTap: () => setState(() => _zeigeArchiv = false),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 8, 22, 8),
+                child: Text('‹ ${t('backToChats')}', style: mono(size: 12, color: p.accLight)),
+              ),
+            ),
+          if (!_zeigeArchiv) ...[
           for (final k in st.offeneAnfragen) pendingCard(k),
           // Ausgehende Anfragen erscheinen ebenfalls. Vorher waren sie
           // unsichtbar: wer jemanden hinzugefuegt hatte, sah danach eine leere
           // Liste und musste annehmen, es habe nicht funktioniert.
           for (final k in st.eigeneAnfragen) wartendeAnfrage(k),
-          for (final id in contacts) contactRow(id),
+          ],
+          for (final g in sichtbareGruppen) gruppenZeile(g),
+          for (final k in sichtbareKontakte) contactRow(k.id),
+          if (!_zeigeArchiv && !st.kontakte.any((k) => st.istNotizen(k.id)) && st.meineAdresse.isNotEmpty)
+            InkWell(
+              onTap: () async {
+                final id = await st.notizenOeffnen();
+                if (mounted) oeffneChat(id);
+              },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 12, 22, 8),
+                child: Text('+ ${t('notes')}', style: mono(size: 12, color: p.accLight)),
+              ),
+            ),
+          // Das Archiv ist ein Eintrag am Ende der Liste, wie bei Signal —
+          // und nur, wenn es etwas enthaelt.
+          if (!_zeigeArchiv && st.meineAdresse.isNotEmpty)
+            InkWell(
+              onTap: _legeGruppeAnDialog,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 12, 22, 8),
+                child: Text('+ ${t('groupCreate')}', style: mono(size: 12, color: p.accLight)),
+              ),
+            ),
+          if (!_zeigeArchiv &&
+              (st.aktiveKontakte.any((c) => c.archiviert) || st.gruppen.any((g) => g.archiviert)))
+            InkWell(
+              onTap: () => setState(() => _zeigeArchiv = true),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 12, 22, 8),
+                child: Text(
+                    '${t('archived').toUpperCase()} (${st.aktiveKontakte.where((c) => c.archiviert).length + st.gruppen.where((g) => g.archiviert).length})',
+                    style: mono(size: 11, color: p.muted, spacing: 1.2)),
+              ),
+            ),
           if (contacts.isEmpty && st.offeneAnfragen.isEmpty && st.eigeneAnfragen.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(22, 24, 22, 16),
@@ -3140,7 +3991,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Widget contactRow(String id) {
     final list = st.verlaufVon(id);
     final letzte = list.isEmpty ? null : list.last;
-    final last = letzte?.text ?? t('newContact');
+    final last = letzte == null ? t('newContact') : auszug(letzte);
+    final k = st.kontakte.where((c) => c.id == id).firstOrNull;
+    final marken = [
+      if (k?.angeheftet ?? false) '📌',
+      if (k?.stumm ?? false) '🔕',
+    ].join(' ');
     final time = letzte == null ? '' : zeitVon(letzte.timestamp);
     // Ungelesen: die letzte Nachricht kam von der Gegenstelle und diese
     // Unterhaltung ist gerade nicht offen.
@@ -3154,6 +4010,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       onTap: () => oeffneChat(id),
       bau: (ueber, fokus) => GestureDetector(
       onTap: () => oeffneChat(id),
+      // Langdruck am Telefon, Rechtsklick am Rechner — dasselbe Menue.
+      onLongPress: () => unterhaltungMenue(id),
+      onSecondaryTap: () => unterhaltungMenue(id),
       child: Container(
         color: ueber || fokus ? p.wash : Colors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
@@ -3162,14 +4021,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           const SizedBox(width: 11),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(shortId(adresseFormatiert(id)), style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 0.8, height: 1.1)),
+              Text(st.istNotizen(id) ? t('notes') : shortId(adresseFormatiert(id)), style: doto(size: 15, weight: FontWeight.w600, color: p.ink, spacing: 0.8, height: 1.1)),
               const SizedBox(height: 3),
               Text(last, maxLines: 1, overflow: TextOverflow.ellipsis, style: mono(size: 12, color: p.dim)),
             ]),
           ),
           const SizedBox(width: 8),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(time, style: mono(size: 10.5, color: p.dim)),
+            Text(marken.isEmpty ? time : '$marken  $time', style: mono(size: 10.5, color: p.dim)),
             const SizedBox(height: 6),
             Container(width: 8, height: 8, decoration: BoxDecoration(color: unread ? p.accent : Colors.transparent, shape: BoxShape.circle)),
           ]),
@@ -3189,8 +4048,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // wird, geht gerade nirgendwo hin. Wer das nicht sieht, haelt eine
     // liegengebliebene Nachricht fuer zugestellt.
     if (st.einstellungen.nurNahbereich) hints.insert(0, t("nearOnlyWaiting"));
-    if (st.einstellungen.messageLifetime != null) {
-      hints.add(t("hintEph") + ephLabel());
+    if (st.fristFuer(cid) != null) {
+      hints.add(t("hintEph") + fristText(st.fristFuer(cid)));
     }
     final list = st.verlaufVon(cid);
     _haltUnten(cid, list.length);
@@ -3207,7 +4066,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ],
           Expanded(
             child: GestureDetector(
-              onTap: () { setState(() => sheet = true); _ladePruefnummer(cid); },
+              // Die Notizen haben kein Gegenueber — keine Pruefnummer, kein
+              // Kontakt zum Entfernen. Das Blatt waere leer oder falsch.
+              onTap: Gruppe.istGruppenId(cid)
+                  ? () => gruppenBlatt(cid)
+                  : st.istNotizen(cid) ? null : () { setState(() => sheet = true); _ladePruefnummer(cid); },
               child: Row(children: [
                 Identicon(cid, 32, avp, 8),
                 const SizedBox(width: 8),
@@ -3222,15 +4085,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     // Gegenueber. Wer zwei Geraete vergleichen will — und
                     // genau das tut man bei einer Adresse, die der Schluessel
                     // IST —, muss die beiden erst ineinander umrechnen.
-                    Text(shortId(adresseFormatiert(cid)), maxLines: 1, overflow: TextOverflow.ellipsis, style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
-                    Text(t('encDetails').toUpperCase(), style: mono(size: 10, color: p.dim, spacing: 1)),
+                    Text(st.gruppeZu(cid)?.name ?? (st.istNotizen(cid) ? t('notes') : shortId(adresseFormatiert(cid))), maxLines: 1, overflow: TextOverflow.ellipsis, style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
+                    // "TIPPT ..." an der Stelle der Unterzeile, nicht als
+                    // eigene Zeile: sonst sprang die ganze Unterhaltung um eine
+                    // Zeile, jedes Mal, wenn die Gegenseite zu tippen anfaengt.
+                    Text(st.tipptGerade(cid) ? t('typing').toUpperCase() : t('encDetails').toUpperCase(),
+                        style: mono(size: 10, color: st.tipptGerade(cid) ? p.accLight : p.dim, spacing: 1)),
                   ]),
                 ),
               ]),
             ),
           ),
-          GestureDetector(
-            onTap: () { setState(() => sheet = true); _ladePruefnummer(cid); },
+          if (!st.istNotizen(cid)) GestureDetector(
+            onTap: Gruppe.istGruppenId(cid)
+                ? () => gruppenBlatt(cid)
+                : () { setState(() => sheet = true); _ladePruefnummer(cid); },
             child: Container(
               width: 30, height: 30, alignment: Alignment.center,
               decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
@@ -3240,6 +4109,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ]),
       ),
       Container(height: 1, color: p.lineSoft),
+      angeheftetLeiste(cid),
       Expanded(
         child: ListView(
           controller: _chatScroll,
@@ -3268,6 +4138,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       // WAS NICHT RAUSGING, MUSS DASTEHEN. "zuLang" wurde bisher gesetzt und
       // nirgends gezeigt: die Nachricht verschwand aus dem Eingabefeld und kam
       // nie an, ohne dass irgendwo etwas stand.
+      eingabeBezug(),
       if (chatFehlerText() != null)
         Container(
           width: double.infinity,
@@ -3280,6 +4151,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           child: Text(chatFehlerText()!,
               style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
         ),
+      if (Gruppe.istGruppenId(cid) && !(st.gruppeZu(cid)?.aktiv ?? false))
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(17, 14, 17, 18),
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: p.lineSoft))),
+          child: SafeArea(
+            top: false,
+            child: Text(t('groupNotMember'), textAlign: TextAlign.center,
+                style: mono(size: 12, color: p.dim)),
+          ),
+        )
+      else
       Container(
         padding: const EdgeInsets.fromLTRB(17, 11, 17, 16),
         decoration: BoxDecoration(border: Border(top: BorderSide(color: p.lineSoft))),
@@ -3301,7 +4184,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           // anderen. Dass er das ist, sieht man ihm an (p.dim statt p.muted),
           // statt dass ein Tippen ins Leere geht.
           Masse.trefferflaeche(
-            onTap: st.schwebendeKennung == null ? () => anhangWaehlen(cid) : null,
+            // DATEI ODER UMFRAGE. Ein Menue statt zweier Knoepfe: die
+            // Eingabezeile ist am Telefon schon voll.
+            onTap: st.schwebendeKennung == null ? () => plusMenue(cid) : null,
             child: Container(
               width: 36, height: 36, alignment: Alignment.center,
               decoration: BoxDecoration(
@@ -3322,8 +4207,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
               child: TextField(
                 controller: draftCtl,
-                onChanged: (_) {
+                // INKOGNITO-TASTATUR, wie bei Signal und Threema — hier immer:
+                // die Tastatur soll aus verschluesselten Unterhaltungen keine
+                // Woerter lernen und sie spaeter anderswo vorschlagen. Das
+                // Woerterbuch der Tastatur ist eine Kopie, die niemand
+                // verschluesselt.
+                enableIMEPersonalizedLearning: false,
+                onChanged: (text) {
                   if (st.letzterFehler == 'zuLang') st.vergissFehler();
+                  st.eingabeGeaendert(cid, text);
                 },
                 style: mono(size: 13.5, color: p.ink),
                 cursorColor: p.accent,
@@ -3334,8 +4226,51 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             ),
           ),
           const SizedBox(width: 8),
+          // SPRACHNACHRICHT: nur, wo es den Kanal gibt (Android). Einmal
+          // tippen nimmt auf, noch einmal tippen schickt; das Kreuz daneben
+          // verwirft. Kein "gedrueckt halten": das verlangt eine ruhige Hand,
+          // und ein verrutschter Daumen schickte eine halbe Nachricht.
+          if (st.spracheMoeglich && _bearbeitungsZiel == null) ...[
+            if (_aufnahmeSeit != null) ...[
+              Semantics(
+                button: true,
+                label: t('voiceDiscard'),
+                child: GestureDetector(
+                  onTap: _verwirfAufnahme,
+                  child: Container(
+                    width: 36, height: 36, alignment: Alignment.center,
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
+                    child: Text('×', style: TextStyle(color: p.muted, fontSize: 16, height: 1)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Semantics(
+              button: true,
+              label: _aufnahmeSeit == null ? t('voice') : t('voiceSend'),
+              child: GestureDetector(
+                onTap: () => _aufnahmeSeit == null ? _starteAufnahme(cid) : _schickeAufnahme(cid),
+                child: Container(
+                  height: 36, alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                      color: _aufnahmeSeit == null ? null : p.tint,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _aufnahmeSeit == null ? p.line : p.tintLine)),
+                  child: Text(
+                      _aufnahmeSeit == null ? '🎤' : '■ ${_aufnahmeDauer()}',
+                      style: mono(size: 12, color: _aufnahmeSeit == null ? p.muted : p.tintInk)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           GestureDetector(
             onTap: send,
+            // LANGER DRUCK PLANT, wie bei Signal. Rechtsklick am Rechner.
+            onLongPress: _planeSenden,
+            onSecondaryTap: _planeSenden,
             child: Container(
               height: 36, alignment: Alignment.center,
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -3388,6 +4323,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final f = st.letzterFehler;
     if (f == null) return null;
     if (f == 'zuLang') return t('tooLong');
+    if (f == 'nichtMehrMoeglich') return t('notPossible');
+    if (f == 'geplantVorbei') return t('schedulePast');
+    if (f == 'mikrofonNein') return t('micDenied');
+    if (f == 'mikrofonDauerhaft') return t('micDeniedForever');
+    if (f == 'aufnahmeFehler') return t('micFailed');
     if (f == 'lagerVoll') return t('attachFull');
     if (f == 'tagesmenge') return t('attachQuota');
     if (f == 'anhangKaputt') return t('attachBroken');
@@ -3422,19 +4362,68 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           : const BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8), bottomLeft: Radius.circular(2), bottomRight: Radius.circular(8)),
       border: me ? Border.all(color: p.tintLine) : null,
     );
+    final reaktionen = st.reaktionenZu(cid, m.id);
+    final bezug = st.bezugVon(m);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(mainAxisAlignment: me ? MainAxisAlignment.end : MainAxisAlignment.start, children: [
+      child: Column(crossAxisAlignment: me ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
+      Row(mainAxisAlignment: me ? MainAxisAlignment.end : MainAxisAlignment.start, children: [
         Flexible(
+          child: GestureDetector(
+          // Langdruck am Telefon, Rechtsklick am Rechner — dasselbe Menue.
+          onLongPress: () => nachrichtMenue(cid, m),
+          onSecondaryTap: () => nachrichtMenue(cid, m),
           child: Container(
             constraints: const BoxConstraints(maxWidth: 252),
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
             decoration: bub,
             child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
-              if (m.kind == MessageKind.anhang)
+              // DAS ZITAT KOMMT AUS DEM EIGENEN VERLAUF, nicht aus der
+              // Nachricht. Steht die Bezugsnachricht hier nicht (mehr), sagt
+              // die Blase das — statt etwas zu zeigen, das der Absender
+              // behauptet.
+              // IN EINER GRUPPE: wer es geschrieben hat. Ohne das waeren alle
+              // fremden Blasen gleich, und niemand wuesste, wer was sagt.
+              if (!me && Gruppe.istGruppenId(cid))
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text(shortId(adresseFormatiert(m.senderId)),
+                        style: mono(size: 9.5, weight: FontWeight.w600, color: p.accLight)),
+                  ),
+                ),
+              if (m.antwortAuf != null && !m.widerrufen)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                  decoration: BoxDecoration(
+                      color: p.surf2,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border(left: BorderSide(color: p.accent, width: 2))),
+                  child: Text(bezug == null ? t('replyGone') : auszug(bezug),
+                      maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: mono(size: 11, color: p.muted, height: 1.4)),
+                ),
+              if (m.widerrufen)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(me ? t('deletedMine') : t('deletedMsg'),
+                      style: TextStyle(fontSize: 13, color: p.dim, fontStyle: FontStyle.italic, height: 1.4)),
+                )
+              else if (m.kind == MessageKind.anhang)
                 anhangInhalt(cid, m)
+              else if (m.kind == MessageKind.umfrage)
+                umfrageInhalt(cid, m)
               else
-                Align(alignment: Alignment.centerLeft, child: Text(m.text, style: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4))),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FormatierterText(m.text,
+                      stil: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4),
+                      festStil: mono(size: 12.5, color: p.ink, height: 1.4),
+                      verdeckt: p.muted),
+                ),
               const SizedBox(height: 3),
               Row(mainAxisSize: MainAxisSize.min, children: [
                 // DAS EINZIGE, WAS DIE NAEHE SICHTBAR MACHT.
@@ -3472,8 +4461,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     ),
                   ),
                 ],
+                if (m.bearbeitet && !m.widerrufen) ...[
+                  Text(t('edited'), style: mono(size: 9.5, color: p.dim)),
+                  const SizedBox(width: 5),
+                ],
+                // GEPLANT: statt der Uhrzeit und der Uhr der Zeitpunkt, zu
+                // dem sie hinausgeht — sonst sahe sie aus wie eine, die
+                // haengt.
+                if (m.geplantFuer != null && m.status == MessageStatus.sending)
+                  Text('${t('scheduledFor')} ${zeitVon(m.geplantFuer!)}',
+                      style: mono(size: 9.5, color: p.accLight))
+                else
                 Text(time, style: mono(size: 9.5, color: p.dim)),
-                if (me) ...[
+                if (me && !(m.geplantFuer != null && m.status == MessageStatus.sending)) ...[
                   const SizedBox(width: 5),
                   // Ein Haken je erreichter Stufe: abgeschickt, zugestellt,
                   // gelesen. Solange sie noch beim Absender liegt, eine Uhr.
@@ -3495,7 +4495,42 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               ]),
             ]),
           ),
+          ),
         ),
+      ]),
+      if (reaktionen.isNotEmpty) reaktionsLeiste(cid, m, reaktionen),
+      ]),
+    );
+  }
+
+  /// Die Reaktionen unter einer Blase: je Zeichen eines, mit Anzahl.
+  /// Die eigene ist hervorgehoben; antippen nimmt sie zurueck.
+  Widget reaktionsLeiste(String cid, Message m, Reaktionen r) {
+    final zaehler = <String, int>{};
+    for (final z in r.values) {
+      zaehler[z] = (zaehler[z] ?? 0) + 1;
+    }
+    final meine = r[st.meineAdresse];
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Wrap(spacing: 4, children: [
+        for (final e in zaehler.entries)
+          Semantics(
+            button: e.key == meine,
+            label: '${e.key} ${e.value}',
+            child: GestureDetector(
+              onTap: e.key == meine ? () => st.reagiere(cid, m.id, null) : null,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                    color: e.key == meine ? p.tint : p.surf,
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(color: e.key == meine ? p.tintLine : p.line)),
+                child: Text(e.value > 1 ? '${e.key} ${e.value}' : e.key,
+                    style: const TextStyle(fontSize: 12)),
+              ),
+            ),
+          ),
       ]),
     );
   }
@@ -3656,6 +4691,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               // Beim eigenen Anhang liegt die Datei ohnehin hier. Ein Knopf
               // "holen" waere Unsinn, ein Knopf "oeffnen" ist es nicht.
               AnhangZustand.da => Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (sprachName.hasMatch(a.name))
+                    anhangKnopf('▶ ${t('voicePlay')}', () async {
+                      // Erst der eigene Spieler, sonst die App des Systems.
+                      if (a.pfad == null || !await Sprache.spiele(a.pfad!)) {
+                        await oeffneAnhang(a);
+                      }
+                    }, betont: true)
+                  else
                   anhangKnopf(t('attachOpen'), () => oeffneAnhang(a)),
                   const SizedBox(width: Masse.nah),
                   Flexible(
@@ -3858,6 +4901,49 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         toggleRow(t("readReceipts"), t("readReceiptsSub"), st.einstellungen.readReceipts,
             () => st.setzeEinstellungen(st.einstellungen.copyWith(
                 readReceipts: !st.einstellungen.readReceipts))),
+        const SizedBox(height: 3),
+        // SICHERUNG: Kontakte und Verlauf als verschluesselte Datei, die nur
+        // mit den zwoelf Woertern aufgeht. Zwei Knoepfe, weil es zwei Wege
+        // sind, und die Erklaerung darunter sagt, was NICHT darin ist.
+        settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          settingHead(t('backup'), t('backupSub')),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: outlineBtn(t('backupCreate'), () async {
+              final wo = await st.sichere();
+              if (wo != null && mounted) {
+                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                    SnackBar(content: Text('${t('backupSaved')} $wo')));
+              }
+            }, padding: const EdgeInsets.all(9))),
+            const SizedBox(width: 8),
+            Expanded(child: outlineBtn(t('backupRestore'), () async {
+              final n = await st.spieleSicherungEin();
+              if (n != null && mounted) {
+                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                    SnackBar(content: Text('${t('backupRestored')} $n')));
+              }
+            }, accent: false, padding: const EdgeInsets.all(9))),
+          ]),
+          if (st.letzterFehler == 'sicherungPasstNicht') ...[
+            const SizedBox(height: 6),
+            Text(t('backupWrong'), style: mono(size: 11.5, color: p.tintInk, height: 1.4)),
+          ],
+        ])),
+        const SizedBox(height: 3),
+        // DAS PANIK-PASSWORT. Nur, wenn es eine Sperre gibt — ohne Sperre
+        // fragt die App nach nichts, und ein Panik-Passwort haette keinen
+        // Ort, an dem man es eingeben koennte.
+        if (st.sichtbareFaktoren.isNotEmpty) ...[
+          toggleRow(t('panicPw'), t('panicPwSub'), st.hatPanikPasswort,
+              () => st.hatPanikPasswort
+                  ? st.entfernePanikPasswort()
+                  : _richtePanikPasswortEin()),
+          const SizedBox(height: 3),
+        ],
+        toggleRow(t("typingSetting"), t("typingSettingSub"), st.einstellungen.tippAnzeige,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(
+                tippAnzeige: !st.einstellungen.tippAnzeige))),
         const SizedBox(height: 3),
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('selfDestruct'), t('selfDestructSub')),
@@ -4580,7 +5666,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         h2(t('encryption'), size: 20),
         const SizedBox(height: 11),
         kvRow(t('protocol'), 'Double-Ratchet, X25519'),
-        kvRow(t('selfDestruct'), ephLabel()),
+        kvRow(t('selfDestruct'), fristText(st.fristFuer(chat ?? c1))),
+        // JE UNTERHALTUNG, wie bei Signal. "Standard" folgt den
+        // Einstellungen; alles andere gilt nur hier — und nur fuer das, was
+        // man selbst schreibt.
+        segmented(
+          ['std', 'off', '1h', '24h', '7d'],
+          [t('chatFristStd'), t('off'), t('h1'), t('h24'), t('d7')],
+          _chatFristSchluessel(chat ?? c1),
+          (v) => st.setzeChatFrist(chat ?? c1,
+              v == 'std' ? null : (_fristen[v] ?? Duration.zero)),
+        ),
+        const SizedBox(height: 8),
         kvRow(t('readReceipts'), st.einstellungen.readReceipts ? t('on') : t('off')),
         const SizedBox(height: 11),
 
@@ -4649,6 +5746,84 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         outlineBtn(t('close'), () => setState(() => sheet = false), padding: const EdgeInsets.all(11)),
       ]),
     );
+  }
+
+  Future<void> _richtePanikPasswortEin() async {
+    final eins = TextEditingController();
+    final zwei = TextEditingController();
+    String? fehler;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, neu) => AlertDialog(
+          backgroundColor: p.surf,
+          title: Text(t('panicPw'), style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t('panicPwBody'), style: mono(size: 12, color: p.muted, height: 1.5)),
+            const SizedBox(height: 10),
+            TextField(controller: eins, obscureText: true, autocorrect: false, enableSuggestions: false,
+                style: mono(size: 13, color: p.ink),
+                decoration: InputDecoration(hintText: t('pw'), hintStyle: mono(size: 13, color: p.dim))),
+            TextField(controller: zwei, obscureText: true, autocorrect: false, enableSuggestions: false,
+                style: mono(size: 13, color: p.ink),
+                decoration: InputDecoration(hintText: t('pwAgain'), hintStyle: mono(size: 13, color: p.dim))),
+            if (fehler != null) ...[
+              const SizedBox(height: 8),
+              Text(fehler!, style: mono(size: 11.5, color: p.tintInk, height: 1.4)),
+            ],
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
+            TextButton(
+              onPressed: () async {
+                if (eins.text != zwei.text) {
+                  neu(() => fehler = t('pwMismatch'));
+                  return;
+                }
+                try {
+                  await st.setzePanikPasswort(eins.text);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } on WeakPassphraseException {
+                  neu(() => fehler = t('pwWeak'));
+                } on PanikGleichException {
+                  neu(() => fehler = t('panicPwSame'));
+                }
+              },
+              child: Text(t('create')),
+            ),
+          ],
+        ),
+      ),
+    );
+    // Das Passwort nicht laenger als noetig im Speicher stehen lassen.
+    eins.clear();
+    zwei.clear();
+    _entsorgeNachDemSchliessen([eins, zwei]);
+  }
+
+  /// Entsorgt Eingabefelder eines Dialogs ERST NACH seiner Schliess-Animation.
+  ///
+  /// `showDialog` kehrt zurueck, sobald `pop` gerufen ist — der Dialog
+  /// zeichnet sich danach aber noch einmal, waehrend er ausblendet, und
+  /// greift dabei auf seine Felder zu. Sofort entsorgt, warf das "A
+  /// TextEditingController was used after being disposed" (Widget-Test
+  /// 25.09.2026). Die Ausblendung eines Dialogs dauert 150 ms; eine halbe
+  /// Sekunde laesst reichlich Luft.
+  void _entsorgeNachDemSchliessen(List<TextEditingController> felder) {
+    Future<void>.delayed(const Duration(milliseconds: 500), () {
+      for (final f in felder) {
+        f.dispose();
+      }
+    });
+  }
+
+  String _chatFristSchluessel(String id) {
+    final s = st.kontakte.where((k) => k.id == id).firstOrNull?.fristSekunden;
+    if (s == null) return 'std';
+    if (s == 0) return 'off';
+    if (s <= 3600) return '1h';
+    if (s <= 86400) return '24h';
+    return '7d';
   }
 
   /// Ob dieser Kontakt uns sieht. Unbekannt heisst ja — so steht es im

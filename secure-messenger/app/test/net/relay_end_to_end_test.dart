@@ -176,7 +176,15 @@ class Teilnehmer {
 }
 
 void main() {
-  late Relay? relay;
+  // KEIN `late` AUF EINEM NULLBAREN FELD. Die beiden widersprechen sich:
+  // `?` sagt "darf null sein", `late` sagt "wird vor dem Lesen zugewiesen".
+  // Wirft `starten()` im setUpAll, bleibt das Feld unzugewiesen, und schon
+  // `relay?.beenden()` im tearDownAll wirft LateError — der `?.`-Test kommt
+  // erst NACH dem Lesen. Damit stirbt auch das Aufraeumen darunter, und der
+  // Lager-Prozess bleibt liegen. Ohne `late` ist der Startwert null, der
+  // Abbau laeuft durch, und die ECHTE Fehlermeldung aus setUpAll bleibt
+  // sichtbar statt von einem LateError verdeckt zu werden.
+  Relay? relay;
   late Directory tmp;
   var n = 0;
 

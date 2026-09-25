@@ -41,6 +41,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var dateiKanal: DateiKanal? = null
     private var kryptoKanal: KryptoKanal? = null
     private var nahfunk: NahfunkKanal? = null
+    private var sprache: SprachKanal? = null
     private val usbKanal by lazy { UsbHidKanal(applicationContext) }
 
     /**
@@ -56,6 +57,9 @@ class MainActivity : FlutterFragmentActivity() {
         if (anfrage == DateiKanal.ANFRAGE_WAEHLEN) {
             dateiKanal?.antwort(ergebnis, daten)
         }
+        if (anfrage == DateiKanal.ANFRAGE_SPEICHERN) {
+            dateiKanal?.gespeichert(ergebnis, daten)
+        }
     }
 
     /**
@@ -70,6 +74,7 @@ class MainActivity : FlutterFragmentActivity() {
         nummer: Int, rechte: Array<out String>, ergebnisse: IntArray
     ) {
         if (nahfunk?.rechteAntwort(nummer, ergebnisse) == true) return
+        if (sprache?.rechteAntwort(nummer, ergebnisse) == true) return
         super.onRequestPermissionsResult(nummer, rechte, ergebnisse)
     }
 
@@ -78,6 +83,8 @@ class MainActivity : FlutterFragmentActivity() {
         // begrenzte Zahl, und ein abgebrochener Versand hinterlaesst sonst
         // eine.
         dateiKanal?.raeumeAuf()
+        // Eine laufende Aufnahme darf das Schliessen nicht ueberleben.
+        sprache?.raeumeAuf()
         // Der Rechenfaden der Verschluesselung. Er ist als Daemon angelegt und
         // haelt den Prozess nicht auf, aber ihn stehen zu lassen waere ein
         // Leck bei jedem Neuaufbau der Activity — und die wird bei jedem
@@ -168,6 +175,12 @@ class MainActivity : FlutterFragmentActivity() {
         // der Rechteabfrage kein Dialog. Fuer die Funkarbeit selbst nimmt der
         // Kanal intern wieder den Anwendungs-Context — sonst haetten Werbung
         // und GATT-Dienst die Lebensdauer eines Bildschirms.
+        // Sprachnachrichten. Die Activity, weil die Rechteabfrage fuer das
+        // Mikrofon einen Dialog braucht. Siehe SprachKanal.kt.
+        sprache = SprachKanal(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SprachKanal.KANAL)
+            .setMethodCallHandler(sprache)
+
         nahfunk = NahfunkKanal(this)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,

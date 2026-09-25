@@ -71,3 +71,21 @@ class NurNahbereichException extends MessengerException {
   const NurNahbereichException()
       : super('nur in der Naehe: dafuer braeuchte es einen Server');
 }
+
+/// Bearbeiten oder "fuer alle loeschen" ist fuer diese Nachricht nicht (mehr)
+/// erlaubt — fremde Nachricht, zu alt, zu oft bearbeitet, schon geloescht.
+///
+/// EIGENE AUSNAHME, damit die Oberflaeche den Menuepunkt nicht erst anbietet
+/// und dann scheitert: sie prueft dieselben Regeln vorher, und wenn sich
+/// dazwischen etwas geaendert hat (die Frist lief waehrend des Tippens ab),
+/// sagt diese Ausnahme genau das.
+/// Das Panik-Passwort oeffnet ein echtes Fach — es waere dasselbe Wort mit
+/// zwei Bedeutungen.
+class PanikGleichException extends MessengerException {
+  const PanikGleichException()
+      : super('das Panik-Passwort darf kein echtes Passwort sein');
+}
+
+class BearbeitungNichtMoeglichException extends MessengerException {
+  const BearbeitungNichtMoeglichException(super.message);
+}

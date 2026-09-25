@@ -48,13 +48,32 @@ class RelayPreKeyBundle {
   /// base64 der ROHEN 32 Bytes.
   final String identityKey;
 
-  /// Bezeichnet das GERAET, nicht die Identitaet.
+  /// libsignals Nummer dieser Installation. SIE UNTERSCHEIDET KEINE GERAETE.
   ///
-  /// Bei BitDM ist das die einzige Moeglichkeit zu bemerken, dass eine
-  /// Gegenstelle neu aufgesetzt wurde: der Identitaetsschluessel kommt aus der
-  /// Seed-Phrase und bleibt derselbe, die Adresse damit auch. Wechselt die
-  /// Nummer, sitzt am anderen Ende ein anderes Geraet.
+  /// Frueher stand hier, sie sei "die einzige Moeglichkeit zu bemerken, dass
+  /// eine Gegenstelle neu aufgesetzt wurde". Das war eine Absicht, keine
+  /// Umsetzung: `grep -rn "registrationId" lib/` liefert 18 Fundstellen (Feld,
+  /// Konstruktor, Bundle-Uebergabe, Meta-Zugriff, getLocalRegistrationId) und
+  /// KEINEN Vergleich; in libsignal_protocol_dart 0.8.2 fassen weder
+  /// `session_builder.dart` noch `session_cipher.dart` sie an. Es hat also nie
+  /// jemand deswegen eine Sitzung verworfen.
+  ///
+  /// MIT MEHREREN ERLAUBTEN GERAETEN WAERE DIESE AUSWERTUNG SCHAEDLICH: zwei
+  /// Geraete derselben Adresse fuehren verschiedene Nummern, und "die Nummer
+  /// hat gewechselt, also die Sitzung wegwerfen" traefe damit den Normalfall.
+  /// Was Geraete unterscheidet, ist [deviceId] — und die Frage "ist da wirklich
+  /// der Richtige" beantwortet nicht diese Zahl, sondern die Nachrechnung der
+  /// Adresse aus dem Schluessel (signal_store.dart `_keyMatchesAddress`).
   final int registrationId;
+
+  /// Welches Geraet dieser Adresse. Null heisst Geraet 1.
+  ///
+  /// NULL UND NICHT 1, und das ist der ganze Rueckwaertsvertrag: fehlt das
+  /// Feld, sind die kanonischen Bytes Zeichen fuer Zeichen die von vor der
+  /// Mehrgeraete-Umstellung (Spezifikation §2.1), und ein Relay, der die
+  /// Erweiterung noch nicht kennt, nimmt die Anmeldung unveraendert an.
+  /// Deshalb schickt Geraet 1 die Kennung NIE mit.
+  final int? deviceId;
 
   final int signedPreKeyId;
 
@@ -74,9 +93,11 @@ class RelayPreKeyBundle {
     required this.signedPreKey,
     required this.signedPreKeySignature,
     this.oneTimePreKeys = const [],
+    this.deviceId,
   });
 
   Map<String, Object?> toJson() => {
+        if (deviceId != null) 'device_id': deviceId,
         'user_id': userId,
         'identity_key': identityKey,
         'registration_id': registrationId,
@@ -108,6 +129,19 @@ class RelayPreKeyBundle {
   Uint8List canonicalBytes() {
     final otk = [...oneTimePreKeys]..sort((a, b) => a.keyId.compareTo(b.keyId));
     final payload = <String, Object?>{
+      // 'd' KOMMT VOR 'i' — deshalb steht die Geraetekennung ganz vorne, und
+      // deshalb nur dann, wenn es sie gibt: `json.dumps(..., sort_keys=True)`
+      // auf der Serverseite laesst ein fehlendes Feld einfach weg, und Dart
+      // schreibt in Einfuegereihenfolge. Nur so sind die Bytes eines Geraets
+      // ohne Kennung Byte fuer Byte die von vorher.
+      //
+      // WARUM DIE KENNUNG UEBERHAUPT MITSIGNIERT WIRD: stuende sie nur im
+      // Rumpf, koennte ein Weiterleitender sie aendern und dieselbe Signatur
+      // weiterverwenden. Die Registrierung landete unter fremder
+      // Geraetenummer und loeschte dort die Einmalschluessel des echten
+      // Geraets — dieselbe Luecke, die relay_server.py fuer registration_id
+      // schon beschreibt.
+      if (deviceId != null) 'device_id': deviceId,
       'identity_key': identityKey,
       'one_time_prekeys': otk.map((k) => [k.keyId, k.publicKey]).toList(),
       'registration_id': registrationId,
@@ -146,6 +180,16 @@ class RelayBundleResponse {
   final String signedPreKeySignature;
   final RelayOneTimePreKey? oneTimePreKey;
 
+  /// Welches Geraet dieser Adresse dieses Buendel gehoert.
+  final int deviceId;
+
+  /// Die WEITEREN Geraete derselben Adresse, jedes mit eigenem Buendel.
+  ///
+  /// Leer bei einem Relay, der die Erweiterung nicht kennt — dann gibt es
+  /// genau ein Geraet und das sind die flachen Felder oben. [alleGeraete]
+  /// macht daraus einen Fall statt zweier.
+  final List<RelayBundleResponse> geraete;
+
   const RelayBundleResponse({
     required this.userId,
     required this.identityKey,
@@ -154,10 +198,22 @@ class RelayBundleResponse {
     required this.signedPreKey,
     required this.signedPreKeySignature,
     this.oneTimePreKey,
+    this.deviceId = 1,
+    this.geraete = const [],
   });
+
+  /// Alle Geraete der Adresse, immer mindestens eines.
+  ///
+  /// Die flachen Felder sind laut Spezifikation §3.3 eine KOPIE von
+  /// `geraete[0]` — steht die Liste da, waere ihre zusaetzliche Auswertung ein
+  /// doppelter Sitzungsaufbau mit demselben Geraet. Deshalb entweder die Liste
+  /// oder die flachen Felder, nie beides.
+  List<RelayBundleResponse> get alleGeraete =>
+      geraete.isEmpty ? <RelayBundleResponse>[this] : geraete;
 
   static RelayBundleResponse fromJson(Map<String, Object?> j) {
     final otk = j['one_time_prekey'];
+    final rohGeraete = j['geraete'];
     return RelayBundleResponse(
       userId: j['user_id']! as String,
       identityKey: j['identity_key']! as String,
@@ -168,6 +224,22 @@ class RelayBundleResponse {
       oneTimePreKey: otk == null
           ? null
           : RelayOneTimePreKey.fromJson((otk as Map).cast<String, Object?>()),
+      deviceId: j['device_id'] as int? ?? 1,
+      geraete: rohGeraete is! List
+          ? const []
+          : [
+              for (final g in rohGeraete)
+                // ADRESSE UND IDENTITAETSSCHLUESSEL STEHEN NUR OBEN, einmal je
+                // Antwort: alle Geraete einer Adresse teilen sich beides — das
+                // ist die Voraussetzung des ganzen Vorhabens (zwoelf Woerter =
+                // eine Identitaet). Je Geraet stehen nur die Sitzungsschluessel
+                // da.
+                fromJson({
+                  'user_id': j['user_id'],
+                  'identity_key': j['identity_key'],
+                  ...(g as Map).cast<String, Object?>(),
+                }),
+            ],
     );
   }
 }
