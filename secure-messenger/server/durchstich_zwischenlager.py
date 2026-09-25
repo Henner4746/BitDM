@@ -105,6 +105,34 @@ async def main():
             print(r.text)
             return 1
 
+    # AB HIER GIBT ES DIE WEGWERF-IDENTITAET IN DER ECHTEN DATENBANK, und sie
+    # muss wieder heraus — auch wenn unterwegs etwas scheitert. Vorher stand
+    # das Aufraeumen nur am Ende: am 25.09.2026 lief das Hochladen in einen
+    # ConnectTimeout (Storage-VPS offline), das Skript brach ab, und zwei
+    # Wegwerf-Identitaeten blieben in der Relay-Datenbank liegen.
+    try:
+        return await _durchstich(priv, user_id, pruefe) or fehler
+    except Exception as e:  # noqa: BLE001 — jeder Abbruch ist ein Befund
+        pruefe(f"Durchstich brach ab: {type(e).__name__}: {e}", False)
+        return fehler
+    finally:
+        _raeume_auf(user_id, pruefe)
+        print("\nALLES GRUEN" if fehler == 0 else f"\n{fehler} FEHLGESCHLAGEN")
+
+
+def _raeume_auf(user_id, pruefe):
+    # Die Marken-Zeile bleibt — sie faellt nach 24 Stunden von selbst weg und
+    # enthaelt ohnehin nur eine Zahl.
+    c = sqlite3.connect(DB, timeout=10)
+    with c:
+        c.execute("DELETE FROM identities WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM one_time_prekeys WHERE user_id=?", (user_id,))
+    uebrig = c.execute(
+        "SELECT COUNT(*) FROM identities WHERE user_id=?", (user_id,)).fetchone()[0]
+    pruefe("Wegwerf-Identitaet wieder entfernt", uebrig == 0)
+
+
+async def _durchstich(priv, user_id, pruefe):
     ws = await websockets.connect(f"{WS}?user_id={user_id}")
     ch = json.loads(await ws.recv())
     await ws.send(json.dumps({"signature": b64(sign(priv, base64.b64decode(ch["nonce"])))}))
@@ -127,7 +155,10 @@ async def main():
         await ws.close()
         return 1
 
-    async with httpx.AsyncClient(timeout=120) as http:
+    # Zehn Sekunden fuer den Verbindungsaufbau: ein Lager, das gar nicht
+    # antwortet, soll als solches gemeldet werden und nicht erst nach zwei
+    # Minuten.
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10)) as http:
         r = await http.put(
             antwort["ablegen"], content=inhalt,
             headers={"X-Bitdm-Size": str(len(inhalt)),
@@ -148,20 +179,7 @@ async def main():
         pruefe("danach ist es weg", r.status_code == 404)
 
     await ws.close()
-
-    # Aufraeumen: die Wegwerf-Identitaet hat in der echten Datenbank nichts
-    # verloren. Die Marken-Zeile bleibt — sie faellt nach 24 Stunden von
-    # selbst weg und enthaelt ohnehin nur eine Zahl.
-    c = sqlite3.connect(DB)
-    with c:
-        c.execute("DELETE FROM identities WHERE user_id=?", (user_id,))
-        c.execute("DELETE FROM one_time_prekeys WHERE user_id=?", (user_id,))
-    uebrig = c.execute(
-        "SELECT COUNT(*) FROM identities WHERE user_id=?", (user_id,)).fetchone()[0]
-    pruefe("Wegwerf-Identitaet wieder entfernt", uebrig == 0)
-
-    print("\nALLES GRUEN" if fehler == 0 else f"\n{fehler} FEHLGESCHLAGEN")
-    return fehler
+    return 0
 
 
 if __name__ == "__main__":
