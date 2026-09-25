@@ -165,7 +165,10 @@ def pfad_im_lager(name: str) -> Path:
     """
     lager = os.path.realpath(LAGER)
     ziel = os.path.realpath(os.path.join(lager, name))
-    if os.path.dirname(ziel) != lager:
+    # Beides: `startswith` nach dem Normalisieren ist das Muster, das CodeQL
+    # als Schutz erkennt; `dirname` stellt zusaetzlich sicher, dass es keine
+    # Unterordner gibt.
+    if not ziel.startswith(lager + os.sep) or os.path.dirname(ziel) != lager:
         raise HTTPException(400, "Kennung ungueltig")
     return Path(ziel)
 

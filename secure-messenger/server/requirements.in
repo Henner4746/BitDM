@@ -24,4 +24,4 @@ xeddsa==1.2.0
 # --- nur fuer den Test ---
 websockets==16.0
 httpx==0.28.1
-pytest==8.4.2
+pytest==9.1.1
