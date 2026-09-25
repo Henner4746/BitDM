@@ -100,7 +100,7 @@ dependencies:
   #
   # Verifizierter Publisher (simonbinder.eu), MIT. Loest sqlcipher_flutter_libs
   # ab, das seit 0.7.0+eol nichts mehr tut.
-  sqlite3: 3.5.0
+  sqlite3: 3.5.2
 
   # Die Browser-Schnittstellen fuer die Web-Fassung: WebSocket und fetch zum
   # Relay (lib/core/net/netz_zugang_web.dart), localStorage fuer die Fachdatei
