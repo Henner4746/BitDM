@@ -1,7 +1,7 @@
 # ENTWURF fuer fdroiddata (metadata/com.bitdm.bitdm.yml) — NICHT eingereicht.
 # Stand 25.09.2026. Vor dem Merge-Request die offenen Punkte in README.md
-# (gleiches Verzeichnis) abarbeiten; der wichtigste: sqlite3mc wird in 1.7.0
-# beim Bauen als FERTIGE Bibliothek heruntergeladen statt uebersetzt.
+# (gleiches Verzeichnis) abarbeiten. sqlite3mc aus Quelltext und die
+# APK-Bereinigung sind seit 25.09.2026 im Repo — ab der Fassung nach 1.7.0.
 #
 # Pruefen vor dem Einreichen, im fdroiddata-Checkout:
 #   fdroid readmeta

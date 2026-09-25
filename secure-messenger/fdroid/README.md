@@ -30,31 +30,16 @@ Stand 25.09.2026, BitDM 1.7.0 (versionCode 15).
 
 ## Was vor dem Einreichen noch fehlt
 
-1. **sqlite3mc aus Quelltext bauen (blockiert die Aufnahme).** Mit
-   `hooks.user_defines.sqlite3.source: sqlite3mc` lädt der Build-Hook von
-   `package:sqlite3` eine fertige `libsqlite3mc.so` von GitHub herunter
-   (SHA-256-geprüft, aber vorkompiliert). F-Droid baut nur aus Quelltext.
-   Ausweg wie im Kommentar in `app/pubspec.yaml`: die Amalgamation von
-   SQLite3MultipleCiphers ins Repo legen und auf `source: source` +
-   `path: third_party/sqlite3mc_amalgamation.c` umstellen. Das geht nur mit
-   einer neuen Fassung (z. B. 1.7.1+16) — das Rezept dann auf diese Fassung
-   umstellen. Für 1.7.0 selbst kann F-Droid nichts Sauberes bauen.
-2. **Abhängigkeits-Block aus der APK nehmen.** Die veröffentlichte APK trägt im
-   Signaturblock den `DEPENDENCY_INFO_BLOCK` (ID `0x504b4453`), den AGP mit
-   einem Google-Schlüssel verschlüsselt. F-Droid verlangt, ihn abzuschalten.
-   In `app/android/app/build.gradle.kts` im `android { }`-Block:
-
-   ```kotlin
-   dependenciesInfo {
-       includeInApk = false
-       includeInBundle = false
-   }
-   ```
-
-   Gleich mit prüfen: `META-INF/version-control-info.textproto`. Im
-   Release-Bau stand dort `NO_SUPPORTED_VCS_FOUND`; im git-Checkout von F-Droid
-   stünde der Commit darin, und schon wäre die Datei verschieden. Sicherer:
-   `vcsInfo { include = false }` im `release`-Buildtyp.
+1. ~~**sqlite3mc aus Quelltext bauen.**~~ **Erledigt am 25.09.2026:** die
+   Amalgamation liegt in `app/third_party/sqlite3mc/` (Fassung 2.3.6, Pruefsumme
+   im README dort), `pubspec.yaml` steht auf `source: source`. Nachgeprueft:
+   der Hook uebersetzt die Datei selbst, und Datenbanken aus der vorher
+   vorgebauten Bibliothek oeffnen weiter (Rechner und Emulator).
+2. ~~**Abhaengigkeits-Block und vcsInfo.**~~ **Erledigt am 25.09.2026** in
+   `app/android/app/build.gradle.kts`; an der gebauten APK geprueft: kein
+   `DEPENDENCY_INFO_BLOCK`, keine `version-control-info.textproto`.
+   Beides gilt ab der ersten Fassung NACH 1.7.0 — das Rezept muss auf sie
+   zeigen, nicht auf v1.7.0.
 3. **Reproduzierbarkeit nachweisen.** Die 1.7.0-APK wurde unter Windows gebaut,
    F-Droid baut unter Debian in `/home/vagrant/build/com.bitdm.bitdm`. Vor dem
    Einreichen selbst unter Linux mit genau dem Rezept bauen (`fdroid build` im

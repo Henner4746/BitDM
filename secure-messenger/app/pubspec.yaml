@@ -54,10 +54,14 @@ environment:
 #   source: source
 #   path: third_party/sqlite3mc_amalgamation.c
 # umstellen. Das aendert an keiner Zeile Dart-Code etwas.
+#
+# SEIT 25.09.2026 SO: die Amalgamation liegt in third_party/sqlite3mc/ (Fassung
+# und Pruefsumme im README dort), und der Hook uebersetzt sie selbst.
 hooks:
   user_defines:
     sqlite3:
-      source: sqlite3mc
+      source: source
+      path: third_party/sqlite3mc/sqlite3mc_amalgamation.c
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
