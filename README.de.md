@@ -6,7 +6,7 @@ Diese Seite auf [Englisch](README.md).
 Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 
 [![Lizenz: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.6.1-6f62a8)
+![Version](https://img.shields.io/badge/version-1.7.0-6f62a8)
 ![Plattform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows-6f62a8)
 
 | Plattform | Zustand |
@@ -184,8 +184,8 @@ Grenzen es gibt: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSV
 ### Android
 
 ```bash
-curl -fsSLO https://bitdm.net/bitdm-1.6.1.apk
-sha256sum bitdm-1.6.1.apk
+curl -fsSLO https://bitdm.net/bitdm-1.7.0.apk
+sha256sum bitdm-1.7.0.apk
 ```
 
 Android warnt beim Installieren. Es warnt bei **jeder** App, deren Zertifikat
@@ -194,11 +194,11 @@ Werte sagen etwas, und sie sind nicht dasselbe:
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des APK) | `c9ff2a9236d7733f41ba4a4fc7775cbc5b690db347e0b58dc83e9aed82b495b4` |
+| **Diese Datei** (sha256 des APK) | `86dfb9e55a19e35aeed5373f5ce3acc114611620cce3aef9763938e577eb7599` |
 | **Signierschlüssel** (Zertifikatsabdruck) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash
-apksigner verify --print-certs bitdm-1.6.1.apk
+apksigner verify --print-certs bitdm-1.7.0.apk
 ```
 
 Der erste Wert deckt nur diese eine Datei. Der zweite deckt jede künftige
@@ -213,13 +213,13 @@ Einreichungen bei Google Play und F-Droid sind vorbereitet, nicht erfolgt.
 
 ### Windows
 
-[`bitdm-windows-1.6.1.zip`](https://bitdm.net/bitdm-windows-1.6.1.zip) (auch am
-[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.6.1)) — 15.903.078 Byte,
+[`bitdm-windows-1.7.0.zip`](https://bitdm.net/bitdm-windows-1.7.0.zip) (auch am
+[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.7.0)) — 15.943.227 Byte,
 auspacken und `bitdm.exe` starten.
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des Zip) | `26ef279fb29f561e38a2282896cd7fa36acd2e27672e7f1ce41339665af95f90` |
+| **Diese Datei** (sha256 des Zip) | `79712d5ff8d64c67dcfbc96f9412a0af202e7561b8ff37f3f42c2b19ddc481f4` |
 
 SmartScreen wird davor warnen, und daran ist hier nichts zu ändern: das
 Signieren von Windows-Programmen braucht ein Authenticode-Zertifikat von einer

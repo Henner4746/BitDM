@@ -6,7 +6,7 @@ This page in [German](README.de.md).
 Your address *is* your public key.**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.6.1-6f62a8)
+![Version](https://img.shields.io/badge/version-1.7.0-6f62a8)
 ![Platform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows-6f62a8)
 
 | Platform | State |
@@ -177,8 +177,8 @@ limits: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.
 ### Android
 
 ```bash
-curl -fsSLO https://bitdm.net/bitdm-1.6.1.apk
-sha256sum bitdm-1.6.1.apk
+curl -fsSLO https://bitdm.net/bitdm-1.7.0.apk
+sha256sum bitdm-1.7.0.apk
 ```
 
 Android will warn you when installing. It warns about **every** app whose
@@ -187,11 +187,11 @@ These two values do, and they are not the same kind of thing:
 
 | What | Value |
 |---|---|
-| **This file** (sha256 of the APK) | `c9ff2a9236d7733f41ba4a4fc7775cbc5b690db347e0b58dc83e9aed82b495b4` |
+| **This file** (sha256 of the APK) | `86dfb9e55a19e35aeed5373f5ce3acc114611620cce3aef9763938e577eb7599` |
 | **Signing key** (certificate fingerprint) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash
-apksigner verify --print-certs bitdm-1.6.1.apk
+apksigner verify --print-certs bitdm-1.7.0.apk
 ```
 
 The first value covers only this file. The second covers every future
@@ -205,13 +205,13 @@ submissions are prepared, not done.
 
 ### Windows
 
-[`bitdm-windows-1.6.1.zip`](https://bitdm.net/bitdm-windows-1.6.1.zip) (also attached to the
-[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.6.1)) — 15,903,078 bytes, unpack
+[`bitdm-windows-1.7.0.zip`](https://bitdm.net/bitdm-windows-1.7.0.zip) (also attached to the
+[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.7.0)) — 15,943,227 bytes, unpack
 and run `bitdm.exe`.
 
 | What | Value |
 |---|---|
-| **This file** (sha256 of the zip) | `26ef279fb29f561e38a2282896cd7fa36acd2e27672e7f1ce41339665af95f90` |
+| **This file** (sha256 of the zip) | `79712d5ff8d64c67dcfbc96f9412a0af202e7561b8ff37f3f42c2b19ddc481f4` |
 
 SmartScreen will warn about it, and that cannot be fixed here: Windows code
 signing needs an Authenticode certificate from a commercial CA, and the Android

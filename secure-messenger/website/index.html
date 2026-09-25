@@ -562,29 +562,29 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="screen screen-lit de">Android — direkter Download</span>
         <span class="screen screen-lit en">Android — direct download</span>
       </div>
-      <p class="de">Version 1.6.1, 46 MB, für arm64 und arm32. Android wird beim
+      <p class="de">Version 1.7.0, 46 MB, für arm64 und arm32. Android wird beim
         Installieren warnen: es warnt bei jeder App, deren Zertifikat Google
         nicht kennt, unabhängig davon, was in der Datei steht. Was in dieser
         steht, lässt sich an den zwei Werten darunter nachprüfen.</p>
-      <p class="en">Version 1.6.1, 46 MB, for arm64 and arm32. Android will warn you
+      <p class="en">Version 1.7.0, 46 MB, for arm64 and arm32. Android will warn you
         when installing: it warns about every app whose certificate Google does
         not know, regardless of what the file contains. What this one contains
         can be checked against the two values below.</p>
 
       <div class="act">
-        <a class="btn btn-primary" href="bitdm-1.6.1.apk" download>
+        <a class="btn btn-primary" href="bitdm-1.7.0.apk" download>
           <span class="de">APK herunterladen</span><span class="en">Download APK</span>
         </a>
       </div>
 
       <dl class="pruef">
         <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
-        <dd><code>c9ff2a9236d7733f41ba4a4fc7775cbc5b690db347e0b58dc83e9aed82b495b4</code>
-          — <code>sha256sum bitdm-1.6.1.apk</code></dd>
+        <dd><code>86dfb9e55a19e35aeed5373f5ce3acc114611620cce3aef9763938e577eb7599</code>
+          — <code>sha256sum bitdm-1.7.0.apk</code></dd>
         <dt><span class="de">Der Schlüssel, mit dem sie signiert ist</span>
             <span class="en">The key it is signed with</span></dt>
         <dd><code>e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063</code>
-          — <code>apksigner verify --print-certs bitdm-1.6.1.apk</code></dd>
+          — <code>apksigner verify --print-certs bitdm-1.7.0.apk</code></dd>
       </dl>
 
       <p class="hint">
@@ -636,13 +636,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </div>
 
     <!-- WINDOWS. Der zweite Kasten mit einem echten Knopf, darum .slot-breit.
-         GEMESSEN AM 25.09.2026 (1.6.1), damit spaeter niemand raten muss:
-           Datei    releases/bitdm-windows-1.6.1.zip, 15 903 078 Byte
+         GEMESSEN AM 25.09.2026 (1.7.0), damit spaeter niemand raten muss:
+           Datei    releases/bitdm-windows-1.7.0.zip, 15 943 227 Byte
                     (`stat -c%s`) = 15,2 MiB, hier als "15 MB" wie die APK
-                    daneben, die mit 48 334 320 Byte als "46 MB" steht.
-           Entpackt 38 255 939 Byte ueber 28 Eintraege, gemessen mit
+                    daneben, die mit 48 481 776 Byte als "46 MB" steht.
+           Entpackt 38 321 475 Byte ueber 28 Eintraege, gemessen mit
                     System.IO.Compression.ZipFile ueber Entries.Length.
-           sha256   26ef279f… aus `sha256sum releases/bitdm-windows-1.6.1.zip`.
+           sha256   79712d5f… aus `sha256sum releases/bitdm-windows-1.7.0.zip`.
+         (1.6.1: 15 903 078 Byte, entpackt 38 255 939, 28 Eintraege.)
          (1.5.1 am 30.07.2026: 15 419 797 Byte, entpackt 37 026 435, 27 Eintraege.)
          WICHTIG BEIM NEU BAUEN: der Wert gilt fuer GENAU diese Datei. Das Zip
          entstand um 02:26; im Bauverzeichnis lag um 14:15 schon ein neuerer
@@ -656,11 +657,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="screen screen-lit de">Windows</span>
         <span class="screen screen-lit en">Windows</span>
       </div>
-      <p class="de">Version 1.6.1 für x64, ein Zip mit 15 MB, entpackt 36 MB.
+      <p class="de">Version 1.7.0 für x64, ein Zip mit 15 MB, entpackt 36 MB.
         Einen Installer gibt es nicht: entpacken, <code>bitdm.exe</code> starten,
         fertig. Das Skript für einen richtigen Installer liegt im Quellcode unter
         <code>windows/bitdm.iss</code>, ausgeführt hat es noch niemand.</p>
-      <p class="en">Version 1.6.1 for x64, a 15 MB zip, 36 MB unpacked. There is
+      <p class="en">Version 1.7.0 for x64, a 15 MB zip, 36 MB unpacked. There is
         no installer: unpack it, start <code>bitdm.exe</code>, done. The script
         for a proper installer sits in the source at
         <code>windows/bitdm.iss</code>, but nobody has run it yet.</p>
@@ -676,15 +677,15 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         a signature is. The contents are what the value below covers.</p>
 
       <div class="act">
-        <a class="btn btn-primary" href="bitdm-windows-1.6.1.zip" download>
+        <a class="btn btn-primary" href="bitdm-windows-1.7.0.zip" download>
           <span class="de">Zip herunterladen</span><span class="en">Download zip</span>
         </a>
       </div>
 
       <dl class="pruef">
         <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
-        <dd><code>26ef279fb29f561e38a2282896cd7fa36acd2e27672e7f1ce41339665af95f90</code>
-          — <code>certutil -hashfile bitdm-windows-1.6.1.zip SHA256</code></dd>
+        <dd><code>79712d5ff8d64c67dcfbc96f9412a0af202e7561b8ff37f3f42c2b19ddc481f4</code>
+          — <code>certutil -hashfile bitdm-windows-1.7.0.zip SHA256</code></dd>
       </dl>
 
       <p class="hint">
@@ -1359,6 +1360,20 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              Sprachnachrichten auf Android; Anrufe weiterhin nicht. -->
         <dd><span class="de">Einzelchats und Gruppen bis 20, mit Text, Sprachnachrichten und Anhängen bis 5 GB. Keine Anrufe.</span>
             <span class="en">One-to-one chats and groups up to 20, with text, voice messages and attachments up to 5 GB. No calls.</span></dd>
+      </div>
+      <!-- SEIT 1.7.0 (25.09.2026). Belegt durch app/test/anhang/metadaten_test.dart:
+           echte Bilder mit GPS, Hersteller, Modell, Zeit und Kommentar; danach
+           ist nichts davon mehr in der Datei, und sie oeffnet sich noch. Die
+           Grenze steht mit dabei, weil sie stimmt. -->
+      <div class="plate-row">
+        <dt><span class="de">Fotos</span><span class="en">Photos</span></dt>
+        <dd><span class="de">Ort, Kamera und Aufnahmezeit werden vor dem Senden aus JPEG, PNG und WebP entfernt, der Dateiname wird neutral. HEIC und Videos gehen noch unverändert hinaus.</span>
+            <span class="en">Location, camera and capture time are stripped from JPEG, PNG and WebP before sending, and the file name is neutralised. HEIC and videos still go out unchanged.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Aussehen</span><span class="en">Look</span></dt>
+        <dd><span class="de">Neun Themen, darunter Material mit der Akzentfarbe des Systems und drei Terminal-Themen. Sie wechseln langsam durch einen Schleier aus Chiffrezeichen, auf Wunsch von allein.</span>
+            <span class="en">Nine themes, including Material with the system accent colour and three terminal themes. They change slowly through a veil of cipher glyphs, on their own if you like.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
