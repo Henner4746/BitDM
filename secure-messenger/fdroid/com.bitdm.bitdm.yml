@@ -51,11 +51,11 @@ Builds:
   # --split-per-abi). Nur dasselbe Artefakt kann bitgleich verglichen werden.
   # --split-per-abi wuerde versionCodes 1015/2015/3015 erzeugen, die es
   # upstream nicht gibt (siehe Kommentar ueber `version:` in pubspec.yaml).
-  - versionName: 1.7.0
-    versionCode: 15
+  - versionName: 1.8.0
+    versionCode: 16
     # Tag v1.7.0 = 5d5b3b30853a409255d63a2109ca1c60c094ee14 (git ls-remote).
     # fdroiddata-Reviewer bevorzugen oft den Hash; beides ist gueltig.
-    commit: v1.7.0
+    commit: v1.8.0
     subdir: secure-messenger/app
     output: build/app/outputs/flutter-apk/app-release.apk
     srclibs:
@@ -93,5 +93,5 @@ Builds:
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
 UpdateCheckData: secure-messenger/app/pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
-CurrentVersion: 1.7.0
-CurrentVersionCode: 15
+CurrentVersion: 1.8.0
+CurrentVersionCode: 16

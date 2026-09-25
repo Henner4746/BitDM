@@ -1,0 +1,1 @@
+Unread counts, quiet hours, view-once media, distribution lists, mentions, per-member delivery ticks in groups. Recovery and remote wipe via trusted contacts. Tor (Orbot) with the relay as an onion service, cover traffic. Metadata also stripped from HEIC and videos. Backups with attachments. SQLite built from source.

@@ -1,0 +1,1 @@
+Ungelesen-Zahl, Ruhezeiten, Einmal-Ansicht, Verteilerlisten, Erwähnungen, Zustellhaken je Gruppenmitglied. Wiederherstellung und Fernlöschung über Vertrauenskontakte. Tor (Orbot) und Relay als Onion-Dienst, Tarnverkehr. Metadaten auch aus HEIC und Videos entfernt. Sicherung mit Anhängen. SQLite aus Quelltext.
