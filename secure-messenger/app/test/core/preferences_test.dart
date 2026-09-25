@@ -57,6 +57,28 @@ void main() {
       expect(p.blockScreenshots, isFalse);
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    test('Thema, Wandern, Sprache und Effekt kommen nach dem Neustart zurueck',
+        () async {
+      // Bis 25.09.2026 vergass die App Sprache und Aussehen bei jedem Start.
+      final a = nutzer('alice');
+      addTearDown(a.aufraeumen);
+      await a.starten();
+      await a.core.createIdentity();
+      final vorher = await a.core.getPreferences();
+      expect(vorher.thema, 'nocturne');
+      expect(vorher.sprache, isNull, reason: 'ohne Wahl gilt die des Systems');
+      expect(vorher.entschluesseln, isTrue);
+
+      await a.core.setPreferences(vorher.copyWith(
+          thema: 'enigma', themaWandern: 10, sprache: 'de', entschluesseln: false));
+      await a.neustart();
+      final p = await a.core.getPreferences();
+      expect(p.thema, 'enigma');
+      expect(p.themaWandern, 10);
+      expect(p.sprache, 'de');
+      expect(p.entschluesseln, isFalse);
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     test('ohne Zutun sind Lesebestaetigungen an und nichts verfaellt',
         () async {
       final a = nutzer('alice');

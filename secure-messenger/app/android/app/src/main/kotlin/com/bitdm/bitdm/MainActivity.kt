@@ -243,6 +243,18 @@ class MainActivity : FlutterFragmentActivity() {
                     // geht um einen einzigen Intent, und die Adresse ist
                     // ohnehin oeffentlich. Eine Abhaengigkeit dafuer waere
                     // mehr Angriffsflaeche als Nutzen.
+                    // Die Akzentfarbe des Systems — fuer das Thema "Material".
+                    // Ab Android 12 leitet das System sie aus dem Hintergrund-
+                    // bild ab (Material You). Darunter gibt es keine, und die
+                    // App nimmt ihre eigene Grundfarbe. Kein Paket dafuer: es
+                    // ist eine Zeile, und jede Abhaengigkeit ist Angriffsflaeche.
+                    "systemAkzent" -> {
+                        if (android.os.Build.VERSION.SDK_INT >= 31) {
+                            ergebnis.success(getColor(android.R.color.system_accent1_500))
+                        } else {
+                            ergebnis.success(null)
+                        }
+                    }
                     "teile" -> {
                         val text = aufruf.argument<String>("text")
                         if (text.isNullOrEmpty()) {

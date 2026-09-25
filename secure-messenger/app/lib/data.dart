@@ -34,6 +34,32 @@ class Pal {
     required this.onAcc,
     required this.accHover,
   });
+
+  /// Zwischen zwei Paletten ueberblenden — fuer den langsamen Themenwechsel.
+  static Pal lerp(Pal a, Pal b, double t) {
+    Color l(Color x, Color y) => Color.lerp(x, y, t)!;
+    return Pal(
+      shell: l(a.shell, b.shell),
+      bg: l(a.bg, b.bg),
+      surf: l(a.surf, b.surf),
+      surf2: l(a.surf2, b.surf2),
+      navbg: l(a.navbg, b.navbg),
+      ink: l(a.ink, b.ink),
+      muted: l(a.muted, b.muted),
+      dim: l(a.dim, b.dim),
+      line: l(a.line, b.line),
+      lineSoft: l(a.lineSoft, b.lineSoft),
+      accent: l(a.accent, b.accent),
+      accLight: l(a.accLight, b.accLight),
+      wash: l(a.wash, b.wash),
+      tint: l(a.tint, b.tint),
+      tintLine: l(a.tintLine, b.tintLine),
+      tintInk: l(a.tintInk, b.tintInk),
+      scrim: l(a.scrim, b.scrim),
+      onAcc: l(a.onAcc, b.onAcc),
+      accHover: l(a.accHover, b.accHover),
+    );
+  }
 }
 
 const palDark = Pal(
@@ -223,7 +249,7 @@ const Map<String, Map<String, String>> strings = {
     'settings': 'Settings', 'general': 'General', 'security': 'Security', 'identity': 'Identity', 'emergency': 'Emergency',
     'language': 'Language', 'languageSub': 'App-wide', 'appearance': 'Appearance', 'appearanceSub': 'Dark by default',
     'screenshot': 'Screenshot protection', 'screenshotSub': 'Warning in chat, preview blocked',
-    'myIdQr': 'My ID & QR', 'fingerprint': 'Key fingerprint',
+    'myIdQr': 'My ID & QR',
     'panic': 'Panic mode', 'panicSub': 'Delete identity, contacts and messages instantly and irreversibly.',
     'panicTitle': 'Delete everything?', 'panicBody': 'This identity, all contacts and all messages will be removed from this device. There is no recovery.',
     'cancel': 'Cancel', 'delete': 'Delete',
@@ -255,6 +281,11 @@ const Map<String, Map<String, String>> strings = {
     'scheduleTitle': 'Send later', 'scheduledFor': 'scheduled', 'schedulePast': 'That time has already passed.',
     'pinMsg': 'Pin message', 'unpinMsg': 'Unpin message', 'pinnedTitle': 'Pinned messages',
     'pinnedTag': 'Pinned', 'mutedTag': 'Muted',
+    'keyArt': 'Key picture', 'keyArtSelf': 'Drawn from your address. Your contacts see the same picture for your key.', 'keyArtPeer': 'Drawn from this contact\'s key. Their own settings show the same picture — a quick check, the safety number is the proof.',
+    'cmd_timer': 'Disappearing messages here: 1h · 24h · 7d · off · std', 'cmd_verify': 'Show the safety number', 'cmd_poll': 'Create a poll', 'cmd_shrug': 'Append a shrug', 'cmdTimerBad': 'Try /timer 1h, 24h, 7d, off or std', 'cmdThemeBad': 'No theme by that name', 'cmdVerifyNone': 'Only a one-to-one chat has a safety number',
+    'star': 'Star', 'unstar': 'Remove star', 'starEmpty': 'No starred messages yet. Long-press a message and choose Star — it stays on this device only.', 'filterAll': 'All', 'filterUnread': 'Unread', 'filterGroups': 'Groups', 'filterStarred': 'Starred',
+    'themeDrift': 'Drifting themes', 'themeDriftSub': 'The dark themes slowly re-key into one another.',
+    'decryptFx': 'Decrypt effect', 'decryptFxSub': 'New messages resolve out of cipher text.',
     'panicPw': 'Panic password', 'panicPwSub': 'Entered at the lock screen, it deletes everything instead of unlocking.',
     'panicPwBody': 'If you are ever forced to unlock, enter this password instead of your real one. BitDM then deletes this identity, all contacts and all messages, and looks freshly installed. It cannot be your real password.',
     'panicPwSame': 'That is your real password. Choose a different one.',
@@ -537,7 +568,7 @@ const Map<String, Map<String, String>> strings = {
     'settings': 'Einstellungen', 'general': 'Allgemein', 'security': 'Sicherheit', 'identity': 'Identität', 'emergency': 'Notfall',
     'language': 'Sprache', 'languageSub': 'Gilt für die ganze App', 'appearance': 'Erscheinungsbild', 'appearanceSub': 'Standard: dunkel',
     'screenshot': 'Screenshot-Schutz', 'screenshotSub': 'Warnhinweis im Chat, Vorschau geblockt',
-    'myIdQr': 'Meine ID & QR', 'fingerprint': 'Schlüssel-Fingerprint',
+    'myIdQr': 'Meine ID & QR',
     'panic': 'Panik-Modus', 'panicSub': 'Identität, Kontakte und Nachrichten sofort und unwiderruflich löschen.',
     'panicTitle': 'Alles löschen?', 'panicBody': 'Diese Identität, alle Kontakte und alle Nachrichten werden von diesem Gerät entfernt. Es gibt keine Wiederherstellung.',
     'cancel': 'Abbrechen', 'delete': 'Löschen',
@@ -569,6 +600,11 @@ const Map<String, Map<String, String>> strings = {
     'scheduleTitle': 'Später senden', 'scheduledFor': 'geplant', 'schedulePast': 'Dieser Zeitpunkt ist schon vorbei.',
     'pinMsg': 'Nachricht anheften', 'unpinMsg': 'Nachricht lösen', 'pinnedTitle': 'Angeheftete Nachrichten',
     'pinnedTag': 'Oben', 'mutedTag': 'Stumm',
+    'keyArt': 'Schlüsselbild', 'keyArtSelf': 'Aus deiner Adresse gezeichnet. Deine Kontakte sehen für deinen Schlüssel dasselbe Bild.', 'keyArtPeer': 'Aus dem Schlüssel dieses Kontakts gezeichnet. Seine Einstellungen zeigen dasselbe Bild — ein schneller Abgleich, der Beweis ist die Prüfnummer.',
+    'cmd_timer': 'Selbstlöschen hier: 1h · 24h · 7d · aus · std', 'cmd_verify': 'Prüfnummer zeigen', 'cmd_poll': 'Umfrage anlegen', 'cmd_shrug': 'Schulterzucken anhängen', 'cmdTimerBad': 'Zum Beispiel /timer 1h, 24h, 7d, aus oder std', 'cmdThemeBad': 'Kein Thema mit diesem Namen', 'cmdVerifyNone': 'Nur ein Einzelchat hat eine Prüfnummer',
+    'star': 'Markieren', 'unstar': 'Markierung entfernen', 'starEmpty': 'Noch nichts markiert. Nachricht lange drücken und Markieren wählen — das bleibt nur auf diesem Gerät.', 'filterAll': 'Alle', 'filterUnread': 'Ungelesen', 'filterGroups': 'Gruppen', 'filterStarred': 'Markiert',
+    'themeDrift': 'Wandernde Themen', 'themeDriftSub': 'Die dunklen Themen schlüsseln sich langsam ineinander um.',
+    'decryptFx': 'Entschlüsseln-Effekt', 'decryptFxSub': 'Neue Nachrichten lösen sich aus Chiffretext heraus.',
     'panicPw': 'Panik-Passwort', 'panicPwSub': 'Am Sperrbildschirm eingegeben, löscht es alles, statt zu entsperren.',
     'panicPwBody': 'Wenn du je gezwungen wirst zu entsperren, gib statt deines echten dieses Passwort ein. BitDM löscht dann diese Identität, alle Kontakte und alle Nachrichten und sieht aus wie frisch installiert. Es darf nicht dein echtes Passwort sein.',
     'panicPwSame': 'Das ist dein echtes Passwort. Wähle ein anderes.',

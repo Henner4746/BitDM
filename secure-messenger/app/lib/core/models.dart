@@ -389,6 +389,11 @@ class Message {
   /// Seit wann oben angeheftet — oder null. Hoechstens drei je Unterhaltung.
   final DateTime? angeheftetAm;
 
+  /// Seit wann mit einem Stern markiert — oder null. NUR AUF DIESEM GERAET:
+  /// die Gegenstelle erfaehrt nichts davon, und in die Sicherung geht es
+  /// auch nicht.
+  final DateTime? sternAm;
+
   /// Wann diese eigene Nachricht hinausgehen soll, wenn sie geplant ist. Nach
   /// dem Zeitpunkt ist es nur noch ein Vermerk — der Status sagt, ob sie
   /// draussen ist.
@@ -411,6 +416,7 @@ class Message {
     this.widerrufen = false,
     this.angeheftetAm,
     this.geplantFuer,
+    this.sternAm,
   });
 
   Message copyWith(
@@ -418,7 +424,9 @@ class Message {
           String? text,
           bool? ueberNaehe,
           bool? bearbeitet,
-          bool? widerrufen}) =>
+          bool? widerrufen,
+          DateTime? sternAm,
+          bool ohneStern = false}) =>
       Message(
         id: id,
         chatId: chatId,
@@ -436,6 +444,7 @@ class Message {
         widerrufen: widerrufen ?? this.widerrufen,
         angeheftetAm: angeheftetAm,
         geplantFuer: geplantFuer,
+        sternAm: ohneStern ? null : (sternAm ?? this.sternAm),
       );
 }
 
@@ -644,7 +653,23 @@ class AppPreferences {
   /// braucht die Oberflaeche es, um es aus der Liste der Faktoren zu nehmen.
   final String? panikFach;
 
+  /// Das gewaehlte Thema (siehe lib/themen.dart), als Kennung.
+  final String thema;
+
+  /// Alle wie viele Minuten das Thema von allein weiterwandert. 0 = nie.
+  final int themaWandern;
+
+  /// Die gewaehlte Sprache ('en', 'de') oder null = die des Systems.
+  final String? sprache;
+
+  /// Ob neu eintreffende Nachrichten sich sichtbar "entschluesseln".
+  final bool entschluesseln;
+
   const AppPreferences({
+    this.thema = 'nocturne',
+    this.themaWandern = 0,
+    this.sprache,
+    this.entschluesseln = true,
     this.readReceipts = true,
     this.messageLifetime,
     this.blockScreenshots = true,
@@ -656,6 +681,10 @@ class AppPreferences {
   });
 
   AppPreferences copyWith({
+    String? thema,
+    int? themaWandern,
+    String? sprache,
+    bool? entschluesseln,
     bool? readReceipts,
     Duration? messageLifetime,
     bool loescheLebensdauer = false,
@@ -668,6 +697,10 @@ class AppPreferences {
     bool loeschePanikFach = false,
   }) =>
       AppPreferences(
+        thema: thema ?? this.thema,
+        themaWandern: themaWandern ?? this.themaWandern,
+        sprache: sprache ?? this.sprache,
+        entschluesseln: entschluesseln ?? this.entschluesseln,
         readReceipts: readReceipts ?? this.readReceipts,
         messageLifetime:
             loescheLebensdauer ? null : (messageLifetime ?? this.messageLifetime),

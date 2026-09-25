@@ -572,6 +572,19 @@ class FakeMessengerCore implements MessengerCore {
   }
 
   @override
+  Future<void> setzeStern(String contactId, String messageId, bool an) async {
+    final i = _stelle(contactId, messageId);
+    final liste = _msgs[contactId]!;
+    liste[i] = an ? liste[i].copyWith(sternAm: _now) : liste[i].copyWith(ohneStern: true);
+    _verlaufCtl.add(contactId);
+  }
+
+  @override
+  Future<List<Message>> sterne() async => [
+        for (final l in _msgs.values) ...l.where((m) => m.sternAm != null && !m.widerrufen),
+      ]..sort((a, b) => b.sternAm!.compareTo(a.sternAm!));
+
+  @override
   Future<void> loescheFuerMich(String contactId, String messageId) async {
     _stelle(contactId, messageId);
     _msgs[contactId]!.removeWhere((m) => m.id == messageId);

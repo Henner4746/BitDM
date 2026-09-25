@@ -207,6 +207,13 @@ abstract class MessengerCore {
   /// "Fuer mich loeschen" — jede Nachricht, nur auf diesem Geraet.
   Future<void> loescheFuerMich(String contactId, String messageId);
 
+  /// Markiert eine Nachricht mit einem Stern ([an]) oder nimmt ihn. Nur auf
+  /// diesem Geraet, die Gegenstelle erfaehrt nichts.
+  Future<void> setzeStern(String contactId, String messageId, bool an);
+
+  /// Alle markierten Nachrichten, zuletzt markierte zuerst.
+  Future<List<Message>> sterne();
+
   /// Meldet die Unterhaltung (Kontaktadresse), deren Verlauf sich geaendert
   /// hat, OHNE dass eine neue Nachricht dazukam: bearbeitet, widerrufen,
   /// Reaktion gesetzt. Die Oberflaeche laedt diese Unterhaltung dann neu.

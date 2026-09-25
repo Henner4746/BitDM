@@ -491,6 +491,10 @@ class ChatRepository {
     String? lies(String k) => db.meta('$_praefix$k');
     final dauer = int.tryParse(lies('lifetime_seconds') ?? '');
     return AppPreferences(
+      thema: (lies('thema') ?? '').isEmpty ? 'nocturne' : lies('thema')!,
+      themaWandern: int.tryParse(lies('thema_wandern') ?? '') ?? 0,
+      sprache: (lies('sprache') ?? '').isEmpty ? null : lies('sprache'),
+      entschluesseln: lies('entschluesseln') != '0',
       readReceipts: lies('read_receipts') != '0',
       messageLifetime:
           (dauer == null || dauer <= 0) ? null : Duration(seconds: dauer),
@@ -516,6 +520,10 @@ class ChatRepository {
           'INSERT INTO meta (key, value) VALUES (?,?) '
           'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
           ['$_praefix$k', v]);
+      setze('thema', p.thema);
+      setze('thema_wandern', '${p.themaWandern}');
+      setze('sprache', p.sprache ?? '');
+      setze('entschluesseln', p.entschluesseln ? '1' : '0');
       setze('read_receipts', p.readReceipts ? '1' : '0');
       setze('lifetime_seconds', '${p.messageLifetime?.inSeconds ?? 0}');
       setze('block_screenshots', p.blockScreenshots ? '1' : '0');
@@ -776,6 +784,28 @@ class ChatRepository {
     store?.markClean();
     return ging;
   }
+
+  /// Setzt oder nimmt den Stern einer Nachricht. false = keine solche.
+  bool setzeStern(String chatId, String messageId, bool an) {
+    var ging = false;
+    db.transaction((raw) {
+      raw.execute(
+          'UPDATE messages SET stern = ? WHERE chat_id = ? AND id = ? AND widerrufen = 0',
+          [an ? DateTime.now().toUtc().millisecondsSinceEpoch : null, chatId, messageId]);
+      ging = raw.updatedRows > 0;
+    });
+    return ging;
+  }
+
+  /// Alle markierten Nachrichten ueber alle Unterhaltungen, zuletzt markierte
+  /// zuerst. Eine zurueckgenommene faellt heraus, auch wenn sie markiert war.
+  List<Message> sterne({int limit = 200}) => db.raw
+      .select(
+          'SELECT * FROM messages WHERE stern IS NOT NULL AND widerrufen = 0 '
+          'ORDER BY stern DESC LIMIT ?',
+          [limit])
+      .map(_zuNachricht)
+      .toList();
 
   /// "Fuer mich loeschen": nur auf diesem Geraet, ohne Frist, fuer jede
   /// Nachricht — auch fremde. Die Gegenstelle erfaehrt nichts.
@@ -1188,6 +1218,9 @@ class ChatRepository {
             ? DateTime.fromMillisecondsSinceEpoch(r['angeheftet'] as int,
                 isUtc: true)
             : null,
+        sternAm: r['stern'] == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(r['stern'] as int, isUtc: true),
         geplantFuer: r['faellig'] == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(r['faellig'] as int,

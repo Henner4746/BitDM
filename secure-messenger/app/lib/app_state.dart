@@ -20,6 +20,7 @@ import 'package:path_provider/path_provider.dart';
 import 'core/anhang/anhang_empfang.dart';
 import 'core/anhang/anhang_versand.dart';
 import 'core/anhang/lager_client.dart';
+import 'core/anhang/metadaten.dart';
 import 'core/app_lock.dart';
 import 'core/benachrichtigungen.dart';
 import 'core/dateien.dart';
@@ -864,6 +865,13 @@ class AppState extends ChangeNotifier {
         // Neue Liste statt `.add` — siehe [senden]: die Liste kann vom Kern
         // stammen und unveraenderlich sein.
         verlaeufe[m.chatId] = [...?verlaeufe[m.chatId], m];
+        // Fuer den Entschluesselungs-Effekt: diese Nachricht hat noch niemand
+        // gesehen. Gedeckelt, damit ein langer Offline-Nachschub die Menge
+        // nicht endlos wachsen laesst.
+        if (!m.isMine) {
+          if (frischeNachrichten.length > 200) frischeNachrichten.clear();
+          frischeNachrichten.add(m.id);
+        }
         // Nur melden, wenn niemand hinsieht. Eine Benachrichtigung fuer eine
         // Nachricht, die gerade auf dem Bildschirm erscheint, waere Laerm.
         //
@@ -931,6 +939,10 @@ class AppState extends ChangeNotifier {
     liste![i] = liste[i].copyWith(status: u.status);
     notifyListeners();
   }
+
+  /// Eingetroffene Nachrichten, deren Blase noch nicht erschienen ist — sie
+  /// entschluesseln sich beim ersten Erscheinen sichtbar (siehe Oberflaeche).
+  final Set<String> frischeNachrichten = {};
 
   /// Status, die eintrafen, bevor ihre Nachricht im Verlauf stand.
   final Map<String, MessageStatus> _fruehStatus = {};
@@ -1178,6 +1190,19 @@ class AppState extends ChangeNotifier {
   Future<void> loescheFuerMich(String chatId, String messageId) =>
       _versuche(() => core.loescheFuerMich(chatId, messageId));
 
+  /// Markierte Nachrichten ueber alle Unterhaltungen — fuer den Filter "★".
+  List<Message> sterne = const [];
+
+  Future<void> setzeStern(String chatId, String messageId, bool an) async {
+    await _versuche(() => core.setzeStern(chatId, messageId, an));
+    await ladeSterne();
+  }
+
+  Future<void> ladeSterne() async {
+    sterne = await core.sterne();
+    notifyListeners();
+  }
+
   /// Fuehrt eine Aenderung aus und zeigt ein Scheitern an, statt es zu
   /// verschlucken. Die Anzeige selbst zieht [_ladeNeu] nach, ausgeloest vom
   /// Kern — nicht diese Stelle.
@@ -1387,7 +1412,19 @@ class AppState extends ChangeNotifier {
     schwebenderName = name ?? datei.uri.pathSegments.last;
     schwebenderChat = chatId;
     notifyListeners();
+    File? bereinigt;
     try {
+      // METADATEN RAUS, bevor irgendetwas das Geraet verlaesst: GPS, Kamera,
+      // Aufnahmezeit, Kommentare (siehe core/anhang/metadaten.dart). Der
+      // Kern bekommt die bereinigte Kopie und einen neutralen Namen.
+      final sauber = await _ohneMetadaten(datei);
+      if (sauber != null) {
+        bereinigt = sauber.$1;
+        datei = sauber.$1;
+        name = sauber.$2;
+        groesse = await datei.length();
+        schwebenderName = name;
+      }
       final m = await core.sendeAnhang(chatId, datei,
           name: name, groesse: groesse);
       // EINE NEUE LISTE, KEIN `.add`: dieselbe Falle wie in [senden] — die
@@ -1405,11 +1442,40 @@ class AppState extends ChangeNotifier {
       letzterFehler = _anhangFehler(e);
       _merkeTechnisch(e);
     } finally {
+      // Die bereinigte Kopie hat ihren Zweck erfuellt — der Kern hat sie
+      // gelesen und verschluesselt.
+      if (bereinigt != null) {
+        try {
+          await bereinigt.delete();
+        } catch (_) {}
+      }
       fortschritt.remove(schwebendeKennung);
       schwebendeKennung = null;
       schwebenderName = null;
       schwebenderChat = null;
       notifyListeners();
+    }
+  }
+
+  /// Eine Kopie von [datei] ohne Metadaten und mit neutralem Namen — oder
+  /// null, wenn es kein bekanntes Bild ist oder nichts zu entfernen war.
+  ///
+  /// Nur bis 40 MB: groessere Bilder sind selten, und die ganze Datei liegt
+  /// dafuer einmal im Speicher.
+  Future<(File, String)?> _ohneMetadaten(File datei) async {
+    try {
+      if (await datei.length() > 40 * 1024 * 1024) return null;
+      final bytes = await datei.readAsBytes();
+      final sauber = ohneMetadaten(bytes);
+      if (sauber == null) return null;
+      final name = neutralerBildname(sauber, Random.secure().nextInt(0x10000));
+      final ordner = await getTemporaryDirectory();
+      final ziel = File('${ordner.path}${Platform.pathSeparator}'
+          'bitdm-rein-${DateTime.now().microsecondsSinceEpoch}-$name');
+      await ziel.writeAsBytes(sauber, flush: true);
+      return (ziel, name);
+    } catch (_) {
+      return null;
     }
   }
 

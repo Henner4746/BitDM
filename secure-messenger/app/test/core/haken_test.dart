@@ -140,6 +140,22 @@ void main() {
         reason: 'das Zeichen "ohne Server gegangen" ging verloren');
   });
 
+  test('Quittungen warten zufaellig 0,3 bis 2,5 s — gegen Zuordnung ueber die Zeit', () {
+    final werte = [for (var i = 0; i < 40; i++) kern.quittungsVerzug().inMilliseconds];
+    expect(werte.every((v) => v >= 300 && v < 2500), isTrue, reason: '$werte');
+    expect(werte.toSet().length, greaterThan(10), reason: 'der Verzug ist nicht zufaellig');
+  });
+
+  test('ein Stern ueberlebt das Neulesen, eine zurueckgenommene faellt heraus', () {
+    final ablage = kern.ablageFuerTest;
+    expect(ablage.setzeStern(chat, nachricht, true), isTrue);
+    expect(ablage.verlauf(chat).single.sternAm, isNotNull);
+    expect(ablage.sterne().map((m) => m.id), [nachricht]);
+    expect(ablage.setzeStern(chat, 'gibt-es-nicht', true), isFalse);
+    ablage.setzeStern(chat, nachricht, false);
+    expect(ablage.sterne(), isEmpty);
+  });
+
   test('eine Lesebestaetigung fuer eine spaetere Nachricht verschickt keine fruehere',
       () {
     // m-1 (aus setUp) haengt noch auf "sending" — geplant oder im Funkloch.

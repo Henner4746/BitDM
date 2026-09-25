@@ -111,6 +111,10 @@ void main() {
     await inDieEinstellungen(tester);
     expect(zustandVon(tester, 'Follow new messages'), isTrue);
 
+    // Seit der Themenwahl sind die Einstellungen laenger — der Schalter kann
+    // unter dem sichtbaren Rand liegen.
+    await tester.ensureVisible(find.text('Follow new messages'));
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(find.text('Follow new messages'));
     await tester.pump(const Duration(milliseconds: 400));
 

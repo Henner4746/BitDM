@@ -37,6 +37,8 @@ import 'core/verbindungstest.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'data.dart';
 import 'formatierung.dart';
+import 'schluesselbild.dart';
+import 'themen.dart';
 import 'painters.dart';
 import 'fido_probe_screen.dart';
 import 'qr_scan_screen.dart';
@@ -173,24 +175,25 @@ class BitApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<String>(
-      valueListenable: anzeigeModus,
-      builder: (_, modus, _) => MaterialApp(
+    return ValueListenableBuilder<Thema>(
+      valueListenable: anzeigeThema,
+      builder: (_, thema, _) => MaterialApp(
         title: 'BitDM',
         debugShowCheckedModeBanner: false,
-        theme: bitThema(modus == 'dark' ? palDark : palLight),
+        theme: bitThema(thema.pal,
+            dunkel: thema.dunkel, mono: thema.monoSchrift, text: thema.textSchrift),
         home: Home(state: state),
       ),
     );
   }
 }
 
-/// Hell oder dunkel — Home schreibt, [BitApp] baut daraus das Thema.
+/// Das Thema fuer Flutters eigene Teile — Home schreibt, [BitApp] liest.
 ///
 /// Das Thema muss UEBER dem Navigator haengen: Dialoge und Blaetter sind
 /// eigene Routen, und `showDialog(context: context)` aus Home heraus sieht nur
 /// die Themen oberhalb von Home.
-final ValueNotifier<String> anzeigeModus = ValueNotifier('dark');
+final ValueNotifier<Thema> anzeigeThema = ValueNotifier(bauThemen().first);
 
 /// Das Thema fuer alles, was Flutter selbst zeichnet: Dialoge, Blaetter,
 /// Textknoepfe, Eingabefelder, Kaestchen.
@@ -199,11 +202,11 @@ final ValueNotifier<String> anzeigeModus = ValueNotifier('dark');
 /// und merkte es deshalb nicht — aber jeder AlertDialog kam in Roboto mit
 /// Material-Lila daher, mitten in einer Monoschrift-Oberflaeche (im
 /// Emulatorlauf an "Neue Gruppe" aufgefallen).
-ThemeData bitThema(Pal p) {
-  final dunkel = identical(p, palDark);
+ThemeData bitThema(Pal p,
+    {bool dunkel = true, String? mono = 'Chivo Mono', String? text}) {
   TextStyle m(double groesse, {FontWeight dicke = FontWeight.w400, Color? farbe, double? abstand}) =>
       TextStyle(
-        fontFamily: 'Chivo Mono',
+        fontFamily: mono,
         fontVariations: [FontVariation('wght', dicke.value.toDouble())],
         fontSize: groesse,
         fontWeight: dicke,
@@ -224,9 +227,11 @@ ThemeData bitThema(Pal p) {
   );
   return ThemeData(
     colorScheme: schema,
-    // KEIN fontFamily hier: das faende sich in jedem Text ohne eigene Schrift
-    // wieder, auch im Nachrichtentext der Blasen — der ist absichtlich in der
-    // Schrift des Systems gesetzt, weil sie sich in Saetzen besser liest.
+    // fontFamily NUR, WENN DAS THEMA ES WILL: es findet sich in jedem Text
+    // ohne eigene Schrift wieder, auch im Nachrichtentext der Blasen. Der ist
+    // normalerweise in der Schrift des Systems gesetzt, weil sie sich in
+    // Saetzen besser liest — nur die Terminal-Themen setzen ihn mono.
+    fontFamily: text,
     scaffoldBackgroundColor: p.bg,
     dialogTheme: DialogThemeData(
       backgroundColor: p.surf,
@@ -503,7 +508,7 @@ const Map<String, UnlockFactorKind> zeilenArt = {
   'pw': UnlockFactorKind.passphrase,
 };
 
-class _HomeState extends State<Home> with WidgetsBindingObserver {
+class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProviderStateMixin {
   String screen = 'onboard';
   String? chat;
   bool reqSent = false, sheet = false, panic = false, wiped = false, copied = false;
@@ -597,7 +602,24 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // Hintergrund weiterzuprobieren waere der schnellste Weg, den Akku zu
     // leeren; das gehoert an den Vordergrunddienst, den es noch nicht gibt.
     WidgetsBinding.instance.addObserver(this);
+    _wechsel = AnimationController(vsync: this)
+      ..addListener(_wechselTakt)
+      ..addStatusListener((z) {
+        if (z == AnimationStatus.completed && mounted) {
+          setState(() => _vonThema = null);
+          anzeigeThema.value = _thema;
+        }
+      });
     st.addListener(_aktualisiere);
+    // Material You: die Akzentfarbe des Systems faerbt die Material-Themen.
+    unawaited(SystemFarbe.akzent().then((farbe) {
+      if (farbe == null || !mounted) return;
+      setState(() {
+        _themen = bauThemen(systemAkzent: Color(farbe));
+        _thema = _themen.firstWhere((t) => t.id == _thema.id, orElse: () => _thema);
+      });
+      if (_vonThema == null) anzeigeThema.value = _thema;
+    }));
     // Ob es einen Mikrofonknopf gibt, entscheidet die Plattform — einmal
     // gefragt, beim Start.
     unawaited(st.pruefeSprache());
@@ -624,7 +646,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   void _aktualisiere() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _uebernimmEinstellungen();
+    setState(() {});
   }
 
   /// Reicht die uebersetzten Texte fuer Benachrichtigungen durch. Der Kern
@@ -660,7 +684,115 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     }
   }
 
-  String lang = 'en', mode = 'dark';
+  /// Die Sprache: gewaehlt (in den Einstellungen gespeichert) oder die des
+  /// Systems. Bis 25.09.2026 stand hier fest 'en', und nichts davon ueberlebte
+  /// einen Neustart — wer Deutsch wollte, stellte es jedes Mal neu ein.
+  String lang =
+      WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'de' ? 'de' : 'en';
+
+  // ═════════════════════════════════════════════════════════════ Themen
+  //
+  // Siehe lib/themen.dart. Hier liegt nur, welches gerade gilt und wie weit
+  // ein Wechsel ist.
+
+  List<Thema> _themen = bauThemen();
+  late Thema _thema = _themen.first;
+
+  /// Das Thema, VON dem gerade gewechselt wird, oder null.
+  Thema? _vonThema;
+  // In initState angelegt, NICHT faul: ein `late final` mit Initialisierer
+  // entstuende sonst erst in dispose() — und wollte dort einen Ticker von
+  // einem Baum, den es nicht mehr gibt.
+  late final AnimationController _wechsel;
+  Timer? _wanderTakt;
+  String? _gemeldetesThema;
+  int? _gemeldetesWandern;
+
+  /// Wann eine eintreffende Nachricht sich zu entschluesseln begann.
+  final Map<String, DateTime> _entschluesseltSeit = {};
+
+  void _wechselTakt() {
+    if (!mounted) return;
+    // Die Schrift wechselt in der Mitte, wenn der Schleier am dichtesten ist.
+    if (_wechsel.value >= 0.5 && !identical(anzeigeThema.value, _thema)) {
+      anzeigeThema.value = _thema;
+    }
+    setState(() {});
+  }
+
+  /// Das Thema, dessen Schriften und Kennungsfarben gerade gelten: bis zur
+  /// Mitte eines Wechsels das alte, danach das neue.
+  Thema get _schriftThema =>
+      (_vonThema != null && _wechsel.value < 0.5) ? _vonThema! : _thema;
+
+  /// Wechselt langsam zu [neu]. Mitten in einem Wechsel geht es vom
+  /// Zwischenstand aus weiter, nicht mit einem Sprung zurueck.
+  void wechsleThema(Thema neu, {Duration dauer = const Duration(milliseconds: 2800)}) {
+    if (neu.id == _thema.id && _vonThema == null) return;
+    final ohneBewegung = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (ohneBewegung) {
+      _wechsel.stop();
+      setState(() {
+        _vonThema = null;
+        _thema = neu;
+      });
+      anzeigeThema.value = neu;
+      return;
+    }
+    final von = _vonThema == null
+        ? _thema
+        : Thema(
+            id: '_zwischen',
+            name: const {'en': ''},
+            pal: p,
+            avatar: avp,
+            dunkel: _schriftThema.dunkel,
+            anzeigeSchrift: _schriftThema.anzeigeSchrift,
+            monoSchrift: _schriftThema.monoSchrift,
+            textSchrift: _schriftThema.textSchrift,
+          );
+    setState(() {
+      _vonThema = von;
+      _thema = neu;
+    });
+    _wechsel.duration = dauer;
+    _wechsel.forward(from: 0);
+  }
+
+  /// Das Wandern: alle paar Minuten gleitet das Thema von allein zum
+  /// naechsten dunklen weiter — langsamer als ein gewaehlter Wechsel.
+  void _planeWandern(int minuten) {
+    _wanderTakt?.cancel();
+    _wanderTakt = null;
+    if (minuten <= 0) return;
+    _wanderTakt = Timer.periodic(Duration(minutes: minuten), (_) {
+      if (!mounted) return;
+      final kreis = wanderKreis(_themen);
+      final i = kreis.indexWhere((t) => t.id == _thema.id);
+      wechsleThema(kreis[(i + 1) % kreis.length], dauer: const Duration(seconds: 7));
+    });
+  }
+
+  /// Uebernimmt, was in den Einstellungen steht — beim Start (nach dem
+  /// Entsperren gleitet die App in das gespeicherte Thema) und nach jeder
+  /// Aenderung.
+  void _uebernimmEinstellungen() {
+    final e = st.einstellungen;
+    if (e.thema != _gemeldetesThema) {
+      _gemeldetesThema = e.thema;
+      final ziel = _themen.firstWhere((t) => t.id == e.thema, orElse: () => _themen.first);
+      if (ziel.id != _thema.id) wechsleThema(ziel, dauer: const Duration(milliseconds: 3200));
+    }
+    if (e.themaWandern != _gemeldetesWandern) {
+      _gemeldetesWandern = e.themaWandern;
+      _planeWandern(e.themaWandern);
+    }
+    final sprache = e.sprache;
+    if (sprache != null && sprache != lang) {
+      lang = sprache;
+      _setzeMeldetexte();
+    }
+  }
   String? enroll;
 
   /// Was beim Sperren zuletzt schiefging, im Klartext fuer den Nutzer.
@@ -725,7 +857,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   /// Fuer welchen Bildschirm [_sorgeFuerFokus] den Fokus schon gesetzt hat.
   String? _zuletztFokussiert;
 
-  Pal get p => mode == 'dark' ? palDark : palLight;
+  Pal get p => _vonThema == null
+      ? _thema.pal
+      : Pal.lerp(_vonThema!.pal, _thema.pal, Curves.easeInOut.transform(_wechsel.value));
 
   /// Breiteste Darstellung des Inhalts. Darueber wird der Rest Rand.
   ///
@@ -979,13 +1113,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ),
         ),
       );
-  List<Color> get avp => mode == 'dark' ? avPalDark : avPalLight;
+  List<Color> get avp => _schriftThema.avatar;
   String t(String k) => strings[lang]![k] ?? k;
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _aufnahmeTakt?.cancel();
+    _wanderTakt?.cancel();
+    _wechsel.dispose();
     // OHNE `if (_imFenster)` und VOR `_tastenFokus.dispose()`: die Weiche haengt
     // an `defaultTargetPlatform`, und im Test setzt der Fenster-Fall sie zurueck,
     // BEVOR flutter_test den Baum abbaut — mit der Bedingung waere der Horcher
@@ -1022,7 +1158,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   // covers every weight the UI uses (w300 … w900). `fontWeight` alone does not
   // drive that axis reliably, so the axis is set explicitly via fontVariations
   // and `fontWeight` is kept for Flutter's own fallback/metrics handling.
-  TextStyle _font(String family, double size, FontWeight weight, Color? color, double? spacing, double height) {
+  TextStyle _font(String? family, double size, FontWeight weight, Color? color, double? spacing, double height) {
     // DIE EINE STELLE, an der die Schrift der Abfolgen im Fenster waechst —
     // siehe [_schriftFaktor]. Der Faktor haengt am Bildschirm und nicht nur an
     // der Plattform: die vier fertigen Schreibtisch-Bildschirme sind
@@ -1039,9 +1175,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
   TextStyle doto({double size = 14, FontWeight weight = FontWeight.w400, Color? color, double? spacing, double height = 1.2}) =>
-      _font('Doto', size, weight, color, spacing, height);
+      _font(_schriftThema.anzeigeSchrift, size, weight, color, spacing, height);
   TextStyle mono({double size = 14, FontWeight weight = FontWeight.w400, Color? color, double? spacing, double height = 1.4}) =>
-      _font('Chivo Mono', size, weight, color, spacing, height);
+      _font(_schriftThema.monoSchrift, size, weight, color, spacing, height);
 
   // ---- helpers ----
   /// Uhrzeit einer Nachricht, bei aelteren zusaetzlich der Tag.
@@ -1127,6 +1263,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Future<void> send() async {
     final d = draftCtl.text.trim();
     if (d.isEmpty || chat == null) return;
+    if (d.startsWith('/') && _bearbeitungsZiel == null && await _fuehreBefehlAus(d)) {
+      draftCtl.clear();
+      if (mounted) setState(() {});
+      return;
+    }
     _vergissPlanFehler();
     draftCtl.clear();
     final bearbeitet = _bearbeitungsZiel;
@@ -1238,6 +1379,129 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       return '${t('poll')}: ${Umfrage.lies(m.text)?.frage ?? ''}';
     }
     return Formatierung.schlicht(m.text);
+  }
+
+  // ═══════════════════════════════════════════════ Befehle der Schreibzeile
+  //
+  // "/timer 1h", "/verify", "/poll", "/theme aurora", "/shrug". Wie in einem
+  // Terminal — und nur die bekannten: alles andere mit "/" am Anfang geht als
+  // gewoehnliche Nachricht hinaus, wer "/s" schreibt, meint Ironie.
+
+  static const _befehle = ['timer', 'verify', 'poll', 'theme', 'shrug'];
+
+  /// Ob die Schreibzeile beim letzten Tastendruck mit "/" begann.
+  bool _warBefehl = false;
+
+  List<String> _passendeBefehle() {
+    final text = draftCtl.text;
+    if (!text.startsWith('/') || text.contains('\n')) return const [];
+    final wort = text.substring(1).split(' ').first.toLowerCase();
+    // Steht der Befehl schon vollstaendig da und ein Argument dahinter, ist die
+    // Leiste nur noch im Weg — ausser beim Thema, dort zeigt sie die Namen.
+    if (text.contains(' ') && wort != 'theme' && wort != 'timer') return const [];
+    return _befehle.where((b) => b.startsWith(wort)).toList();
+  }
+
+  /// Die Vorschlaege ueber der Schreibzeile, sobald sie mit "/" beginnt.
+  Widget befehlsLeiste() {
+    final passend = _passendeBefehle();
+    if (passend.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(17, 0, 17, 8),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+          color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (final b in passend)
+          InkWell(
+            key: ValueKey('befehl-$b'),
+            onTap: () {
+              draftCtl.text = '/$b ';
+              draftCtl.selection = TextSelection.collapsed(offset: draftCtl.text.length);
+              setState(() {});
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+              child: Row(children: [
+                Text('/$b', style: mono(size: 12.5, weight: FontWeight.w600, color: p.accLight)),
+                const SizedBox(width: 10),
+                Expanded(child: Text(
+                    b == 'theme'
+                        ? _themen.map((th) => th.id.toLowerCase()).join(' · ')
+                        : t('cmd_$b'),
+                    maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: mono(size: 10.5, color: p.dim, height: 1.4))),
+              ]),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  /// Fuehrt einen Befehl aus. false = kein bekannter Befehl, der Text geht
+  /// als Nachricht hinaus.
+  Future<bool> _fuehreBefehlAus(String eingabe) async {
+    final cid = chat;
+    if (cid == null) return false;
+    final teile = eingabe.substring(1).trim().split(RegExp(r'\s+'));
+    final befehl = teile.first.toLowerCase();
+    final arg = teile.length > 1 ? teile[1].toLowerCase() : '';
+    switch (befehl) {
+      case 'timer':
+        const fristen = <String, Duration?>{
+          '1h': Duration(hours: 1),
+          '24h': Duration(hours: 24),
+          '1d': Duration(hours: 24),
+          '7d': Duration(days: 7),
+          '1w': Duration(days: 7),
+          // Duration.zero ist "aus fuer diesen Chat", null "wie in den
+          // Einstellungen" — dieselben Werte wie im Verschluesselungsblatt.
+          'off': Duration.zero,
+          'aus': Duration.zero,
+          'std': null,
+        };
+        if (!fristen.containsKey(arg)) {
+          _hinweis(t('cmdTimerBad'));
+          return true;
+        }
+        await st.setzeChatFrist(cid, fristen[arg]);
+        _hinweis('${t('selfDestruct')}: ${fristText(st.fristFuer(cid))}');
+        return true;
+      case 'verify':
+        if (st.gruppeZu(cid) != null || st.istNotizen(cid)) {
+          _hinweis(t('cmdVerifyNone'));
+          return true;
+        }
+        setState(() => sheet = true);
+        unawaited(_ladePruefnummer(cid));
+        return true;
+      case 'poll':
+        unawaited(_legeUmfrageAn(cid));
+        return true;
+      case 'theme':
+        final ziel = _themen.where((th) =>
+            th.id.toLowerCase() == arg ||
+            th.name.values.any((n) => n.toLowerCase().replaceAll(' ', '') == arg));
+        if (ziel.isEmpty) {
+          _hinweis(t('cmdThemeBad'));
+          return true;
+        }
+        await st.setzeEinstellungen(st.einstellungen.copyWith(thema: ziel.first.id));
+        return true;
+      case 'shrug':
+        final rest = eingabe.substring(1 + befehl.length).trim();
+        await st.senden(cid, rest.isEmpty ? r'¯\_(ツ)_/¯' : '$rest ' r'¯\_(ツ)_/¯');
+        return true;
+    }
+    return false;
+  }
+
+  /// Eine kurze Rueckmeldung am unteren Rand.
+  void _hinweis(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 2)));
   }
 
   /// Die Zeile, die zeigt, worauf die naechste Nachricht antwortet oder dass
@@ -1574,6 +1838,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             if (!m.widerrufen)
               eintrag(m.angeheftetAm == null ? t('pinMsg') : t('unpinMsg'),
                   () => st.hefteAn(cid, m.id, m.angeheftetAm == null)),
+            if (!m.widerrufen)
+              eintrag(m.sternAm == null ? t('star') : t('unstar'),
+                  () => st.setzeStern(cid, m.id, m.sternAm == null)),
             if (!m.widerrufen && m.kind == MessageKind.text)
               eintrag(t('copyMsg'), () {
                 Clipboard.setData(ClipboardData(text: m.text));
@@ -1903,6 +2170,69 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     _entsorgeNachDemSchliessen([name]);
   }
 
+  // ═══════════════════════════════════════════════════════ Filter der Liste
+  //
+  // Alle · Ungelesen · Gruppen · ★. Nur eine Sicht, nichts wird verschoben —
+  // und "ungelesen" folgt derselben Regel wie der Punkt an der Zeile, damit
+  // Filter und Punkt sich nie widersprechen.
+
+  String _filter = 'alle';
+
+  bool _passt(String id, bool gruppe) => switch (_filter) {
+        'gruppen' => gruppe,
+        'ungelesen' => () {
+            final l = st.verlaufVon(id);
+            return l.isNotEmpty && !l.last.isMine && chat != id;
+          }(),
+        _ => true,
+      };
+
+  Widget filterLeiste() {
+    const filter = ['alle', 'ungelesen', 'gruppen', 'stern'];
+    final namen = {
+      'alle': t('filterAll'),
+      'ungelesen': t('filterUnread'),
+      'gruppen': t('filterGroups'),
+      'stern': '★',
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(17, 4, 17, 2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (final f in filter)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Semantics(
+                button: true,
+                selected: _filter == f,
+                label: f == 'stern' ? t('filterStarred') : namen[f],
+                excludeSemantics: true,
+                child: GestureDetector(
+                  key: ValueKey('filter-$f'),
+                  onTap: () {
+                    setState(() => _filter = f);
+                    if (f == 'stern') unawaited(st.ladeSterne());
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _filter == f ? p.tint : Colors.transparent,
+                      borderRadius: BorderRadius.circular(99),
+                      border: Border.all(color: _filter == f ? p.tintLine : p.line),
+                    ),
+                    child: Text(namen[f]!.toUpperCase(),
+                        style: mono(size: 9.5, weight: FontWeight.w600, spacing: 0.9,
+                            color: _filter == f ? p.tintInk : p.muted)),
+                  ),
+                ),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
   List<Contact> get sichtbareKontakte {
     final hier = st.aktiveKontakte.where((c) => c.archiviert == _zeigeArchiv);
     return [...hier.where((c) => c.angeheftet), ...hier.where((c) => !c.angeheftet)];
@@ -1924,13 +2254,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         ),
       );
 
-  Widget suchTreffer() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (st.suchTreffer.isEmpty)
+  /// Nachrichten als Trefferzeilen — fuer die Suche und fuer die Sterne.
+  Widget suchTreffer({List<Message>? liste, String? leer}) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if ((liste ?? st.suchTreffer).isEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(22, 16, 22, 16),
-            child: Text(t('noResults'), style: mono(size: 12, color: p.dim)),
+            child: Text(leer ?? t('noResults'), style: mono(size: 12, color: p.dim, height: 1.5)),
           ),
-        for (final m in st.suchTreffer)
+        for (final m in liste ?? st.suchTreffer)
           InkWell(
             onTap: () {
               suchCtl.clear();
@@ -2288,11 +2619,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     await st.allesLoeschen();
     if (!mounted) return;
     setState(() {
-      final l = lang, m = mode;
+      final l = lang;
       screen = 'onboard'; chat = null; reqSent = false; sheet = false;
       wiped = true; copied = false;
       enroll = null;
-      lang = l; mode = m;
+      lang = l;
       draftCtl.clear(); addCtl.clear(); codeCtl.clear();
     });
   }
@@ -2471,8 +2802,26 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _gehZurueck();
       },
-      child: _mitTasten(
-          _imFenster ? geruest : Einbrennschutz(child: geruest)),
+      child: _mitTasten(AnnotatedRegion<SystemUiOverlayStyle>(
+        // Die Symbole der Statusleiste passend zum Thema — sonst stehen sie
+        // auf einem dunklen Thema schwarz auf fast schwarz.
+        value: _schriftThema.dunkel ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        child: Stack(fit: StackFit.expand, children: [
+          _imFenster ? geruest : Einbrennschutz(child: geruest),
+          // IMMER ALS ZWEITES KIND, nur eben leer: kaeme der Stack erst mit
+          // dem Schleier dazu, baute Flutter den ganzen Baum darunter neu auf,
+          // und Eingabefelder und Bildlauf verloeren ihren Stand.
+          if (_vonThema != null)
+            ChiffreSchleier(
+              fortschritt: _wechsel.value,
+              farbe: p.accLight,
+              hauch: p.bg,
+              chiffre: _thema.chiffre,
+              titel: _thema.nameIn(lang).toUpperCase(),
+              schrift: _thema.monoSchrift,
+            ),
+        ]),
+      )),
     );
   }
 
@@ -3813,6 +4162,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           ),
         ),
         const SizedBox(height: 16),
+        // Das Schluesselbild: wer die Adresse weitergibt, kann das Bild gleich
+        // mit vergleichen lassen — schneller als 56 Zeichen.
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SchluesselbildAnsicht(schluessel: st.meineAdresse, farbe: p.accLight, leer: p.line, punkt: 9),
+          const SizedBox(width: 14),
+          Expanded(child: Text(t('keyArtSelf'), style: mono(size: 11, color: p.dim, height: 1.5))),
+        ]),
+        const SizedBox(height: 16),
         Row(children: [
           Expanded(child: outlineBtn(copied ? t('copied') : t('copy'), copyId, padding: const EdgeInsets.all(11))),
           const SizedBox(width: 8),
@@ -4083,9 +4440,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       ),
       Container(height: 1, color: p.lineSoft),
       suchFeld(),
+      if (st.suchText.trim().isEmpty && !_zeigeArchiv) filterLeiste(),
       Expanded(
         child: st.suchText.trim().isNotEmpty
             ? ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [suchTreffer()])
+            : _filter == 'stern'
+            ? ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
+                suchTreffer(liste: st.sterne, leer: t('starEmpty')),
+              ])
             : ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
           if (_zeigeArchiv)
             InkWell(
@@ -4105,10 +4467,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           // ANGEHEFTET HEISST GANZ OBEN — ueber beide Arten hinweg. Vorher
           // standen erst alle Gruppen, dann alle Kontakte, und ein angehefteter
           // Kontakt blieb unter jeder Gruppe (Emulatorlauf 25.09.2026).
-          for (final g in sichtbareGruppen.where((g) => g.angeheftet)) gruppenZeile(g),
-          for (final k in sichtbareKontakte.where((k) => k.angeheftet)) contactRow(k.id),
-          for (final g in sichtbareGruppen.where((g) => !g.angeheftet)) gruppenZeile(g),
-          for (final k in sichtbareKontakte.where((k) => !k.angeheftet)) contactRow(k.id),
+          for (final g in sichtbareGruppen.where((g) => g.angeheftet && _passt(g.id, true))) gruppenZeile(g),
+          for (final k in sichtbareKontakte.where((k) => k.angeheftet && _passt(k.id, false))) contactRow(k.id),
+          for (final g in sichtbareGruppen.where((g) => !g.angeheftet && _passt(g.id, true))) gruppenZeile(g),
+          for (final k in sichtbareKontakte.where((k) => !k.angeheftet && _passt(k.id, false))) contactRow(k.id),
           if (!_zeigeArchiv && !st.kontakte.any((k) => st.istNotizen(k.id)) && st.meineAdresse.isNotEmpty)
             InkWell(
               onTap: () async {
@@ -4378,6 +4740,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       // WAS NICHT RAUSGING, MUSS DASTEHEN. "zuLang" wurde bisher gesetzt und
       // nirgends gezeigt: die Nachricht verschwand aus dem Eingabefeld und kam
       // nie an, ohne dass irgendwo etwas stand.
+      befehlsLeiste(),
       eingabeBezug(),
       if (chatFehlerText() != null)
         Container(
@@ -4455,7 +4818,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 enableIMEPersonalizedLearning: false,
                 onChanged: (text) {
                   if (st.letzterFehler == 'zuLang') st.vergissFehler();
-                  st.eingabeGeaendert(cid, text);
+                  // Ein Befehl ist kein Tippen fuer die Gegenseite: wer
+                  // "/timer" schreibt, schreibt niemandem.
+                  st.eingabeGeaendert(cid, text.startsWith('/') ? '' : text);
+                  // Neu zeichnen, solange ein Befehl dasteht — und EINMAL
+                  // danach, damit die Leiste auch wieder verschwindet.
+                  final befehl = text.startsWith('/');
+                  if (befehl || _warBefehl) setState(() {});
+                  _warBefehl = befehl;
                 },
                 style: mono(size: 13.5, color: p.ink),
                 cursorColor: p.accent,
@@ -4676,10 +5046,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               else
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: FormatierterText(m.text,
-                      stil: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4),
-                      festStil: mono(size: 12.5, color: p.ink, height: 1.4),
-                      verdeckt: p.muted),
+                  child: entschluesselt(
+                      m,
+                      TextStyle(fontSize: 13.5, color: p.ink, height: 1.4),
+                      FormatierterText(m.text,
+                          stil: TextStyle(fontSize: 13.5, color: p.ink, height: 1.4),
+                          festStil: mono(size: 12.5, color: p.ink, height: 1.4),
+                          verdeckt: p.muted)),
                 ),
               const SizedBox(height: 3),
               Row(mainAxisSize: MainAxisSize.min, children: [
@@ -4717,6 +5090,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
+                ],
+                if (m.sternAm != null && !m.widerrufen) ...[
+                  Text('★', key: ValueKey('stern-${m.id}'),
+                      style: TextStyle(fontSize: 10, color: p.accLight, height: 1)),
+                  const SizedBox(width: 5),
                 ],
                 if (m.bearbeitet && !m.widerrufen) ...[
                   Text(t('edited'), style: mono(size: 9.5, color: p.dim)),
@@ -5049,18 +5427,30 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('language'), t('languageSub')),
           const SizedBox(height: 8),
-          segmented(['en', 'de'], ['English', 'Deutsch'], lang,
-            (v) => setState(() { lang = v; _setzeMeldetexte(); })),
+          segmented(['en', 'de'], ['English', 'Deutsch'], lang, (v) {
+            setState(() { lang = v; _setzeMeldetexte(); });
+            // Gespeichert — bis 25.09.2026 vergass die App die Sprache bei
+            // jedem Neustart.
+            st.setzeEinstellungen(st.einstellungen.copyWith(sprache: v));
+          }),
         ])),
         const SizedBox(height: 3),
         settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           settingHead(t('appearance'), t('appearanceSub')),
+          const SizedBox(height: 10),
+          themenWahl(),
+          const SizedBox(height: 14),
+          settingHead(t('themeDrift'), t('themeDriftSub')),
           const SizedBox(height: 8),
-          segmented(['dark', 'light'], [t('dark'), t('light')], mode, (v) {
-            setState(() => mode = v);
-            anzeigeModus.value = v;
-          }),
+          segmented(['0', '1', '10', '60'], [t('off'), '1 min', '10 min', '1 h'],
+              '${st.einstellungen.themaWandern}',
+              (v) => st.setzeEinstellungen(
+                  st.einstellungen.copyWith(themaWandern: int.parse(v)))),
         ])),
+        const SizedBox(height: 3),
+        toggleRow(t('decryptFx'), t('decryptFxSub'), st.einstellungen.entschluesseln,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(
+                entschluesseln: !st.einstellungen.entschluesseln))),
         const SizedBox(height: 3),
         // Steht bei "Allgemein" und nicht bei "Sicherheit": das ist eine
         // Frage der Bequemlichkeit, nicht des Schutzes. Die beiden nicht zu
@@ -5245,15 +5635,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         label6(t('identity')),
         settingCard(
           onTap: () => go('id'),
-          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(t('myIdQr'), style: TextStyle(fontSize: 13.5, color: p.ink)),
+          child: Row(children: [
+            // Expanded: auf Deutsch ist die Beschriftung laenger, und die Zeile
+            // lief bei 420 Punkten Breite um 38 ueber (Widget-Test 25.09.2026).
+            Expanded(child: Text(t('myIdQr'), maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13.5, color: p.ink))),
+            const SizedBox(width: 8),
             Text(shortId(meineAdresseAnzeige), style: doto(size: 12.5, weight: FontWeight.w600, color: p.dim, spacing: 0.8)),
           ]),
         ),
         const SizedBox(height: 3),
-        settingCard(child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(t('fingerprint'), style: TextStyle(fontSize: 13.5, color: p.ink)),
-          Text('b7d2 4e10 9af3', style: doto(size: 12.5, weight: FontWeight.w600, color: p.dim, spacing: 0.8)),
+        // DAS SCHLUESSELBILD. Hier stand bis 25.09.2026 ein erfundener
+        // "Fingerabdruck" ('b7d2 4e10 9af3') — derselbe Fehler, den die
+        // Pruefnummer im Verschluesselungsblatt schon hinter sich hatte: er sah
+        // nach Sicherheit aus und war keine. Das Bild entsteht aus der eigenen
+        // Adresse, und die Kontakte sehen fuer diesen Schluessel dasselbe.
+        settingCard(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SchluesselbildAnsicht(schluessel: st.meineAdresse, farbe: p.accLight, leer: p.line, punkt: 7),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t('keyArt'), style: TextStyle(fontSize: 13.5, color: p.ink)),
+            const SizedBox(height: 3),
+            Text(t('keyArtSelf'), style: mono(size: 10.5, color: p.dim, height: 1.45)),
+          ])),
         ])),
         const SizedBox(height: 22),
         label6(t('emergency')),
@@ -5343,6 +5747,83 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             ),
           ),
       ]),
+    );
+  }
+
+  /// Die Themen als Kacheln: jede zeigt ihre eigenen Farben und Schrift, nicht
+  /// die des gerade gueltigen Themas — sonst saehe man nicht, wohin man geht.
+  Widget themenWahl() {
+    final gewaehlt = st.einstellungen.thema;
+    return LayoutBuilder(builder: (context, platz) {
+      final breite = ((platz.maxWidth - 16) / 3).floorToDouble();
+      return Wrap(spacing: 8, runSpacing: 8, children: [
+        for (final th in _themen)
+          Semantics(
+            button: true,
+            selected: th.id == gewaehlt,
+            label: th.nameIn(lang),
+            excludeSemantics: true,
+            child: GestureDetector(
+              key: ValueKey('thema-${th.id}'),
+              onTap: () => st.setzeEinstellungen(st.einstellungen.copyWith(thema: th.id)),
+              child: Container(
+                width: breite,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: th.pal.bg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: th.id == gewaehlt ? p.accLight : th.pal.line,
+                      width: th.id == gewaehlt ? 2 : 1),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  // Eine Mini-Blase und ein Akzentstrich: genug, um das Thema
+                  // zu erkennen, ohne eine ganze Vorschau zu zeichnen.
+                  Row(children: [
+                    Container(width: 14, height: 14,
+                        decoration: BoxDecoration(color: th.pal.accent, borderRadius: BorderRadius.circular(3))),
+                    const SizedBox(width: 5),
+                    Expanded(child: Container(height: 8,
+                        decoration: BoxDecoration(color: th.pal.surf, borderRadius: BorderRadius.circular(3)))),
+                  ]),
+                  const SizedBox(height: 5),
+                  Container(height: 3, width: breite * 0.45,
+                      decoration: BoxDecoration(color: th.pal.accLight, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 7),
+                  Text(th.nameIn(lang),
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontFamily: th.monoSchrift, fontSize: 10.5,
+                          fontWeight: FontWeight.w600, color: th.pal.ink)),
+                ]),
+              ),
+            ),
+          ),
+      ]);
+    });
+  }
+
+  /// Laesst eine eintreffende Textnachricht sich sichtbar entschluesseln —
+  /// einmal, wenn ihre Blase zum ersten Mal erscheint. Danach [fertig].
+  Widget entschluesselt(Message m, TextStyle stil, Widget fertig) {
+    if (m.isMine || !st.einstellungen.entschluesseln) return fertig;
+    var seit = _entschluesseltSeit[m.id];
+    if (seit == null) {
+      if (!st.frischeNachrichten.remove(m.id)) return fertig;
+      seit = _entschluesseltSeit[m.id] = DateTime.now();
+    }
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) return fertig;
+    if (DateTime.now().difference(seit) >= EntschluesselnderText.dauerFuer(m.text)) {
+      return fertig;
+    }
+    return EntschluesselnderText(
+      key: ValueKey('entschluesseln-${m.id}'),
+      // Der Salat entsteht aus dem SCHLICHTEN Text: sonst stuende ein Spoiler
+      // waehrend des Effekts fuer einen Augenblick im Klartext da.
+      text: Formatierung.schlicht(m.text),
+      stil: stil,
+      seit: seit,
+      chiffre: _thema.chiffre,
+      fertig: fertig,
     );
   }
 
@@ -5966,6 +6447,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 child: Text(g, style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 1.2)),
               ),
           ]),
+
+        const SizedBox(height: 14),
+        label6(t('keyArt')),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SchluesselbildAnsicht(schluessel: chat ?? c1, farbe: p.accLight, leer: p.line, punkt: 8),
+          const SizedBox(width: 12),
+          Expanded(child: Text(t('keyArtPeer'), style: mono(size: 10.5, color: p.dim, height: 1.45))),
+        ]),
 
         const SizedBox(height: 8),
         Container(height: 1, color: p.lineSoft),

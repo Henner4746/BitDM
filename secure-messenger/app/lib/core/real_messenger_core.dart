@@ -270,6 +270,18 @@ class RealMessengerCore implements MessengerCore {
   final _gruppenWechsel = StreamController<String>.broadcast();
   final _zufall = Random.secure();
 
+  /// Wie lange eine Quittung wartet, bevor sie hinausgeht.
+  ///
+  /// ZUFAELLIG VERZOEGERT. Eine Zustellquittung, die im selben Augenblick
+  /// zurueckgeht, in dem die Nachricht ankam, verbindet fuer den Relay
+  /// Absender und Empfaenger ueber die Zeit — selbst dann, wenn er den
+  /// Absender gar nicht kennt (Martiny u. a., "Improving Signal's Sealed
+  /// Sender", NDSS 2021: genau so liessen sich Gespraechspartner zuordnen).
+  /// 0,3 bis 2,5 Sekunden verwischen das, ohne dass ein Mensch auf seinen
+  /// Haken wartet. Fuer Tests austauschbar.
+  late Duration Function() quittungsVerzug =
+      () => Duration(milliseconds: 300 + _zufall.nextInt(2200));
+
   LagerClient? _lagerClient;
 
   // ══════════════════════════════════════════════════════════════ Identitaet
@@ -1882,6 +1894,7 @@ class RealMessengerCore implements MessengerCore {
       at: DateTime.now().toUtc()));
 
   Future<void> _sendeQuittung(String an, String messageId) async {
+    await Future<void>.delayed(quittungsVerzug());
     // ODER DIE NAEHE. Ohne den zweiten Teil bekaeme eine Nachricht, die ueber
     // Bluetooth hereinkam, nie ein Haekchen — obwohl der Rueckweg offensteht,
     // derselbe, auf dem sie gekommen ist.
@@ -2286,6 +2299,22 @@ class RealMessengerCore implements MessengerCore {
     _verlaufWechsel.add(contactId);
     unawaited(_sendeSteuerung(
         contactId, Payload.anheften(_neueId(), messageId, an, jetzt)));
+  }
+
+  @override
+  Future<void> setzeStern(String contactId, String messageId, bool an) async {
+    _fordereChat(contactId);
+    if (!_chats!.setzeStern(contactId, messageId, an)) {
+      throw const BearbeitungNichtMoeglichException('keine solche Nachricht');
+    }
+    // KEIN _sendeSteuerung: ein Stern ist eine Notiz fuer sich selbst.
+    _verlaufWechsel.add(contactId);
+  }
+
+  @override
+  Future<List<Message>> sterne() async {
+    if (_chats == null) throw const NotInitializedException();
+    return _chats!.sterne();
   }
 
   @override
@@ -2992,11 +3021,16 @@ class RealMessengerCore implements MessengerCore {
         'SELECT id FROM messages WHERE chat_id=? AND is_mine=0 ORDER BY seq DESC LIMIT 1',
         [contactId]);
     if (ungelesen.isEmpty) return;
-    unawaited(_versucheZuSenden(
-        contactId,
-        Payload.control(
-            PayloadKind.readReceipt, _neueId(), DateTime.now().toUtc(),
-            refs: [ungelesen.first['id'] as String])));
+    final ref = ungelesen.first['id'] as String;
+    // Verzoegert wie die Zustellquittung — siehe [quittungsVerzug]. Beim
+    // Lesen verraet der Zeitpunkt, wann jemand die App offen hat.
+    unawaited(Future<void>.delayed(quittungsVerzug()).then((_) async {
+      if (_chats == null) return;
+      await _versucheZuSenden(
+          contactId,
+          Payload.control(PayloadKind.readReceipt, _neueId(), DateTime.now().toUtc(),
+              refs: [ref]));
+    }));
   }
 
   /// Verschickt und meldet Fehler ueber den Status, nicht als Ausnahme.

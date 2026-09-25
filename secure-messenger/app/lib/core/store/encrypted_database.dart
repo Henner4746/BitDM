@@ -79,7 +79,7 @@ class EncryptedDatabase {
   CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -269,6 +269,8 @@ class EncryptedDatabase {
             _schemaV8(db);
           case 9:
             _schemaV9(db);
+          case 10:
+            _schemaV10(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -542,6 +544,11 @@ class EncryptedDatabase {
   /// "duplicate column name" scheitert, rollt zurueck und ist danach nie
   /// wieder erreichbar. Jede Spalte nur, wenn sie fehlt; jede Tabelle mit
   /// IF NOT EXISTS.
+  /// STERNE: wann eine Nachricht markiert wurde (ms), sonst NULL. Nur lokal.
+  static void _schemaV10(CommonDatabase db) {
+    _spalteDazu(db, 'messages', 'stern', 'INTEGER');
+  }
+
   static void _schemaV9(CommonDatabase db) {
     _spalteDazu(db, 'messages', 'antwort_auf', 'TEXT');
     // Zahl UND Zeitpunkt: die Zahl deckelt (Signal: zehnmal), der Zeitpunkt

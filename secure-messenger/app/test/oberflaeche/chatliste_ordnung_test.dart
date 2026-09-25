@@ -106,6 +106,32 @@ void main() {
     expect(textEgalWie('ARCHIVED'), findsNothing);
   });
 
+  testWidgets('MARKIEREN: STERN AN DER BLASE, DER FILTER ★ ZEIGT SIE', (tester) async {
+    await zurListe(tester);
+    await tester.tap(zeile().first, warnIfMissed: false);
+    await warte(tester, 600);
+    await tester.longPress(find.text('Did you get the file?').last);
+    await warte(tester);
+    await tester.tap(textEgalWie('Star').last);
+    await warte(tester);
+    expect(find.text('★'), findsOneWidget, reason: 'kein Stern an der Blase');
+
+    await tester.tap(find.text('‹').first, warnIfMissed: false);
+    await warte(tester);
+    await tester.tap(find.byKey(const ValueKey('filter-stern')));
+    await warte(tester);
+    expect(find.text('Did you get the file?'), findsOneWidget,
+        reason: 'die markierte Nachricht fehlt unter ★');
+
+    await tester.tap(find.byKey(const ValueKey('filter-gruppen')));
+    await warte(tester);
+    expect(zeile(), findsNothing, reason: 'unter "Gruppen" steht ein Kontakt');
+    await tester.tap(find.byKey(const ValueKey('filter-alle')));
+    await warte(tester);
+    expect(zeile(), findsWidgets);
+    await warte(tester, 2400);
+  });
+
   testWidgets('EIN ANGEHEFTETER KONTAKT STEHT UEBER EINER GRUPPE', (tester) async {
     await zurListe(tester);
     await tester.runAsync(

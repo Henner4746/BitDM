@@ -33,6 +33,20 @@ Zeile mit ✅ ist gebaut UND durch Tests belegt; die Testdatei steht dabei.
 | Bildschirmschutz | Signal | ✅ war schon da | — |
 | Eigener Server | SimpleX | ✅ war schon da (`install.sh`) | — |
 
+### Zweite Runde (1.7.0, 25.09.2026)
+
+| Funktion | Vorbild | BitDM | Belegt durch |
+|---|---|---|---|
+| Bild-Metadaten entfernen (GPS, Kamera, Zeit), neutrale Bildnamen | Signal, SimpleX 6.3 | ✅ JPEG, PNG, WebP ohne Neukodierung; die Drehung bleibt | `test/anhang/metadaten_test.dart` (echte Bilder, geöffnet nach dem Entfernen) |
+| Markierte Nachrichten (★) | Threema | ✅ nur örtlich, eigener Filter | `test/oberflaeche/chatliste_ordnung_test.dart`, `test/core/haken_test.dart` |
+| Filter der Chatliste | Signal (Chat-Ordner) | ✅ Alle · Ungelesen · Gruppen · ★ | `chatliste_ordnung_test` |
+| Quittungen zufällig verzögert | Forschung: Martiny u. a., NDSS 2021 | ✅ 0,3–2,5 s, gegen Zuordnung über die Zeit | `test/core/haken_test.dart` |
+| Schlüsselbild (Randomart) | OpenSSH | ✅ in Einstellungen, „Meine ID“ und im Verschlüsselungsblatt | `test/oberflaeche/schluesselbild_test.dart` |
+| Befehle in der Schreibzeile (`/timer`, `/verify`, `/poll`, `/theme`, `/shrug`) | Terminal, Slack | ✅ unbekannte gehen als Text | `test/oberflaeche/befehle_test.dart` |
+| Themen, auch Material (You) | Signal, Material 3 | ✅ neun Themen, langsamer Chiffre-Übergang, wanderndes Thema, Akzentfarbe des Systems ab Android 12 | `test/oberflaeche/themen_test.dart` |
+| Entschlüsseln-Effekt an neuen Nachrichten | — | ✅ abschaltbar, respektiert „Bewegung reduzieren“ | `themen_test` |
+| Sprache und Aussehen merken | alle | ✅ vorher bei jedem Start vergessen | `test/core/preferences_test.dart` |
+
 ## Was bewusst NICHT gebaut wurde — und warum
 
 | Funktion | Vorbild | Warum nicht |
@@ -66,11 +80,21 @@ Zeile mit ✅ ist gebaut UND durch Tests belegt; die Testdatei steht dabei.
   keine, statt dass sie gepuffert werden und Telefone wecken.
 - **Sicherung:** Anhänge selbst sind nicht enthalten, nur ihre Anleitungen —
   holbar, solange sie im Zwischenlager liegen (14 Tage).
+- **Metadaten:** HEIC, Videos und Dokumente gehen unverändert hinaus — nur
+  JPEG, PNG und WebP werden bereinigt.
+- **Themen:** vor dem Entsperren gilt Nocturne; das gewählte Thema liegt in der
+  verschlüsselten Datenbank und wird danach langsam eingeblendet.
 - **Alle neuen Nutzlast-Arten (9–18):** eine ältere App-Fassung verwirft sie
   still. Sie sieht also keine Reaktionen, Umfragen oder Gruppen, stürzt aber
   auch nicht ab.
 
 ## Quellen der Recherche
+
+- Zweite Runde: [Signal View-once](https://support.signal.org/hc/en-us/articles/360038443071-View-Once-Media),
+  [SimpleX 6.3](https://simplex.chat/blog/20250308-simplex-chat-v6-3-new-user-experience-safety-in-public-groups.html),
+  [Threema Features](https://threema.com/en/faq/features),
+  [Improving Signal's Sealed Sender (NDSS 2021)](https://www.researchgate.net/publication/350050666_Improving_Signal's_Sealed_Sender),
+  [The drunken bishop](http://dirk-loss.de/sshvis/drunken_bishop.pdf)
 
 - Signal: [Message Reactions](https://support.signal.org/hc/en-us/articles/360039929972-Message-Reactions),
   [Edit Message](https://support.signal.org/hc/en-us/articles/6255134251546-Edit-Message),

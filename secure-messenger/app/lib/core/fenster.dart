@@ -66,3 +66,19 @@ class FremdeApp {
     }
   }
 }
+
+/// Die Akzentfarbe des Systems (Material You, ab Android 12), oder null.
+///
+/// Wirft nie: auf dem Rechner, im Test und unter Android 12 gibt es sie
+/// nicht, und das Thema "Material" nimmt dann seine eigene Grundfarbe.
+class SystemFarbe {
+  static const _kanal = MethodChannel('bitdm/fenster');
+
+  static Future<int?> akzent() async {
+    try {
+      return await _kanal.invokeMethod<int>('systemAkzent');
+    } catch (_) {
+      return null;
+    }
+  }
+}
