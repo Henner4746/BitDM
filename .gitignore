@@ -43,3 +43,6 @@ build/
 Thumbs.db
 *.swp
 releases/
+
+# Arbeitsbaeume der Agenten (Claude Code)
+.claude/
