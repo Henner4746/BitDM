@@ -194,7 +194,11 @@ Future<void> main() async {
     // aber nachbaubar ist Nahfunk im Browser eben auch nicht: Web Bluetooth
     // kennt kein Werben und kein Lauschen. `funk` bleibt also null, und alle
     // Aufrufer pruefen darauf (app_state.dart:1129, 1145, 1169).
-    ..funk = kIsWeb ? null : (Nahfunk()..horcheAuf());
+    //
+    // AUF DEM DESKTOP EBENSO NICHT (seit 25.09.2026): der Kanal existiert nur in
+    // NahfunkKanal.kt, und die Windows-Fassung schrieb bei jedem Start dieselbe
+    // MissingPluginException ins Protokoll.
+    ..funk = _aufAndroid ? (Nahfunk()..horcheAuf()) : null;
 
   // Die Rueckrufe des Verteilers MUESSEN bei jedem Start stehen, nicht erst
   // wenn der Nutzer etwas einstellt: ein Anstoss kann kommen, bevor er die App

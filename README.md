@@ -6,7 +6,7 @@ This page in [German](README.de.md).
 Your address *is* your public key.**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.8.0-6f62a8)
+![Version](https://img.shields.io/badge/version-1.8.1-6f62a8)
 ![Platform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows_%7C_Linux_%7C_Web-6f62a8)
 
 | Platform | State |
@@ -177,8 +177,8 @@ limits: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.
 ### Android
 
 ```bash
-curl -fsSLO https://bitdm.net/bitdm-1.8.0.apk
-sha256sum bitdm-1.8.0.apk
+curl -fsSLO https://bitdm.net/bitdm-1.8.1.apk
+sha256sum bitdm-1.8.1.apk
 ```
 
 Android will warn you when installing. It warns about **every** app whose
@@ -187,11 +187,11 @@ These two values do, and they are not the same kind of thing:
 
 | What | Value |
 |---|---|
-| **This file** (sha256 of the APK) | `9d1934d39e10d8bcf87881329e061fbb08229f42dee33edcba52d33af8cf077a` |
+| **This file** (sha256 of the APK) | `948e4f68fd7c73dd03d1be4c1ec21eea284c9f92e46b95997cb1145fd22e95ee` |
 | **Signing key** (certificate fingerprint) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash
-apksigner verify --print-certs bitdm-1.8.0.apk
+apksigner verify --print-certs bitdm-1.8.1.apk
 ```
 
 The first value covers only this file. The second covers every future
@@ -205,15 +205,15 @@ submissions are prepared, not done.
 
 ### Windows
 
-Installer [`bitdm-windows-setup-1.8.0.exe`](https://bitdm.net/bitdm-windows-setup-1.8.0.exe)
-(13,622,167 bytes) or [`bitdm-windows-1.8.0.zip`](https://bitdm.net/bitdm-windows-1.8.0.zip)
-(16,091,564 bytes, unpack and run `bitdm.exe`). Both are also attached to the
-[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.8.0).
+Installer [`bitdm-windows-setup-1.8.1.exe`](https://bitdm.net/bitdm-windows-setup-1.8.1.exe)
+(13,688,440 bytes) or [`bitdm-windows-1.8.1.zip`](https://bitdm.net/bitdm-windows-1.8.1.zip)
+(16,193,643 bytes, unpack and run `bitdm.exe`). Both are also attached to the
+[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.8.1).
 
 | What | Value |
 |---|---|
-| **Installer** (sha256) | `9a68bd12d9ad3538116d80236d2cd4e04c664953d124701b3076300c5a284190` |
-| **Zip** (sha256) | `e3dc65a386c0b1d60bcc7c8264774004adb8bf148916214a0aa8287f32e7a00e` |
+| **Installer** (sha256) | `53fd121b2b1340bec598202452ae470eaf35a19d9abb6dade1d5734068b37546` |
+| **Zip** (sha256) | `7ecde3de036702559f7699712216c74790c729f0672c37761eca4429e14d8621` |
 
 SmartScreen will warn about it, and that cannot be fixed here: Windows code
 signing needs an Authenticode certificate from a commercial CA, and the Android
@@ -232,8 +232,8 @@ entry.
 
 ### Linux
 
-`bitdm-linux-x64-1.8.0.tar.gz` on the
-[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.8.0), built
+`bitdm-linux-x64-1.8.1.tar.gz` on the
+[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.8.1), built
 by [`.github/workflows/linux.yml`](.github/workflows/linux.yml) on Ubuntu 22.04
 from the tagged source; the workflow log prints its sha256. Unpack and run
 `./bitdm`; it needs GTK 3 and libsecret. **Nobody has launched this build yet.**
@@ -308,7 +308,7 @@ crypto, and the actual Dart code lives in `data/app.so`. Ship the whole folder.
 For an installer instead of a zip:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=1.8.0 windows\bitdm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=1.8.1 windows\bitdm.iss
 ```
 
 Tests:
