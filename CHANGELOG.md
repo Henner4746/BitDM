@@ -4,6 +4,35 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
+## 1.8.1 — 25.09.2026
+
+Sicherheitsfassung. Eine eigene Prüfung in fünf Bereichen (Server, Kryptografie und Speicher, Protokoll, Oberfläche, Plattform) fand rund 80 Befunde; alle sind behoben oder unter „Bekannte Lücken" im README benannt. Ein externes Audit ist das nicht — der Weg dahin steht in `secure-messenger/docs/AUDIT.md`.
+
+**Schwerwiegend, behoben**
+- Relay: ohne Anmeldung ließ sich der Speicher erschöpfen (Nonces und Bremsen wurden nie aufgeräumt); ein Fremder konnte durch Fluten die wartenden Nachrichten eines anderen verdrängen.
+- Foto-Metadaten: nach dem ersten Bild einer JPEG blieb alles erhalten — zweite eingebettete Bilder mit GPS, Samsung-Anhänge, Bewegtfoto-Videos.
+- Gesendete Sprachaufnahmen blieben unverschlüsselt auf dem Gerät, auch nach „Alles löschen" und Fernlöschung.
+- Die Sperre legte sich nicht über offene Dialoge — Teile der zwölf Wörter blieben nach dem Sperren sichtbar.
+- Eine Nachricht, die einmal Bluetooth versucht hatte, ging nie mehr über den Relay; der Nachversand eines Anhangs schickte den Dateinamen statt der Anleitung; Gruppenpost ging bei vorübergehenden Fehlern verloren.
+- Der erste Empfänger eines Anhangs löschte ihn für alle anderen (Zweitgeräte, Gruppen).
+
+**Weiter behoben (Auswahl)**
+- Anhänge liegen auf dem Gerät verschlüsselt; entschlüsselt wird nur zum Ansehen.
+- Tor: TLS bis in den Onion-Dienst, geprüft gegen das Zertifikat von relay.bitdm.net — ein falscher Proxy auf 127.0.0.1 liest nichts mehr mit. Im Browser ist Tor ausgeblendet.
+- Fernlöschung nur von aktuellen Vertrauenskontakten, 24-Stunden-Fenster ab Absendezeit, Abbrechen nur mit frischer Anmeldung.
+- Teile der zwölf Wörter mit Fingerabdruck (`BITDM-TEIL-2`), nach der Zustellung aus dem eigenen Verlauf geschwärzt.
+- App-Passwort mit nicht-lateinischen Zeichen war schwächer als es aussah; ein Panik-Passwort war an der Zahl der Fächer erkennbar.
+- Frische Anmeldung vor heiklen Aktionen (Teile erzeugen, Wörter anzeigen, Faktor entfernen, Sperrfrist ändern).
+- Mikrofon geht aus, sobald die App nicht mehr sichtbar ist; empfangene HTML/SVG öffnen als Text.
+- Bluetooth-Postfach: Sperre bei Überfüllung, stumme Verbindungen fliegen nach 10 s.
+- Windows: Screenshot-Sperre wirkt jetzt wirklich (vorher nur angezeigt).
+- Zwischenlager: 33 MiB je Stück, Marken nur einmal verwendbar, Platz unter Sperre reserviert.
+
+**Unter der Haube**
+- CodeQL, OpenSSF Scorecard und Dependabot auf GitHub; alle Aktionen per Commit-SHA gepinnt; Linux-Paket mit Herkunftsnachweis (`gh attestation verify`).
+- Server-Abhängigkeiten mit Prüfsummen gesperrt.
+- Datenbankschema 14; `SECURITY.md` mit privatem Meldeweg.
+
 ## 1.8.0 — 25.09.2026
 
 **Neu**

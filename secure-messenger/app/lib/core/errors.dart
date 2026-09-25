@@ -17,6 +17,15 @@ class NotInitializedException extends MessengerException {
   const NotInitializedException([super.message = 'call initialize() first']);
 }
 
+/// Die lokale Datei eines Anhangs ist nicht (mehr) da — etwa bei einem
+/// eigenen Anhang aus einer Fassung vor 1.8.0, deren Pfad auf die kurzlebige
+/// Kennung des Dateiwaehlers zeigte. Der Kern hat den Zustand dann schon
+/// berichtigt: ein empfangener Anhang steht wieder auf "angekuendigt" (kann
+/// neu geholt werden, solange das Lager ihn hat), ein eigener auf "weg".
+class AnhangFehltException extends MessengerException {
+  const AnhangFehltException([super.message = 'die Datei des Anhangs fehlt']);
+}
+
 /// The given address is malformed or fails its checksum. Thrown by
 /// `addContact()`. Use `isValidAddress()` to pre-check in the UI.
 class InvalidAddressException extends MessengerException {

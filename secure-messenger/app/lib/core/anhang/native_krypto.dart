@@ -188,6 +188,62 @@ class NativeStueckKrypto extends StueckKrypto {
     );
   }
 
+  /// AES-256-GCM mit frei gewaehltem Zusatz, nativ mit Rueckfall auf Dart.
+  ///
+  /// Fuer die verschluesselte Ablage auf dem Geraet (ruhe_datei.dart): dort
+  /// traegt der Zusatz Dateikopf, Stuecknummer und das Kennzeichen "letztes
+  /// Stueck" — nicht die Form aus [StueckKrypto.zusatz]. Der Kanal nimmt den
+  /// Zusatz ohnehin als rohe Bytes (KryptoKanal.kt), deshalb geht es ueber
+  /// denselben Weg und dieselbe Hardware-Beschleunigung.
+  ///
+  /// DER RUECKFALL IST HIER IMMER DART (GcmStueckKrypto.zuRoh), nicht der
+  /// hereingereichte [_rueckfall]: der kennt nur die Stueck-Form.
+  Future<Uint8List> verschluessleRoh({
+    required Uint8List klar,
+    required Uint8List schluessel,
+    required Uint8List nonce,
+    required Uint8List zusatz,
+  }) async {
+    if (await _nativGehtNoch()) {
+      try {
+        return await _ruf('zu',
+            daten: klar, schluessel: schluessel, nonce: nonce, zusatz: zusatz);
+      } catch (e) {
+        // Wie oben: ab jetzt dauerhaft Dart.
+        _nativVorhanden = false;
+        _grund = 'beim Verschluesseln: ${_kurz(e)}';
+      }
+    }
+    return GcmStueckKrypto.zuRoh(
+        klar: klar, schluessel: schluessel, nonce: nonce, zusatz: zusatz);
+  }
+
+  /// Gegenstueck zu [verschluessleRoh]. Wirft [StueckKaputt], wenn die Bytes
+  /// nicht aufgehen — und faellt dann NICHT auf Dart zurueck (siehe
+  /// [entschluessle]).
+  Future<Uint8List> entschluessleRoh({
+    required Uint8List geheim,
+    required Uint8List schluessel,
+    required Uint8List nonce,
+    required Uint8List zusatz,
+  }) async {
+    if (await _nativGehtNoch()) {
+      try {
+        return await _ruf('auf',
+            daten: geheim, schluessel: schluessel, nonce: nonce, zusatz: zusatz);
+      } on PlatformException catch (e) {
+        if (e.code == 'KAPUTT') throw const StueckKaputt();
+        _nativVorhanden = false;
+        _grund = 'beim Entschluesseln: ${_kurz(e)}';
+      } catch (e) {
+        _nativVorhanden = false;
+        _grund = 'beim Entschluesseln: ${_kurz(e)}';
+      }
+    }
+    return GcmStueckKrypto.aufRoh(
+        geheim: geheim, schluessel: schluessel, nonce: nonce, zusatz: zusatz);
+  }
+
   static String _kurz(Object e) {
     if (e is PlatformException) return e.message ?? e.code;
     return e.runtimeType.toString();

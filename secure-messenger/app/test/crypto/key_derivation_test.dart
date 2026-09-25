@@ -71,6 +71,18 @@ void main() {
       expect(keys.identityPrivateKey.length, 32);
       expect(keys.identityPublicKey.length, 32);
       expect(keys.databaseKey.length, 32);
+      expect(keys.attachmentKey.length, 32);
+    });
+
+    test('der Ablageschluessel der Anhaenge ist fest und von allen anderen getrennt', () async {
+      // Fest: nach dem Wiederherstellen mit denselben Woertern muessen sich
+      // die abgelegten Anhaenge wieder oeffnen lassen. Getrennt: wer den
+      // Datenbankschluessel hat, hat damit nicht die Dateien, und umgekehrt.
+      final a = await KeyDerivation.fromMnemonic(words);
+      final b = await KeyDerivation.fromMnemonic(words);
+      expect(a.attachmentKey, b.attachmentKey);
+      expect(a.attachmentKey, isNot(equals(a.databaseKey)));
+      expect(a.attachmentKey, isNot(equals(a.identityPrivateKey)));
     });
 
     test('privater Schluessel ist RFC-7748-konform geclamped', () async {
@@ -127,6 +139,12 @@ void main() {
       expect(KeyDerivation.databaseInfo, endsWith('v1'));
       expect(KeyDerivation.identityInfo,
           isNot(equals(KeyDerivation.databaseInfo)));
+      expect(KeyDerivation.attachmentInfo, endsWith('v1'));
+      expect({
+        KeyDerivation.identityInfo,
+        KeyDerivation.databaseInfo,
+        KeyDerivation.attachmentInfo,
+      }, hasLength(3));
     });
   });
 }

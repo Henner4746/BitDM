@@ -31,6 +31,7 @@ import 'anhang/anhang_empfang.dart';
 import 'anhang/anhang_versand.dart';
 import 'anhang/lager_client.dart';
 import 'anhang/rezept.dart';
+import 'anhang/ruhe_datei.dart';
 import 'crypto/address.dart';
 import 'crypto/bip39.dart';
 import 'crypto/key_derivation.dart';
@@ -302,6 +303,153 @@ class RealMessengerCore implements MessengerCore {
 
   LagerClient? _lagerClient;
 
+  // ═════════════════════════════════════════ Anhaenge verschluesselt ablegen
+
+  /// Der Ablageschluessel der Anhangdateien (KeyDerivation.attachmentInfo).
+  ///
+  /// NUR SOLANGE ENTSPERRT. Gesetzt in [_oeffne], mit Nullen ueberschrieben
+  /// und vergessen in [lock], [wipeEverything] und [dispose] — wie der
+  /// Datenbankschluessel, der mit der geschlossenen Datenbank faellt. Ohne
+  /// ihn sind die Dateien unter anhaenge/ Rauschen.
+  Uint8List? _ruheSchluessel;
+
+  /// Zaehlt jedes Sperren mit. Eine Arbeit, die vor dem Sperren begann und
+  /// danach endet (Entschluesseln einer grossen Datei), erkennt daran, dass
+  /// ihr Ergebnis nicht mehr herausgegeben werden darf.
+  int _ruheLauf = 0;
+
+  /// Die ausgegebenen Klartextdateien: Pfad der Kopie → Pfad der Quelle.
+  ///
+  /// Die Quelle steht dabei, damit eine geloeschte oder verfallene Nachricht
+  /// auch ihre Klartextkopien mitnimmt ([_loescheDateien]).
+  final Map<String, String> _klarDateien = {};
+
+  Future<RuheUmstellung> _umstellung =
+      Future.value(const RuheUmstellung(umgestellt: 0, offen: 0));
+
+  /// Die laufende oder letzte Umstellung alter Klartextdateien — fuer Tests.
+  @visibleForTesting
+  Future<RuheUmstellung> get anhangUmstellung => _umstellung;
+
+  Directory get _anhangOrdner =>
+      Directory('${File(databasePath).parent.path}/anhaenge');
+
+  /// Wo entschluesselte Anhaenge kurz liegen.
+  ///
+  /// UNTER anhaenge/ UND NICHT im Zwischenverzeichnis des Systems, aus zwei
+  /// Gruenden:
+  ///   * ANDROID: "mit einer anderen App oeffnen" geht ueber den
+  ///     FileProvider, und der gibt ausschliesslich files/anhaenge/ frei
+  ///     (res/xml/dateipfade.xml). Aus dem cache-Ordner koennte keine andere
+  ///     App lesen.
+  ///   * RECHNER: das Zwischenverzeichnis ist dort das des ganzen Benutzers
+  ///     (%TEMP%). Der Ordner der App (getApplicationSupportDirectory) ist
+  ///     wenigstens nicht der Sammelplatz fuer alles.
+  /// Die Umstellung alter Dateien ([RuheDatei.stelleAltbestandUm]) sieht nur
+  /// Dateien direkt in anhaenge/ an und laesst diesen Unterordner aus.
+  Directory get _klarOrdner => Directory('${_anhangOrdner.path}/.klar');
+
+  /// Eine Kopie des Ablageschluessels fuer genau eine Arbeit. Wirft, wenn
+  /// gesperrt.
+  Uint8List _ruheKopie() {
+    final k = _ruheSchluessel;
+    if (k == null) throw const NotInitializedException();
+    return Uint8List.fromList(k);
+  }
+
+  /// Vergisst den Ablageschluessel — mit Nullen ueberschrieben, nicht nur
+  /// losgelassen. Laufende Arbeiten haben ihre eigene Kopie ([_ruheKopie]).
+  void _vergissRuheSchluessel() {
+    final k = _ruheSchluessel;
+    if (k != null) k.fillRange(0, k.length, 0);
+    _ruheSchluessel = null;
+    _ruheLauf++;
+  }
+
+  /// Loescht alle entschluesselten Kopien — die ausgegebenen und alles, was
+  /// von einem frueheren Lauf (Absturz, abgeschossene App) liegenblieb.
+  ///
+  /// DATEI FUER DATEI und jeder Fehler still: am Rechner laesst sich eine
+  /// Datei, die eine andere App gerade offen hat, nicht loeschen. Sie bleibt
+  /// dann bis zum naechsten Aufraeumen liegen; der Rest geht trotzdem.
+  ///
+  /// SYNCHRON, und das ist Absicht: [initialize] ruft das VOR der Pruefung
+  /// auf eine offene Datenbank auf, und ein Wartepunkt dazwischen liesse
+  /// zwei gleichzeitige Aufrufe beide die Datenbank oeffnen. Der Ordner
+  /// enthaelt ohnehin nur die wenigen gerade herausgegebenen Dateien.
+  void _raeumeKlartextAuf() {
+    _klarDateien.clear();
+    if (_imBrowser) return;
+    try {
+      final ordner = _klarOrdner;
+      if (!ordner.existsSync()) return;
+      for (final e in ordner.listSync(followLinks: false)) {
+        try {
+          e.deleteSync(recursive: true);
+        } on FileSystemException {
+          // naechstes Mal
+        }
+      }
+    } on FileSystemException {
+      // naechstes Mal
+    } on UnsupportedError {
+      // kein Dateisystem
+    }
+  }
+
+  /// Stellt alte Klartextdateien auf das Ablageformat um — bei jedem
+  /// Entsperren, im Hintergrund, abbrechbar durch Sperren.
+  ///
+  /// JEDES MAL UND NICHT NUR EINMAL: ist alles umgestellt, liest ein Lauf nur
+  /// die ersten elf Byte jeder Datei, und das kostet nichts. Ein Vermerk
+  /// "schon erledigt" haette dagegen eine Datei, die spaeter doch noch im
+  /// Klartext auftaucht (etwa zurueckkopiert), fuer immer uebersehen.
+  Future<RuheUmstellung> _stelleAltbestandUm() async {
+    const nichts = RuheUmstellung(umgestellt: 0, offen: 0);
+    if (_imBrowser) return nichts;
+    final Uint8List wurzel;
+    try {
+      wurzel = _ruheKopie();
+    } on NotInitializedException {
+      return nichts;
+    }
+    final lauf = _ruheLauf;
+    try {
+      return await RuheDatei.stelleAltbestandUm(_anhangOrdner, wurzel,
+          abbrechen: () => lauf != _ruheLauf);
+    } catch (_) {
+      // Beim naechsten Entsperren wieder. Ein Fehler hier darf das Oeffnen
+      // der App nicht aufhalten.
+      return nichts;
+    } finally {
+      wurzel.fillRange(0, wurzel.length, 0);
+    }
+  }
+
+  /// Legt [inhalt] verschluesselt unter [ziel] ab — ueber eine Nebendatei
+  /// ".teil", wie der Empfang ([AnhangEmpfang.hole]).
+  ///
+  /// DIE NEBENDATEI SCHUETZT VOR DER UMSTELLUNG, die beim Entsperren im
+  /// Hintergrund laeuft: eine gerade angelegte, noch leere Datei traegt noch
+  /// keine Magie und saehe fuer sie aus wie alter Klartext. Eine ".teil"
+  /// dagegen fasst sie nur an, wenn sie alt und ohne Magie ist.
+  Future<void> _legeAb(File ziel, Stream<List<int>> inhalt, {Uint8List? wurzel}) async {
+    final teil = File('${ziel.path}.teil');
+    await RuheDatei.verschluessle(inhalt, teil, wurzel ?? _ruheKopie());
+    await teil.rename(ziel.path);
+  }
+
+  /// Liest einen Anhang vollstaendig — entschluesselt, wenn er im
+  /// Ablageformat liegt, sonst so, wie er ist (alte Klartextdatei vor der
+  /// Umstellung, oder die Quelldatei eines grossen eigenen Anhangs).
+  Future<Uint8List> _liesAnhang(File f, {int? grenze}) async {
+    if (await RuheDatei.istVerschluesselt(f)) {
+      return RuheDatei.entschluessleInSpeicher(f, _ruheKopie(), grenze: grenze);
+    }
+    if (grenze != null && await f.length() > grenze) throw RuheDateiZuGross(grenze);
+    return f.readAsBytes();
+  }
+
   // ══════════════════════════════════════════════════════════════ Identitaet
 
   @override
@@ -320,6 +468,11 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<bool> initialize() async {
     if (_store != null) return true;
+    // RESTE VOM LETZTEN LAUF: ist die App abgestuerzt oder abgeschossen
+    // worden, waehrend eine entschluesselte Kopie herausgegeben war, liegt
+    // sie noch da. VOR dem Lesen der Entropie — bei gesperrter App wirft das
+    // Lesen, und aufgeraeumt werden soll trotzdem.
+    _raeumeKlartextAuf();
     final entropie = await secretStore.read();
     _hatIdentitaet = entropie != null;
     if (entropie == null) return false;
@@ -392,6 +545,7 @@ class RealMessengerCore implements MessengerCore {
     // hier stehen und nicht in EncryptedDatabase.open, weil open() synchron ist.
     await sqliteVorbereiten();
     final db = EncryptedDatabase.open(databasePath, keys.databaseKey);
+    _ruheSchluessel = Uint8List.fromList(keys.attachmentKey);
     final signalRepo = SignalStoreRepository(db);
     final store = signalRepo.openStore(keys);
 
@@ -427,6 +581,13 @@ class RealMessengerCore implements MessengerCore {
     _chats!.loescheAbgelaufene();
 
     _fuelleVorratAuf();
+
+    // ALTE KLARTEXTANHAENGE VERSCHLUESSELN (Installationen von vor dem
+    // 25.09.2026). Im Hintergrund: bei Gigabytes an Anhaengen dauert das, und
+    // das Entsperren soll nicht darauf warten. Bis dahin gibt
+    // [entschluesselterAnhang] eine noch nicht umgestellte Datei so heraus,
+    // wie sie ist.
+    _umstellung = _stelleAltbestandUm();
 
     // STAND DER SCHALTER SCHON AUF AN, faengt der Funk hier an — nicht erst,
     // wenn jemand die Einstellungen oeffnet und ihn noch einmal umlegt. Eine
@@ -575,6 +736,12 @@ class RealMessengerCore implements MessengerCore {
       // wurde, wuerde sonst den Zustand eines fremden, laufenden Versuchs auf
       // "Fehler" setzen.
       if (ueberholt()) return _gibAuf(relay);
+      // VERGESSEN VOM RELAY: der Vermerk "angemeldet" stimmt nicht mehr. Weg
+      // damit — der naechste Versuch (Wiederverbindung) meldet sich dann in
+      // [_meldeAnWennNoetig] neu an. Nicht hier sofort: die Verbindung ist
+      // schon abgebaut, und ein zweiter Anlauf mitten im Abraeumen stiesse
+      // mit dem Wiederverbindungszeitgeber zusammen.
+      if (fehler is RelayUnbekannt) _vergissAnmeldung();
       // VOR dem Zustandswechsel: an ihm haengt der Wiederverbindungszeitgeber
       // (app_state `_planeWiederverbindung`), und der liest [abgewiesen].
       _abgewiesen = fehler is RelayException && fehler.statusCode == 507;
@@ -727,6 +894,13 @@ class RealMessengerCore implements MessengerCore {
 
   void _merkeGeraeteZahl(List<int>? liste) {
     if (liste != null) _geraeteZahl = liste.length;
+  }
+
+  /// Loescht den Vermerk, beim Relay angemeldet zu sein (siehe
+  /// [RelayUnbekannt]).
+  void _vergissAnmeldung() {
+    _db?.transaction((raw) => raw.execute(
+        "DELETE FROM meta WHERE key IN ('relay_prekey_count', 'relay_angemeldet_bei')"));
   }
 
   Future<void> _meldeAn(RelayClient relay) async {
@@ -2718,7 +2892,10 @@ class RealMessengerCore implements MessengerCore {
           'sender_id': a.senderId,
           'message_id': a.messageId,
           'name': a.name,
-          'daten': base64.encode(await f.readAsBytes()),
+          // Durch die Entschluesselung: die Sicherung hat ihren eigenen
+          // Schluessel und ihr eigenes Format, und beim Einspielen wird die
+          // Datei dort wieder verschluesselt abgelegt.
+          'daten': base64.encode(await _liesAnhang(f)),
         });
       }
       inhalt['dateien'] = dateien;
@@ -2740,8 +2917,9 @@ class RealMessengerCore implements MessengerCore {
     // Anhang hier noch nicht liegt.
     final dateien = inhalt['dateien'];
     if (dateien is List && dateien.isNotEmpty) {
-      final ordner = Directory('${File(databasePath).parent.path}/anhaenge');
+      final ordner = _anhangOrdner;
       await ordner.create(recursive: true);
+      final wurzel = _ruheKopie();
       for (final d in dateien.whereType<Map>()) {
         try {
           final chat = d['chat_id'] as String;
@@ -2753,7 +2931,9 @@ class RealMessengerCore implements MessengerCore {
           }
           // Ein freier Name, nie eine vorhandene Datei — siehe holeAnhang.
           final ziel = _freieAnhangDatei(ordner, d['name'] as String);
-          await ziel.writeAsBytes(base64.decode(d['daten'] as String), flush: true);
+          // Verschluesselt abgelegt, wie jeder andere Anhang.
+          await _legeAb(ziel, Stream.value(base64.decode(d['daten'] as String)),
+              wurzel: wurzel);
           chats.setzeAnhangZustand(chat, absender, id, AnhangZustand.da, pfad: ziel.path);
         } catch (_) {
           // Eine unlesbare Datei ist kein Grund, den Rest nicht einzuspielen.
@@ -3195,10 +3375,11 @@ class RealMessengerCore implements MessengerCore {
     String? eigenerPfad;
     if (!einmal && wirklicheGroesse <= 50 * 1024 * 1024) {
       try {
-        final ordner = Directory('${File(databasePath).parent.path}/anhaenge');
+        final ordner = _anhangOrdner;
         await ordner.create(recursive: true);
         final kopie = _freieAnhangDatei(ordner, angezeigt);
-        await datei.copy(kopie.path);
+        // VERSCHLUESSELT KOPIERT, Stueck fuer Stueck — nie im Klartext.
+        await _legeAb(kopie, datei.openRead());
         eigenerPfad = kopie.path;
       } catch (_) {
         eigenerPfad = null;
@@ -3299,7 +3480,7 @@ class RealMessengerCore implements MessengerCore {
 
     // In den Anhangordner und NICHT in den allgemeinen Downloads-Ordner: was
     // hier liegt, gehoert zu einer Unterhaltung und verschwindet mit ihr.
-    final ordner = Directory('${File(databasePath).parent.path}/anhaenge');
+    final ordner = _anhangOrdner;
     await ordner.create(recursive: true);
     // BEIDE TEILE GESAEUBERT, obwohl payload.dart die Kennung schon prueft.
     // Der Name wurde beim Ablegen gesaeubert, die Kennung beim Empfang — aber
@@ -3320,6 +3501,9 @@ class RealMessengerCore implements MessengerCore {
       final fertig = await AnhangEmpfang(lager: _lager()).hole(
         rezept,
         ziel,
+        // VERSCHLUESSELT AUF DEN DATENTRAEGER, schon beim Empfang — es gibt
+        // keinen Augenblick, in dem der Anhang im Klartext daliegt.
+        ruheSchluessel: _ruheKopie(),
         // NICHT WEGWERFEN (seit 25.09.2026). Dieselbe Anleitung haben oft
         // mehrere: die eigenen Zweitgeraete des Absenders (Spiegel, siehe
         // [_spiegelfaehig]), meine eigenen weiteren Geraete, in einer Gruppe
@@ -3369,6 +3553,97 @@ class RealMessengerCore implements MessengerCore {
   }
 
   LagerClient _lager() => _lagerClient ??= LagerClient(basis: lagerUri);
+
+  /// Der geholte Anhang zu [messageId] und seine Datei. Wirft, wenn es ihn
+  /// (so) nicht gibt.
+  (AnhangEintrag, File) _geholterAnhang(String contactId, String messageId) {
+    _fordereChat(contactId);
+    // Ueber die Nachrichtenkennung, wie in [holeAnhang] — auch gespiegelte
+    // und eigene Anhaenge.
+    final e = _chats!.anhaenge(contactId)[messageId];
+    final pfad = e?.pfad;
+    if (e == null || pfad == null || e.zustand != AnhangZustand.da) {
+      throw StateError('kein geholter Anhang zu $messageId');
+    }
+    return (e, File(pfad));
+  }
+
+  /// Wie [_geholterAnhang], und die Datei muss auch wirklich da sein.
+  ///
+  /// FEHLT SIE, wird der Zustand berichtigt, statt bei jedem Tippen dasselbe
+  /// zu scheitern (Emulatorlauf 25.09.2026: ein eigener Anhang aus 1.7 zeigte
+  /// "Oeffnen" und dann "liess sich nicht entschluesseln" — die Datei gab es
+  /// nie dauerhaft). Empfangenes kann neu geholt werden, Eigenes nicht.
+  Future<(AnhangEintrag, File)> _vorhandenerAnhang(String contactId, String messageId) async {
+    final (eintrag, quelle) = _geholterAnhang(contactId, messageId);
+    if (await quelle.exists()) return (eintrag, quelle);
+    final neuHolbar = eintrag.senderId != myId &&
+        _chats!.rezeptText(contactId, eintrag.senderId, messageId) != null;
+    _setzeAnhang(eintrag, neuHolbar ? AnhangZustand.angekuendigt : AnhangZustand.weg);
+    throw const AnhangFehltException();
+  }
+
+  @override
+  Future<File> entschluesselterAnhang(String contactId, String messageId) async {
+    final (eintrag, quelle) = await _vorhandenerAnhang(contactId, messageId);
+    // NICHT IM ABLAGEFORMAT: eine alte Klartextdatei, die die Umstellung noch
+    // nicht erreicht hat, oder die Quelldatei eines eigenen Anhangs ueber
+    // 50 MB (davon gibt es keine eigene Kopie, siehe [sendeAnhang]). Beide
+    // liegen schon im Klartext da; eine zweite Kopie davon waere nur eine
+    // weitere Stelle, an der er liegt. [gibAnhangFrei] laesst sie in Ruhe.
+    if (!await RuheDatei.istVerschluesselt(quelle)) {
+      if (!await quelle.exists()) throw StateError('die Datei zu $messageId fehlt');
+      return quelle;
+    }
+    final wurzel = _ruheKopie();
+    final lauf = _ruheLauf;
+    final ordner = _klarOrdner;
+    await ordner.create(recursive: true);
+    // Zufall vorneweg (niemand soll den Namen erraten, niemand zwei Kopien
+    // verwechseln), der gesaeuberte Name dahinter — die App, die oeffnet,
+    // erkennt die Art oft nur an der Endung.
+    final ziel = File('${ordner.path}/${_neueId()}_${AnhangEmpfang.sichererName(eintrag.name)}');
+    _klarDateien[ziel.path] = quelle.path;
+    try {
+      await RuheDatei.entschluessleDatei(quelle, ziel, wurzel);
+    } catch (_) {
+      _klarDateien.remove(ziel.path);
+      rethrow;
+    } finally {
+      wurzel.fillRange(0, wurzel.length, 0);
+    }
+    // WAEHREND DES ENTSCHLUESSELNS GESPERRT: das Aufraeumen beim Sperren lief
+    // schon, diese Datei kam danach. Sie darf nicht herausgehen.
+    if (lauf != _ruheLauf) {
+      _klarDateien.remove(ziel.path);
+      try {
+        await ziel.delete();
+      } catch (_) {}
+      throw const NotInitializedException();
+    }
+    return ziel;
+  }
+
+  @override
+  Future<Uint8List> anhangInhalt(String contactId, String messageId,
+      {int grenze = 20 * 1024 * 1024}) async {
+    final (_, quelle) = await _vorhandenerAnhang(contactId, messageId);
+    return _liesAnhang(quelle, grenze: grenze);
+  }
+
+  @override
+  Future<void> gibAnhangFrei(File datei) async {
+    // NUR, WAS VON HIER AUSGEGEBEN WURDE. Ein Pfad aus [entschluesselterAnhang]
+    // kann auch die Quelldatei selbst sein (siehe dort) — die zu loeschen
+    // hiesse, den Anhang zu loeschen.
+    if (_klarDateien.remove(datei.path) == null) return;
+    try {
+      if (await datei.exists()) await datei.delete();
+    } catch (_) {
+      // Am Rechner: noch von einer anderen App geoeffnet. Das naechste
+      // Aufraeumen ([_raeumeKlartextAuf]) nimmt sie mit.
+    }
+  }
 
   Timer? _geraeuschTakt;
 
@@ -3513,8 +3788,19 @@ class RealMessengerCore implements MessengerCore {
   ///
   /// Fehler werden verschluckt: die Zeile in der Datenbank ist schon weg, und
   /// ein Datei-Fehler darf den Aufraeumlauf nicht anhalten.
-  static Future<void> _loescheDateien(List<String> pfade) async {
-    for (final p in pfade) {
+  Future<void> _loescheDateien(List<String> pfade) async {
+    // DIE KLARTEXTKOPIEN GEHEN MIT: eine verfallene oder geloeschte
+    // Nachricht, deren entschluesselte Kopie bis zum naechsten Sperren
+    // liegenbliebe, waere nicht verschwunden.
+    final quellen = pfade.toSet();
+    final kopien = [
+      for (final e in _klarDateien.entries)
+        if (quellen.contains(e.value)) e.key
+    ];
+    for (final k in kopien) {
+      _klarDateien.remove(k);
+    }
+    for (final p in [...pfade, ...kopien]) {
       try {
         final f = File(p);
         if (await f.exists()) await f.delete();
@@ -4425,6 +4711,10 @@ class RealMessengerCore implements MessengerCore {
     _store = null;
     _chats = null;
     _signalRepo = null;
+    // Die Klartextkopien liegen unter anhaenge/.klar und gehen unten mit dem
+    // ganzen Ordner; hier nur Schluessel und Liste.
+    _vergissRuheSchluessel();
+    _klarDateien.clear();
 
     // DIE ENTSCHLUESSELTEN ANHAENGE ZUERST, und zwar BEVOR die Entropie faellt.
     //
@@ -4520,6 +4810,11 @@ class RealMessengerCore implements MessengerCore {
     _store = null;
     _chats = null;
     _signalRepo = null;
+    // DER ABLAGESCHLUESSEL UND ALLE ENTSCHLUESSELTEN KOPIEN. Eine Datei, die
+    // gerade eine andere App offen hat ("oeffnen mit"), verliert sie damit —
+    // gewollt: gesperrt heisst, es liegt kein Anhang mehr im Klartext da.
+    _vergissRuheSchluessel();
+    _raeumeKlartextAuf();
     // _hatIdentitaet bleibt stehen: es GIBT eine Identitaet, sie ist nur
     // gerade nicht zu haben. Die Oberflaeche unterscheidet daran den
     // Sperrbildschirm vom Onboarding.
@@ -4544,6 +4839,8 @@ class RealMessengerCore implements MessengerCore {
     _store = null;
     _chats = null;
     _signalRepo = null;
+    _vergissRuheSchluessel();
+    _raeumeKlartextAuf();
     await _connCtl.close();
     await _incoming.close();
     await _status.close();

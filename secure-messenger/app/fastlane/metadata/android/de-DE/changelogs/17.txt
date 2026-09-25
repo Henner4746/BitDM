@@ -1,0 +1,1 @@
+Sicherheitsfassung nach einer eigenen Prüfung: rund 80 Befunde behoben. Anhänge auf dem Gerät verschlüsselt, Foto-Metadaten gründlicher entfernt, Sperre deckt Dialoge ab, Aufnahmen werden gelöscht, Tor mit TLS bis zum Onion-Dienst, zuverlässigere Zustellung in Gruppen und über Bluetooth.

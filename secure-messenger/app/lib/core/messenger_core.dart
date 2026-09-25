@@ -18,6 +18,7 @@ import 'models.dart';
 export 'models.dart';
 export 'errors.dart';
 export 'store/sicherung.dart' show SicherungPasstNichtException;
+export 'anhang/ruhe_datei.dart' show RuheDateiKaputt, RuheDateiZuGross;
 
 /// Max UTF-8 byte length of a single text message.
 const int kMaxTextBytes = 4096;
@@ -371,6 +372,32 @@ abstract class MessengerCore {
 
   /// Zustandswechsel eines Anhangs (angekuendigt → laedt → da / gescheitert).
   Stream<AnhangEintrag> get anhangAenderungen;
+
+  // Hinzugekommen 2026-09-25 (Vertrag v1.4): Anhaenge liegen auf dem Geraet
+  // VERSCHLUESSELT (anhang/ruhe_datei.dart). [AnhangEintrag.pfad] zeigt auf
+  // die verschluesselte Datei — wer den Inhalt braucht, geht ueber die drei
+  // Methoden hier und nie direkt ueber den Pfad.
+
+  /// Der Klartext eines geholten Anhangs als kurzlebige Datei — fuer "mit
+  /// einer anderen App oeffnen", die Sprachwiedergabe und grosse Bilder.
+  ///
+  /// Die Datei liegt in einem privaten Unterordner der App mit zufaelligem
+  /// Namen. Sie verschwindet mit [gibAnhangFrei], spaetestens beim naechsten
+  /// Sperren, beim Loeschen oder beim naechsten Start.
+  ///
+  /// Wirft `StateError`, wenn der Anhang nicht (mehr) da ist,
+  /// `NotInitializedException`, wenn gesperrt, und `RuheDateiKaputt`, wenn
+  /// die Datei nicht aufgeht.
+  Future<File> entschluesselterAnhang(String contactId, String messageId);
+
+  /// Der Klartext eines geholten Anhangs im Speicher, hoechstens [grenze]
+  /// Byte (sonst `RuheDateiZuGross`). Fuer Vorschaubilder — ohne Datei.
+  Future<Uint8List> anhangInhalt(String contactId, String messageId,
+      {int grenze = 20 * 1024 * 1024});
+
+  /// Loescht eine von [entschluesselterAnhang] ausgegebene Klartextdatei.
+  /// Alles andere bleibt unberuehrt. Wirft nie.
+  Future<void> gibAnhangFrei(File datei);
 
   /// Tell the core the user has opened/viewed [contactId]'s messages, so it can
   /// send a read receipt to the peer (if read receipts are enabled). No-op

@@ -46,6 +46,15 @@ class RelayException implements Exception, Ausgangsfehler {
       'RelayException: $grund${statusCode == null ? '' : ' (HTTP $statusCode)'}';
 }
 
+/// Der Relay kennt dieses Geraet nicht (WebSocket-Schluss 4401, "erst
+/// /register aufrufen"). Passiert, wenn er es nach langer Funkstille vergessen
+/// hat (Aufraeumen vergessener Geraete) oder seine Datenbank neu ist. Der Kern
+/// meldet sich daraufhin beim naechsten Versuch neu an — bis 25.09.2026 hielt
+/// er sich weiter fuer angemeldet und blieb fuer immer "ohne Verbindung".
+class RelayUnbekannt extends RelayException {
+  const RelayUnbekannt() : super('der Relay kennt dieses Geraet nicht');
+}
+
 sealed class RelayEvent {
   const RelayEvent();
 }
@@ -308,8 +317,9 @@ class RelayClient {
         _ws = null;
         _brichAlleAcksAb('Verbindung beendet');
         if (!angemeldet.isCompleted) {
-          angemeldet.completeError(
-              RelayException('Verbindung vor der Anmeldung beendet '
+          angemeldet.completeError(code == 4401
+              ? const RelayUnbekannt()
+              : RelayException('Verbindung vor der Anmeldung beendet '
                   '(Code $code)'));
         }
         if (!_events.isClosed) _events.add(RelayDisconnected(code));

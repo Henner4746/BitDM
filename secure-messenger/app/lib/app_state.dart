@@ -618,6 +618,9 @@ class AppState extends ChangeNotifier {
     _imVordergrund = sichtbar;
     if (sichtbar) {
       unawaited(_beendeHintergrundempfang());
+      // Zurueck aus der App, die einen Anhang geoeffnet hat: deren
+      // Klartextkopie hat ausgedient ([anhangOeffnen]).
+      unawaited(_gibExterneFrei());
       // DIE MELDUNGEN ZUERST, auch wenn gleich gesperrt wird: sonst blieb die
       // Benachrichtigung nach dem Zurueckkommen stehen, und der Zaehler zaehlte
       // beim naechsten Weglegen von der alten Zahl weiter.
@@ -926,6 +929,10 @@ class AppState extends ChangeNotifier {
   void _vergissAngezeigtes() {
     sterne = const [];
     anhaenge.clear();
+    // Entschluesselte Vorschaubilder — Klartext wie die Verlaeufe. Die
+    // Klartextdateien raeumt der Kern beim Sperren selbst weg.
+    _vergissVorschau();
+    _extern.clear();
     fortschritt.clear();
     suchText = '';
     suchTreffer = const [];
@@ -1810,6 +1817,156 @@ class AppState extends ChangeNotifier {
 
   AnhangEintrag? anhangZu(String chatId, String messageId) =>
       anhaenge[chatId]?[messageId];
+
+  // ─────────────────────────────────────── Anhaenge lesen (seit 25.09.2026)
+  //
+  // Die Dateien unter anhaenge/ sind verschluesselt (core/anhang/
+  // ruhe_datei.dart). [AnhangEintrag.pfad] taugt deshalb nicht mehr zum
+  // Anzeigen — alles, was den Inhalt braucht, geht ueber die Methoden hier:
+  //   * Vorschaubilder und Vollbild bis [vorschauGrenze]: im Speicher,
+  //     ohne Datei ([anhangVorschau], [anhangBytes]);
+  //   * alles andere: eine kurzlebige Klartextdatei ([anhangAlsDatei]), die
+  //     der Aufrufer mit [gibAnhangFrei] zurueckgibt.
+
+  /// Bis zu dieser Groesse werden Bilder im Speicher entschluesselt.
+  static const int vorschauGrenze = 20 * 1024 * 1024;
+
+  /// Wie viel entschluesselte Vorschau hoechstens im Speicher bleibt.
+  static const int _vorschauSpeicher = 64 * 1024 * 1024;
+
+  /// Die Vorschaubilder, aelteste zuerst (Dart-Maps behalten die
+  /// Einfuegereihenfolge — das ist die LRU-Liste). Es liegt die ZUKUNFT
+  /// darin und nicht die Bytes: ein FutureBuilder, der beim naechsten Aufbau
+  /// dieselbe Zukunft bekommt, faengt nicht von vorne an und flackert nicht.
+  final Map<String, Future<Uint8List?>> _vorschau = {};
+  final Map<String, int> _vorschauBytes = {};
+  static final Future<Uint8List?> _keineVorschau = Future.value(null);
+
+  /// Klartextdateien, die an eine andere App gingen ("Oeffnen").
+  final List<File> _extern = [];
+
+  /// Das Bild eines geholten Anhangs, entschluesselt im Speicher — oder null
+  /// (zu gross, unlesbar, gesperrt). Fuer die Vorschau in der Blase.
+  ///
+  /// Gibt fuer denselben Anhang dieselbe Zukunft zurueck, solange sie im
+  /// Speicher liegt. Beim Sperren und Loeschen ist alles weg.
+  Future<Uint8List?> anhangVorschau(String chatId, AnhangEintrag a) {
+    if (kIsWeb || a.pfad == null || a.einmal || a.groesse > vorschauGrenze) {
+      return _keineVorschau;
+    }
+    final schluessel = '$chatId|${a.senderId}|${a.messageId}|${a.pfad}';
+    final da = _vorschau.remove(schluessel);
+    if (da != null) {
+      _vorschau[schluessel] = da; // wieder ans Ende: zuletzt benutzt
+      return da;
+    }
+    final neu = _ladeVorschau(schluessel, chatId, a.messageId);
+    _vorschau[schluessel] = neu;
+    return neu;
+  }
+
+  Future<Uint8List?> _ladeVorschau(String schluessel, String chatId, String messageId) async {
+    try {
+      final b = await core.anhangInhalt(chatId, messageId, grenze: vorschauGrenze);
+      // Inzwischen gesperrt (Liste geleert) oder verdraengt: nicht merken.
+      if (_vorschau.containsKey(schluessel)) {
+        _vorschauBytes[schluessel] = b.length;
+        _kuerzeVorschau(schluessel);
+      }
+      return b;
+    } catch (_) {
+      // Bleibt als "keine Vorschau" gemerkt — sonst versuchte es jeder
+      // Neuaufbau der Liste noch einmal.
+      return null;
+    }
+  }
+
+  void _kuerzeVorschau(String behalte) {
+    var summe = _vorschauBytes.values.fold<int>(0, (a, b) => a + b);
+    for (final k in _vorschau.keys.toList()) {
+      if (summe <= _vorschauSpeicher) break;
+      if (k == behalte) continue;
+      _vorschau.remove(k);
+      summe -= _vorschauBytes.remove(k) ?? 0;
+    }
+  }
+
+  void _vergissVorschau() {
+    _vorschau.clear();
+    _vorschauBytes.clear();
+  }
+
+  /// Der Inhalt eines Anhangs im Speicher, OHNE ihn zu merken — fuer die
+  /// Einmal-Ansicht, deren Bytes nach dem Ansehen nirgends bleiben sollen.
+  Future<Uint8List?> anhangBytes(String chatId, String messageId,
+      {int grenze = vorschauGrenze}) async {
+    if (kIsWeb) return null;
+    try {
+      return await core.anhangInhalt(chatId, messageId, grenze: grenze);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Der Klartext eines Anhangs als kurzlebige Datei, oder null (dann steht
+  /// der Grund in [letzterFehler]). Zurueckgeben mit [gibAnhangFrei].
+  Future<File?> anhangAlsDatei(String chatId, String messageId) async {
+    if (kIsWeb) return null;
+    try {
+      return await core.entschluesselterAnhang(chatId, messageId);
+    } on AnhangFehltException {
+      // Der Kern hat den Zustand schon berichtigt — neu laden, damit die
+      // Blase "holen" bzw. "nicht mehr da" zeigt statt eines toten "Oeffnen".
+      letzterFehler = 'anhangFehlt';
+      anhaenge[chatId] = await core.getAnhaenge(chatId);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      letzterFehler = 'anhangUnlesbar';
+      _merkeTechnisch(e);
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Loescht eine Klartextdatei aus [anhangAlsDatei]. Wirft nie.
+  Future<void> gibAnhangFrei(File datei) async {
+    try {
+      await core.gibAnhangFrei(datei);
+    } catch (_) {
+      // Spaetestens beim Sperren oder naechsten Start weg.
+    }
+  }
+
+  /// Reicht einen Anhang an die App des Systems weiter, die ihn oeffnen kann.
+  ///
+  /// Rueckgabe: ob eine App ihn nahm; null, wenn er sich nicht entschluesseln
+  /// liess.
+  ///
+  /// DIE KLARTEXTKOPIE BLEIBT DANN LIEGEN — die andere App liest sie ueber
+  /// den FileProvider, womoeglich erst nach einer Weile, und wann sie fertig
+  /// ist, sagt sie nicht. Weg ist sie, sobald BitDM wieder in den
+  /// Vordergrund kommt ([vordergrund]: wer zurueck ist, hat fertig
+  /// angesehen), spaetestens beim Sperren oder beim naechsten Start.
+  Future<bool?> anhangOeffnen(AnhangEintrag a) async {
+    final klar = await anhangAlsDatei(a.chatId, a.messageId);
+    if (klar == null) return null;
+    final ging = await dateien.oeffne(klar.path, name: a.name);
+    if (ging) {
+      _extern.add(klar);
+    } else {
+      await gibAnhangFrei(klar);
+    }
+    return ging;
+  }
+
+  Future<void> _gibExterneFrei() async {
+    final alle = _extern.toList();
+    _extern.clear();
+    for (final f in alle) {
+      await gibAnhangFrei(f);
+    }
+  }
 
   /// Schickt eine Datei.
   ///

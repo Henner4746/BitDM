@@ -84,12 +84,46 @@ class GcmStueckKrypto extends StueckKrypto {
     required Uint8List nonce,
     required int nummer,
     required int vonWievielen,
+  }) =>
+      zuRoh(
+        klar: klar,
+        schluessel: schluessel,
+        nonce: nonce,
+        zusatz: StueckKrypto.zusatz(nummer, vonWievielen),
+      );
+
+  @override
+  Future<Uint8List> entschluessle({
+    required Uint8List geheim,
+    required Uint8List schluessel,
+    required Uint8List nonce,
+    required int nummer,
+    required int vonWievielen,
+  }) =>
+      aufRoh(
+        geheim: geheim,
+        schluessel: schluessel,
+        nonce: nonce,
+        zusatz: StueckKrypto.zusatz(nummer, vonWievielen),
+      );
+
+  /// AES-256-GCM mit frei gewaehltem beglaubigtem Zusatz.
+  ///
+  /// Der Kern beider Methoden oben — und seit der verschluesselten Ablage
+  /// auf dem Geraet (ruhe_datei.dart) auch von dort benutzt, deren Zusatz
+  /// anders aussieht als der eines Stuecks im Lager. Ausgabe wie immer:
+  /// Chiffretext, dahinter der 16-Byte-Beglaubigungsanhang.
+  static Future<Uint8List> zuRoh({
+    required Uint8List klar,
+    required Uint8List schluessel,
+    required Uint8List nonce,
+    required Uint8List zusatz,
   }) async {
     final box = await _gcm.encrypt(
       klar,
       secretKey: SecretKey(schluessel),
       nonce: nonce,
-      aad: StueckKrypto.zusatz(nummer, vonWievielen),
+      aad: zusatz,
     );
     // Chiffretext und Beglaubigungsanhang hintereinander — so, wie es auch
     // im Lager liegt. Der Nonce steht NICHT davor: er reist in der Anleitung.
@@ -99,13 +133,12 @@ class GcmStueckKrypto extends StueckKrypto {
     return aus;
   }
 
-  @override
-  Future<Uint8List> entschluessle({
+  /// Gegenstueck zu [zuRoh]. Wirft bei JEDEM Fehler [StueckKaputt].
+  static Future<Uint8List> aufRoh({
     required Uint8List geheim,
     required Uint8List schluessel,
     required Uint8List nonce,
-    required int nummer,
-    required int vonWievielen,
+    required Uint8List zusatz,
   }) async {
     // Ausdruecklich, obwohl der Fall auch ohne diese Zeile richtig endet:
     // sublistView wuerde bei einer negativen Grenze eine RangeError werfen,
@@ -122,7 +155,7 @@ class GcmStueckKrypto extends StueckKrypto {
           mac: Mac(Uint8List.sublistView(geheim, schnitt)),
         ),
         secretKey: SecretKey(schluessel),
-        aad: StueckKrypto.zusatz(nummer, vonWievielen),
+        aad: zusatz,
       );
       return Uint8List.fromList(klar);
     } catch (_) {

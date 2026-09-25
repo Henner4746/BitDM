@@ -28,6 +28,7 @@ import 'package:cryptography/cryptography.dart';
 import 'lager_client.dart';
 import 'rezept.dart';
 import 'native_krypto.dart';
+import 'ruhe_datei.dart';
 import 'stueck_krypto.dart';
 
 class AnhangKaputt implements Exception {
@@ -75,14 +76,24 @@ class AnhangEmpfang {
   /// [ziel] wird vom Aufrufer bestimmt und muss schon gesaeubert sein — der
   /// Name aus der Anleitung kommt von der Gegenstelle und taugt nicht als
   /// Pfad. Siehe [sichererName].
+  ///
+  /// [ruheSchluessel]: steht er da, landet die Datei NICHT im Klartext auf
+  /// dem Datentraeger, sondern im Ablageformat (ruhe_datei.dart) — schon
+  /// waehrend des Empfangs, Stueck fuer Stueck, ohne einen Umweg ueber eine
+  /// Klartextdatei. So macht es der Kern seit 25.09.2026; ohne Schluessel
+  /// (Werkzeuge, alte Tests) bleibt es beim Klartext.
   Future<File> hole(
     Rezept rezept,
     File ziel, {
     void Function(EmpfangsStand)? fortschritt,
     bool danachWegwerfen = true,
+    Uint8List? ruheSchluessel,
   }) async {
     final unfertig = File('${ziel.path}.teil');
-    final schreiber = await unfertig.open(mode: FileMode.writeOnly);
+    final schreiber = ruheSchluessel == null
+        ? _KlarSchreiber(await unfertig.open(mode: FileMode.writeOnly), unfertig)
+        : _RuheSchreiberHuelle(await RuheSchreiber.oeffne(unfertig, ruheSchluessel));
+    var ganz = false;
     final summe = Sha256();
     final summeSink = summe.newHashSink();
     var fertigeBytes = 0;
@@ -135,11 +146,15 @@ class AnhangEmpfang {
         // fehlte, war die Stuecknummer in der Meldung; die steht jetzt da.
 
         summeSink.add(klar);
-        await schreiber.writeFrom(klar);
+        await schreiber.schreibe(klar);
         fertigeBytes += klar.length;
       }
+      await schreiber.schliesse();
+      ganz = true;
     } finally {
-      await schreiber.close();
+      // Abgebrochen: die halbe Nebendatei geht mit. Vorher blieb sie liegen
+      // (bei der alten Fassung im Klartext).
+      if (!ganz) await schreiber.verwirf();
     }
 
     summeSink.close();
@@ -250,4 +265,49 @@ class AnhangEmpfang {
 
     return gekuerzt.isEmpty ? 'anhang' : gekuerzt;
   }
+}
+
+/// Wohin [AnhangEmpfang.hole] schreibt — Klartext oder Ablageformat.
+abstract class _Schreiber {
+  Future<void> schreibe(Uint8List daten);
+  Future<void> schliesse();
+  Future<void> verwirf();
+}
+
+class _KlarSchreiber implements _Schreiber {
+  _KlarSchreiber(this._z, this._datei);
+  final RandomAccessFile _z;
+  final File _datei;
+  var _zu = false;
+  @override
+  Future<void> schreibe(Uint8List daten) => _z.writeFrom(daten);
+  @override
+  Future<void> schliesse() async {
+    _zu = true;
+    await _z.close();
+  }
+
+  @override
+  Future<void> verwirf() async {
+    if (!_zu) {
+      _zu = true;
+      try {
+        await _z.close();
+      } catch (_) {}
+    }
+    try {
+      if (await _datei.exists()) await _datei.delete();
+    } catch (_) {}
+  }
+}
+
+class _RuheSchreiberHuelle implements _Schreiber {
+  _RuheSchreiberHuelle(this._s);
+  final RuheSchreiber _s;
+  @override
+  Future<void> schreibe(Uint8List daten) => _s.schreibe(daten);
+  @override
+  Future<void> schliesse() => _s.schliesse();
+  @override
+  Future<void> verwirf() => _s.verwirf();
 }

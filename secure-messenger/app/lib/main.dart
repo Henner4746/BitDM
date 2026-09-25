@@ -1493,14 +1493,35 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// Sperre die Route (siehe [_raeumeOberflaecheAuf]) — und die Datei muss
   /// trotzdem weg. [AppState.verbraucheEinmal] kommt mit einem gesperrten
   /// Kern zurecht.
+  ///
+  /// DIE DATEI IST VERSCHLUESSELT (seit 25.09.2026). Bis 20 MB wird das Bild
+  /// im Speicher entschluesselt und von dort gezeigt, ohne Klartextdatei;
+  /// darueber ueber eine kurzlebige Kopie, die beim Schliessen wieder geht.
+  /// ERST ENTSCHLUESSELN, DANN ZEIGEN: geht das schief, bleibt eine
+  /// Einmal-Ansicht unverbraucht, statt ungesehen zu verschwinden.
   Future<void> zeigeBild(String cid, AnhangEintrag a) async {
     final pfad = a.pfad;
     if (pfad == null) return;
+    Uint8List? bytes;
+    File? klar;
+    if (a.groesse <= AppState.vorschauGrenze) {
+      // Die Einmal-Ansicht NICHT ueber den Vorschauspeicher — ihre Bytes
+      // sollen nach dem Ansehen nirgends bleiben.
+      bytes = a.einmal
+          ? await st.anhangBytes(cid, a.messageId)
+          : await st.anhangVorschau(cid, a);
+    }
+    if (bytes == null) {
+      klar = await st.anhangAlsDatei(cid, a.messageId);
+      if (klar == null) return;
+    }
     if (a.einmal) await st.geheimnisSichtbar(true);
     try {
       if (!mounted) return;
-      await _zeigeBildRoute(pfad, a);
+      await _zeigeBildRoute(
+          bytes != null ? MemoryImage(bytes) : FileImage(klar!) as ImageProvider, a);
     } finally {
+      if (klar != null) await st.gibAnhangFrei(klar);
       if (a.einmal) {
         await st.geheimnisSichtbar(false);
         await st.verbraucheEinmal(cid, a.messageId, pfad: pfad);
@@ -1508,7 +1529,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     }
   }
 
-  Future<void> _zeigeBildRoute(String pfad, AnhangEintrag a) async {
+  Future<void> _zeigeBildRoute(ImageProvider bild, AnhangEintrag a) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       fullscreenDialog: true,
       builder: (ctx) => Scaffold(
@@ -1518,7 +1539,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
             Positioned.fill(
               child: InteractiveViewer(
                 maxScale: 6,
-                child: Center(child: Image.file(File(pfad),
+                child: Center(child: Image(image: bild,
                     errorBuilder: (_, _, _) => Text(t('imageUnreadable'),
                         style: mono(size: 12, color: Colors.white70)))),
               ),
@@ -1548,9 +1569,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       if (a == null || a.zustand != AnhangZustand.da) return;
     }
     if (sprachName.hasMatch(a.name)) {
-      // Abspielen und sofort verbrauchen: der Spieler haelt die Datei offen,
-      // das Loeschen nimmt nur den Namen weg.
-      if (a.pfad != null) await Sprache.spiele(a.pfad!);
+      // Abspielen und sofort verbrauchen: der Spieler haelt die Datei offen
+      // (SprachKanal.kt kehrt erst nach prepare() zurueck), das Loeschen nimmt
+      // nur den Namen weg. Das gilt fuer die entschluesselte Kopie genauso
+      // wie fuer die verschluesselte Ablage.
+      final klar = await st.anhangAlsDatei(cid, m.id);
+      if (klar == null) return;
+      try {
+        await Sprache.spiele(klar.path);
+      } finally {
+        await st.gibAnhangFrei(klar);
+      }
       await st.verbraucheEinmal(cid, m.id, pfad: a.pfad);
       return;
     }
@@ -6009,10 +6038,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   }
 
   Future<void> oeffneAnhang(AnhangEintrag a) async {
-    final pfad = a.pfad;
-    if (pfad == null) return;
-    final ging = await st.dateien.oeffne(pfad, name: a.name);
-    if (!ging && mounted) {
+    if (a.pfad == null) return;
+    // Ueber eine entschluesselte Kopie — die Ablage selbst ist verschluesselt
+    // (AppState.anhangOeffnen sagt, wann die Kopie wieder geht). Null heisst:
+    // liess sich nicht entschluesseln, die Meldung steht schon da.
+    final ging = await st.anhangOeffnen(a);
+    if (ging == false && mounted) {
       // Keine App auf dem Geraet kann diese Art Datei oeffnen. Das ist keine
       // Panne, sondern eine Auskunft — und sie gehoert dorthin, wo der Nutzer
       // gerade hinsieht.
@@ -6054,6 +6085,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     if (f == 'anhangWeb') return t('attachWeb');
     if (f == 'anhangLaeuft') return t('attachBusy');
     if (f == 'anhangKeineApp') return t('attachNoApp');
+    if (f == 'anhangUnlesbar') return t('attachUnreadable');
+    if (f == 'anhangFehlt') return t('attachMissing');
     if (f == 'nurNahbereich') return t('nearOnlyNoAttach');
     if (f.startsWith('anhangZuGross:')) return t('attachTooBig');
     if (f == 'metaNichtEntfernt') return t('metaNotRemoved');
@@ -6456,9 +6489,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
               onTap: () => zeigeBild(cid, a),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
-                child: Image.file(File(a.pfad!),
-                    width: 220, fit: BoxFit.cover, cacheWidth: 440,
-                    errorBuilder: (_, _, _) => const SizedBox.shrink()),
+                // AUS DEM SPEICHER, nicht aus der Datei: die ist verschluesselt.
+                // AppState.anhangVorschau gibt je Anhang dieselbe Zukunft
+                // zurueck — ein Neuaufbau der Liste entschluesselt nicht neu.
+                child: FutureBuilder<Uint8List?>(
+                  future: st.anhangVorschau(cid, a),
+                  builder: (_, schnappschuss) {
+                    final b = schnappschuss.data;
+                    if (b == null) return const SizedBox.shrink();
+                    return Image.memory(b,
+                        width: 220, fit: BoxFit.cover, cacheWidth: 440,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink());
+                  },
+                ),
               ),
             ),
             const SizedBox(height: Masse.nah),
@@ -6476,9 +6519,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                   if (sprachName.hasMatch(a.name))
                     anhangKnopf(t('voicePlay'), () async {
                       // Erst der eigene Spieler, sonst die App des Systems.
-                      if (a.pfad == null || !await Sprache.spiele(a.pfad!)) {
-                        await oeffneAnhang(a);
+                      // Die entschluesselte Kopie geht gleich nach dem Start
+                      // wieder — der Spieler haelt sie offen (siehe
+                      // [oeffneEinmal]).
+                      if (a.pfad == null) return;
+                      final klar = await st.anhangAlsDatei(cid, a.messageId);
+                      if (klar == null) return; // die Meldung steht schon da
+                      var spielt = false;
+                      try {
+                        spielt = await Sprache.spiele(klar.path);
+                      } finally {
+                        await st.gibAnhangFrei(klar);
                       }
+                      if (!spielt) await oeffneAnhang(a);
                     }, betont: true)
                   else
                   anhangKnopf(t('attachOpen'), () => oeffneAnhang(a)),

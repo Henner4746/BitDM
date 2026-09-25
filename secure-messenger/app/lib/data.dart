@@ -325,6 +325,8 @@ const Map<String, Map<String, String>> strings = {
         'encrypted.',
     'attachBusy': 'One file at a time — wait for the current one.',
     'attachNoApp': 'No app on this device can open that kind of file.',
+    'attachUnreadable': 'This attachment could not be decrypted on this device.',
+    'attachMissing': 'The file of this attachment is no longer on this device.',
 
     // ---- Verbindungstest ----
     'connTest': 'Check connection',
@@ -684,6 +686,8 @@ const Map<String, Map<String, String>> strings = {
         'hier, verschlüsselt.',
     'attachBusy': 'Eine Datei nach der anderen — warte, bis die aktuelle durch ist.',
     'attachNoApp': 'Keine App auf diesem Gerät kann diese Art Datei öffnen.',
+    'attachUnreadable': 'Dieser Anhang ließ sich auf diesem Gerät nicht entschlüsseln.',
+    'attachMissing': 'Die Datei dieses Anhangs liegt nicht mehr auf diesem Gerät.',
 
     // ---- Verbindungstest ----
     'connTest': 'Verbindung prüfen',

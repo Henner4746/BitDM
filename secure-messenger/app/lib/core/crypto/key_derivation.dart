@@ -6,9 +6,15 @@
 //   Seed (64 Byte)
 //        ├── HKDF-SHA256, info="bitdm identity key v1" ──▶ Identitaetsschluessel
 //        │                                                  └─▶ Adresse
-//        └── HKDF-SHA256, info="bitdm database key v1" ──▶ Datenbankschluessel
+//        ├── HKDF-SHA256, info="bitdm database key v1" ──▶ Datenbankschluessel
+//        └── HKDF-SHA256, info="bitdm attachments at rest v1"
+//                                                   ──▶ Ablageschluessel
 //
-// Warum zwei getrennte Labels statt eines Schluessels fuer beides:
+// Der Ablageschluessel (seit 25.09.2026) verschluesselt die Anhangdateien
+// auf dem Geraet (anhang/ruhe_datei.dart). Er liegt, wie der
+// Datenbankschluessel, nur im Speicher, solange die App entsperrt ist.
+//
+// Warum getrennte Labels statt eines Schluessels fuer alles:
 // HKDF liefert fuer verschiedene info-Werte kryptographisch unabhaengige
 // Ergebnisse. Wer den Datenbankschluessel erbeutet, kann daraus NICHT auf den
 // Identitaetsschluessel schliessen — und umgekehrt. Nur der Seed oeffnet beides.
@@ -44,10 +50,15 @@ class DerivedKeys {
   /// 32-Byte-Schluessel fuer die verschluesselte Nachrichtendatenbank.
   final Uint8List databaseKey;
 
+  /// 32-Byte-Schluessel fuer die Anhangdateien auf dem Geraet
+  /// ("attachments at rest", siehe anhang/ruhe_datei.dart).
+  final Uint8List attachmentKey;
+
   const DerivedKeys({
     required this.identityPrivateKey,
     required this.identityPublicKey,
     required this.databaseKey,
+    required this.attachmentKey,
   });
 
   /// Die "lange Nummer", die der Nutzer weitergibt.
@@ -68,6 +79,10 @@ class KeyDerivation {
   /// HKDF-Label des Datenbankschluessels. Aenderung = unlesbare Datenbanken.
   static const String databaseInfo = 'bitdm database key v1';
 
+  /// HKDF-Label des Ablageschluessels fuer Anhaenge. Aenderung = alle bereits
+  /// abgelegten Anhangdateien werden unlesbar.
+  static const String attachmentInfo = 'bitdm attachments at rest v1';
+
   static const int _keyLength = 32;
 
   /// Zwoelf Woerter -> alle Schluessel. Wirft [MnemonicException] bei falscher
@@ -84,6 +99,7 @@ class KeyDerivation {
   static Future<DerivedKeys> fromSeed(Uint8List seed) async {
     final identityRaw = await _hkdf(seed, identityInfo);
     final databaseKey = await _hkdf(seed, databaseInfo);
+    final attachmentKey = await _hkdf(seed, attachmentInfo);
 
     // Explizites Clamping: Manche Bibliotheken clampen beim Erzeugen, andere
     // erst bei der Verwendung. Wird der Schluessel hier kanonisiert, liefern
@@ -99,6 +115,7 @@ class KeyDerivation {
       identityPrivateKey: identityPrivateKey,
       identityPublicKey: Uint8List.fromList(publicKey.bytes),
       databaseKey: databaseKey,
+      attachmentKey: attachmentKey,
     );
   }
 

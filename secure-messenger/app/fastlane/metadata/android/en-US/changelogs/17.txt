@@ -1,0 +1,1 @@
+Security release after an internal review: about 80 issues fixed. Attachments encrypted on the device, photo metadata removed more thoroughly, the lock covers dialogs, recordings are deleted, Tor uses TLS all the way to the onion service, more reliable delivery in groups and over Bluetooth.

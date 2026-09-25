@@ -346,6 +346,32 @@ class FakeMessengerCore implements MessengerCore {
         e.copyWith(zustand: AnhangZustand.da, pfad: '/erfunden/${e.name}'));
   }
 
+  /// DIE ATTRAPPE VERSCHLUESSELT NICHTS: der Pfad ist schon der Klartext
+  /// (beim eigenen Anhang die Quelldatei). Herausgegeben wird er deshalb
+  /// unveraendert, und [gibAnhangFrei] loescht nichts — es waere sonst die
+  /// Datei des Nutzers.
+  @override
+  Future<File> entschluesselterAnhang(String contactId, String messageId) async {
+    if (!_init) throw const NotInitializedException();
+    final e = _anhaenge[contactId]?[messageId];
+    final pfad = e?.pfad;
+    if (e == null || pfad == null || e.zustand != AnhangZustand.da) {
+      throw StateError('kein Anhang zu $messageId');
+    }
+    return File(pfad);
+  }
+
+  @override
+  Future<Uint8List> anhangInhalt(String contactId, String messageId,
+      {int grenze = 20 * 1024 * 1024}) async {
+    final f = await entschluesselterAnhang(contactId, messageId);
+    if (await f.length() > grenze) throw RuheDateiZuGross(grenze);
+    return f.readAsBytes();
+  }
+
+  @override
+  Future<void> gibAnhangFrei(File datei) async {}
+
   AnhangEintrag _setzeAnhang(AnhangEintrag e) {
     _anhaenge.putIfAbsent(e.chatId, () => {})[e.messageId] = e;
     if (!_anhangWechselCtl.isClosed) _anhangWechselCtl.add(e);

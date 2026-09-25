@@ -23,6 +23,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:bitdm/core/anhang/lager_client.dart';
+import 'package:bitdm/core/anhang/ruhe_datei.dart';
+import 'package:bitdm/core/errors.dart';
 import 'package:bitdm/core/models.dart';
 import 'package:bitdm/core/real_messenger_core.dart';
 import 'package:bitdm/core/secret_store.dart';
@@ -54,6 +56,31 @@ Future<File> dateiMit(Directory ordner, int bytes, String name) async {
   }
   await s.close();
   return f;
+}
+
+/// Ob [nadel] irgendwo in [heu] vorkommt.
+bool enthaelt(Uint8List heu, List<int> nadel) {
+  outer:
+  for (var i = 0; i + nadel.length <= heu.length; i++) {
+    for (var j = 0; j < nadel.length; j++) {
+      if (heu[i + j] != nadel[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+/// Die Datei unter anhaenge/ ist im Ablageformat und verraet nichts vom
+/// Klartext [klar] — weder den Anfang noch ein Stueck aus der Mitte.
+Future<void> erwarteVerschluesselt(String pfad, Uint8List klar) async {
+  final roh = await File(pfad).readAsBytes();
+  expect(await RuheDatei.istVerschluesselt(File(pfad)), isTrue,
+      reason: 'der Anhang liegt nicht im Ablageformat');
+  expect(enthaelt(roh, klar.sublist(0, 32)), isFalse,
+      reason: 'der Anfang des Klartexts steht in der Datei');
+  final mitte = klar.length ~/ 2;
+  expect(enthaelt(roh, klar.sublist(mitte, mitte + 32)), isFalse,
+      reason: 'ein Stueck Klartext aus der Mitte steht in der Datei');
 }
 
 void main() {
@@ -178,9 +205,71 @@ void main() {
       // Jetzt holen.
       final fertig = await bob.holeAnhang(alice.myId, beiBob.id);
       expect(fertig.zustand, AnhangZustand.da);
-      expect(await File(fertig.pfad!).readAsBytes(), vorher,
+
+      // SEIT 25.09.2026 VERSCHLUESSELT ABGELEGT: unter anhaenge/ liegt kein
+      // Klartext — der kommt nur ueber die Entschluesselung heraus.
+      await erwarteVerschluesselt(fertig.pfad!, vorher);
+      final klar = await bob.entschluesselterAnhang(alice.myId, beiBob.id);
+      expect(await klar.readAsBytes(), vorher,
           reason: 'bytegleich, ueber zwei Kerne, zwei Server und die '
               'Signal-Sitzung dazwischen');
+      expect(klar.path, isNot(fertig.pfad));
+      expect(klar.parent.path, endsWith('.klar'),
+          reason: 'die Klartextkopie gehoert in den privaten Unterordner');
+      expect(await bob.anhangInhalt(alice.myId, beiBob.id), vorher);
+
+      // Freigeben loescht die Kopie, nicht den Anhang.
+      await bob.gibAnhangFrei(klar);
+      expect(klar.existsSync(), isFalse);
+      expect(File(fertig.pfad!).existsSync(), isTrue);
+
+      // NACH DEM SPERREN IST JEDE KLARTEXTKOPIE WEG — auch eine, die nie
+      // freigegeben wurde —, und ohne Entsperren gibt es keine neue.
+      final vergessen = await bob.entschluesselterAnhang(alice.myId, beiBob.id);
+      expect(vergessen.existsSync(), isTrue);
+      await bob.lock();
+      expect(vergessen.existsSync(), isFalse,
+          reason: 'die Klartextkopie ueberlebte das Sperren');
+      await expectLater(bob.entschluesselterAnhang(alice.myId, beiBob.id),
+          throwsA(isA<NotInitializedException>()));
+
+      // Und nach dem Entsperren geht es wieder — derselbe Schluessel aus
+      // denselben Woertern.
+      expect(await bob.initialize(), isTrue);
+      final wieder = await bob.entschluesselterAnhang(alice.myId, beiBob.id);
+      expect(await wieder.readAsBytes(), vorher);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('UMSTELLUNG: ein alter Klartextanhang wird beim Entsperren verschluesselt', () async {
+      if (relay == null || lager == null) return;
+      final quelle = await dateiMit(ordner, 150000, 'alt.bin');
+      final vorher = await quelle.readAsBytes();
+      final angekommen = bob.incomingMessages.first;
+      await alice.sendeAnhang(bob.myId, quelle);
+      final beiBob = await angekommen.timeout(const Duration(seconds: 20));
+      final geholt = await bob.holeAnhang(alice.myId, beiBob.id);
+
+      // Den Zustand einer alten Fassung herstellen: die Datei im Klartext,
+      // derselbe Pfad in der Datenbank.
+      await File(geholt.pfad!).writeAsBytes(vorher, flush: true);
+      expect(await RuheDatei.istVerschluesselt(File(geholt.pfad!)), isFalse);
+      // Bis zur Umstellung gibt es den Klartext unveraendert heraus.
+      expect(await bob.anhangInhalt(alice.myId, beiBob.id), vorher);
+
+      await bob.lock();
+      expect(await bob.initialize(), isTrue);
+      final r = await bob.anhangUmstellung;
+      expect(r.umgestellt, 1);
+      expect(r.offen, 0);
+
+      await erwarteVerschluesselt(geholt.pfad!, vorher);
+      final klar = await bob.entschluesselterAnhang(alice.myId, beiBob.id);
+      expect(await klar.readAsBytes(), vorher);
+      expect(Directory(File(geholt.pfad!).parent.path)
+              .listSync()
+              .where((e) => e.path.endsWith(RuheDatei.umstellEndung)),
+          isEmpty,
+          reason: 'eine Nebendatei der Umstellung blieb liegen');
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('EINMAL-ANSICHT: Bob sieht sie einmal, danach ist sie weg', () async {
@@ -225,11 +314,16 @@ void main() {
       final beiBob = await angekommen.timeout(const Duration(seconds: 20));
       await bob.holeAnhang(alice.myId, beiBob.id);
       await Future<void>.delayed(const Duration(seconds: 1));
+      final vorher = await quelle.readAsBytes();
       await quelle.delete();
       final eigen = (await alice.getAnhaenge(bob.myId))[gesendet.id]!;
       expect(eigen.pfad, isNotNull);
       expect(File(eigen.pfad!).existsSync(), isTrue,
           reason: 'ohne eigene Kopie verschwindet der Anhang mit der Quelle');
+      // Die eigene Kopie ist verschluesselt — und oeffnet sich trotzdem.
+      await erwarteVerschluesselt(eigen.pfad!, vorher);
+      final klar = await alice.entschluesselterAnhang(bob.myId, gesendet.id);
+      expect(await klar.readAsBytes(), vorher);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('SICHERUNG MIT DATEIEN: auf dem neuen Telefon ist der Anhang wieder da', () async {
@@ -260,7 +354,10 @@ void main() {
       await neu.spieleSicherungEin(mit);
       final dort = (await neu.getAnhaenge(alice.myId))[beiBob.id]!;
       expect(dort.zustand, AnhangZustand.da, reason: 'der Anhang ist nicht wieder da');
-      expect(await File(dort.pfad!).readAsBytes(), vorher);
+      // Auch eingespielt liegt er verschluesselt da.
+      await erwarteVerschluesselt(dort.pfad!, vorher);
+      final klar = await neu.entschluesselterAnhang(alice.myId, beiBob.id);
+      expect(await klar.readAsBytes(), vorher);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     // BIS 25.09.2026 HIESS DER TEST "nach dem Holen ist das Lager wieder
@@ -280,6 +377,31 @@ void main() {
       await Future<void>.delayed(const Duration(seconds: 1));
       expect(await lager!.anzahlBloecke(), greaterThan(0),
           reason: 'das erste Geraet hat die Bloecke fuer alle anderen geloescht');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    // EMULATORLAUF 25.09.2026: ein Anhang, dessen Datei fehlt, zeigte
+    // "Oeffnen" und scheiterte dann mit "liess sich nicht entschluesseln" —
+    // bei jedem Tippen wieder. Jetzt: klare Ausnahme, und der Zustand wird
+    // berichtigt, damit man ihn neu holen kann.
+    test('FEHLT DIE LOKALE DATEI, WIRD DER ANHANG WIEDER HOLBAR', () async {
+      if (relay == null || lager == null) return;
+      final angekommen = bob.incomingMessages.first;
+      await alice.sendeAnhang(bob.myId, await dateiMit(ordner, 5000, 'weg.bin'));
+      final beiBob = await angekommen.timeout(const Duration(seconds: 20));
+      final geholt = await bob.holeAnhang(alice.myId, beiBob.id);
+      await File(geholt.pfad!).delete();
+
+      await expectLater(bob.entschluesselterAnhang(alice.myId, beiBob.id),
+          throwsA(isA<AnhangFehltException>()));
+      final jetzt = (await bob.getAnhaenge(alice.myId))[beiBob.id]!;
+      expect(jetzt.zustand, AnhangZustand.angekuendigt,
+          reason: 'ein empfangener Anhang ohne Datei muss neu holbar sein');
+
+      final nochmal = await bob.holeAnhang(alice.myId, beiBob.id);
+      expect(nochmal.zustand, AnhangZustand.da);
+      final klar = await bob.entschluesselterAnhang(alice.myId, beiBob.id);
+      expect(await klar.length(), 5000);
+      await bob.gibAnhangFrei(klar);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('ZWEIMAL HOLEN GEHT NICHT SCHIEF', () async {
@@ -336,6 +458,7 @@ void main() {
       final geholt = await bob.holeAnhang(alice.myId, beiBob.id);
       final datei = File(geholt.pfad!);
       expect(await datei.exists(), isTrue);
+      final klar = await bob.entschluesselterAnhang(alice.myId, beiBob.id);
 
       await Future<void>.delayed(const Duration(seconds: 2));
       expect(await bob.purgeExpiredMessages(), greaterThan(0));
@@ -343,6 +466,8 @@ void main() {
       expect(await datei.exists(), isFalse,
           reason: 'die Datei muss mit der Nachricht verschwinden, nicht nur '
               'ihr Eintrag in der Datenbank');
+      expect(await klar.exists(), isFalse,
+          reason: 'die entschluesselte Kopie blieb nach dem Verfall liegen');
       expect(await bob.getAnhaenge(alice.myId), isEmpty);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
