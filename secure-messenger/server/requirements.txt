@@ -10,9 +10,9 @@
 # 0.0.0.0. Genau diese Bindung war am 12.07.2026 die Einbruchsursache auf
 # derselben Maschine (exponierter LiteLLM-Port).
 
-fastapi==0.138.0
-uvicorn==0.49.0
-pydantic==2.13.4
+fastapi==0.141.1
+uvicorn==0.53.0
+pydantic==2.13.5
 
 # XEdDSA-Signaturpruefung ueber Curve25519-Identitaetsschluessel.
 # Zwingend: libsignal signiert mit XEdDSA, nicht mit reinem Ed25519 —
@@ -21,5 +21,5 @@ pydantic==2.13.4
 xeddsa==1.2.0
 
 # --- nur fuer den Test ---
-websockets==16.0
+websockets==17.1
 httpx==0.28.1
