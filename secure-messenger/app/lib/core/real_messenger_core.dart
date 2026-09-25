@@ -2314,6 +2314,18 @@ class RealMessengerCore implements MessengerCore {
   }
 
   @override
+  Future<List<Verteiler>> getVerteiler() async {
+    if (_chats == null) throw const NotInitializedException();
+    return _chats!.verteiler();
+  }
+
+  @override
+  Future<void> speichereVerteiler(List<Verteiler> liste) async {
+    if (_chats == null) throw const NotInitializedException();
+    _chats!.speichereVerteiler(liste);
+  }
+
+  @override
   Future<void> verbraucheEinmal(String contactId, String messageId) async {
     _fordereChat(contactId);
     final pfad = _chats!.verbraucheAnhang(contactId, messageId);

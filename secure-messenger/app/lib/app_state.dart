@@ -491,6 +491,7 @@ class AppState extends ChangeNotifier {
     gruppen = await core.getGruppen();
     await _ladeVorschauen();
     await _ladeUngelesen();
+    await _ladeVerteiler();
     _hoereZu();
     // Nicht abwarten: der Kern wirft bei Netzproblemen nicht, er meldet den
     // Zustand. Die Oberflaeche soll sofort da sein, auch im Funkloch.
@@ -965,6 +966,50 @@ class AppState extends ChangeNotifier {
   /// Welche Unterhaltung die Oberflaeche gerade zeigt, oder null. Die
   /// Oberflaeche setzt das beim Zeichnen.
   String? offeneUnterhaltung;
+
+  /// Verteilerlisten (siehe [Verteiler]).
+  List<Verteiler> verteiler = const [];
+
+  Future<void> _ladeVerteiler() async {
+    try {
+      verteiler = await core.getVerteiler();
+    } on MessengerException {
+      return;
+    }
+  }
+
+  Future<void> legeVerteilerAn(String name, List<String> mitglieder) async {
+    final v = Verteiler(
+        id: 'v-${DateTime.now().microsecondsSinceEpoch}',
+        name: name.trim(),
+        mitglieder: mitglieder.take(Verteiler.maxMitglieder).toList());
+    verteiler = [...verteiler, v];
+    await core.speichereVerteiler(verteiler);
+    notifyListeners();
+  }
+
+  Future<void> loescheVerteiler(String id) async {
+    verteiler = verteiler.where((v) => v.id != id).toList();
+    await core.speichereVerteiler(verteiler);
+    notifyListeners();
+  }
+
+  /// Schickt [text] an jedes Mitglied einzeln. Rueckgabe: an wie viele.
+  ///
+  /// NACHEINANDER, nicht gleichzeitig: jede Nachricht geht durch die Sitzung
+  /// ihres Empfaengers, und fuenfzig parallele Versuche beim Wiederverbinden
+  /// waeren fuenfzig Last auf einmal.
+  Future<int> sendeAnVerteiler(String id, String text) async {
+    final v = verteiler.where((x) => x.id == id).firstOrNull;
+    if (v == null || text.trim().isEmpty) return 0;
+    var n = 0;
+    for (final m in v.mitglieder) {
+      if (!aktiveKontakte.any((k) => k.id == m)) continue;
+      await senden(m, text);
+      n++;
+    }
+    return n;
+  }
 
   Future<void> _ladeUngelesen() async {
     try {

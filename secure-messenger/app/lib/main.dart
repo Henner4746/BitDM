@@ -2047,6 +2047,131 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     );
   }
 
+  /// Eine Zeile fuer eine Verteilerliste — Antippen oeffnet das Schreibblatt.
+  Widget verteilerZeile(Verteiler v) => InkWell(
+        key: ValueKey('verteiler-${v.id}'),
+        onTap: () => verteilerBlatt(v),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
+          child: Row(children: [
+            Container(
+              width: 40, height: 40, alignment: Alignment.center,
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
+              child: Text('⇉', style: TextStyle(fontSize: 18, color: p.accLight, height: 1)),
+            ),
+            const SizedBox(width: 11),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(v.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 0.8)),
+              const SizedBox(height: 3),
+              Text('${t('listTag')} · ${v.mitglieder.length} ${t('groupMembers')}',
+                  style: mono(size: 11.5, color: p.muted)),
+            ])),
+          ]),
+        ),
+      );
+
+  /// Schreiben an eine Verteilerliste — und die Liste loeschen.
+  void verteilerBlatt(Verteiler v) {
+    final text = TextEditingController();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.of(ctx).viewInsets.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(v.name, style: doto(size: 18, weight: FontWeight.w600, color: p.ink)),
+          const SizedBox(height: 4),
+          Text(t('listExplain'), style: mono(size: 11, color: p.dim, height: 1.5)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final m in v.mitglieder) marke(shortId(adresseFormatiert(m))),
+          ]),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
+            child: TextField(
+              key: const ValueKey('verteiler-text'),
+              controller: text,
+              minLines: 1, maxLines: 5,
+              enableIMEPersonalizedLearning: false,
+              style: mono(size: 13.5, color: p.ink),
+              decoration: InputDecoration(border: InputBorder.none, hintText: t('message'),
+                  hintStyle: mono(size: 13.5, color: p.dim)),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: outlineBtn(t('listDelete'), () async {
+              Navigator.pop(ctx);
+              await st.loescheVerteiler(v.id);
+            }, accent: false, padding: const EdgeInsets.all(10))),
+            const SizedBox(width: 8),
+            Expanded(child: outlineBtn(t('send'), () async {
+              final n = await st.sendeAnVerteiler(v.id, text.text);
+              if (ctx.mounted) Navigator.pop(ctx);
+              _hinweis(t('listSent').replaceFirst('{n}', '$n'));
+            }, padding: const EdgeInsets.all(10))),
+          ]),
+        ]),
+      ),
+    ).whenComplete(() => _entsorgeNachDemSchliessen([text]));
+  }
+
+  Future<void> _legeVerteilerAnDialog() async {
+    final name = TextEditingController();
+    final gewaehlt = <String>{};
+    String? fehler;
+    final kandidaten = st.aktiveKontakte.where((k) => !st.istNotizen(k.id)).toList();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, neu) => AlertDialog(
+          title: Text(t('listCreate')),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(t('listExplain'), style: mono(size: 11, color: p.dim, height: 1.5)),
+                TextField(controller: name, maxLength: Gruppe.maxName, enableIMEPersonalizedLearning: false,
+                    style: mono(size: 13, color: p.ink),
+                    decoration: InputDecoration(hintText: t('listName'), counterText: '', hintStyle: mono(size: 13, color: p.dim))),
+                const SizedBox(height: 6),
+                if (kandidaten.isEmpty)
+                  Text(t('groupNoContacts'), style: mono(size: 12, color: p.muted)),
+                for (final k in kandidaten)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: gewaehlt.contains(k.id),
+                    onChanged: (v) => neu(() => v == true ? gewaehlt.add(k.id) : gewaehlt.remove(k.id)),
+                    title: Text(shortId(adresseFormatiert(k.id)), style: mono(size: 12, color: p.ink)),
+                  ),
+                if (fehler != null) Text(fehler!, style: mono(size: 11.5, color: p.tintInk)),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
+            TextButton(
+              onPressed: () async {
+                if (name.text.trim().isEmpty || gewaehlt.isEmpty) {
+                  neu(() => fehler = t('listInvalid'));
+                  return;
+                }
+                Navigator.pop(ctx);
+                await st.legeVerteilerAn(name.text, gewaehlt.toList());
+              },
+              child: Text(t('actCreate')),
+            ),
+          ],
+        ),
+      ),
+    );
+    _entsorgeNachDemSchliessen([name]);
+  }
+
   Future<void> _legeGruppeAnDialog() async {
     final name = TextEditingController();
     final gewaehlt = <String>{};
@@ -4704,6 +4829,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           // ANGEHEFTET HEISST GANZ OBEN — ueber beide Arten hinweg. Vorher
           // standen erst alle Gruppen, dann alle Kontakte, und ein angehefteter
           // Kontakt blieb unter jeder Gruppe (Emulatorlauf 25.09.2026).
+          if (!_zeigeArchiv && _filter == 'alle')
+            for (final v in st.verteiler) verteilerZeile(v),
           for (final g in sichtbareGruppen.where((g) => g.angeheftet && _passt(g.id, true))) gruppenZeile(g),
           for (final k in sichtbareKontakte.where((k) => k.angeheftet && _passt(k.id, false))) contactRow(k.id),
           for (final g in sichtbareGruppen.where((g) => !g.angeheftet && _passt(g.id, true))) gruppenZeile(g),
@@ -4727,6 +4854,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(22, 12, 22, 8),
                 child: Text('+ ${t('groupCreate')}', style: mono(size: 12, color: p.accLight)),
+              ),
+            ),
+          if (!_zeigeArchiv && st.meineAdresse.isNotEmpty)
+            InkWell(
+              key: const ValueKey('verteiler-neu'),
+              onTap: _legeVerteilerAnDialog,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 4, 22, 8),
+                child: Text('+ ${t('listCreate')}', style: mono(size: 12, color: p.accLight)),
               ),
             ),
           if (!_zeigeArchiv &&

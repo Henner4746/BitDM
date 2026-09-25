@@ -807,6 +807,26 @@ class ChatRepository {
     return ging;
   }
 
+  /// Die Verteilerlisten — als JSON in der verschluesselten Datenbank.
+  List<Verteiler> verteiler() {
+    final roh = db.meta('verteiler');
+    if (roh == null || roh.isEmpty) return const [];
+    try {
+      return (jsonDecode(roh) as List)
+          .map((e) => Verteiler.ausJson((e as Map).cast<String, Object?>()))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  void speichereVerteiler(List<Verteiler> liste) {
+    db.transaction((raw) => raw.execute(
+        'INSERT INTO meta (key, value) VALUES (?,?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['verteiler', jsonEncode(liste.map((v) => v.alsJson()).toList())]));
+  }
+
   /// Merkt sich, dass [chatId] bis zur neuesten Nachricht gelesen ist.
   /// Nur vorwaerts — ein spaeterer Aufruf mit weniger Nachrichten setzt nichts
   /// zurueck.

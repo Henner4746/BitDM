@@ -267,6 +267,10 @@ abstract class MessengerCore {
 
   Future<List<Gruppe>> getGruppen();
 
+  /// Verteilerlisten — nur oertlich, der Relay erfaehrt nichts.
+  Future<List<Verteiler>> getVerteiler();
+  Future<void> speichereVerteiler(List<Verteiler> liste);
+
   /// Nur der Admin. Neue muessen aktive Kontakte sein.
   Future<void> fuegeZuGruppeHinzu(String gruppeId, List<String> neue);
 

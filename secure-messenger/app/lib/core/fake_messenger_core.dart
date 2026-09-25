@@ -375,6 +375,14 @@ class FakeMessengerCore implements MessengerCore {
     _gelesenBis[contactId] = _msgs[contactId]?.length ?? 0;
   }
 
+  List<Verteiler> _verteiler = const [];
+
+  @override
+  Future<List<Verteiler>> getVerteiler() async => _verteiler;
+
+  @override
+  Future<void> speichereVerteiler(List<Verteiler> liste) async => _verteiler = List.of(liste);
+
   @override
   Future<void> verbraucheEinmal(String contactId, String messageId) async {
     final e = _anhaenge[contactId]?[messageId];

@@ -140,6 +140,15 @@ void main() {
         reason: 'das Zeichen "ohne Server gegangen" ging verloren');
   });
 
+  test('Verteilerlisten ueberleben das Neulesen', () {
+    final ablage = kern.ablageFuerTest;
+    expect(ablage.verteiler(), isEmpty);
+    ablage.speichereVerteiler([const Verteiler(id: 'v1', name: 'Nachbarn', mitglieder: ['a', 'b'])]);
+    final zurueck = ablage.verteiler();
+    expect(zurueck.single.name, 'Nachbarn');
+    expect(zurueck.single.mitglieder, ['a', 'b']);
+  });
+
   test('ungelesen zaehlt fremde Nachrichten bis zum Lesen, eigene nie', () {
     final ablage = kern.ablageFuerTest;
     for (final id in ['f1', 'f2']) {

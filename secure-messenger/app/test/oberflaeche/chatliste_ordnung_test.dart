@@ -123,6 +123,23 @@ void main() {
         reason: 'gelesen ist gelesen — auch die Antwort, die in die offene Unterhaltung kam');
   });
 
+  testWidgets('VERTEILERLISTE: EINE NACHRICHT GEHT EINZELN AN JEDES MITGLIED', (tester) async {
+    await zurListe(tester);
+    final kontakt = st.aktiveKontakte.first.id;
+    await tester.runAsync(() => st.legeVerteilerAn('Nachbarn', [kontakt]));
+    await warte(tester);
+    expect(find.text('Nachbarn'), findsOneWidget, reason: 'die Liste steht nicht in der Chatliste');
+
+    await tester.tap(find.text('Nachbarn'));
+    await warte(tester);
+    await tester.enterText(find.byKey(const ValueKey('verteiler-text')), 'Grillen am Samstag');
+    await tester.tap(textEgalWie('Send').last);
+    await warte(tester);
+    expect(st.verlaufVon(kontakt).where((m) => m.isMine).last.text, 'Grillen am Samstag',
+        reason: 'die Nachricht kam nicht im Einzelchat an');
+    await warte(tester, 2400);
+  });
+
   testWidgets('MARKIEREN: STERN AN DER BLASE, DER FILTER ★ ZEIGT SIE', (tester) async {
     await zurListe(tester);
     await tester.tap(zeile().first, warnIfMissed: false);

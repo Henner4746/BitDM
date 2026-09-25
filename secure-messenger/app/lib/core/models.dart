@@ -110,6 +110,26 @@ class Umfrage {
 /// NUR DER ADMIN aendert die Mitgliederliste, jede Aenderung mit einer
 /// hoeheren [version]. Austreten darf jeder selbst. Tritt der Admin aus,
 /// wird das naechste Mitglied der Liste Admin ([nachfolger]).
+/// Eine Verteilerliste: EINE Nachricht an mehrere Kontakte, verschickt als
+/// einzelne Nachrichten. Die Empfaenger erfahren nichts voneinander — fuer sie
+/// ist es eine gewoehnliche Nachricht im Einzelchat. Nur auf diesem Geraet.
+class Verteiler {
+  const Verteiler({required this.id, required this.name, required this.mitglieder});
+
+  final String id;
+  final String name;
+  final List<String> mitglieder;
+
+  static const maxMitglieder = 50;
+
+  Map<String, Object?> alsJson() => {'id': id, 'n': name, 'm': mitglieder};
+
+  static Verteiler ausJson(Map<String, Object?> j) => Verteiler(
+      id: j['id']! as String,
+      name: j['n']! as String,
+      mitglieder: (j['m']! as List).cast<String>());
+}
+
 class Gruppe {
   const Gruppe({
     required this.id,
