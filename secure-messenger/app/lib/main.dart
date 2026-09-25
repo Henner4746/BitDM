@@ -1962,6 +1962,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           const SizedBox(width: 8),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Text(zeit, style: mono(size: 10.5, color: p.dim)),
+            if ((screen == 'chat' && chat == g.id ? 0 : st.ungelesenIn(g.id)) > 0) ...[
+              const SizedBox(height: 5),
+              ungelesenMarke(st.ungelesenIn(g.id)),
+            ],
             if (marken.isNotEmpty) ...[
               const SizedBox(height: 4),
               Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2180,12 +2184,39 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
   bool _passt(String id, bool gruppe) => switch (_filter) {
         'gruppen' => gruppe,
-        'ungelesen' => () {
-            final l = st.verlaufVon(id);
-            return l.isNotEmpty && !l.last.isMine && chat != id;
-          }(),
+        'ungelesen' => st.ungelesenIn(id) > 0,
         _ => true,
       };
+
+  String _uhr(int minuten) =>
+      '${(minuten ~/ 60).toString().padLeft(2, '0')}:${(minuten % 60).toString().padLeft(2, '0')}';
+
+  Future<void> _waehleRuhe(bool anfang) async {
+    final jetzt = anfang ? st.einstellungen.ruheVon : st.einstellungen.ruheBis;
+    final zeit = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay(hour: jetzt ~/ 60, minute: jetzt % 60),
+        helpText: anfang ? t('quietFrom') : t('quietTo'));
+    if (zeit == null) return;
+    final m = zeit.hour * 60 + zeit.minute;
+    await st.setzeEinstellungen(anfang
+        ? st.einstellungen.copyWith(ruheVon: m)
+        : st.einstellungen.copyWith(ruheBis: m));
+  }
+
+  /// Die Zahl der ungelesenen Nachrichten als Pille — leer, wenn keine.
+  Widget ungelesenMarke(int zahl) => zahl <= 0
+      ? const SizedBox(height: 16)
+      : Container(
+          key: const ValueKey('ungelesen-zahl'),
+          constraints: const BoxConstraints(minWidth: 18),
+          height: 18,
+          padding: const EdgeInsets.symmetric(horizontal: 5),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(99)),
+          child: Text(zahl > 99 ? '99+' : '$zahl',
+              style: mono(size: 9.5, weight: FontWeight.w700, color: p.onAcc, height: 1)),
+        );
 
   Widget filterLeiste() {
     const filter = ['alle', 'ungelesen', 'gruppen', 'stern'];
@@ -2738,6 +2769,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     // schliessen gibt; erst auf der Chatliste (und im Onboarding) darf sie
     // durch. Die Ziele sind dieselben wie bei den ‹-Knoepfen — zwei Wege,
     // eine Ordnung.
+    // Fuer den Zaehler: eine Nachricht in die gerade offene Unterhaltung gilt
+    // sofort als gelesen (AppState.offeneUnterhaltung).
+    st.offeneUnterhaltung = screen == 'chat' ? chat : null;
+
     final Widget geruest = Scaffold(
       backgroundColor: p.bg,
       resizeToAvoidBottomInset: true,
@@ -4596,7 +4631,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     final time = letzte == null ? '' : zeitVon(letzte.timestamp);
     // Ungelesen: die letzte Nachricht kam von der Gegenstelle und diese
     // Unterhaltung ist gerade nicht offen.
-    final unread = letzte != null && !letzte.isMine && chat != id;
+    // DIE ECHTE ZAHL statt "die letzte Nachricht ist fremd": die alte Regel
+    // liess den Punkt stehen, bis man selbst antwortete, und blendete ihn fuer
+    // die zuletzt geoeffnete Unterhaltung aus, auch nachdem man sie verlassen
+    // hatte.
+    final zahl = (screen == 'chat' && chat == id) ? 0 : st.ungelesenIn(id);
     // Die Zeilen der Chatliste sind die am haeufigsten angetippten der App und
     // waren im Fenster die letzten ohne Zeiger, Ueberfahren und Tab. Die
     // Fuellung ist die Rueckmeldung: die Zeile hat keinen Rahmen, den man
@@ -4632,7 +4671,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
               ]),
               const SizedBox(height: 4),
             ],
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: unread ? p.accent : Colors.transparent, shape: BoxShape.circle)),
+            ungelesenMarke(zahl),
           ]),
         ]),
       ),
@@ -5447,6 +5486,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
               (v) => st.setzeEinstellungen(
                   st.einstellungen.copyWith(themaWandern: int.parse(v)))),
         ])),
+        const SizedBox(height: 3),
+        toggleRow(t('quietHours'), t('quietHoursSub'), st.einstellungen.ruheAn,
+            () => st.setzeEinstellungen(st.einstellungen.copyWith(ruheAn: !st.einstellungen.ruheAn))),
+        if (st.einstellungen.ruheAn)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(11, 6, 11, 4),
+            child: Row(children: [
+              Expanded(child: outlineBtn('${t('quietFrom')} ${_uhr(st.einstellungen.ruheVon)}',
+                  () => _waehleRuhe(true), padding: const EdgeInsets.all(10))),
+              const SizedBox(width: 8),
+              Expanded(child: outlineBtn('${t('quietTo')} ${_uhr(st.einstellungen.ruheBis)}',
+                  () => _waehleRuhe(false), padding: const EdgeInsets.all(10))),
+            ]),
+          ),
         const SizedBox(height: 3),
         toggleRow(t('decryptFx'), t('decryptFxSub'), st.einstellungen.entschluesseln,
             () => st.setzeEinstellungen(st.einstellungen.copyWith(

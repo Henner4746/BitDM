@@ -495,6 +495,9 @@ class ChatRepository {
       themaWandern: int.tryParse(lies('thema_wandern') ?? '') ?? 0,
       sprache: (lies('sprache') ?? '').isEmpty ? null : lies('sprache'),
       entschluesseln: lies('entschluesseln') != '0',
+      ruheAn: lies('ruhe_an') == '1',
+      ruheVon: int.tryParse(lies('ruhe_von') ?? '') ?? 22 * 60,
+      ruheBis: int.tryParse(lies('ruhe_bis') ?? '') ?? 7 * 60,
       readReceipts: lies('read_receipts') != '0',
       messageLifetime:
           (dauer == null || dauer <= 0) ? null : Duration(seconds: dauer),
@@ -524,6 +527,9 @@ class ChatRepository {
       setze('thema_wandern', '${p.themaWandern}');
       setze('sprache', p.sprache ?? '');
       setze('entschluesseln', p.entschluesseln ? '1' : '0');
+      setze('ruhe_an', p.ruheAn ? '1' : '0');
+      setze('ruhe_von', '${p.ruheVon}');
+      setze('ruhe_bis', '${p.ruheBis}');
       setze('read_receipts', p.readReceipts ? '1' : '0');
       setze('lifetime_seconds', '${p.messageLifetime?.inSeconds ?? 0}');
       setze('block_screenshots', p.blockScreenshots ? '1' : '0');
@@ -784,6 +790,28 @@ class ChatRepository {
     store?.markClean();
     return ging;
   }
+
+  /// Merkt sich, dass [chatId] bis zur neuesten Nachricht gelesen ist.
+  /// Nur vorwaerts — ein spaeterer Aufruf mit weniger Nachrichten setzt nichts
+  /// zurueck.
+  void merkeGelesen(String chatId) {
+    db.transaction((raw) => raw.execute(
+        'INSERT INTO gelesen (chat_id, bis_seq) '
+        'SELECT ?, COALESCE(MAX(seq), 0) FROM messages WHERE chat_id = ? '
+        'ON CONFLICT(chat_id) DO UPDATE SET bis_seq = MAX(bis_seq, excluded.bis_seq)',
+        [chatId, chatId]));
+  }
+
+  /// Wie viele fremde Nachrichten je Unterhaltung noch nicht gelesen sind.
+  /// Unterhaltungen ohne ungelesene fehlen in der Karte.
+  Map<String, int> ungelesenJeChat() => {
+        for (final r in db.raw.select(
+            'SELECT m.chat_id AS c, COUNT(*) AS n FROM messages m '
+            'LEFT JOIN gelesen g ON g.chat_id = m.chat_id '
+            'WHERE m.is_mine = 0 AND m.widerrufen = 0 AND m.seq > COALESCE(g.bis_seq, 0) '
+            'GROUP BY m.chat_id'))
+          r['c'] as String: r['n'] as int,
+      };
 
   /// Setzt oder nimmt den Stern einer Nachricht. false = keine solche.
   bool setzeStern(String chatId, String messageId, bool an) {

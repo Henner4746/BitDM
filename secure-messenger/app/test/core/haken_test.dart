@@ -140,6 +140,19 @@ void main() {
         reason: 'das Zeichen "ohne Server gegangen" ging verloren');
   });
 
+  test('ungelesen zaehlt fremde Nachrichten bis zum Lesen, eigene nie', () {
+    final ablage = kern.ablageFuerTest;
+    for (final id in ['f1', 'f2']) {
+      ablage.speichereEigene(Message(
+        id: id, chatId: chat, senderId: chat, text: id, kind: MessageKind.text,
+        isMine: false, timestamp: DateTime.now().toUtc(), status: MessageStatus.delivered,
+      ));
+    }
+    expect(ablage.ungelesenJeChat(), {chat: 2}, reason: 'die eigene aus setUp zaehlt mit');
+    ablage.merkeGelesen(chat);
+    expect(ablage.ungelesenJeChat(), isEmpty);
+  });
+
   test('Quittungen warten zufaellig 0,3 bis 2,5 s — gegen Zuordnung ueber die Zeit', () {
     final werte = [for (var i = 0; i < 40; i++) kern.quittungsVerzug().inMilliseconds];
     expect(werte.every((v) => v >= 300 && v < 2500), isTrue, reason: '$werte');

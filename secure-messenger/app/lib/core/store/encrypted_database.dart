@@ -79,7 +79,7 @@ class EncryptedDatabase {
   CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 11;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -271,6 +271,8 @@ class EncryptedDatabase {
             _schemaV9(db);
           case 10:
             _schemaV10(db);
+          case 11:
+            _schemaV11(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -544,6 +546,22 @@ class EncryptedDatabase {
   /// "duplicate column name" scheitert, rollt zurueck und ist danach nie
   /// wieder erreichbar. Jede Spalte nur, wenn sie fehlt; jede Tabelle mit
   /// IF NOT EXISTS.
+  /// GELESEN: je Unterhaltung bis zu welcher Nachricht (seq) gelesen wurde —
+  /// fuer die Zahl an der Chatzeile. Nur lokal.
+  ///
+  /// Beim Umstieg gilt alles Vorhandene als gelesen: sonst stuenden nach dem
+  /// Update an jeder alten Unterhaltung Hunderte "ungelesene" Nachrichten.
+  static void _schemaV11(CommonDatabase db) {
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS gelesen (
+        chat_id TEXT PRIMARY KEY NOT NULL,
+        bis_seq INTEGER NOT NULL
+      )
+    ''');
+    db.execute('INSERT OR IGNORE INTO gelesen (chat_id, bis_seq) '
+        'SELECT chat_id, MAX(seq) FROM messages GROUP BY chat_id');
+  }
+
   /// STERNE: wann eine Nachricht markiert wurde (ms), sonst NULL. Nur lokal.
   static void _schemaV10(CommonDatabase db) {
     _spalteDazu(db, 'messages', 'stern', 'INTEGER');

@@ -106,6 +106,23 @@ void main() {
     expect(textEgalWie('ARCHIVED'), findsNothing);
   });
 
+  testWidgets('UNGELESEN: DIE ZAHL VERSCHWINDET BEIM LESEN UND KOMMT FUER DIE OFFENE NICHT', (tester) async {
+    await zurListe(tester);
+    final zahl = find.byKey(const ValueKey('ungelesen-zahl'));
+    expect(zahl, findsOneWidget, reason: 'die fremde Demo-Nachricht zaehlt nicht');
+
+    await tester.tap(zeile().first, warnIfMissed: false);
+    await warte(tester, 600);
+    // Waehrend die Unterhaltung offen ist, antwortet der Entwurfskern.
+    await tester.enterText(find.byType(TextField).last, 'Hallo');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await warte(tester, 1400);
+    await tester.tap(find.text('‹').first, warnIfMissed: false);
+    await warte(tester);
+    expect(zahl, findsNothing,
+        reason: 'gelesen ist gelesen — auch die Antwort, die in die offene Unterhaltung kam');
+  });
+
   testWidgets('MARKIEREN: STERN AN DER BLASE, DER FILTER ★ ZEIGT SIE', (tester) async {
     await zurListe(tester);
     await tester.tap(zeile().first, warnIfMissed: false);

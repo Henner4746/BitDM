@@ -2312,6 +2312,12 @@ class RealMessengerCore implements MessengerCore {
   }
 
   @override
+  Future<Map<String, int>> ungelesenJeChat() async {
+    if (_chats == null) throw const NotInitializedException();
+    return _chats!.ungelesenJeChat();
+  }
+
+  @override
   Future<List<Message>> sterne() async {
     if (_chats == null) throw const NotInitializedException();
     return _chats!.sterne();
@@ -3006,6 +3012,10 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<void> markRead(String contactId) async {
     _fordereChat(contactId);
+    // ZUERST DIE EIGENE ZAHL, unabhaengig vom Schalter darunter: ob die
+    // Gegenseite eine Lesebestaetigung bekommt, ist eine andere Frage als die,
+    // ob hier noch ein Zaehler stehen soll.
+    _chats?.merkeGelesen(contactId);
 
     // Der Schalter steuert jetzt wirklich etwas. Vorher wurde IMMER
     // quittiert, egal was in den Einstellungen stand.

@@ -370,8 +370,19 @@ class FakeMessengerCore implements MessengerCore {
   @override
   Future<void> markRead(String contactId) async {
     if (!_kennt(contactId)) throw UnknownContactException(contactId);
-    // no-op in the fake; RealMessengerCore would send a read receipt to the peer.
+    // Keine Lesebestaetigung im Entwurf — aber die Zahl merkt er sich.
+    _gelesenBis[contactId] = _msgs[contactId]?.length ?? 0;
   }
+
+  /// Je Unterhaltung: wie viele Nachrichten beim letzten [markRead] da waren.
+  final Map<String, int> _gelesenBis = {};
+
+  @override
+  Future<Map<String, int>> ungelesenJeChat() async => {
+        for (final e in _msgs.entries)
+          if (e.value.skip(_gelesenBis[e.key] ?? 0).where((m) => !m.isMine && !m.widerrufen).isNotEmpty)
+            e.key: e.value.skip(_gelesenBis[e.key] ?? 0).where((m) => !m.isMine && !m.widerrufen).length,
+      };
 
   @override
   Future<SafetyNumber> getSafetyNumber(String contactId) async {

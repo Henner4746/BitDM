@@ -490,6 +490,7 @@ class AppState extends ChangeNotifier {
     // "Neuer Kontakt" statt der letzten Nachricht (Emulatorlauf).
     gruppen = await core.getGruppen();
     await _ladeVorschauen();
+    await _ladeUngelesen();
     _hoereZu();
     // Nicht abwarten: der Kern wirft bei Netzproblemen nicht, er meldet den
     // Zustand. Die Oberflaeche soll sofort da sein, auch im Funkloch.
@@ -538,6 +539,11 @@ class AppState extends ChangeNotifier {
         return;
       }
       _ungelesen = 0;
+      // Was im Hintergrund in die offene Unterhaltung kam, ist jetzt gesehen.
+      final offen = offeneUnterhaltung;
+      if (offen != null && ungelesen.remove(offen) != null) {
+        unawaited(core.markRead(offen));
+      }
       unawaited(Benachrichtigungen.instanz.raeumeAuf());
       unawaited(raeumeAbgelaufeneWeg());
       _fehlversuche = 0;
@@ -871,6 +877,14 @@ class AppState extends ChangeNotifier {
         if (!m.isMine) {
           if (frischeNachrichten.length > 200) frischeNachrichten.clear();
           frischeNachrichten.add(m.id);
+          // WER GERADE HINSIEHT, HAT SIE GELESEN. Bis 25.09.2026 galt nur das
+          // Oeffnen als Lesen: eine Nachricht, die in die offene Unterhaltung
+          // kam, blieb "ungelesen" und bekam keine Lesebestaetigung.
+          if (m.chatId == offeneUnterhaltung && _imVordergrund) {
+            unawaited(core.markRead(m.chatId));
+          } else {
+            ungelesen[m.chatId] = (ungelesen[m.chatId] ?? 0) + 1;
+          }
         }
         // Nur melden, wenn niemand hinsieht. Eine Benachrichtigung fuer eine
         // Nachricht, die gerade auf dem Bildschirm erscheint, waere Laerm.
@@ -882,7 +896,10 @@ class AppState extends ChangeNotifier {
         // jeden Satz, den man gerade auf dem Handy getippt hat.
         // UND NICHT FUER STUMMGESCHALTETE. Die Nachricht kommt trotzdem an
         // und steht im Verlauf; nur das Telefon meldet sich nicht.
-        if (!_imVordergrund && !m.isMine && !_istStumm(m.chatId)) {
+        // UND NICHT IN DER RUHEZEIT — ausser fuer angeheftete Unterhaltungen:
+        // die hat der Nutzer selbst als die wichtigen ausgewaehlt.
+        final ruhe = einstellungen.inRuhezeit(DateTime.now()) && !_istAngeheftet(m.chatId);
+        if (!_imVordergrund && !m.isMine && !_istStumm(m.chatId) && !ruhe) {
           _ungelesen++;
           unawaited(Benachrichtigungen.instanz.zeigeNeueNachricht(
               anzahl: _ungelesen,
@@ -937,6 +954,24 @@ class AppState extends ChangeNotifier {
       return;
     }
     liste![i] = liste[i].copyWith(status: u.status);
+    notifyListeners();
+  }
+
+  /// Ungelesene fremde Nachrichten je Unterhaltung (nur die mit welchen).
+  Map<String, int> ungelesen = {};
+
+  int ungelesenIn(String chatId) => ungelesen[chatId] ?? 0;
+
+  /// Welche Unterhaltung die Oberflaeche gerade zeigt, oder null. Die
+  /// Oberflaeche setzt das beim Zeichnen.
+  String? offeneUnterhaltung;
+
+  Future<void> _ladeUngelesen() async {
+    try {
+      ungelesen = await core.ungelesenJeChat();
+    } on MessengerException {
+      return;
+    }
     notifyListeners();
   }
 
@@ -1099,6 +1134,7 @@ class AppState extends ChangeNotifier {
     anhaenge[id] = await core.getAnhaenge(id);
     reaktionen[id] = await core.getReaktionen(id);
     stimmen[id] = await core.getStimmen(id);
+    ungelesen.remove(id);
     notifyListeners();
     unawaited(core.markRead(id));
   }
@@ -1110,6 +1146,10 @@ class AppState extends ChangeNotifier {
 
   Reaktionen reaktionenZu(String chatId, String messageId) =>
       reaktionen[chatId]?[messageId] ?? const {};
+
+  bool _istAngeheftet(String chatId) =>
+      kontakte.any((k) => k.id == chatId && k.angeheftet) ||
+      gruppen.any((g) => g.id == chatId && g.angeheftet);
 
   bool _istStumm(String chatId) =>
       kontakte.any((k) => k.id == chatId && k.stumm) ||

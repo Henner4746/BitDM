@@ -348,6 +348,10 @@ abstract class MessengerCore {
   /// otherwise. Throws `UnknownContactException`.
   Future<void> markRead(String contactId);
 
+  /// Wie viele fremde Nachrichten je Unterhaltung ungelesen sind — nur
+  /// Unterhaltungen mit mindestens einer. Zaehlt ab dem letzten [markRead].
+  Future<Map<String, int>> ungelesenJeChat();
+
   // ------------------------------------------------------------ settings
   /// The settings the core enforces. Persisted in the encrypted database.
   ///

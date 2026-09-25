@@ -665,11 +665,31 @@ class AppPreferences {
   /// Ob neu eintreffende Nachrichten sich sichtbar "entschluesseln".
   final bool entschluesseln;
 
+  /// RUHEZEITEN: zwischen [ruheVon] und [ruheBis] (Minuten nach Mitternacht,
+  /// Ortszeit) meldet sich das Telefon nicht — ausser fuer angeheftete
+  /// Unterhaltungen. Die Nachrichten kommen trotzdem an.
+  final bool ruheAn;
+  final int ruheVon;
+  final int ruheBis;
+
+  /// Ob [lokal] in die Ruhezeit faellt. Ein Fenster ueber Mitternacht
+  /// (22:00 bis 07:00) ist der Normalfall, nicht die Ausnahme.
+  bool inRuhezeit(DateTime lokal) {
+    if (!ruheAn || ruheVon == ruheBis) return false;
+    final m = lokal.hour * 60 + lokal.minute;
+    return ruheVon < ruheBis
+        ? m >= ruheVon && m < ruheBis
+        : m >= ruheVon || m < ruheBis;
+  }
+
   const AppPreferences({
     this.thema = 'nocturne',
     this.themaWandern = 0,
     this.sprache,
     this.entschluesseln = true,
+    this.ruheAn = false,
+    this.ruheVon = 22 * 60,
+    this.ruheBis = 7 * 60,
     this.readReceipts = true,
     this.messageLifetime,
     this.blockScreenshots = true,
@@ -685,6 +705,9 @@ class AppPreferences {
     int? themaWandern,
     String? sprache,
     bool? entschluesseln,
+    bool? ruheAn,
+    int? ruheVon,
+    int? ruheBis,
     bool? readReceipts,
     Duration? messageLifetime,
     bool loescheLebensdauer = false,
@@ -701,6 +724,9 @@ class AppPreferences {
         themaWandern: themaWandern ?? this.themaWandern,
         sprache: sprache ?? this.sprache,
         entschluesseln: entschluesseln ?? this.entschluesseln,
+        ruheAn: ruheAn ?? this.ruheAn,
+        ruheVon: ruheVon ?? this.ruheVon,
+        ruheBis: ruheBis ?? this.ruheBis,
         readReceipts: readReceipts ?? this.readReceipts,
         messageLifetime:
             loescheLebensdauer ? null : (messageLifetime ?? this.messageLifetime),

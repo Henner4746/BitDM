@@ -180,6 +180,31 @@ void main() {
       expect(db.meta('schema_version'), '${EncryptedDatabase.schemaVersion}');
     });
 
+    test('SCHRITT 11: NACH DEM UPDATE GILT ALLES VORHANDENE ALS GELESEN', () {
+      // Sonst stuenden nach dem Update an jeder alten Unterhaltung Hunderte
+      // "ungelesene" Nachrichten. Nachgestellt wird die Datei einer
+      // Installation mit Schema 10: Tabelle weg, Fassung zurueck.
+      const spalten = '(id, chat_id, sender_id, body, kind, is_mine, sent_at, status)';
+      final pfad = neuerPfad();
+      final db = EncryptedDatabase.open(pfad, schluessel(0xB2));
+      db.transaction((raw) {
+        raw.execute("INSERT INTO messages $spalten VALUES ('a1','A','A','x',0,0,0,1)");
+        raw.execute("INSERT INTO messages $spalten VALUES ('a2','A','A','y',0,0,0,1)");
+        raw.execute("INSERT INTO messages $spalten VALUES ('b1','B','B','z',0,0,0,1)");
+        raw.execute('DROP TABLE gelesen');
+        raw.execute("UPDATE meta SET value = '10' WHERE key = 'schema_version'");
+      });
+      db.close();
+
+      final wieder = EncryptedDatabase.open(pfad, schluessel(0xB2));
+      addTearDown(wieder.close);
+      final offen = wieder.raw.select(
+          'SELECT COUNT(*) n FROM messages m LEFT JOIN gelesen g ON g.chat_id = m.chat_id '
+          'WHERE m.is_mine = 0 AND m.seq > COALESCE(g.bis_seq, 0)');
+      expect(offen.first['n'], 0, reason: 'alte Nachrichten zaehlen nach dem Update als ungelesen');
+      expect(wieder.meta('schema_version'), '${EncryptedDatabase.schemaVersion}');
+    });
+
     test('SCHRITT 6 SPERRT DIE LIEGENGEBLIEBENEN FUER DIE NAEHE', () {
       // Was vor dieser Stufe liegengeblieben ist, stammt aus einer Fassung, in
       // der der Nachversand ausschliesslich aus connect() heraus lief — es
