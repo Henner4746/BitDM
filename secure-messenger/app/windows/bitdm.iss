@@ -1,4 +1,4 @@
-; BitDM — Windows-Installer
+﻿; BitDM — Windows-Installer
 ;
 ; Bauen (nach `flutter build windows --release`):
 ;   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows\bitdm.iss
@@ -22,7 +22,10 @@
 ; pruefbar wird statt geglaubt.
 
 #define Name      "BitDM"
-#define Version   "1.6.0"
+; Die Fassung kommt beim Bauen mit: ISCC /DVersion=1.8.0 windowsitdm.iss
+#ifndef Version
+  #define Version "0.0.0-lokal"
+#endif
 #define Publisher "BitDM"
 #define ExeName   "bitdm.exe"
 
