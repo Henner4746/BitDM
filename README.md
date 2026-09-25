@@ -6,15 +6,15 @@ This page in [German](README.de.md).
 Your address *is* your public key.**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.7.0-6f62a8)
-![Platform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows-6f62a8)
+![Version](https://img.shields.io/badge/version-1.8.0-6f62a8)
+![Platform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows_%7C_Linux_%7C_Web-6f62a8)
 
 | Platform | State |
 |---|---|
 | **Android 9+** | released, signed APK |
-| **Windows x64** | built, unsigned zip |
-| **Linux** | project files present, nothing built |
-| **Web** | runs, limited, not published |
+| **Windows x64** | released, unsigned installer and zip |
+| **Linux** | built by CI, not yet launched by anyone |
+| **Web** | runs at [bitdm.net/app](https://bitdm.net/app/), limited |
 
 Most messengers ask for your number first. BitDM asks for nothing. On first
 launch it generates a key pair; the 56-character address it shows you is the
@@ -152,9 +152,9 @@ Along the way that rig also measured something the specs do not make obvious:
 | Platform | State | Nearby over BLE | Push wake-up | Lock factors offered |
 |---|---|---|---|---|
 | **Android 9+** | released, signed APK | Android 12+ | UnifiedPush | app password, fingerprint, device PIN, hardware key |
-| **Windows x64** | built, unsigned zip | no | no — the connection stays open instead | app password |
-| **Linux** | project files present, nothing built | no | no | app password |
-| **Web** | runs, limited, not published | no | no | app password |
+| **Windows x64** | released, unsigned installer and zip | no | no — the connection stays open instead | app password |
+| **Linux** | built by CI, not yet launched by anyone | no | no | app password |
+| **Web** | runs at [bitdm.net/app](https://bitdm.net/app/), limited | no | no | app password |
 
 Nearby, push and three of the four lock factors sit behind an Android platform
 channel written in Kotlin. On the desktop they are not shown at all rather than
@@ -177,8 +177,8 @@ limits: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.
 ### Android
 
 ```bash
-curl -fsSLO https://bitdm.net/bitdm-1.7.0.apk
-sha256sum bitdm-1.7.0.apk
+curl -fsSLO https://bitdm.net/bitdm-1.8.0.apk
+sha256sum bitdm-1.8.0.apk
 ```
 
 Android will warn you when installing. It warns about **every** app whose
@@ -187,11 +187,11 @@ These two values do, and they are not the same kind of thing:
 
 | What | Value |
 |---|---|
-| **This file** (sha256 of the APK) | `86dfb9e55a19e35aeed5373f5ce3acc114611620cce3aef9763938e577eb7599` |
+| **This file** (sha256 of the APK) | `9d1934d39e10d8bcf87881329e061fbb08229f42dee33edcba52d33af8cf077a` |
 | **Signing key** (certificate fingerprint) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash
-apksigner verify --print-certs bitdm-1.7.0.apk
+apksigner verify --print-certs bitdm-1.8.0.apk
 ```
 
 The first value covers only this file. The second covers every future
@@ -205,13 +205,15 @@ submissions are prepared, not done.
 
 ### Windows
 
-[`bitdm-windows-1.7.0.zip`](https://bitdm.net/bitdm-windows-1.7.0.zip) (also attached to the
-[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.7.0)) — 15,943,227 bytes, unpack
-and run `bitdm.exe`.
+Installer [`bitdm-windows-setup-1.8.0.exe`](https://bitdm.net/bitdm-windows-setup-1.8.0.exe)
+(13,622,167 bytes) or [`bitdm-windows-1.8.0.zip`](https://bitdm.net/bitdm-windows-1.8.0.zip)
+(16,091,564 bytes, unpack and run `bitdm.exe`). Both are also attached to the
+[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.8.0).
 
 | What | Value |
 |---|---|
-| **This file** (sha256 of the zip) | `79712d5ff8d64c67dcfbc96f9412a0af202e7561b8ff37f3f42c2b19ddc481f4` |
+| **Installer** (sha256) | `9a68bd12d9ad3538116d80236d2cd4e04c664953d124701b3076300c5a284190` |
+| **Zip** (sha256) | `e3dc65a386c0b1d60bcc7c8264774004adb8bf148916214a0aa8287f32e7a00e` |
 
 SmartScreen will warn about it, and that cannot be fixed here: Windows code
 signing needs an Authenticode certificate from a commercial CA, and the Android
@@ -223,10 +225,23 @@ you have to believe.
 A second install with the same 12 words does not join your identity, it takes
 it over.
 
-An Inno Setup script for an installer exists at
+The installer comes from
 [`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss) — it installs
 into `%LOCALAPPDATA%` without asking for admin rights and adds no autostart
-entry. No `.exe` from it is published yet.
+entry.
+
+### Linux
+
+`bitdm-linux-x64-1.8.0.tar.gz` on the
+[GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.8.0), built
+by [`.github/workflows/linux.yml`](.github/workflows/linux.yml) on Ubuntu 22.04
+from the tagged source; the workflow log prints its sha256. Unpack and run
+`./bitdm`; it needs GTK 3 and libsecret. **Nobody has launched this build yet.**
+
+### Web
+
+<https://bitdm.net/app/> — the same app compiled for the browser, served
+without any third-party CDN. See the limits under [Known gaps](#known-gaps).
 
 ---
 
@@ -293,7 +308,7 @@ crypto, and the actual Dart code lives in `data/app.so`. Ship the whole folder.
 For an installer instead of a zip:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows\bitdm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=1.8.0 windows\bitdm.iss
 ```
 
 Tests:
@@ -394,21 +409,21 @@ concerned. Two separate bugs in this project had that single root cause.
   Windows build starts with an empty conversation list, and the phone that had
   been using that address stops being reachable. Linked devices need the Sesame
   protocol, which is not built.
-- **The web build runs, but limited, and it is not published.** Identity,
+- **The web build runs at <https://bitdm.net/app/>, but limited.** Identity,
   app password, unlock after reload, restore from the 12 words and text
   messages between two browsers work (tested headless against a local relay).
   The database sits encrypted in IndexedDB (SQLite3MultipleCiphers as WASM).
   Without an app password the identity lives in memory only and is gone on
   reload — on purpose, because the browser's key store would keep the key right
   next to the data. No attachments, voice messages, nearby, push or screenshot
-  protection. And it only reaches a relay under the same origin: the relay
-  sends no CORS headers, so a web build on another host cannot register.
-- **Linux has no published build.** The project files are there, nothing has
-  been produced from them.
-- **The Windows binary is unsigned,** and the installer from `bitdm.iss` has not
-  been built or published.
+  protection. The relay itself sends no CORS headers; nginx in front of
+  relay.bitdm.net allows exactly the origin `https://bitdm.net`, so a web build
+  hosted anywhere else cannot register there.
+- **The Linux build has never been launched.** CI builds and publishes it; no
+  one has started it on a real desktop yet.
+- **The Windows binaries are unsigned** — installer and zip alike.
 - **Groups are limited:** up to 20 members, fan-out over one-to-one sessions
-  (no sender keys yet), no per-member delivery ticks.
+  (no sender keys — reasoning in `docs/FUNKTIONSVERGLEICH.md`).
 - **Google Play and F-Droid submissions are prepared, not done.**
 
 ---

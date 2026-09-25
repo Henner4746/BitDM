@@ -562,29 +562,29 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="screen screen-lit de">Android — direkter Download</span>
         <span class="screen screen-lit en">Android — direct download</span>
       </div>
-      <p class="de">Version 1.7.0, 46 MB, für arm64 und arm32. Android wird beim
+      <p class="de">Version 1.8.0, 47 MB, für arm64 und arm32. Android wird beim
         Installieren warnen: es warnt bei jeder App, deren Zertifikat Google
         nicht kennt, unabhängig davon, was in der Datei steht. Was in dieser
         steht, lässt sich an den zwei Werten darunter nachprüfen.</p>
-      <p class="en">Version 1.7.0, 46 MB, for arm64 and arm32. Android will warn you
+      <p class="en">Version 1.8.0, 47 MB, for arm64 and arm32. Android will warn you
         when installing: it warns about every app whose certificate Google does
         not know, regardless of what the file contains. What this one contains
         can be checked against the two values below.</p>
 
       <div class="act">
-        <a class="btn btn-primary" href="bitdm-1.7.0.apk" download>
+        <a class="btn btn-primary" href="bitdm-1.8.0.apk" download>
           <span class="de">APK herunterladen</span><span class="en">Download APK</span>
         </a>
       </div>
 
       <dl class="pruef">
         <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
-        <dd><code>86dfb9e55a19e35aeed5373f5ce3acc114611620cce3aef9763938e577eb7599</code>
-          — <code>sha256sum bitdm-1.7.0.apk</code></dd>
+        <dd><code>9d1934d39e10d8bcf87881329e061fbb08229f42dee33edcba52d33af8cf077a</code>
+          — <code>sha256sum bitdm-1.8.0.apk</code></dd>
         <dt><span class="de">Der Schlüssel, mit dem sie signiert ist</span>
             <span class="en">The key it is signed with</span></dt>
         <dd><code>e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063</code>
-          — <code>apksigner verify --print-certs bitdm-1.7.0.apk</code></dd>
+          — <code>apksigner verify --print-certs bitdm-1.8.0.apk</code></dd>
       </dl>
 
       <p class="hint">
@@ -636,13 +636,16 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </div>
 
     <!-- WINDOWS. Der zweite Kasten mit einem echten Knopf, darum .slot-breit.
-         GEMESSEN AM 25.09.2026 (1.7.0), damit spaeter niemand raten muss:
-           Datei    releases/bitdm-windows-1.7.0.zip, 15 943 227 Byte
-                    (`stat -c%s`) = 15,2 MiB, hier als "15 MB" wie die APK
-                    daneben, die mit 48 481 776 Byte als "46 MB" steht.
-           Entpackt 38 321 475 Byte ueber 28 Eintraege, gemessen mit
+         GEMESSEN AM 25.09.2026 (1.8.0), damit spaeter niemand raten muss:
+           Datei    releases/bitdm-windows-1.8.0.zip, 16 091 564 Byte
+                    (`stat -c%s`) = 15,3 MiB, hier als "15 MB" wie die APK
+                    daneben, die mit 49 329 559 Byte als "47 MB" steht.
+           Entpackt 38 688 577 Byte ueber 28 Eintraege, gemessen mit
                     System.IO.Compression.ZipFile ueber Entries.Length.
-           sha256   79712d5f… aus `sha256sum releases/bitdm-windows-1.7.0.zip`.
+           sha256   e3dc65a3… aus `sha256sum releases/bitdm-windows-1.8.0.zip`.
+           Installer releases/bitdm-windows-setup-1.8.0.exe, 13 622 167 Byte,
+                    sha256 9a68bd12…, gebaut mit Inno Setup aus windows/bitdm.iss.
+         (1.7.0: 15 943 227 Byte, entpackt 38 321 475, 28 Eintraege.)
          (1.6.1: 15 903 078 Byte, entpackt 38 255 939, 28 Eintraege.)
          (1.5.1 am 30.07.2026: 15 419 797 Byte, entpackt 37 026 435, 27 Eintraege.)
          WICHTIG BEIM NEU BAUEN: der Wert gilt fuer GENAU diese Datei. Das Zip
@@ -657,14 +660,13 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="screen screen-lit de">Windows</span>
         <span class="screen screen-lit en">Windows</span>
       </div>
-      <p class="de">Version 1.7.0 für x64, ein Zip mit 15 MB, entpackt 36 MB.
-        Einen Installer gibt es nicht: entpacken, <code>bitdm.exe</code> starten,
-        fertig. Das Skript für einen richtigen Installer liegt im Quellcode unter
-        <code>windows/bitdm.iss</code>, ausgeführt hat es noch niemand.</p>
-      <p class="en">Version 1.7.0 for x64, a 15 MB zip, 36 MB unpacked. There is
-        no installer: unpack it, start <code>bitdm.exe</code>, done. The script
-        for a proper installer sits in the source at
-        <code>windows/bitdm.iss</code>, but nobody has run it yet.</p>
+      <p class="de">Version 1.8.0 für x64: ein Installer mit 13 MB (ohne
+        Adminrechte, nur für den eigenen Benutzer, mit Eintrag unter „Apps") oder
+        ein Zip mit 15 MB, entpackt 37 MB — entpacken, <code>bitdm.exe</code>
+        starten, fertig.</p>
+      <p class="en">Version 1.8.0 for x64: a 13 MB installer (no admin rights,
+        installs for your user only, shows up under "Apps") or a 15 MB zip, 37 MB
+        unpacked — unpack it, start <code>bitdm.exe</code>, done.</p>
       <p class="de">Windows wird beim Start warnen, und zwar aus demselben Grund
         wie Android bei der APK: die Datei ist nicht signiert. Ein
         Authenticode-Zertifikat kostet jährlich Geld, und der Android-Schlüssel
@@ -677,25 +679,30 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         a signature is. The contents are what the value below covers.</p>
 
       <div class="act">
-        <a class="btn btn-primary" href="bitdm-windows-1.7.0.zip" download>
+        <a class="btn btn-primary" href="bitdm-windows-setup-1.8.0.exe" download>
+          <span class="de">Installer herunterladen</span><span class="en">Download installer</span>
+        </a>
+        <a class="btn" href="bitdm-windows-1.8.0.zip" download>
           <span class="de">Zip herunterladen</span><span class="en">Download zip</span>
         </a>
       </div>
 
       <dl class="pruef">
-        <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
-        <dd><code>79712d5ff8d64c67dcfbc96f9412a0af202e7561b8ff37f3f42c2b19ddc481f4</code>
-          — <code>certutil -hashfile bitdm-windows-1.7.0.zip SHA256</code></dd>
+        <dt><span class="de">Installer</span><span class="en">Installer</span></dt>
+        <dd><code>9a68bd12d9ad3538116d80236d2cd4e04c664953d124701b3076300c5a284190</code>
+          — <code>certutil -hashfile bitdm-windows-setup-1.8.0.exe SHA256</code></dd>
+        <dt><span class="de">Zip</span><span class="en">Zip</span></dt>
+        <dd><code>e3dc65a386c0b1d60bcc7c8264774004adb8bf148916214a0aa8287f32e7a00e</code>
+          — <code>certutil -hashfile bitdm-windows-1.8.0.zip SHA256</code></dd>
       </dl>
 
       <p class="hint">
-        <span class="de">Hier steht ein Wert und nicht zwei: der gilt nur für
-          diese eine Datei. Einen zweiten, der über alle künftigen Versionen
+        <span class="de">Jeder Wert gilt nur für seine eine Datei. Einen zweiten, der über alle künftigen Versionen
           gleich bleibt, gibt es unter Windows erst mit einer Signatur; auf
           Android leistet das der Schlüssel im Kasten oben. Was auf dem Desktop
           anders läuft als am Telefon, steht <a href="#desktop">weiter
           unten</a>.</span>
-        <span class="en">One value here, not two: it covers this one file only.
+        <span class="en">Each value covers its one file only.
           A second one that stays the same across future versions needs a
           signature on Windows. On Android the signing key above does that job.
           What behaves differently on the desktop is spelled out
@@ -703,54 +710,31 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </p>
     </div>
 
-    <!-- LINUX. Kein Paket, und der Kasten sagt genau das.
-         GEMESSEN AM 30.07.2026: app/linux/ ist vorhanden, app/build/linux/
-         nicht (`ls app/build/linux/` -> "No such file or directory"). Es ist
-         also nie ein Bau gelaufen.
-         DER LINK AUF DIE ANLEITUNG FEHLT ABSICHTLICH, UND DIE BEDINGUNG DAFUER
-         IST NICHT "GEPUSHT", SONDERN "OEFFENTLICH ERREICHBAR". Ich habe die
-         Datei am 30.07.2026 mit ea84a8c gepusht, den Link daraufhin eingetragen
-         und ihn sofort wieder ausgebaut: die Adresse gab weiter 404, weil das
-         Repo privat ist. Gepusht ist die halbe Bedingung.
-         SOBALD DAS REPO OEFFENTLICH IST, hier eintragen:
-         secure-messenger/docs/LINUX.md ist waehrend dieser Arbeit entstanden
-         (die Datei war um 14:10 noch nicht da, um 14:40 schon) — aber
-         `git status --short docs/LINUX.md` sagt "?? docs/LINUX.md" und
-         `git log -- docs/LINUX.md` ist leer: die Datei ist NICHT eingecheckt und
-         steht damit auch nicht auf GitHub. Ein Link darauf waere heute ein 404,
-         und ein toter Link ist auf dieser Seite schlimmer als kein Link.
-         SOBALD SIE GEPUSHT IST, hier eintragen — die Adresse steht fertig da:
-         https://github.com/Henner4746/BitDM/blob/main/secure-messenger/docs/LINUX.md
-         Inhaltlich passt der Kasten schon zu ihr: LINUX.md sagt in der eigenen
-         Ueberschrift "es ist nie ein Linux-Bau gelaufen" und nennt GTK 3 und
-         libsecret als die Systemteile, die ueber Flutter hinausgehen. -->
-
-    <div class="slot">
+    <!-- LINUX. Seit 1.8.0 (25.09.2026) gibt es ein Paket. Gebaut auf einem
+         Ubuntu-22.04-Runner von GitHub (.github/workflows/linux.yml, ausgeloest
+         vom Tag v1.8.0), der es an den Release haengt — hier liegt es nicht,
+         darum fuehrt der Knopf zum Release. EHRLICH DAZUGESAGT: gestartet hat
+         dieses Paket noch niemand; der Text sagt das. -->
+    <div class="slot slot-breit">
       <div class="slot-head">
-        <span class="lamp" aria-hidden="true"></span>
-        <span class="screen de">Linux</span>
-        <span class="screen en">Linux</span>
+        <span class="lamp on" aria-hidden="true"></span>
+        <span class="screen screen-lit de">Linux</span>
+        <span class="screen screen-lit en">Linux</span>
       </div>
-      <p class="de">Der Linux-Teil ist im Quellcode enthalten, gebaut wurde er
-        hier aber noch nie: es gibt kein Verzeichnis <code>build/linux</code>
-        und darum auch nichts zum Herunterladen. Selbst bauen geht:
-        <code>flutter build linux --release</code>, dazu die
-        Entwicklungspakete von GTK 3 und libsecret. Gestartet hat das Ergebnis
-        niemand, die Angaben zu Windows gelten dafür also nicht. Die
-        Schritt-für-Schritt-Anleitung samt Paketnamen je Distribution liegt im
-        Quellcode unter <code>docs/LINUX.md</code>.</p>
-      <p class="en">The Linux part is in the source, but it has never been built
-        here: there is no <code>build/linux</code> directory and therefore
-        nothing to download. Building it yourself works:
-        <code>flutter build linux --release</code>, plus the development
-        packages for GTK 3 and libsecret. Nobody has launched the result, so
-        what is said about Windows does not carry over. The step-by-step guide
-        with package names per distribution is in the source at
-        <code>docs/LINUX.md</code>.</p>
+      <p class="de">Version 1.8.0 für x64, gebaut auf GitHub aus genau diesem
+        Quellcode (Ubuntu 22.04). Auspacken, <code>./bitdm</code> starten;
+        gebraucht werden GTK 3 und libsecret. Gestartet hat dieses Paket noch
+        niemand, die Angaben zu Windows gelten dafür also nicht. Selbst bauen:
+        <code>docs/LINUX.md</code> im Quellcode.</p>
+      <p class="en">Version 1.8.0 for x64, built on GitHub from exactly this
+        source (Ubuntu 22.04). Unpack it and run <code>./bitdm</code>; it needs
+        GTK 3 and libsecret. Nobody has launched this package yet, so what is
+        said about Windows does not carry over. To build it yourself see
+        <code>docs/LINUX.md</code> in the source.</p>
       <div class="act">
-        <span class="btn" aria-disabled="true">
-          <span class="de">Kein Paket</span><span class="en">No package</span>
-        </span>
+        <a class="btn btn-primary" href="https://github.com/Henner4746/BitDM/releases/tag/v1.8.0">
+          <span class="de">Zum Paket auf GitHub</span><span class="en">Package on GitHub</span>
+        </a>
       </div>
     </div>
 
@@ -775,43 +759,32 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
     </div>
 
-    <!-- WEB-APP: KEIN LINK, UND DAS IST DER PUNKT.
-         Der Uebersetzer endet mit 0, im Browser steht die Seite trotzdem weiss.
-         Ein Link darauf waere das Schlimmste, was diese Seite tun kann.
-         WAS HIER ABSICHTLICH NICHT STEHT — am 30.07.2026 selbst nachgesehen,
-         weil parallel daran gearbeitet wird und zwei aeltere Gruende inzwischen
-         WEG sind:
-           * "sqlite3mc.wasm fehlt" waere falsch: `find app/web -name "*.wasm"`
-             findet die Datei (784 171 Byte, 14:02 Uhr).
-           * "path_provider bricht ab" waere falsch: lib/main.dart:76 steht jetzt
-             `kIsWeb ? '' : (await getApplicationSupportDirectory()).path`.
-         Was noch steht und darum im Text genannt wird: lib/core/net/relay_client.dart
-         benutzt dart:io — `WebSocket.connect` in Zeile 197 und `HttpClient()` in
-         Zeile 522 —, und die acht Plattformkanaele (`grep -rno "bitdm/[a-z_]*"
-         app/lib` -> bitdm/dateien, empfang, fenster, krypto, nahfunk,
-         nahfunk_ereignisse, schluesselfach, usb_hid) haben im Browser keine
-         Gegenseite. Der Text bleibt bewusst knapp: je genauer die Liste, desto
-         schneller ist sie ueberholt. -->
-    <div class="slot">
+    <!-- WEB-APP. Seit 1.8.0 (25.09.2026) unter /app/, derselbe Quellcode als
+         Browser-Bau (flutter build web --base-href /app/ --no-web-resources-cdn,
+         also nichts von Dritten). Die Grenzen im Text sind echt:
+         app/lib/core/store/sqlite_zugang.dart legt die Datenbank im Browser nur
+         mit App-Passwort dauerhaft ab; Anhaenge, Sprachnachrichten, Nahbereich
+         und Hintergrundempfang haben im Browser keine Gegenseite. -->
+    <div class="slot slot-breit">
       <div class="slot-head">
-        <span class="lamp" aria-hidden="true"></span>
-        <span class="screen de">Web-App</span>
-        <span class="screen en">Web app</span>
+        <span class="lamp on" aria-hidden="true"></span>
+        <span class="screen screen-lit de">Im Browser</span>
+        <span class="screen screen-lit en">In the browser</span>
       </div>
-      <p class="de">In Arbeit. Der Bau läuft durch, im Browser bleibt die Seite
-        aber weiß: der Netzcode der App steckt auf <code>dart:io</code>, das es
-        im Browser nicht gibt, und die Kanäle zum Betriebssystem haben dort keine
-        Gegenseite. Ein Link kommt hierher, sobald die Seite etwas anzeigt; bis
-        dahin führte er auf ein weißes Feld.</p>
-      <p class="en">In progress. The build completes, but in the browser the page
-        stays blank: the app's networking sits on <code>dart:io</code>, which
-        browsers do not have, and the channels to the operating system have no
-        counterpart there. A link will appear here as soon as the page shows
-        something; until then it would lead to a blank panel.</p>
+      <p class="de">Dieselbe App ohne Installation. Nachrichten, Gruppen und
+        Kontakte gehen; Anhänge, Sprachnachrichten, der Nahbereich und Empfang
+        bei geschlossenem Tab nicht. Dauerhaft gespeichert wird nur mit einem
+        App-Passwort — ohne ist die Identität beim Neuladen weg, die zwölf
+        Wörter holen sie zurück. Geladen wird nichts von fremden Servern.</p>
+      <p class="en">The same app, nothing to install. Messages, groups and
+        contacts work; attachments, voice messages, nearby mode and receiving
+        with the tab closed do not. It only persists with an app password —
+        without one the identity is gone on reload, and the twelve words bring
+        it back. Nothing is loaded from third-party servers.</p>
       <div class="act">
-        <span class="btn" aria-disabled="true">
-          <span class="de">Läuft noch nicht</span><span class="en">Not running yet</span>
-        </span>
+        <a class="btn btn-primary" href="/app/">
+          <span class="de">Im Browser öffnen</span><span class="en">Open in the browser</span>
+        </a>
       </div>
     </div>
 
@@ -1361,14 +1334,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <dd><span class="de">Einzelchats und Gruppen bis 20, mit Text, Sprachnachrichten und Anhängen bis 5 GB. Keine Anrufe.</span>
             <span class="en">One-to-one chats and groups up to 20, with text, voice messages and attachments up to 5 GB. No calls.</span></dd>
       </div>
-      <!-- SEIT 1.7.0 (25.09.2026). Belegt durch app/test/anhang/metadaten_test.dart:
+      <!-- SEIT 1.7.0, HEIC/AVIF/Video seit 1.8.0 (25.09.2026). Belegt durch app/test/anhang/metadaten_test.dart:
            echte Bilder mit GPS, Hersteller, Modell, Zeit und Kommentar; danach
            ist nichts davon mehr in der Datei, und sie oeffnet sich noch. Die
            Grenze steht mit dabei, weil sie stimmt. -->
       <div class="plate-row">
         <dt><span class="de">Fotos</span><span class="en">Photos</span></dt>
-        <dd><span class="de">Ort, Kamera und Aufnahmezeit werden vor dem Senden aus JPEG, PNG und WebP entfernt, der Dateiname wird neutral. HEIC und Videos gehen noch unverändert hinaus.</span>
-            <span class="en">Location, camera and capture time are stripped from JPEG, PNG and WebP before sending, and the file name is neutralised. HEIC and videos still go out unchanged.</span></dd>
+        <dd><span class="de">Ort, Kamera und Aufnahmezeit werden vor dem Senden aus JPEG, PNG, WebP, HEIC und AVIF entfernt, aus MP4-, MOV- und 3GP-Videos ebenso; der Dateiname wird neutral. Andere Formate gehen unverändert hinaus.</span>
+            <span class="en">Location, camera and capture time are stripped from JPEG, PNG, WebP, HEIC and AVIF before sending, and from MP4, MOV and 3GP videos too; the file name is neutralised. Other formats go out unchanged.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Aussehen</span><span class="en">Look</span></dt>
@@ -1377,8 +1350,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
-        <dd><span class="de">Sind die zwölf Wörter weg, ist die Identität weg. Es gibt kein Zurücksetzen und keine Wiederherstellung per Mail.</span>
-            <span class="en">Twelve words gone means identity gone. No reset, no recovery by email.</span></dd>
+        <dd><span class="de">Sind die zwölf Wörter weg, ist die Identität weg — außer du hast sie vorher in Teilen an Vertrauenskontakte gegeben (etwa 2 von 3). Kein Zurücksetzen, keine Wiederherstellung per Mail.</span>
+            <span class="en">Twelve words gone means identity gone — unless you split them among trusted contacts beforehand (say 2 of 3). No reset, no recovery by email.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Prüfung</span><span class="en">Audit</span></dt>
@@ -1388,7 +1361,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <div class="plate-row">
         <dt><span class="de">Reife</span><span class="en">Maturity</span></dt>
         <!-- "NOCH NICHT VEROEFFENTLICHT" stimmte bis 25.09.2026: seitdem liegt die
-             APK hier und auf GitHub (Releases v1.6.1, v1.7.0). Nicht in Google
+             APK hier und auf GitHub (Releases v1.6.1, v1.7.0, v1.8.0). Nicht in Google
              Play oder F-Droid, und im Alltag noch nicht erprobt — das bleibt stehen. -->
         <dd><span class="de">Vorabversion. Als Download hier und auf GitHub, noch nicht in Google Play oder F-Droid und noch nicht im Alltag erprobt.</span>
             <span class="en">Pre-release. Available as a download here and on GitHub, not yet in Google Play or F-Droid, and not yet proven in daily use.</span></dd>

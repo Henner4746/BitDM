@@ -12,3 +12,9 @@
 # Ausgeliefert wird ohnehin nicht ueber git — sonst waere die APK auf bitdm.net
 # nicht erreichbar, obwohl sie seit Langem ignoriert ist.
 *.zip
+
+# Der Web-Bau unter bitdm.net/app/ kommt aus dem Release-Tarball
+# (deploy/webapp/README.md), nicht aus git.
+app/
+*.exe
+*.tar.gz

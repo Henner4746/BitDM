@@ -6,15 +6,15 @@ Diese Seite auf [Englisch](README.md).
 Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 
 [![Lizenz: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.7.0-6f62a8)
-![Plattform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows-6f62a8)
+![Version](https://img.shields.io/badge/version-1.8.0-6f62a8)
+![Plattform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows_%7C_Linux_%7C_Web-6f62a8)
 
 | Plattform | Zustand |
 |---|---|
 | **Android 9+** | veröffentlicht, signiertes APK |
-| **Windows x64** | gebaut, unsigniertes Zip |
-| **Linux** | Projektdateien vorhanden, nichts gebaut |
-| **Web** | läuft, eingeschränkt, nicht veröffentlicht |
+| **Windows x64** | veröffentlicht, unsignierter Installer und Zip |
+| **Linux** | von der CI gebaut, noch von niemandem gestartet |
+| **Web** | läuft unter [bitdm.net/app](https://bitdm.net/app/), eingeschränkt |
 
 Die meisten Messenger fragen zuerst nach deiner Nummer. BitDM fragt nach gar
 nichts. Beim ersten Start erzeugt es ein Schlüsselpaar; die 56 Zeichen, die es
@@ -159,9 +159,9 @@ Beide Seiten brauchen BLE 5.0.
 | Plattform | Zustand | Nahbereich über BLE | Aufwecken per Push | Angebotene Sperrfaktoren |
 |---|---|---|---|---|
 | **Android 9+** | veröffentlicht, signiertes APK | Android 12+ | UnifiedPush | App-Passwort, Fingerabdruck, Geräte-PIN, Hardware-Schlüssel |
-| **Windows x64** | gebaut, unsigniertes Zip | nein | nein — die Verbindung bleibt stattdessen offen | App-Passwort |
-| **Linux** | Projektdateien vorhanden, nichts gebaut | nein | nein | App-Passwort |
-| **Web** | läuft, eingeschränkt, nicht veröffentlicht | nein | nein | App-Passwort |
+| **Windows x64** | veröffentlicht, unsignierter Installer und Zip | nein | nein — die Verbindung bleibt stattdessen offen | App-Passwort |
+| **Linux** | von der CI gebaut, noch von niemandem gestartet | nein | nein | App-Passwort |
+| **Web** | läuft unter [bitdm.net/app](https://bitdm.net/app/), eingeschränkt | nein | nein | App-Passwort |
 
 Nahbereich, Push und drei der vier Sperrfaktoren liegen hinter einem
 Android-Plattformkanal, geschrieben in Kotlin. Auf dem Desktop werden sie gar
@@ -184,8 +184,8 @@ Grenzen es gibt: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSV
 ### Android
 
 ```bash
-curl -fsSLO https://bitdm.net/bitdm-1.7.0.apk
-sha256sum bitdm-1.7.0.apk
+curl -fsSLO https://bitdm.net/bitdm-1.8.0.apk
+sha256sum bitdm-1.8.0.apk
 ```
 
 Android warnt beim Installieren. Es warnt bei **jeder** App, deren Zertifikat
@@ -194,11 +194,11 @@ Werte sagen etwas, und sie sind nicht dasselbe:
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des APK) | `86dfb9e55a19e35aeed5373f5ce3acc114611620cce3aef9763938e577eb7599` |
+| **Diese Datei** (sha256 des APK) | `9d1934d39e10d8bcf87881329e061fbb08229f42dee33edcba52d33af8cf077a` |
 | **Signierschlüssel** (Zertifikatsabdruck) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash
-apksigner verify --print-certs bitdm-1.7.0.apk
+apksigner verify --print-certs bitdm-1.8.0.apk
 ```
 
 Der erste Wert deckt nur diese eine Datei. Der zweite deckt jede künftige
@@ -213,13 +213,15 @@ Einreichungen bei Google Play und F-Droid sind vorbereitet, nicht erfolgt.
 
 ### Windows
 
-[`bitdm-windows-1.7.0.zip`](https://bitdm.net/bitdm-windows-1.7.0.zip) (auch am
-[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.7.0)) — 15.943.227 Byte,
-auspacken und `bitdm.exe` starten.
+Installer [`bitdm-windows-setup-1.8.0.exe`](https://bitdm.net/bitdm-windows-setup-1.8.0.exe)
+(13.622.167 Byte) oder [`bitdm-windows-1.8.0.zip`](https://bitdm.net/bitdm-windows-1.8.0.zip)
+(16.091.564 Byte, auspacken und `bitdm.exe` starten). Beide hängen auch am
+[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.8.0).
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des Zip) | `79712d5ff8d64c67dcfbc96f9412a0af202e7561b8ff37f3f42c2b19ddc481f4` |
+| **Installer** (sha256) | `9a68bd12d9ad3538116d80236d2cd4e04c664953d124701b3076300c5a284190` |
+| **Zip** (sha256) | `e3dc65a386c0b1d60bcc7c8264774004adb8bf148916214a0aa8287f32e7a00e` |
 
 SmartScreen wird davor warnen, und daran ist hier nichts zu ändern: das
 Signieren von Windows-Programmen braucht ein Authenticode-Zertifikat von einer
@@ -232,11 +234,24 @@ musst.
 einem Telefon benutzt.** Eine zweite Installation mit denselben 12 Wörtern
 schließt sich deiner Identität nicht an, sie übernimmt sie.
 
-Ein Inno-Setup-Skript für ein Installationsprogramm liegt unter
-[`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss) — es
+Der Installer entsteht aus
+[`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss) — er
 installiert nach `%LOCALAPPDATA%`, ohne Administratorrechte zu verlangen, und
-legt keinen Autostart-Eintrag an. Eine `.exe` daraus ist noch nicht
-veröffentlicht.
+legt keinen Autostart-Eintrag an.
+
+### Linux
+
+`bitdm-linux-x64-1.8.0.tar.gz` am
+[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.8.0),
+gebaut von [`.github/workflows/linux.yml`](.github/workflows/linux.yml) auf
+Ubuntu 22.04 aus dem markierten Quellcode; das Protokoll des Laufs nennt die
+sha256. Auspacken und `./bitdm` starten; gebraucht werden GTK 3 und libsecret.
+**Gestartet hat diesen Build noch niemand.**
+
+### Web
+
+<https://bitdm.net/app/> — dieselbe App für den Browser übersetzt, ohne fremdes
+CDN ausgeliefert. Die Grenzen stehen unter [Bekannte Lücken](#bekannte-lücken).
 
 ---
 
@@ -310,7 +325,7 @@ liegt in `data/app.so`. Gib den ganzen Ordner weiter. Für ein
 Installationsprogramm statt eines Zip:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows\bitdm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=1.8.0 windows\bitdm.iss
 ```
 
 Tests:
@@ -416,7 +431,7 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   einer leeren Unterhaltungsliste an, und das Telefon, das diese Adresse bisher
   benutzt hat, ist nicht mehr erreichbar. Verbundene Geräte brauchen das
   Sesame-Protokoll, das nicht gebaut ist.
-- **Der Web-Build läuft, aber eingeschränkt, und er ist nicht veröffentlicht.**
+- **Der Web-Build läuft unter <https://bitdm.net/app/>, aber eingeschränkt.**
   Identität, App-Passwort, Entsperren nach dem Neuladen, Wiederherstellen aus
   den 12 Wörtern und Textnachrichten zwischen zwei Browsern gehen (headless
   gegen einen lokalen Relay geprüft). Die Datenbank liegt verschlüsselt in
@@ -424,15 +439,14 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   Identität nur im Arbeitsspeicher und ist beim Neuladen weg — mit Absicht,
   weil der Schlüsselspeicher des Browsers den Schlüssel direkt neben die Daten
   legen würde. Keine Anhänge, keine Sprachnachrichten, kein Nahfunk, kein Push,
-  kein Screenshot-Schutz. Und er erreicht nur einen Relay unter derselben
-  Herkunft: der Relay schickt keine CORS-Kopfzeilen, eine Web-Fassung auf einem
-  anderen Host kann sich dort nicht anmelden.
-- **Für Linux gibt es keinen veröffentlichten Build.** Die Projektdateien sind
-  da, hergestellt wurde daraus nichts.
-- **Die Windows-Datei ist unsigniert,** und das Installationsprogramm aus
-  `bitdm.iss` ist nicht gebaut und nicht veröffentlicht.
+  kein Screenshot-Schutz. Der Relay selbst schickt keine CORS-Kopfzeilen; das
+  nginx vor relay.bitdm.net erlaubt genau die Herkunft `https://bitdm.net`, eine
+  Web-Fassung auf einem anderen Host kann sich dort also nicht anmelden.
+- **Der Linux-Build wurde noch nie gestartet.** Die CI baut und veröffentlicht
+  ihn; auf einem echten Desktop lief er noch nicht.
+- **Die Windows-Dateien sind unsigniert** — Installer wie Zip.
 - **Gruppen mit Grenzen:** bis 20 Mitglieder, Verteilung über Einzelsitzungen
-  (noch keine Sender Keys), keine Zustellhaken je Mitglied.
+  (keine Sender Keys — Begründung in `docs/FUNKTIONSVERGLEICH.md`).
 - **Die Einreichungen bei Google Play und F-Droid sind vorbereitet, nicht
   erfolgt.**
 
