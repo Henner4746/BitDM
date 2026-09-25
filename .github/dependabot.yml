@@ -1,0 +1,23 @@
+# Dependabot meldet veraltete und verwundbare Abhaengigkeiten als Pull-Request.
+# Seit 25.09.2026. Woechentlich, gebuendelt, damit es nicht laermt.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      aktionen:
+        patterns: ['*']
+  - package-ecosystem: pip
+    directory: /secure-messenger/server
+    schedule:
+      interval: weekly
+    groups:
+      server:
+        patterns: ['*']
+  - package-ecosystem: pub
+    directory: /secure-messenger/app
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
