@@ -248,13 +248,22 @@ function Lies-Adresse {
   if (-not $k) { throw 'der Reiter MY ID kam nicht' }
   Tippe $k
   $xml = Lies-Oberflaeche
-  $gruppen = @()
-  foreach ($m in [regex]::Matches($xml, '<node[^>]*/?>')) {
-    if ($m.Value -match 'clickable="true"') { continue }
-    $d = [regex]::Match($m.Value, 'content-desc="([A-Z2-7]{4})"')
-    if ($d.Success) { $gruppen += $d.Groups[1].Value }
+  # SEIT DER EINHEITLICHEN SCHREIBWEISE (adresseFormatiert) steht die Adresse
+  # als EIN Knoten mit Bindestrichen da: XAJD-S3SL-...-WK3V. Die alte Fassung
+  # suchte vierzehn einzelne Vierergruppen und fand am 25.09.2026 nichts.
+  # Beide Formen werden gelesen.
+  $ganz = [regex]::Match($xml, 'content-desc="([A-Z2-7]{4}(?:-[A-Z2-7]{4}){13})"')
+  if ($ganz.Success) {
+    $a = ($ganz.Groups[1].Value -replace '-', '').ToLower()
+  } else {
+    $gruppen = @()
+    foreach ($m in [regex]::Matches($xml, '<node[^>]*/?>')) {
+      if ($m.Value -match 'clickable="true"') { continue }
+      $d = [regex]::Match($m.Value, 'content-desc="([A-Z2-7]{4})"')
+      if ($d.Success) { $gruppen += $d.Groups[1].Value }
+    }
+    $a = ($gruppen -join '').ToLower()
   }
-  $a = ($gruppen -join '').ToLower()
   if ($a.Length -ne 56) { throw "Adresse hat $($a.Length) statt 56 Zeichen: $a" }
   return $a
 }
