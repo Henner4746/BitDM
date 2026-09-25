@@ -44,7 +44,7 @@ selbst. Ein bösartiger Server kann deshalb keinen fremden Schlüssel
 unterschieben, ohne dass die Adresse sich ändert und auffällt.
 
 Darunter läuft das Signal-Protokoll (X3DH für den Sitzungsaufbau, Double
-Ratchet für Forward Secrecy), quelloffen unter GPL-3.0.
+Ratchet für Forward Secrecy), quelloffen unter AGPL-3.0.
 
 ## Operating Context
 
@@ -93,13 +93,13 @@ Ratchet für Forward Secrecy), quelloffen unter GPL-3.0.
 - Schriften: **Doto** für Überschriften (versal, 700, leicht gesperrt),
   **Chivo Mono** für Lauftext. Beide unter SIL Open Font License, lokal
   eingebettet — die Seite lädt ebenfalls keine Schriften von Dritten nach.
-- Lizenz **GPL-3.0**, quelloffen. Bei einem Sicherheitsversprechen ist das
+- Lizenz **AGPL-3.0**, quelloffen. Bei einem Sicherheitsversprechen ist das
   Voraussetzung, nicht Beiwerk: Nachprüfbarkeit ist das Argument.
 
 ## Evidence on Hand
 
 **Echt und belegbar:**
-- Quellcode im Repository, GPL-3.0.
+- Quellcode im Repository, AGPL-3.0.
 - Relay-Server gehärtet, 15/15 Tests grün (Besitznachweis, XEdDSA, Rate-Limits).
 - App: 165 Tests grün, darunter alle 24 offiziellen BIP39-Testvektoren und
   Kreuzvektoren gegen eine unabhängige Nachrechnung.

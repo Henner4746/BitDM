@@ -422,7 +422,8 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   da, hergestellt wurde daraus nichts.
 - **Die Windows-Datei ist unsigniert,** und das Installationsprogramm aus
   `bitdm.iss` ist nicht gebaut und nicht veröffentlicht.
-- **Keine Gruppenchats.**
+- **Gruppen mit Grenzen:** bis 20 Mitglieder, Verteilung über Einzelsitzungen
+  (noch keine Sender Keys), keine Zustellhaken je Mitglied.
 - **Die Einreichungen bei Google Play und F-Droid sind vorbereitet, nicht
   erfolgt.**
 

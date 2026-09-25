@@ -205,7 +205,7 @@ flutter:
   # Netzwerkanfrage fuer Typografie. Beides sind Variable Fonts mit
   # wght-Achse, eine Datei deckt daher alle genutzten Schnitte (w300-w900) ab.
   # Lizenz: SIL Open Font License, siehe assets/fonts/OFL-*.txt
-  # (OFL ist mit GPL-3.0 vereinbar und fuer F-Droid unproblematisch).
+  # (OFL ist mit AGPL-3.0 vereinbar und fuer F-Droid unproblematisch).
   fonts:
     - family: Doto
       fonts:

@@ -400,7 +400,8 @@ concerned. Two separate bugs in this project had that single root cause.
   been produced from them.
 - **The Windows binary is unsigned,** and the installer from `bitdm.iss` has not
   been built or published.
-- **No group chats.**
+- **Groups are limited:** up to 20 members, fan-out over one-to-one sessions
+  (no sender keys yet), no per-member delivery ticks.
 - **Google Play and F-Droid submissions are prepared, not done.**
 
 ---

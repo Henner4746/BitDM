@@ -98,6 +98,14 @@ gradle.taskGraph.whenReady {
 
 android {
     namespace = "com.bitdm.bitdm"
+
+    // F-DROID: kein Abhaengigkeitsblock in der APK. Den verschluesselt das
+    // Android-Gradle-Plugin mit einem Schluessel von Google, und F-Droid nimmt
+    // eine APK mit einem Block, den niemand ausser Google lesen kann, nicht an.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -180,6 +188,14 @@ android {
             // bleibt der Build UNSIGNIERT und schlaegt sichtbar fehl — besser
             // als eine scheinbar fertige Release-APK mit dem oeffentlich
             // bekannten Debug-Schluessel, die niemandem auffaellt.
+
+            // F-DROID / REPRODUZIERBAR: keine Versionsverwaltungs-Angaben in der
+            // APK. Gebaut aus einem git-Checkout stuende dort die Commit-
+            // Kennung, gebaut aus einem entpackten Stand "NO_SUPPORTED_VCS" —
+            // und schon waeren zwei Bauten desselben Quellstands verschieden.
+            vcsInfo {
+                include = false
+            }
         }
 
         // HIER STAND EIN applicationIdSuffix = ".dev" FUER DEN TESTBAU.
