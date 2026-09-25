@@ -12,8 +12,8 @@ liest wie F-Droid:
     app/fastlane/metadata/android/en-US/
     app/fastlane/metadata/android/*/images/icon.png, phoneScreenshots/1..6.png
 
-Für Play zusätzlich nötig: eine Grafik 1024 × 500 ("Feature graphic"). Noch
-nicht erstellt.
+Die Grafik 1024 × 500 ("Feature graphic") liegt als images/featureGraphic.png
+in beiden Sprachen bei.
 
 ## App-Bundle
 
@@ -76,7 +76,7 @@ nicht gedacht, und „für Kinder" zöge die Familienrichtlinien nach sich.
    „Verantwortlicher") — Play verlangt eine vollständige Entwickleridentität.
 3. **Video für den Vordergrunddienst** (Bildschirmaufnahme: Hintergrund-
    empfang einschalten, Nachricht kommt bei geschlossener App).
-4. **Feature-Grafik** 1024 × 500 freigeben (kann ich erstellen).
+4. **Feature-Grafik** ansehen und freigeben (images/featureGraphic.png).
 5. Entscheidung **Play App Signing** (vorhandenen Schlüssel hochladen — empfohlen).
 6. Bei neuen Konten: **geschlossener Test mit 12 Testern über 14 Tage**, bevor
    eine Produktionsfreigabe möglich ist (Regel seit Nov. 2023).
