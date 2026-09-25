@@ -493,6 +493,7 @@ class AppState extends ChangeNotifier {
     await _ladeVorschauen();
     await _ladeUngelesen();
     await _ladeVerteiler();
+    await _ladeFernloeschung();
     _hoereZu();
     // Nicht abwarten: der Kern wirft bei Netzproblemen nicht, er meldet den
     // Zustand. Die Oberflaeche soll sofort da sein, auch im Funkloch.
@@ -920,6 +921,10 @@ class AppState extends ChangeNotifier {
       ..add(core.verlaufGeaendert.listen((chat) => unawaited(_ladeNeu(chat))))
       ..add(core.tippen.listen(_nimmTippen))
       ..add(core.gruppenGeaendert.listen((_) => unawaited(_ladeGruppenNeu())))
+      ..add(core.fernloeschungAusgeloest.listen((f) {
+        fernloeschung = f;
+        _planeFernloeschung();
+      }))
       ..add(core.messageStatusUpdates.listen(_uebernehmeStatus))
       ..add(core.anhangAenderungen.listen((a) {
         anhaenge.putIfAbsent(a.chatId, () => {})[a.messageId] = a;
@@ -973,6 +978,53 @@ class AppState extends ChangeNotifier {
 
   Future<Set<String>> zugestelltAn(String gruppe, String messageId) =>
       core.zugestelltAn(gruppe, messageId);
+
+  // ═══════════════════════════════════════════ Fernloeschung (k von n)
+
+  Fernloeschung fernloeschung = const Fernloeschung();
+  Timer? _fernTakt;
+
+  Future<void> _ladeFernloeschung() async {
+    try {
+      fernloeschung = await core.getFernloeschung();
+    } on MessengerException {
+      return;
+    }
+    _planeFernloeschung();
+  }
+
+  Future<void> setzeFernloeschung(Fernloeschung f) async {
+    await core.setzeFernloeschung(f);
+    fernloeschung = await core.getFernloeschung();
+    notifyListeners();
+  }
+
+  /// Bricht einen laufenden Countdown ab und vergisst die Anfragen.
+  Future<void> brichFernloeschungAb() async {
+    _fernTakt?.cancel();
+    await setzeFernloeschung(fernloeschung.copyWith(anfragen: const {}, ohneFaellig: true));
+  }
+
+  Future<void> sendeLoeschanfrage(String contactId) => core.sendeLoeschanfrage(contactId);
+
+  /// Stellt den Wecker auf die Faelligkeit — und loescht sofort, wenn sie
+  /// schon vorbei ist (die App war zu, als der Countdown ablief).
+  void _planeFernloeschung() {
+    _fernTakt?.cancel();
+    final f = fernloeschung.faellig;
+    if (f == null) return;
+    final rest = f.difference(DateTime.now().toUtc());
+    if (rest <= Duration.zero) {
+      unawaited(allesLoeschen());
+      return;
+    }
+    unawaited(Benachrichtigungen.instanz.zeigeNeueNachricht(anzahl: 1, text: fernWarnText));
+    _fernTakt = Timer(rest, () => unawaited(allesLoeschen()));
+    notifyListeners();
+  }
+
+  /// Text der Warnung — von der Oberflaeche uebersetzt gesetzt.
+  String fernWarnText = 'Remote wipe in 10 minutes. Open BitDM to cancel.';
 
   /// Verteilerlisten (siehe [Verteiler]).
   List<Verteiler> verteiler = const [];
@@ -1892,6 +1944,7 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _wiederverbindung?.cancel();
     _wiederverbindung = null;
+    _fernTakt?.cancel();
     for (final a in _abos) {
       unawaited(a.cancel());
     }

@@ -378,6 +378,29 @@ class FakeMessengerCore implements MessengerCore {
   @override
   Future<Set<String>> zugestelltAn(String gruppe, String messageId) async => const {};
 
+  Fernloeschung _fl = const Fernloeschung();
+  final _flCtl = StreamController<Fernloeschung>.broadcast();
+
+  @override
+  Future<Fernloeschung> getFernloeschung() async => _fl;
+  @override
+  Future<void> setzeFernloeschung(Fernloeschung f) async => _fl = f;
+  @override
+  Future<void> sendeLoeschanfrage(String contactId) async {}
+  @override
+  Stream<Fernloeschung> get fernloeschungAusgeloest => _flCtl.stream;
+
+  /// Fuer Tests: eine Loeschanfrage kommt von [von] an.
+  void simuliereLoeschanfrage(String von) {
+    final nachher = _fl.nimmAnfrage(von, _now);
+    if (_fl.faellig == null && nachher.faellig != null) {
+      _fl = nachher;
+      _flCtl.add(nachher);
+    } else {
+      _fl = nachher;
+    }
+  }
+
   List<Verteiler> _verteiler = const [];
 
   @override

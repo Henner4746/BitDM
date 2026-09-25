@@ -123,7 +123,14 @@ enum PayloadKind {
   gruppenStand(17),
 
   /// Der Absender tritt aus der Gruppe `g` aus.
-  gruppenAustritt(18);
+  gruppenAustritt(18),
+
+  /// FERNLOESCHUNG: ein Vertrauenskontakt bittet dieses Geraet, sich zu
+  /// loeschen. Allein bewirkt sie nichts — erst wenn so viele verschiedene
+  /// Vertrauenskontakte, wie der Besitzer festgelegt hat, binnen 24 Stunden
+  /// darum bitten, laeuft ein Countdown (siehe Fernloeschung in models.dart).
+  /// Eine aeltere Fassung kennt die Art nicht und verwirft sie still.
+  loeschanfrage(19);
 
   const PayloadKind(this.code);
   final int code;

@@ -1307,6 +1307,8 @@ class RealMessengerCore implements MessengerCore {
           // Schon oben verteilt; hier nur, damit die Aufzaehlung vollstaendig
           // bleibt und eine kuenftige Art den Uebersetzer stolpern laesst.
           break;
+        case PayloadKind.loeschanfrage:
+          _nimmLoeschanfrage(von);
         case PayloadKind.spiegel:
           // Ein Spiegel von einer FREMDEN Adresse ergibt keinen Sinn: er
           // gehoert in einen Chat, ueber den der Absender nichts zu sagen
@@ -1860,6 +1862,43 @@ class RealMessengerCore implements MessengerCore {
         _status.add(MessageStatusUpdate(
             messageId: ref, chatId: gid, status: MessageStatus.delivered, at: DateTime.now().toUtc()));
       }
+    }
+  }
+
+  final _fernloeschung = StreamController<Fernloeschung>.broadcast();
+
+  @override
+  Stream<Fernloeschung> get fernloeschungAusgeloest => _fernloeschung.stream;
+
+  @override
+  Future<Fernloeschung> getFernloeschung() async {
+    if (_chats == null) throw const NotInitializedException();
+    return _chats!.fernloeschung();
+  }
+
+  @override
+  Future<void> setzeFernloeschung(Fernloeschung f) async {
+    if (_chats == null) throw const NotInitializedException();
+    // Die Schwelle nie unter zwei — einer allein darf nie loeschen koennen.
+    final k = f.schwelle < 2 ? 2 : f.schwelle;
+    _chats!.speichereFernloeschung(f.copyWith(schwelle: k));
+  }
+
+  @override
+  Future<void> sendeLoeschanfrage(String contactId) async {
+    _fordereChat(contactId);
+    await _sendeSteuerung(
+        contactId, Payload.control(PayloadKind.loeschanfrage, _neueId(), DateTime.now().toUtc()));
+  }
+
+  void _nimmLoeschanfrage(String von) {
+    final chats = _chats!;
+    final vorher = chats.fernloeschung();
+    final nachher = vorher.nimmAnfrage(von, DateTime.now().toUtc());
+    if (identical(vorher, nachher)) return;
+    chats.speichereFernloeschung(nachher);
+    if (vorher.faellig == null && nachher.faellig != null) {
+      _fernloeschung.add(nachher);
     }
   }
 
@@ -3614,6 +3653,9 @@ class RealMessengerCore implements MessengerCore {
     PayloadKind.gruppe ||
     PayloadKind.gruppenStand ||
     PayloadKind.gruppenAustritt ||
+    // Eine Loeschanfrage gilt EINEM Geraet des Besitzers; gespiegelt zaehlte
+    // sie auf dessen anderen Geraeten ein zweites Mal.
+    PayloadKind.loeschanfrage ||
     PayloadKind.spiegel => false,
   };
 

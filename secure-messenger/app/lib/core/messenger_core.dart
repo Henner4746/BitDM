@@ -271,6 +271,16 @@ abstract class MessengerCore {
 
   Future<List<Gruppe>> getGruppen();
 
+  /// Fernloeschung durch Vertrauenskontakte (siehe [Fernloeschung]).
+  Future<Fernloeschung> getFernloeschung();
+  Future<void> setzeFernloeschung(Fernloeschung f);
+
+  /// Bittet [contactId], sich zu loeschen — als dessen Vertrauenskontakt.
+  Future<void> sendeLoeschanfrage(String contactId);
+
+  /// Meldet, wenn genug Vertrauenskontakte gebeten haben (mit Faelligkeit).
+  Stream<Fernloeschung> get fernloeschungAusgeloest;
+
   /// Welche Mitglieder eine eigene Gruppennachricht schon haben.
   Future<Set<String>> zugestelltAn(String gruppe, String messageId);
 

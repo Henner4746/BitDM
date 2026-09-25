@@ -662,6 +662,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
   void _aktualisiere() {
     if (!mounted) return;
+    // DIE IDENTITAET IST WEG — etwa durch eine Fernloeschung, die ablief,
+    // waehrend die Chatliste offen war. Dann gehoert der Bildschirm zum
+    // Anfang, nicht zu Unterhaltungen, die es nicht mehr gibt.
+    if (st.bereit && !st.hatIdentitaet && !st.gesperrt &&
+        const {'chats', 'chat', 'id', 'settings'}.contains(screen)) {
+      screen = 'onboard';
+      chat = null;
+    }
     _uebernimmEinstellungen();
     setState(() {});
   }
@@ -669,6 +677,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// Reicht die uebersetzten Texte fuer Benachrichtigungen durch. Der Kern
   /// kennt die Sprache nicht und soll sie auch nicht kennen.
   void _setzeMeldetexte() {
+    st.fernWarnText = t('wipeNotify');
     st.einNeuText = t('notifOne');
     st.empfangTitelText = t('bgNotifTitle');
     st.empfangLaeuftText = t('bgNotifText');
@@ -1469,7 +1478,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   // Terminal — und nur die bekannten: alles andere mit "/" am Anfang geht als
   // gewoehnliche Nachricht hinaus, wer "/s" schreibt, meint Ironie.
 
-  static const _befehle = ['timer', 'verify', 'poll', 'theme', 'shrug'];
+  static const _befehle = ['timer', 'verify', 'poll', 'theme', 'shrug', 'wipe'];
 
   /// Ob die Schreibzeile beim letzten Tastendruck mit "/" begann.
   bool _warBefehl = false;
@@ -1614,6 +1623,28 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           return true;
         }
         await st.setzeEinstellungen(st.einstellungen.copyWith(thema: ziel.first.id));
+        return true;
+      case 'wipe':
+        if (st.gruppeZu(cid) != null || st.istNotizen(cid)) {
+          _hinweis(t('cmdVerifyNone'));
+          return true;
+        }
+        final sicher = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(t('wipeAskTitle')),
+            content: Text(t('wipeAskText').replaceFirst('{id}', shortId(adresseFormatiert(cid))),
+                style: mono(size: 12, color: p.muted, height: 1.5)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('cancel'))),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(t('wipeSend'))),
+            ],
+          ),
+        );
+        if (sicher == true) {
+          await st.sendeLoeschanfrage(cid);
+          _hinweis(t('wipeSent'));
+        }
         return true;
       case 'shrug':
         final rest = eingabe.substring(1 + befehl.length).trim();
@@ -2476,6 +2507,86 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ),
       ),
     );
+  }
+
+  /// Der rote Balken ueber der Chatliste, solange eine Fernloeschung laeuft.
+  Widget fernBanner() {
+    final f = st.fernloeschung.faellig!;
+    final rest = f.difference(DateTime.now().toUtc());
+    final min = rest.isNegative ? 0 : rest.inMinutes + 1;
+    return Container(
+      key: const ValueKey('fern-banner'),
+      margin: const EdgeInsets.fromLTRB(17, 8, 17, 0),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
+      child: Row(children: [
+        Expanded(child: Text(t('wipeBanner').replaceFirst('{m}', '$min'),
+            style: mono(size: 12, weight: FontWeight.w600, color: p.tintInk, height: 1.4))),
+        const SizedBox(width: 8),
+        outlineBtn(t('cancel'), () async {
+          await st.brichFernloeschungAb();
+          _hinweis(t('wipeCancelled'));
+        }, padding: const EdgeInsets.all(8)),
+      ]),
+    );
+  }
+
+  Future<void> _richteFernloeschungEin() async {
+    final kandidaten = st.aktiveKontakte.where((k) => !st.istNotizen(k.id)).toList();
+    final gewaehlt = st.fernloeschung.vertraute.toSet();
+    var an = st.fernloeschung.an;
+    var k = st.fernloeschung.schwelle;
+    String? fehler;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, neu) => AlertDialog(
+          title: Text(t('wipeTitle')),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(t('wipeExplain'), style: mono(size: 11, color: p.dim, height: 1.5)),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  dense: true, contentPadding: EdgeInsets.zero,
+                  value: an, onChanged: (v) => neu(() => an = v),
+                  title: Text(t('wipeEnable'), style: mono(size: 12.5, color: p.ink)),
+                ),
+                Text(t('wipeThreshold'), style: mono(size: 11, color: p.muted)),
+                const SizedBox(height: 4),
+                segmented(['2', '3', '4'], ['2', '3', '4'], '$k', (v) => neu(() => k = int.parse(v))),
+                const SizedBox(height: 6),
+                for (final kontakt in kandidaten)
+                  CheckboxListTile(
+                    dense: true, contentPadding: EdgeInsets.zero,
+                    value: gewaehlt.contains(kontakt.id),
+                    onChanged: (v) => neu(() => v == true ? gewaehlt.add(kontakt.id) : gewaehlt.remove(kontakt.id)),
+                    title: Text(shortId(adresseFormatiert(kontakt.id)), style: mono(size: 12, color: p.ink)),
+                  ),
+                if (fehler != null) Text(fehler!, style: mono(size: 11.5, color: p.tintInk)),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('cancel'))),
+            TextButton(
+              onPressed: () {
+                if (an && gewaehlt.length < k) {
+                  neu(() => fehler = t('wipeTooFew').replaceFirst('{k}', '$k'));
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: Text(t('actSave')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await st.setzeFernloeschung(st.fernloeschung.copyWith(
+        an: an, schwelle: k, vertraute: gewaehlt.toList(), anfragen: const {}));
   }
 
   /// Fragt nach k von n, zerlegt die Woerter und zeigt die Teile.
@@ -4897,6 +5008,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ]),
       ),
       Container(height: 1, color: p.lineSoft),
+      if (st.fernloeschung.faellig != null) fernBanner(),
       suchFeld(),
       if (st.suchText.trim().isEmpty && !_zeigeArchiv) filterLeiste(),
       Expanded(
@@ -6118,6 +6230,18 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         toggleRow(t("readReceipts"), t("readReceiptsSub"), st.einstellungen.readReceipts,
             () => st.setzeEinstellungen(st.einstellungen.copyWith(
                 readReceipts: !st.einstellungen.readReceipts))),
+        const SizedBox(height: 3),
+        // FERNLOESCHUNG: gemeinsam koennen Vertrauenskontakte dieses Geraet
+        // loeschen lassen (k von n, 24 Stunden, 10 Minuten Countdown).
+        settingCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          settingHead(t('wipeTitle'), t('wipeSub')),
+          const SizedBox(height: 8),
+          outlineBtn(st.fernloeschung.an
+                  ? t('wipeOn').replaceFirst('{k}', '${st.fernloeschung.schwelle}')
+                      .replaceFirst('{n}', '${st.fernloeschung.vertraute.length}')
+                  : t('wipeSetup'),
+              _richteFernloeschungEin, padding: const EdgeInsets.all(9)),
+        ])),
         const SizedBox(height: 3),
         // VERTRAUENSKONTAKTE: die zwoelf Woerter in Teile zerlegt (Shamir,
         // core/crypto/teilgeheimnis.dart). Einige zusammen stellen die

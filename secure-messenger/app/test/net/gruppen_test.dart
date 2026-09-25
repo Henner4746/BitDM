@@ -121,6 +121,25 @@ void main() {
     expect(await bob.core.zugestelltAn(gid, m.id), {anna.core.myId, carl.core.myId});
   });
 
+  test('FERNLOESCHUNG: ERST DIE ZWEITE VERTRAUTE ANFRAGE LOEST AUS', () async {
+    final (:anna, :bob, :carl, gid: _) = await gruppe();
+    await anna.core.setzeFernloeschung(Fernloeschung(
+        an: true, schwelle: 2, vertraute: [bob.core.myId, carl.core.myId]));
+    final ausgeloest = <Fernloeschung>[];
+    final abo = anna.core.fernloeschungAusgeloest.listen(ausgeloest.add);
+    addTearDown(abo.cancel);
+
+    await bob.core.sendeLoeschanfrage(anna.core.myId);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    expect(ausgeloest, isEmpty, reason: 'eine einzige Anfrage darf nichts ausloesen');
+    expect((await anna.core.getFernloeschung()).anfragen.keys, [bob.core.myId]);
+
+    await carl.core.sendeLoeschanfrage(anna.core.myId);
+    expect(await Nutzer.warteBis(() => ausgeloest.isNotEmpty), isTrue,
+        reason: 'zwei Vertraute, und nichts geschah');
+    expect(ausgeloest.single.faellig, isNotNull);
+  });
+
   test('REAKTIONEN, BEARBEITEN UND ANHEFTEN GEHEN AUCH IN DER GRUPPE',
       () async {
     final (:anna, :bob, :carl, :gid) = await gruppe();

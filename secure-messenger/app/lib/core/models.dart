@@ -110,6 +110,81 @@ class Umfrage {
 /// NUR DER ADMIN aendert die Mitgliederliste, jede Aenderung mit einer
 /// hoeheren [version]. Austreten darf jeder selbst. Tritt der Admin aus,
 /// wird das naechste Mitglied der Liste Admin ([nachfolger]).
+/// FERNLOESCHUNG DURCH VERTRAUENSKONTAKTE (k von n).
+///
+/// Wofuer: das Telefon ist weg oder beschlagnahmt, und der Besitzer kommt
+/// nicht mehr heran. Dann koennen Menschen, denen er vertraut, es loeschen
+/// lassen — aber nur gemeinsam.
+///
+/// DIE BREMSEN gegen Missbrauch, alle zugleich:
+///   * nur Kontakte, die der Besitzer ausdruecklich eingetragen hat;
+///   * mindestens [schwelle] (>= 2) VERSCHIEDENE von ihnen, binnen 24 Stunden;
+///   * danach [verzug] Countdown mit dauerhafter Benachrichtigung, in dem
+///     der Besitzer (nach dem Entsperren) abbrechen kann.
+class Fernloeschung {
+  const Fernloeschung({
+    this.an = false,
+    this.schwelle = 2,
+    this.vertraute = const [],
+    this.anfragen = const {},
+    this.faellig,
+  });
+
+  final bool an;
+  final int schwelle;
+  final List<String> vertraute;
+
+  /// Wer wann gebeten hat (ms seit Epoche).
+  final Map<String, int> anfragen;
+
+  /// Wann geloescht wird, oder null, solange nichts ausgeloest ist.
+  final DateTime? faellig;
+
+  static const verzug = Duration(minutes: 10);
+  static const fenster = Duration(hours: 24);
+
+  Fernloeschung copyWith({bool? an, int? schwelle, List<String>? vertraute,
+          Map<String, int>? anfragen, DateTime? faellig, bool ohneFaellig = false}) =>
+      Fernloeschung(
+        an: an ?? this.an,
+        schwelle: schwelle ?? this.schwelle,
+        vertraute: vertraute ?? this.vertraute,
+        anfragen: anfragen ?? this.anfragen,
+        faellig: ohneFaellig ? null : (faellig ?? this.faellig),
+      );
+
+  Map<String, Object?> alsJson() => {
+        'an': an,
+        'k': schwelle,
+        'v': vertraute,
+        'a': anfragen,
+        if (faellig != null) 'f': faellig!.millisecondsSinceEpoch,
+      };
+
+  static Fernloeschung ausJson(Map<String, Object?> j) => Fernloeschung(
+        an: j['an'] == true,
+        schwelle: (j['k'] as int?) ?? 2,
+        vertraute: ((j['v'] as List?) ?? const []).cast<String>(),
+        anfragen: ((j['a'] as Map?) ?? const {}).map((k, v) => MapEntry(k as String, v as int)),
+        faellig: j['f'] == null ? null : DateTime.fromMillisecondsSinceEpoch(j['f'] as int, isUtc: true),
+      );
+
+  /// Nimmt die Anfrage von [von] auf. Gibt den neuen Stand zurueck — mit
+  /// [faellig], wenn damit genug zusammenkommen. Anfragen von Fremden, bei
+  /// ausgeschaltetem Schutz oder nach der Ausloesung aendern nichts.
+  Fernloeschung nimmAnfrage(String von, DateTime jetzt) {
+    if (!an || !vertraute.contains(von) || faellig != null) return this;
+    final grenze = jetzt.subtract(fenster).millisecondsSinceEpoch;
+    final neu = {
+      for (final e in anfragen.entries)
+        if (e.value >= grenze && vertraute.contains(e.key)) e.key: e.value,
+      von: jetzt.millisecondsSinceEpoch,
+    };
+    final genug = neu.length >= schwelle && schwelle >= 2;
+    return copyWith(anfragen: neu, faellig: genug ? jetzt.add(verzug) : null);
+  }
+}
+
 /// Eine Verteilerliste: EINE Nachricht an mehrere Kontakte, verschickt als
 /// einzelne Nachrichten. Die Empfaenger erfahren nichts voneinander — fuer sie
 /// ist es eine gewoehnliche Nachricht im Einzelchat. Nur auf diesem Geraet.

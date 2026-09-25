@@ -833,6 +833,23 @@ class ChatRepository {
           r['mitglied'] as String,
       };
 
+  Fernloeschung fernloeschung() {
+    final roh = db.meta('fernloeschung');
+    if (roh == null || roh.isEmpty) return const Fernloeschung();
+    try {
+      return Fernloeschung.ausJson((jsonDecode(roh) as Map).cast<String, Object?>());
+    } catch (_) {
+      return const Fernloeschung();
+    }
+  }
+
+  void speichereFernloeschung(Fernloeschung f) {
+    db.transaction((raw) => raw.execute(
+        'INSERT INTO meta (key, value) VALUES (?,?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['fernloeschung', jsonEncode(f.alsJson())]));
+  }
+
   /// Die Verteilerlisten — als JSON in der verschluesselten Datenbank.
   List<Verteiler> verteiler() {
     final roh = db.meta('verteiler');
