@@ -5017,6 +5017,9 @@ class _KernUmgebung implements TestUmgebung {
   int get naheInReichweite => _k._nah?.inReichweite.length ?? 0;
 
   @override
+  SocksZiel? get torProxy => Netzweg.proxy;
+
+  @override
   HttpClient httpClient() => Netzweg.httpClient();
 
   /// EIN EIGENER CLIENT je Lauf und nicht der des Kerns: der Test wirft ihn

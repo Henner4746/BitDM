@@ -27,6 +27,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'anhang/lager_client.dart';
+import 'net/netzweg.dart';
 import 'net/relay_client.dart';
 
 /// Wie ein Schritt ausgegangen ist.
@@ -116,6 +117,9 @@ abstract class TestUmgebung {
   /// Wie viele davon gerade in Reichweite sind.
   int get naheInReichweite;
 
+  /// Der Tor-Proxy (Orbot), wenn "Ueber Tor verbinden" an ist, sonst null.
+  SocksZiel? get torProxy;
+
   /// Ein HTTP-Client fuer die einfachen Abfragen.
   HttpClient httpClient();
 
@@ -130,6 +134,32 @@ class Verbindungstest {
   final Duration zeitgrenze;
 
   static final _zufall = Random.secure();
+
+  /// Oeffnet den Proxy und schickt den SOCKS5-Gruss ("keine Anmeldung").
+  static Future<void> _pruefeSocks(SocksZiel p) async {
+    Socket? s;
+    try {
+      s = await Socket.connect(p.host, p.port, timeout: const Duration(seconds: 4));
+    } on SocketException {
+      throw const SocksException('Verbindung abgelehnt');
+    }
+    try {
+      s.add(const [5, 1, 0]);
+      await s.flush();
+      final antwort = <int>[];
+      await for (final stueck in s.timeout(const Duration(seconds: 4))) {
+        antwort.addAll(stueck);
+        if (antwort.length >= 2) break;
+      }
+      if (antwort.length < 2 || antwort[0] != 5 || antwort[1] != 0) {
+        throw const SocksException('dort laeuft kein SOCKS5-Proxy');
+      }
+    } on TimeoutException {
+      throw const SocksException('keine Antwort');
+    } finally {
+      s.destroy();
+    }
+  }
 
   /// Laeuft die Kette durch. Meldet jeden Schritt einzeln ueber [beiSchritt],
   /// damit die Oberflaeche mitwaechst, statt am Ende alles auf einmal zu
@@ -213,6 +243,33 @@ class Verbindungstest {
         merke(Schritt(s, Befund.uebersprungen));
       }
       return Testbericht(schritte);
+    }
+
+    // ── 3a. Tor ────────────────────────────────────────────────────────
+    //
+    // SEIT 27.09.2026. Auf einem S25 stand "Ueber Tor verbinden" an, Orbot
+    // war nicht installiert (nur der Tor Browser, der anderen Apps keinen
+    // Proxy gibt). Der Bildschirm sagte "keine offene Verbindung zum Relay",
+    // und als letzten Fehler "Connection refused ... 127.0.0.1, port = 40654"
+    // — Dart nennt dort den EIGENEN Absender-Port, nicht 9050. Nichts davon
+    // fuehrte zum Schalter. Jetzt wird der Proxy selbst gefragt, und zwar mit
+    // dem SOCKS5-Gruss: ein offener Port allein koennte auch etwas anderes sein.
+    final tor = umgebung.torProxy;
+    if (tor != null) {
+      final t = await _messen(() => _pruefeSocks(tor));
+      merke(Schritt('pruefTor', t.$1 == null ? Befund.gut : Befund.schlecht,
+          detail: t.$1 == null
+              ? 'Orbot antwortet auf ${tor.host}:${tor.port}'
+              : 'Tor ist an, aber auf ${tor.host}:${tor.port} antwortet kein '
+                  'Orbot (${t.$1}). Orbot starten oder Tor in den '
+                  'Einstellungen ausschalten.',
+          dauer: t.$2));
+      if (t.$1 != null) {
+        for (final s in const ['pruefRelay', 'pruefAngemeldet', 'pruefLager']) {
+          merke(Schritt(s, Befund.uebersprungen));
+        }
+        return Testbericht(schritte);
+      }
     }
 
     // ── 3. Relay: Verbindung ───────────────────────────────────────────
@@ -331,6 +388,7 @@ class Verbindungstest {
       return s == null ? e.grund : '${e.grund} (HTTP $s)';
     }
     if (e is RelayException) return e.grund;
+    if (e is SocksException) return e.grund;
     if (e is SocketException) {
       final o = e.osError;
       return o == null ? e.message : '${e.message}: ${o.message}';

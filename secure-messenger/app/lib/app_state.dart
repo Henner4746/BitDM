@@ -43,6 +43,7 @@ import 'core/messenger_core.dart';
 import 'core/nah/funk.dart';
 import 'core/real_messenger_core.dart';
 import 'core/sprache.dart';
+import 'core/net/netzweg.dart';
 import 'core/verbindungstest.dart';
 import 'data.dart' show shortId;
 import 'fassung.dart';
@@ -2414,6 +2415,13 @@ class AppState extends ChangeNotifier {
   void _merkeTechnisch(Object e) {
     final art = e.runtimeType.toString();
     var text = e.toString();
+    // DER PORT IN DARTS MELDUNG IST DER EIGENE, nicht das Ziel: "Connection
+    // refused ... 127.0.0.1, port = 40654" hiess am 27.09.2026 "Orbot laeuft
+    // nicht" (Tor an, Proxy 127.0.0.1:9050) — und war so nicht zu erkennen.
+    final tor = Netzweg.proxy;
+    if (e is SocketException && tor != null && (e.address?.isLoopback ?? false)) {
+      text = 'Tor-Proxy ${tor.host}:${tor.port} antwortet nicht (laeuft Orbot?) — ${e.osError?.message ?? e.message}';
+    }
     if (text.startsWith('$art: ')) text = text.substring(art.length + 2);
     if (text.length > 160) text = '${text.substring(0, 160)}…';
     letzteTechnischeMeldung = '$art — $text';

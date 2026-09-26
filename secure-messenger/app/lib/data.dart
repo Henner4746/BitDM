@@ -343,6 +343,7 @@ const Map<String, Map<String, String>> strings = {
     'pruefNahbereichWas': 'That is why nothing below was tested — the switch '
         'stops BitDM from touching any server at all.',
     'pruefFunk': 'Nearby over Bluetooth',
+    'pruefTor': 'Tor proxy (Orbot)',
     'pruefRelay': 'Connection to the relay',
     'pruefAngemeldet': 'The relay knows this address',
     'pruefLager': 'Attachment storage, all the way',
@@ -730,6 +731,7 @@ const Map<String, Map<String, String>> strings = {
     'pruefNahbereichWas': 'Deshalb wurde darunter nichts geprüft — der Schalter '
         'hält BitDM davon ab, überhaupt einen Server anzusprechen.',
     'pruefFunk': 'In der Nähe, über Bluetooth',
+    'pruefTor': 'Tor-Proxy (Orbot)',
     'pruefRelay': 'Verbindung zum Relay',
     'pruefAngemeldet': 'Der Relay kennt diese Adresse',
     'pruefLager': 'Anhang-Speicher, den ganzen Weg',
