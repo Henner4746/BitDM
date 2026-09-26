@@ -108,6 +108,12 @@ MIN_FREI_BYTES = int(os.getenv("BITDM_BLOB_MIN_FREE", str(50 * 1024**3)))
 # IMMER MIT fullmatch. Mit `^...$` und .match() ging auch "<52 Zeichen>\n"
 # durch — `$` passt VOR einem letzten Zeilenumbruch —, und der Dateiname
 # waere ein anderer gewesen als der, den die Marke meinte.
+# LESBAR FUER DIE GRUPPE, NICHT FUER ALLE. Ausgeliefert wird nicht von hier,
+# sondern von nginx (www-data, Mitglied der Gruppe bitdmblob; siehe
+# deploy/storage). Mit 0o600 — so stand es von 1.8.1 bis 1.9.0 — bekam jeder
+# neue Anhang beim Holen 403, waehrend das Ablegen weiter "ok" meldete.
+DATEIRECHTE = 0o640
+
 KENNUNG_MUSTER = re.compile(r"[a-z2-7]{52}")
 
 # Eine Marke ist ein HMAC-SHA256 in Kleinbuchstaben-Hex.
@@ -324,7 +330,7 @@ async def lege_ab(
         try:
             fd = os.open(unfertig,
                          os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                         | getattr(os, "O_BINARY", 0), 0o600)
+                         | getattr(os, "O_BINARY", 0), DATEIRECHTE)
         except OSError:
             raise HTTPException(500, "Ablegen fehlgeschlagen")
         try:

@@ -98,6 +98,31 @@ def test_ablegen_und_wieder_loeschen(client, lager):
     assert not (verzeichnis / KENNUNG).exists()
 
 
+def test_NGINX_DARF_DEN_BLOCK_LESEN(client, lager, monkeypatch):
+    """Ausgeliefert wird von nginx ueber die Gruppe, nicht vom Lager selbst.
+
+    Von 1.8.1 bis 1.9.0 legte das Lager jeden Block mit 0o600 an: Ablegen
+    meldete 200, das Holen ueber nginx 403 — kein Anhang kam mehr an.
+    """
+    verzeichnis, _ = lager
+    modul = importlib.import_module("blob_server")
+    rechte = []
+    echt = os.open
+
+    def merke(pfad, flags, mode=0o777, *a, **k):
+        rechte.append(mode)
+        return echt(pfad, flags, mode, *a, **k)
+
+    monkeypatch.setattr(modul.os, "open", merke)
+    inhalt = b"x" * 64
+    antwort = client.put(f"/ablegen/{KENNUNG}", content=inhalt, headers=kopf(KENNUNG, len(inhalt)))
+    assert antwort.status_code == 200, antwort.text
+    assert rechte and all(m & 0o040 for m in rechte), f"Gruppe darf nicht lesen: {[oct(m) for m in rechte]}"
+    assert all(not m & 0o007 for m in rechte), "fuer alle lesbar"
+    if os.name != "nt":
+        assert (verzeichnis / KENNUNG).stat().st_mode & 0o040
+
+
 def test_es_bleibt_kein_bruchstueck_liegen(client, lager):
     verzeichnis, _ = lager
     inhalt = b"." * 500
