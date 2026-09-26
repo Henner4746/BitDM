@@ -893,12 +893,30 @@ class NahfunkKanal(private val activity: Activity) :
 
     // ═══════════════════════════════════════════════════════════════ Kanal
 
-    fun raeumeAuf() {
+    /**
+     * Funk aus — auf Wunsch von Dart (Sperren, geaenderte Kontaktliste,
+     * Schalter). Der EREIGNISKANAL BLEIBT.
+     *
+     * Bis 26.09.2026 rief "allesAus" [raeumeAuf] auf, und das setzte auch
+     * `senke = null`. Dart abonniert den Kanal aber nur einmal
+     * (Nahfunk.horcheAuf, `_abo ??=`) — nach dem ersten Anhalten kam also kein
+     * einziges Ereignis mehr an: keine Leuchtfeuer, keine Stuecke. BitDM war
+     * auf Bluetooth blind, bis der Prozess neu startete. Weil jede Sperre, jeder
+     * neue Kontakt und jeder Schalter anhaelt, betraf das praktisch jeden
+     * zweiten Aufbau. Gefunden mit dem PC als Gegenstelle am Galaxy S25:
+     * die Suche lieferte 943 Treffer, in Dart kam keiner an.
+     */
+    private fun allesAus() {
         werbeAus()
         sucheAus()
         postfachZu()
-        for (z in laufend.values.toList()) fertig(z, false, "App wird beendet")
+        for (z in laufend.values.toList()) fertig(z, false, "Funk angehalten")
         laufend.clear()
+    }
+
+    /** Beim Beenden der Activity: alles aus UND den Kanal loslassen. */
+    fun raeumeAuf() {
+        allesAus()
         senke = null
     }
 
@@ -943,7 +961,7 @@ class NahfunkKanal(private val activity: Activity) :
                 }
             }
 
-            "allesAus" -> { raeumeAuf(); ergebnis.success(true) }
+            "allesAus" -> { allesAus(); ergebnis.success(true) }
 
             else -> ergebnis.notImplemented()
         }
