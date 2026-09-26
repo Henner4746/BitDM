@@ -95,6 +95,22 @@ class PanikGleichException extends MessengerException {
       : super('das Panik-Passwort darf kein echtes Passwort sein');
 }
 
+/// Warum ein Panik-Wort nicht angenommen wird.
+enum PanikWortFehler {
+  /// Weniger als vier Zeichen (ohne Leerzeichen am Rand).
+  zuKurz,
+
+  /// Leerzeichen am Anfang oder Ende — am Sperrbildschirm tippt man sie
+  /// kaum je wieder genauso mit.
+  randLeer,
+}
+
+class PanikWortUngueltigException extends MessengerException {
+  const PanikWortUngueltigException(this.grund)
+      : super('das Panik-Wort taugt so nicht');
+  final PanikWortFehler grund;
+}
+
 class BearbeitungNichtMoeglichException extends MessengerException {
   const BearbeitungNichtMoeglichException(super.message);
 }

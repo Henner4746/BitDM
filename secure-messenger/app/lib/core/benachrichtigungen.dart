@@ -161,6 +161,30 @@ class Benachrichtigungen {
     } catch (_) {}
   }
 
+  /// Der Hinweis auf eine neue Fassung — EINMAL je Fassung (das merkt sich
+  /// AppState), mit eigener Kennung (3), damit er weder eine Nachricht noch
+  /// die Warnung ersetzt. Niedrige Prioritaet: nichts daran eilt.
+  Future<void> zeigeUpdate({required String text}) async {
+    if (!_bereit) return;
+    try {
+      await _plugin.show(
+        id: 3,
+        title: 'BitDM',
+        body: text,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _kanalId,
+            'Nachrichten',
+            importance: Importance.low,
+            priority: Priority.low,
+            visibility: NotificationVisibility.secret,
+            showWhen: false,
+          ),
+        ),
+      );
+    } catch (_) {}
+  }
+
   /// Nimmt die Warnung weg — beim Abbruch der Fernloeschung und danach.
   Future<void> nimmWarnungWeg() async {
     if (!_bereit) return;

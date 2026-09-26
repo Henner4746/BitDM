@@ -19,6 +19,7 @@ import 'dart:typed_data';
 
 import 'package:sqlite3/common.dart';
 
+import '../fern_codewort.dart';
 import '../models.dart';
 import 'encrypted_database.dart';
 import 'signal_store.dart';
@@ -584,6 +585,8 @@ class ChatRepository {
       autoScroll: lies('auto_scroll') != '0',
       tippAnzeige: lies('tipp_anzeige') == '1',
       panikFach: (lies('panik_fach') ?? '').isEmpty ? null : lies('panik_fach'),
+      fassungSpaeter: (lies('fassung_spaeter') ?? '').isEmpty ? null : lies('fassung_spaeter'),
+      fassungGemeldet: (lies('fassung_gemeldet') ?? '').isEmpty ? null : lies('fassung_gemeldet'),
     );
   }
 
@@ -611,6 +614,8 @@ class ChatRepository {
       setze('auto_scroll', p.autoScroll ? '1' : '0');
       setze('tipp_anzeige', p.tippAnzeige ? '1' : '0');
       setze('panik_fach', p.panikFach ?? '');
+      setze('fassung_spaeter', p.fassungSpaeter ?? '');
+      setze('fassung_gemeldet', p.fassungGemeldet ?? '');
     });
   }
 
@@ -902,6 +907,24 @@ class ChatRepository {
         'INSERT INTO meta (key, value) VALUES (?,?) '
         'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
         ['fernloeschung', jsonEncode(f.alsJson())]));
+  }
+
+  /// Das Fernloesch-Codewort (siehe fern_codewort.dart) — nur Salz und Hash,
+  /// oder null, wenn keins gesetzt ist.
+  FernCodewort? fernCodewort() => FernCodewort.ausJson(db.meta('fern_codewort'));
+
+  /// Setzt das Codewort oder nimmt es weg ([c] null).
+  void speichereFernCodewort(FernCodewort? c) {
+    db.transaction((raw) {
+      if (c == null) {
+        raw.execute("DELETE FROM meta WHERE key = 'fern_codewort'");
+      } else {
+        raw.execute(
+            'INSERT INTO meta (key, value) VALUES (?,?) '
+            'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+            ['fern_codewort', c.alsJson()]);
+      }
+    });
   }
 
   /// GEHEIME NACHRICHTEN (seit 25.09.2026): Kennungen eigener Nachrichten,

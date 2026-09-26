@@ -107,6 +107,17 @@ class RelayProtocolError extends RelayEvent {
   const RelayProtocolError(this.reason);
 }
 
+/// Der Relay hat bei der Anmeldung gesagt, welche App-Fassung die neueste
+/// veroeffentlichte ist (Feld `neueste` in `auth_result`). Ein Relay, der
+/// das Feld nicht kennt, schickt es nicht — dann kommt dieses Ereignis nie.
+///
+/// Nur eine Auskunft fuer den Update-Hinweis: sie aendert am Protokoll
+/// nichts, und die App fragt dafuer nirgends sonst nach.
+class RelayNeuesteFassung extends RelayEvent {
+  final String fassung;
+  const RelayNeuesteFassung(this.fassung);
+}
+
 /// Die Verbindung ist weg. Ob und wann neu verbunden wird, entscheidet die
 /// Schicht darueber.
 /// Die Erlaubnis des Relays, ein Stueck im Zwischenlager abzulegen.
@@ -404,6 +415,13 @@ class RelayClient {
       case 'auth_result':
         if (m['ok'] == true) {
           _kannFluechtig = m['fluechtig'] == true;
+          // VOR dem Abschluss der Anmeldung: wer nach `connect()` fragt,
+          // findet die Fassung dann schon vor.
+          final f = liesFassung(m['neueste']);
+          if (f != null) {
+            _neuesteFassung = f;
+            _events.add(RelayNeuesteFassung(f));
+          }
           if (!angemeldet.isCompleted) angemeldet.complete();
         } else if (!angemeldet.isCompleted) {
           angemeldet.completeError(
@@ -524,6 +542,25 @@ class RelayClient {
   /// Empfaenger dafuer.
   bool get kannFluechtig => _kannFluechtig;
   bool _kannFluechtig = false;
+
+  /// Die neueste veroeffentlichte App-Fassung laut Relay — oder null, wenn
+  /// er es (noch) nicht gesagt hat. Siehe [RelayNeuesteFassung].
+  String? get neuesteFassung => _neuesteFassung;
+  String? _neuesteFassung;
+
+  /// Nimmt nur, was wie eine Fassungsnummer aussieht: Ziffern, Punkte und
+  /// ein kurzer Zusatz, hoechstens 32 Zeichen. Alles andere — auch ein
+  /// Relay, der hier einen Satz oder eine Adresse unterbringen will — gilt
+  /// als nicht gesagt; angezeigt wird der Wert naemlich in der Chatliste.
+  static String? liesFassung(Object? wert) {
+    if (wert is! String) return null;
+    final f = wert.trim();
+    if (f.isEmpty || f.length > 32) return null;
+    return _fassungsMuster.hasMatch(f) ? f : null;
+  }
+
+  static final _fassungsMuster =
+      RegExp(r'^\d{1,6}(\.\d{1,6}){0,3}([-+][0-9A-Za-z.-]{1,24})?$');
 
   /// Schickt etwas, das nur im Augenblick zaehlt: der Relay reicht es an eine
   /// bestehende Verbindung weiter und verwirft es sonst — ohne

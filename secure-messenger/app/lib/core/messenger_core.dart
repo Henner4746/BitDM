@@ -286,6 +286,24 @@ abstract class MessengerCore {
   /// Meldet, wenn genug Vertrauenskontakte gebeten haben (mit Faelligkeit).
   Stream<Fernloeschung> get fernloeschungAusgeloest;
 
+  /// Ob ein Fernloesch-Codewort gesetzt ist (siehe fern_codewort.dart).
+  Future<bool> hatFernCodewort();
+
+  /// Setzt das Codewort — oder nimmt es weg, wenn [wort] null ist. Gespeichert
+  /// wird nur ein gesalzener Hash. Wirft [ArgumentError], wenn das Wort nach
+  /// dem Normalisieren kuerzer als `FernCodewort.minLaenge` ist.
+  ///
+  /// Eine Textnachricht, die dazu passt und von einem aktiven Vertrauten
+  /// kommt, zaehlt wie eine Loeschanfrage und landet NICHT im Verlauf.
+  Future<void> setzeFernCodewort(String? wort);
+
+  /// Die neueste veroeffentlichte App-Fassung laut Relay, oder null, solange
+  /// er es nicht gesagt hat (aeltere Relays sagen es nie).
+  String? get neuesteFassung;
+
+  /// Meldet [neuesteFassung], sobald der Relay sie bei der Anmeldung nennt.
+  Stream<String> get neuesteFassungGemeldet;
+
   /// Welche Mitglieder eine eigene Gruppennachricht schon haben.
   Future<Set<String>> zugestelltAn(String gruppe, String messageId);
 

@@ -118,9 +118,16 @@ class PassphraseFactor extends KekUnlockFactor {
     this.passphrase, {
     this.label = 'Passwort',
     required this.geraeteGebunden,
+    this.ohneStaerkeProbe = false,
   });
 
   final String passphrase;
+
+  /// Nur fuer das PANIK-FACH: keine Staerkeprobe beim Anlegen. Es oeffnet
+  /// nichts, es loest nur das Loeschen aus (app_state `setzePanikPasswort`).
+  /// Das Fach wird trotzdem genauso gebaut wie jedes Passwort-Fach —
+  /// dieselben Argon2id-Werte, von aussen nicht zu unterscheiden.
+  final bool ohneStaerkeProbe;
 
   @override
   final String label;
@@ -148,7 +155,7 @@ class PassphraseFactor extends KekUnlockFactor {
 
   @override
   Argon2Params? neueKdfParams() {
-    if (!geraeteGebunden) {
+    if (!geraeteGebunden && !ohneStaerkeProbe) {
       final bits = schaetzeBits(passphrase);
       if (bits < minimumBitsOhneGeraet) {
         throw WeakPassphraseException(bits, minimumBitsOhneGeraet);

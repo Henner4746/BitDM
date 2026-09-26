@@ -576,6 +576,13 @@ class VaultSecretStore implements SecretStore {
     if (faktor is KeystoreFactor) await faktor.entferne(slotId);
   }
 
+  /// Loest einen [FrischerNachweis] ein — fuer Aenderungen ausserhalb des
+  /// Tresors, die trotzdem eine frische Anmeldung verlangen (etwa das
+  /// Fernloesch-Codewort). Dieselben Regeln wie bei [entferne]: von diesem
+  /// Tresor, unverbraucht, hoechstens [nachweisGueltigkeit] alt. Sonst
+  /// [NachweisNoetigException].
+  void loeseNachweisEin(FrischerNachweis? n) => _loeseEin(n);
+
   void _loeseEin(FrischerNachweis? n) {
     if (n == null ||
         !identical(n._aussteller, this) ||

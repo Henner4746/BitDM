@@ -156,6 +156,79 @@ void main() {
     expect(st.hatIdentitaet, isTrue);
   });
 
+  group('Panik-Wort oder -Satz (seit 26.09.2026)', () {
+    const satz = 'rote Katze im Schnee';
+
+    test('EIN SATZ MIT LEERZEICHEN LOESCHT — genau so getippt wie eingerichtet', () async {
+      await st.fuegePasswortHinzu(echtes);
+      await st.setzePanikPasswort(satz);
+      await st.sperreWieder();
+      // Ohne das Leerzeichen, anders geschrieben: nichts passiert.
+      await expectLater(st.entsperreMitPasswort('roteKatzeimSchnee'),
+          throwsA(isA<UnlockFailedException>()));
+      await expectLater(st.entsperreMitPasswort('Rote Katze im Schnee'),
+          throwsA(isA<UnlockFailedException>()),
+          reason: 'keine Normalisierung — jedes Zeichen zaehlt');
+      expect(st.hatIdentitaet, isTrue);
+      expect(await st.entsperreMitPasswort(satz), isFalse);
+      expect(st.hatIdentitaet, isFalse, reason: 'der Satz mit Leerzeichen loeschte nicht');
+    });
+
+    test('KURZ IST ERLAUBT — ab vier Zeichen, ohne Staerkeprobe', () async {
+      await st.fuegePasswortHinzu(echtes);
+      await expectLater(
+          st.setzePanikPasswort('abc'),
+          throwsA(isA<PanikWortUngueltigException>()
+              .having((e) => e.grund, 'grund', PanikWortFehler.zuKurz)));
+      await expectLater(st.setzePanikPasswort('  abc  '),
+          throwsA(isA<PanikWortUngueltigException>()));
+      await st.setzePanikPasswort('Kiwi');
+      expect(st.hatPanikPasswort, isTrue);
+    });
+
+    test('LEERZEICHEN AM RAND WERDEN ABGELEHNT, NICHT STILL ENTFERNT', () async {
+      await st.fuegePasswortHinzu(echtes);
+      await expectLater(
+          st.setzePanikPasswort(' $satz'),
+          throwsA(isA<PanikWortUngueltigException>()
+              .having((e) => e.grund, 'grund', PanikWortFehler.randLeer)));
+      await expectLater(st.setzePanikPasswort('$satz '),
+          throwsA(isA<PanikWortUngueltigException>()));
+      expect(st.hatPanikPasswort, isFalse);
+    });
+
+    test('NUR FINGERABDRUCK + PANIK-WORT: DER SPERRBILDSCHIRM BIETET EIN PASSWORTFELD', () async {
+      await st.fuegeBiometrieHinzu();
+      expect(st.sperreBietetPasswort, isFalse,
+          reason: 'ohne Passwort-Fach gibt es auch kein Feld');
+      await st.setzePanikPasswort(satz);
+      expect(st.hatFaktor(UnlockFactorKind.passphrase), isFalse,
+          reason: 'die Einstellungen zeigten das Panik-Wort als Passwort');
+
+      // Nach dem Sperren stehen die Einstellungen noch im Speicher — genau da
+      // fehlte das Feld bis 26.09.2026.
+      await st.sperreWieder();
+      expect(st.sperreBietetPasswort, isTrue,
+          reason: 'kein Passwortfeld — das Panik-Wort liess sich nirgends eingeben');
+
+      // Und nach einem Kaltstart ebenso (neuer Tresor, neue AppState).
+      final kalt = AppState(FakeMessengerCore()..simulateExistingIdentity = true,
+          tresor: VaultSecretStore(
+              datei: vaultDateiIn(verzeichnis.path), basis: FakeBasis(), jetzt: () => 1000),
+          ablagen: (_) => FakeAblage());
+      addTearDown(kalt.dispose);
+      await kalt.boot();
+      // Die Attrappe des Kerns kennt keine Sperre; es zaehlt, was der verschlossene
+      // Tresor zeigt: Panik-Fach und Platzhalter, beide als Passwort-Fach.
+      expect(kalt.faktoren.where((s) => s.kind == UnlockFactorKind.passphrase),
+          hasLength(2));
+      expect(kalt.sperreBietetPasswort, isTrue);
+
+      expect(await st.entsperreMitPasswort(satz), isFalse);
+      expect(st.hatIdentitaet, isFalse);
+    });
+  });
+
   test('EIN NEUES PANIK-PASSWORT ERSETZT DAS ALTE', () async {
     await st.fuegePasswortHinzu(echtes);
     await st.setzePanikPasswort(panik);

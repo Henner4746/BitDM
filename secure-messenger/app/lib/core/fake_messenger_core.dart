@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'fern_codewort.dart';
 import 'messenger_core.dart'; // re-exports models.dart + errors.dart
 
 class FakeMessengerCore implements MessengerCore {
@@ -415,6 +416,33 @@ class FakeMessengerCore implements MessengerCore {
   Future<void> sendeLoeschanfrage(String contactId) async {}
   @override
   Stream<Fernloeschung> get fernloeschungAusgeloest => _flCtl.stream;
+
+  FernCodewort? _codewort;
+
+  @override
+  Future<bool> hatFernCodewort() async => _codewort != null;
+
+  @override
+  Future<void> setzeFernCodewort(String? wort) async =>
+      _codewort = wort == null ? null : FernCodewort.aus(wort);
+
+  /// Fuer Tests: der gespeicherte Eintrag (nur Salz und Hash).
+  FernCodewort? get codewortFuerTest => _codewort;
+
+  String? _neuesteFassung;
+  final _fassungCtl = StreamController<String>.broadcast();
+
+  @override
+  String? get neuesteFassung => _neuesteFassung;
+
+  @override
+  Stream<String> get neuesteFassungGemeldet => _fassungCtl.stream;
+
+  /// Fuer Tests: der Relay nennt bei der Anmeldung [fassung].
+  void simuliereNeuesteFassung(String fassung) {
+    _neuesteFassung = fassung;
+    _fassungCtl.add(fassung);
+  }
 
   /// Fuer Tests: eine Loeschanfrage kommt von [von] an.
   void simuliereLoeschanfrage(String von) {

@@ -821,6 +821,15 @@ class AppPreferences {
   /// braucht die Oberflaeche es, um es aus der Liste der Faktoren zu nehmen.
   final String? panikFach;
 
+  /// UPDATE-HINWEIS: die Fassung, bei der der Nutzer "Spaeter" gesagt hat.
+  /// Fuer genau diese Fassung erscheint die Karte nicht mehr; eine noch
+  /// neuere zeigt sie wieder.
+  final String? fassungSpaeter;
+
+  /// Die Fassung, fuer die schon einmal eine Benachrichtigung kam — damit
+  /// es bei jedem Start nicht erneut piept.
+  final String? fassungGemeldet;
+
   /// Das gewaehlte Thema (siehe lib/themen.dart), als Kennung.
   final String thema;
 
@@ -879,6 +888,8 @@ class AppPreferences {
     this.autoScroll = true,
     this.tippAnzeige = false,
     this.panikFach,
+    this.fassungSpaeter,
+    this.fassungGemeldet,
   });
 
   AppPreferences copyWith({
@@ -902,6 +913,8 @@ class AppPreferences {
     bool? tippAnzeige,
     String? panikFach,
     bool loeschePanikFach = false,
+    String? fassungSpaeter,
+    String? fassungGemeldet,
   }) =>
       AppPreferences(
         thema: thema ?? this.thema,
@@ -923,6 +936,8 @@ class AppPreferences {
         autoScroll: autoScroll ?? this.autoScroll,
         tippAnzeige: tippAnzeige ?? this.tippAnzeige,
         panikFach: loeschePanikFach ? null : (panikFach ?? this.panikFach),
+        fassungSpaeter: fassungSpaeter ?? this.fassungSpaeter,
+        fassungGemeldet: fassungGemeldet ?? this.fassungGemeldet,
       );
 }
 

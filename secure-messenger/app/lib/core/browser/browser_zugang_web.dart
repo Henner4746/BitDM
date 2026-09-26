@@ -107,3 +107,7 @@ Future<Uint8List?> browserDateiLesen() async {
     wahl.remove();
   }
 }
+
+/// Laedt die Seite neu — fuer den Update-Hinweis: im Browser IST das
+/// Aktualisieren, der Server liefert die neue Fassung aus.
+void browserNeuLaden() => web.window.location.reload();

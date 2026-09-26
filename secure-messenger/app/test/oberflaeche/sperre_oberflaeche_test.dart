@@ -308,4 +308,95 @@ void main() {
     expect(anzeigeThema.value.id, gespeichert, reason: 'das Antippen des gespeicherten Themas tat nichts');
     anzeigeThema.value = bauThemen().first;
   });
+
+  testWidgets('NUR FINGERABDRUCK + PANIK-SATZ: DER SPERRBILDSCHIRM HAT DAS PASSWORTFELD, DER SATZ LOESCHT',
+      (tester) async {
+    const satz = 'rote Katze im Schnee';
+    await starte(tester);
+    await tester.runAsync(() async {
+      await st.fuegeBiometrieHinzu();
+      await st.setzePanikPasswort(satz);
+      await st.sperreWieder();
+    });
+    await warte(tester);
+    expect(find.text('LOCKED'), findsOneWidget);
+    expect(find.text('APP PASSWORD'), findsOneWidget,
+        reason: 'ohne Passwortfeld liess sich das Panik-Wort nirgends eingeben');
+
+    await tester.tap(find.text('APP PASSWORD'));
+    await warte(tester);
+    await tester.enterText(find.byType(TextField).last, satz);
+    await tester.tap(find.text('Unlock'));
+    await bisDa(tester, find.text('CREATE IDENTITY'));
+    expect(st.hatIdentitaet, isFalse, reason: 'der Satz mit Leerzeichen loeschte nicht');
+    expect(find.text('CREATE IDENTITY'), findsOneWidget);
+  });
+
+  testWidgets('DAS PANIK-WORT OHNE APP-PASSWORT: DER DIALOG SAGT, WO MAN ES EINTIPPT',
+      (tester) async {
+    await starte(tester);
+    await tester.runAsync(() => st.fuegeBiometrieHinzu());
+    await zuDenEinstellungen(tester);
+    await tester.ensureVisible(find.text('Panic word'));
+    await tester.tap(find.text('Panic word'));
+    await bisDa(tester, find.byKey(const ValueKey('panik-eins')));
+    expect(find.byKey(const ValueKey('panik-ohne-passwort')), findsOneWidget);
+    expect(find.textContaining('"App password"'), findsOneWidget);
+
+    // Leerzeichen am Rand: abgelehnt, mit Grund.
+    await tester.enterText(find.byKey(const ValueKey('panik-eins')), ' Kiwi');
+    await tester.enterText(find.byKey(const ValueKey('panik-zwei')), ' Kiwi');
+    await tester.tap(find.text('Save'));
+    await bisDa(tester, find.text('Please no spaces at the beginning or end.'));
+    expect(find.text('Please no spaces at the beginning or end.'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const ValueKey('panik-eins')), 'Kiwi Mango');
+    await tester.enterText(find.byKey(const ValueKey('panik-zwei')), 'Kiwi Mango');
+    await tester.tap(find.text('Save'));
+    for (var i = 0; i < 60 && !st.hatPanikPasswort; i++) {
+      await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(st.hatPanikPasswort, isTrue);
+    await warte(tester, 1200);
+  });
+
+  testWidgets('DAS CODEWORT SETZEN VERLANGT EINE FRISCHE ANMELDUNG', (tester) async {
+    const wort = 'Leuchtturm am Hafen';
+    await starte(tester);
+    await tester.runAsync(() => st.fuegePasswortHinzu(echtes));
+    await zuDenEinstellungen(tester);
+    expect(find.text('No code word set. Trusted contacts can only use /wipe.'), findsOneWidget);
+
+    Future<void> gibEin() async {
+      await tester.ensureVisible(find.text('SET CODE WORD'));
+      await tester.tap(find.text('SET CODE WORD'));
+      await warte(tester);
+      await tester.enterText(find.byKey(const ValueKey('codewort-eins')), wort);
+      await tester.enterText(find.byKey(const ValueKey('codewort-zwei')), 'leuchtturm  am hafen');
+      await tester.tap(find.descendant(
+          of: find.byKey(const ValueKey('codewort-dialog')), matching: find.text('Save')));
+      await bisDa(tester, find.text('Confirm it is you'));
+      expect(find.text('Confirm it is you'), findsOneWidget,
+          reason: 'das Codewort liess sich ohne Anmeldung setzen');
+    }
+
+    // Abgebrochen: nichts gesetzt.
+    await gibEin();
+    await tester.tap(find.text('Cancel').last);
+    await warte(tester, 1200);
+    expect(await tester.runAsync(() => kern.hatFernCodewort()), isFalse);
+
+    // Mit dem richtigen Passwort: gesetzt.
+    await gibEin();
+    await tester.enterText(find.byType(TextField).last, echtes);
+    await tester.tap(find.text('Unlock'));
+    for (var i = 0; i < 60 && !st.fernCodewortGesetzt; i++) {
+      await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(await tester.runAsync(() => kern.hatFernCodewort()), isTrue);
+    await warte(tester, 2400);
+    expect(find.textContaining('Code word set.'), findsOneWidget);
+  });
 }

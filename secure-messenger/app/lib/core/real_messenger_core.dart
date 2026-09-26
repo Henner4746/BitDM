@@ -37,6 +37,7 @@ import 'crypto/bip39.dart';
 import 'crypto/key_derivation.dart';
 import 'crypto/signal_errors.dart';
 import 'crypto/signal_identity.dart';
+import 'fern_codewort.dart';
 import 'messenger_core.dart';
 import 'nah/funk.dart';
 import 'nah/leuchtfeuer.dart';
@@ -1014,8 +1015,20 @@ class RealMessengerCore implements MessengerCore {
       case RelayProtocolError():
         // Nicht toedlich. Die Verbindung steht weiter.
         break;
+      case RelayNeuesteFassung(:final fassung):
+        _neuesteFassung = fassung;
+        if (!_fassungCtl.isClosed) _fassungCtl.add(fassung);
     }
   }
+
+  String? _neuesteFassung;
+  final _fassungCtl = StreamController<String>.broadcast();
+
+  @override
+  String? get neuesteFassung => _neuesteFassung;
+
+  @override
+  Stream<String> get neuesteFassungGemeldet => _fassungCtl.stream;
 
   Future<void> _fuelleNachUndMelde() async {
     final relay = _relay;
@@ -1549,6 +1562,17 @@ class RealMessengerCore implements MessengerCore {
       } else {
         switch (payload.kind) {
           case PayloadKind.text:
+            // DAS FERNLOESCH-CODEWORT: von einem aktiven Vertrauten zaehlt es
+            // wie eine Loeschanfrage und kommt NICHT in den Verlauf (siehe
+            // [_istFernCodewort]). Von jedem anderen ist es eine Nachricht.
+            if (_istFernCodewort(von, payload)) {
+              _nimmLoeschanfrage(von, payload);
+              // Quittiert wie jede Nachricht: der Absender sieht zwei Haken
+              // und sonst nichts Besonderes.
+              unawaited(_sendeQuittung(von, payload.messageId));
+            } else {
+              _legeEingangAb(von, payload, ueberNaehe);
+            }
           case PayloadKind.contactRequest:
             _legeEingangAb(von, payload, ueberNaehe);
           case PayloadKind.anhang:
@@ -2241,6 +2265,43 @@ class RealMessengerCore implements MessengerCore {
     if (vorher.faellig == null && nachher.faellig != null) {
       _fernloeschung.add(nachher);
     }
+  }
+
+  @override
+  Future<bool> hatFernCodewort() async {
+    if (_chats == null) throw const NotInitializedException();
+    return _chats!.fernCodewort() != null;
+  }
+
+  @override
+  Future<void> setzeFernCodewort(String? wort) async {
+    if (_chats == null) throw const NotInitializedException();
+    // FernCodewort.aus wirft bei einem zu kurzen Wort — BEVOR etwas
+    // geschrieben ist; das alte bleibt dann stehen.
+    _chats!.speichereFernCodewort(wort == null ? null : FernCodewort.aus(wort));
+  }
+
+  /// Ob [p] das Fernloesch-Codewort ist, geschickt von einem, der loeschen
+  /// lassen darf.
+  ///
+  /// DIESELBEN BEDINGUNGEN WIE FUER EINE LOESCHANFRAGE, plus dem Schutz, der
+  /// eingeschaltet sein muss: ein aktiver Kontakt aus der Liste der
+  /// Vertrauten. Ist der Schutz aus, gibt es nichts zu verbergen — dann ist
+  /// es eine gewoehnliche Nachricht. Bei einem schon laufenden Countdown
+  /// dagegen wird sie weiter verschluckt: wer das Telefon gerade hat, soll
+  /// das Wort auch dann nicht zu sehen bekommen.
+  ///
+  /// Gerechnet wird nur fuer Vertraute — jede andere Nachricht kostet keinen
+  /// Hash.
+  bool _istFernCodewort(String von, Payload p) {
+    final chats = _chats!;
+    if (p.text.isEmpty || p.text.length > FernCodewort.maxLaenge * 4) {
+      return false;
+    }
+    final f = chats.fernloeschung();
+    if (!f.an || !f.vertraute.contains(von)) return false;
+    if (chats.kontakt(von)?.state != ContactState.active) return false;
+    return chats.fernCodewort()?.passt(p.text) ?? false;
   }
 
   @override

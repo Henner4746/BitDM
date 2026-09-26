@@ -30,6 +30,7 @@ import 'core/crypto/wordlist_english.dart';
 import 'core/crypto/address.dart';
 import 'core/empfang.dart';
 import 'core/fenster.dart';
+import 'core/fern_codewort.dart';
 import 'core/push.dart';
 import 'core/qr_bild.dart';
 import 'core/verbindungstest.dart';
@@ -766,6 +767,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// kennt die Sprache nicht und soll sie auch nicht kennen.
   void _setzeMeldetexte() {
     st.fernWarnText = t('wipeNotify');
+    st.updateMeldeText = (v) => t('updateNotif').replaceFirst('{neu}', v);
     st.einNeuText = t('notifOne');
     st.empfangTitelText = t('bgNotifTitle');
     st.empfangLaeuftText = t('bgNotifText');
@@ -2700,6 +2702,38 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     );
   }
 
+  /// Der ruhige Hinweis auf eine neue Fassung ueber der Chatliste.
+  ///
+  /// KEIN ALARM UND KEINE SPERRE: die App bleibt voll benutzbar, und "Spaeter"
+  /// nimmt die Karte fuer genau diese Fassung weg (AppState.updateSpaeter).
+  /// Im Browser gibt es nichts zu installieren — dort laedt "Neu laden" die
+  /// Seite, und der Server liefert die neue Fassung aus.
+  Widget updateKarte(String neu) {
+    return Container(
+      key: const ValueKey('update-hinweis'),
+      margin: const EdgeInsets.fromLTRB(17, 8, 17, 0),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+          color: p.surf2,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: p.line)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(t('updateAvail').replaceFirst('{neu}', neu),
+            style: mono(size: 12, color: p.ink, height: 1.4)),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: outlineBtn(
+              kIsWeb ? t('updateReload') : t('updateSite'),
+              kIsWeb ? browserNeuLaden : () => _oeffneLink('https://bitdm.net'),
+              padding: const EdgeInsets.all(8))),
+          const SizedBox(width: 8),
+          Expanded(child: outlineBtn(t('updateLater'), () => unawaited(st.updateSpaeter()),
+              accent: false, padding: const EdgeInsets.all(8))),
+        ]),
+      ]),
+    );
+  }
+
   /// Zeichnet den Balken nach, solange eine Fernloeschung laeuft — einmal je
   /// Minute, in der letzten Minute jede Sekunde. Ohne Wecker stand "10 Min."
   /// bis zur Loeschung da.
@@ -2793,6 +2827,102 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     }
     await st.setzeFernloeschung(st.fernloeschung.copyWith(
         an: an, schwelle: k, vertraute: gewaehlt.toList(), anfragen: const {}));
+  }
+
+  /// Wie die Fernloeschung funktioniert — derselbe Text wie im Dialog zum
+  /// Einrichten, hier ohne ihn oeffnen zu muessen.
+  Future<void> _zeigeFernErklaerung() => showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const ValueKey('fern-erklaerung'),
+          title: Text(t('wipeTitle')),
+          content: SingleChildScrollView(
+              child: Text(t('wipeExplain'), style: mono(size: 12, color: p.muted, height: 1.5))),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('close'))),
+          ],
+        ),
+      );
+
+  /// Setzt oder aendert das Fernloesch-Codewort.
+  ///
+  /// ERST DAS WORT, DANN DIE ANMELDUNG: der Beleg der frischen Anmeldung
+  /// gilt nur zwei Minuten (VaultSecretStore.nachweisGueltigkeit), und wer
+  /// sich beim Tippen Zeit laesst, soll nicht an einem abgelaufenen Beleg
+  /// scheitern.
+  Future<void> _richteCodewortEin() async {
+    final eins = TextEditingController();
+    final zwei = TextEditingController();
+    String? fehler;
+    final wort = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, neu) => AlertDialog(
+          key: const ValueKey('codewort-dialog'),
+          backgroundColor: p.surf,
+          title: Text(t('wipeCodeTitle'), style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(t('wipeCodeBody'), style: mono(size: 12, color: p.muted, height: 1.5)),
+              const SizedBox(height: 10),
+              TextField(key: const ValueKey('codewort-eins'), controller: eins, obscureText: true,
+                  autocorrect: false, enableSuggestions: false,
+                  style: mono(size: 13, color: p.ink),
+                  decoration: InputDecoration(hintText: t('wipeCodeHint'), hintStyle: mono(size: 13, color: p.dim))),
+              TextField(key: const ValueKey('codewort-zwei'), controller: zwei, obscureText: true,
+                  autocorrect: false, enableSuggestions: false,
+                  style: mono(size: 13, color: p.ink),
+                  decoration: InputDecoration(hintText: t('wipeCodeAgain'), hintStyle: mono(size: 13, color: p.dim))),
+              if (fehler != null) ...[
+                const SizedBox(height: 8),
+                Text(fehler!, style: mono(size: 11.5, color: p.tintInk, height: 1.4)),
+              ],
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
+            TextButton(
+              onPressed: () {
+                // Verglichen wird in derselben Form, in der spaeter geprueft
+                // wird — "Rote Katze" und "rote  katze" sind dasselbe Wort.
+                if (FernCodewort.normalisiere(eins.text) != FernCodewort.normalisiere(zwei.text)) {
+                  neu(() => fehler = t('pwMismatch'));
+                  return;
+                }
+                if (!FernCodewort.taugt(eins.text)) {
+                  neu(() => fehler = t('wipeCodeShort'));
+                  return;
+                }
+                Navigator.pop(ctx, eins.text);
+              },
+              child: Text(t('actSave')),
+            ),
+          ],
+        ),
+      ),
+    );
+    eins.clear();
+    zwei.clear();
+    _entsorgeNachDemSchliessen([eins, zwei]);
+    if (wort == null || !mounted) return;
+    if (!await frischBestaetigt(frage: t('wipeCodeAsk'))) return;
+    try {
+      await st.setzeFernCodewort(wort);
+      _hinweis(t('wipeCodeSaved'));
+    } on NachweisNoetigException {
+      _hinweis(t('unlockFailed'));
+    }
+  }
+
+  /// Nimmt das Codewort weg — wie das Setzen nur mit frischer Anmeldung.
+  Future<void> _entferneCodewort() async {
+    if (!await frischBestaetigt(frage: t('wipeCodeRemoveAsk'))) return;
+    try {
+      await st.setzeFernCodewort(null);
+      _hinweis(t('wipeCodeRemoved'));
+    } on NachweisNoetigException {
+      _hinweis(t('unlockFailed'));
+    }
   }
 
   /// Zeigt die zwoelf Woerter — nach frischer Anmeldung und mit erzwungenem
@@ -4270,7 +4400,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     final bio = st.hatFaktor(UnlockFactorKind.biometric);
     final pin = st.hatFaktor(UnlockFactorKind.deviceCredential);
     final stick = st.hatFaktor(UnlockFactorKind.hardwareKey);
-    final pw = st.hatFaktor(UnlockFactorKind.passphrase);
+    // Auch dann, wenn es nur das PANIK-WORT gibt (Fingerabdruck plus
+    // Panik-Wort): dort wird es eingetippt. Welches der beiden hinter dem
+    // Feld steht, sieht man dem Bildschirm nicht an (AppState
+    // sperreBietetPasswort).
+    final pw = st.sperreBietetPasswort;
 
     // Der erste Knopf traegt die Betonung. Welcher das ist, haengt davon ab,
     // was eingerichtet ist — ein blasser einziger Knopf saehe aus, als waere
@@ -5458,6 +5592,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       ),
       Container(height: 1, color: p.lineSoft),
       if (st.fernloeschung.faellig != null) fernBanner(),
+      if (st.updateHinweis != null) updateKarte(st.updateHinweis!),
       // SOLANGE ES KEIN APP-PASSWORT GIBT, steht das hier, und zwar ohne
       // Knopf zum Wegklicken: die Identitaet ist in dem Zustand beim
       // naechsten Neuladen weg, und das ist keine Meldung, die man einmal
@@ -6793,6 +6928,30 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                       .replaceFirst('{n}', '${st.fernloeschung.vertraute.length}')
                   : t('wipeSetup'),
               _richteFernloeschungEin, padding: const EdgeInsets.all(9)),
+          const SizedBox(height: 10),
+          // DAS CODEWORT: statt /wipe schreibt ein Vertrauenskontakt das
+          // vereinbarte Wort. Angezeigt wird nur, OB es gesetzt ist — das
+          // Wort selbst steht nirgends mehr (fern_codewort.dart).
+          Text(t('wipeCode'), style: mono(size: 12, weight: FontWeight.w600, color: p.ink)),
+          const SizedBox(height: 3),
+          Text(st.fernCodewortGesetzt ? t('wipeCodeIsSet') : t('wipeCodeNone'),
+              key: const ValueKey('codewort-stand'),
+              style: mono(size: 11, color: p.dim, height: 1.45)),
+          const SizedBox(height: 6),
+          Row(children: [
+            Expanded(child: outlineBtn(
+                st.fernCodewortGesetzt ? t('wipeCodeChange') : t('wipeCodeSet'),
+                _richteCodewortEin,
+                accent: false, padding: const EdgeInsets.all(9))),
+            if (st.fernCodewortGesetzt) ...[
+              const SizedBox(width: 8),
+              Expanded(child: outlineBtn(t('wipeCodeRemove'), _entferneCodewort,
+                  accent: false, padding: const EdgeInsets.all(9))),
+            ],
+          ]),
+          const SizedBox(height: 6),
+          outlineBtn(t('wipeHow'), _zeigeFernErklaerung,
+              accent: false, padding: const EdgeInsets.all(9)),
         ])),
         const SizedBox(height: 3),
         // VERTRAUENSKONTAKTE: die zwoelf Woerter in Teile zerlegt (Shamir,
@@ -6858,9 +7017,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           ],
         ])),
         const SizedBox(height: 3),
-        // DAS PANIK-PASSWORT. Nur, wenn es eine Sperre gibt — ohne Sperre
-        // fragt die App nach nichts, und ein Panik-Passwort haette keinen
-        // Ort, an dem man es eingeben koennte.
+        // DAS PANIK-WORT (frueher "Panik-Passwort"; ein Wort oder Satz). Nur,
+        // wenn es eine Sperre gibt — ohne Sperre fragt die App nach nichts,
+        // und ein Panik-Wort haette keinen Ort, an dem man es eingeben
+        // koennte.
         if (st.sichtbareFaktoren.isNotEmpty) ...[
           toggleRow(t('panicPw'), t('panicPwSub'), st.hatPanikPasswort,
               () async {
@@ -7826,20 +7986,35 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         builder: (ctx, neu) => AlertDialog(
           backgroundColor: p.surf,
           title: Text(t('panicPw'), style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
-          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(t('panicPwBody'), style: mono(size: 12, color: p.muted, height: 1.5)),
-            const SizedBox(height: 10),
-            TextField(controller: eins, obscureText: true, autocorrect: false, enableSuggestions: false,
-                style: mono(size: 13, color: p.ink),
-                decoration: InputDecoration(hintText: t('pw'), hintStyle: mono(size: 13, color: p.dim))),
-            TextField(controller: zwei, obscureText: true, autocorrect: false, enableSuggestions: false,
-                style: mono(size: 13, color: p.ink),
-                decoration: InputDecoration(hintText: t('pwAgain'), hintStyle: mono(size: 13, color: p.dim))),
-            if (fehler != null) ...[
-              const SizedBox(height: 8),
-              Text(fehler!, style: mono(size: 11.5, color: p.tintInk, height: 1.4)),
-            ],
-          ]),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(t('panicPwBody'), style: mono(size: 12, color: p.muted, height: 1.5)),
+              // OHNE APP-PASSWORT: wo tippt man es dann ein? Im Passwortfeld,
+              // das der Sperrbildschirm trotzdem anbietet (AppState
+              // sperreBietetPasswort).
+              if (!st.hatFaktor(UnlockFactorKind.passphrase)) ...[
+                const SizedBox(height: 8),
+                Text(t('panicPwNoPw'), key: const ValueKey('panik-ohne-passwort'),
+                    style: mono(size: 12, color: p.ink, height: 1.5)),
+              ],
+              const SizedBox(height: 10),
+              // KEIN trim, nirgends: was hier steht, muss am Sperrbildschirm
+              // Zeichen fuer Zeichen wieder so eingetippt werden (siehe
+              // AppState.setzePanikPasswort).
+              TextField(key: const ValueKey('panik-eins'), controller: eins, obscureText: true,
+                  autocorrect: false, enableSuggestions: false,
+                  style: mono(size: 13, color: p.ink),
+                  decoration: InputDecoration(hintText: t('panicPwHint'), hintStyle: mono(size: 13, color: p.dim))),
+              TextField(key: const ValueKey('panik-zwei'), controller: zwei, obscureText: true,
+                  autocorrect: false, enableSuggestions: false,
+                  style: mono(size: 13, color: p.ink),
+                  decoration: InputDecoration(hintText: t('panicPwAgain'), hintStyle: mono(size: 13, color: p.dim))),
+              if (fehler != null) ...[
+                const SizedBox(height: 8),
+                Text(fehler!, style: mono(size: 11.5, color: p.tintInk, height: 1.4)),
+              ],
+            ]),
+          ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
             TextButton(
@@ -7851,8 +8026,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                 try {
                   await st.setzePanikPasswort(eins.text);
                   if (ctx.mounted) Navigator.pop(ctx);
-                } on WeakPassphraseException {
-                  neu(() => fehler = t('pwWeak'));
+                } on PanikWortUngueltigException catch (e) {
+                  neu(() => fehler = t(e.grund == PanikWortFehler.zuKurz
+                      ? 'panicPwShort'
+                      : 'panicPwEdge'));
                 } on PanikGleichException {
                   neu(() => fehler = t('panicPwSame'));
                 }

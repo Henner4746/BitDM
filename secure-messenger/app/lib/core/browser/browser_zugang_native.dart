@@ -14,3 +14,6 @@ Future<void> browserDownload(Uint8List daten, String name) =>
 
 Future<Uint8List?> browserDateiLesen() =>
     throw UnsupportedError('browserDateiLesen gibt es nur im Browser');
+
+void browserNeuLaden() =>
+    throw UnsupportedError('browserNeuLaden gibt es nur im Browser');

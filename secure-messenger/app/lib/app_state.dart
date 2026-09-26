@@ -27,6 +27,7 @@ import 'core/browser/browser_zugang.dart';
 import 'core/dateien.dart';
 import 'core/empfang.dart';
 import 'core/fenster.dart';
+import 'core/fern_codewort.dart';
 import 'core/fido/client_pin.dart';
 import 'core/fido/ctap.dart';
 import 'core/fido/stick_zugang.dart';
@@ -44,6 +45,7 @@ import 'core/real_messenger_core.dart';
 import 'core/sprache.dart';
 import 'core/verbindungstest.dart';
 import 'data.dart' show shortId;
+import 'fassung.dart';
 
 class AppState extends ChangeNotifier {
   AppState(this.core,
@@ -222,6 +224,20 @@ class AppState extends ChangeNotifier {
       einstellungen.panikFach != null &&
       faktoren.any((s) => s.id == einstellungen.panikFach);
 
+  /// Ob der SPERRBILDSCHIRM ein Passwortfeld anbietet: sobald es irgendein
+  /// Passwort-Fach gibt — auch das Panik-Fach.
+  ///
+  /// NICHT [hatFaktor], denn der sieht nur [sichtbareFaktoren]. Nach einem
+  /// Kaltstart ist das egal (die Einstellungen sind noch zu, das Panik-Fach
+  /// zaehlt als Passwort). Nach `sperreWieder` stehen die Einstellungen aber
+  /// noch im Speicher: wer nur Fingerabdruck plus Panik-Wort hatte, sah bis
+  /// 26.09.2026 dann KEIN Passwortfeld und konnte das Panik-Wort nirgends
+  /// eingeben. So zeigt der Sperrbildschirm in beiden Faellen dasselbe — und
+  /// verraet nicht, ob hinter dem Feld ein echtes Passwort oder das
+  /// Panik-Wort steht.
+  bool get sperreBietetPasswort =>
+      faktoren.any((s) => s.kind == UnlockFactorKind.passphrase);
+
   /// Ob es ueberhaupt einen Faktor dieser Art gibt.
   bool hatFaktor(UnlockFactorKind art) =>
       sichtbareFaktoren.any((s) => s.kind == art);
@@ -340,17 +356,39 @@ class AppState extends ChangeNotifier {
   /// gueltig (das prueft der Tresor selbst).
   FrischerNachweis? _nachweis;
 
-  /// Richtet das PANIK-PASSWORT ein oder ersetzt es.
+  /// Mindestlaenge des Panik-Worts (nach Abzug von Leerzeichen am Rand).
+  static const int panikMinLaenge = 4;
+
+  /// Richtet das PANIK-WORT (oder den Panik-Satz) ein oder ersetzt es.
+  ///
+  /// KEINE NORMALISIERUNG, an keiner Stelle: das Wort geht Zeichen fuer
+  /// Zeichen in das Fach, und am Sperrbildschirm geht die Eingabe genauso
+  /// unveraendert hinein (derselbe Weg wie beim echten Passwort,
+  /// [entsperreMitPasswort]). Ein Satz mit Leerzeichen innen ist deshalb
+  /// kein Sonderfall. Leerzeichen am RAND werden abgelehnt statt still
+  /// entfernt ([PanikWortUngueltigException]) — sonst passte das Wort am
+  /// Sperrbildschirm nicht mehr, sobald man es dort ohne sie tippt, und
+  /// gerade im Ernstfall merkte man das zu spaet.
   ///
   /// Wirft [PanikGleichException], wenn es ein echtes Passwort oeffnet — dann
   /// haette dasselbe Wort zwei Bedeutungen, und welche gilt, hinge an der
-  /// Reihenfolge der Faecher. Wirft [WeakPassphraseException] wie beim
-  /// echten Passwort: auch dieses Fach haengt an nichts als dem Passwort.
+  /// Reihenfolge der Faecher.
+  ///
+  /// KEINE STAERKEPROBE wie beim echten Passwort: dieses Fach schuetzt
+  /// nichts, es loest nur das Loeschen aus, und ein Wort, das man unter
+  /// Druck sicher tippt, ist hier wichtiger als Entropie. Das Fach selbst
+  /// ist trotzdem gebaut wie jedes Passwort-Fach (Argon2id, gleiche Werte).
   Future<void> setzePanikPasswort(String passwort) async {
     final t = tresor;
     if (t == null) throw const LockUnavailableException('nicht verfuegbar');
-    final faktor =
-        PassphraseFactor(passwort, geraeteGebunden: false, label: 'Passwort');
+    if (passwort.trim().length < panikMinLaenge) {
+      throw const PanikWortUngueltigException(PanikWortFehler.zuKurz);
+    }
+    if (passwort != passwort.trim()) {
+      throw const PanikWortUngueltigException(PanikWortFehler.randLeer);
+    }
+    final faktor = PassphraseFactor(passwort,
+        geraeteGebunden: false, label: 'Passwort', ohneStaerkeProbe: true);
     // DIE PROBE: oeffnet dieses Wort schon ein echtes Fach? Nur gegen die
     // echten — das alte Panik-Fach loeste sonst hier schon das Loeschen aus.
     for (final s in sichtbareFaktoren
@@ -568,6 +606,9 @@ class AppState extends ChangeNotifier {
     await _ladeVerteiler();
     await _ladeFernloeschung();
     _hoereZu();
+    // Was der Relay schon vor diesem Abo gesagt hat (etwa vor dem Sperren).
+    final fassung = core.neuesteFassung;
+    if (fassung != null) _nimmNeuesteFassung(fassung);
     _planeVerfall();
     // EINE UEBERFAELLIGE FERNLOESCHUNG verbindet nicht mehr. Sie laeuft in
     // ihre Nachfrist (siehe [_planeFernloeschung]); erst wenn jemand sie
@@ -1130,6 +1171,7 @@ class AppState extends ChangeNotifier {
         fernloeschung = f;
         _planeFernloeschung();
       }))
+      ..add(core.neuesteFassungGemeldet.listen(_nimmNeuesteFassung))
       ..add(core.messageStatusUpdates.listen(_uebernehmeStatus))
       ..add(core.anhangAenderungen.listen((a) {
         anhaenge.putIfAbsent(a.chatId, () => {})[a.messageId] = a;
@@ -1192,10 +1234,41 @@ class AppState extends ChangeNotifier {
   Future<void> _ladeFernloeschung() async {
     try {
       fernloeschung = await core.getFernloeschung();
+      fernCodewortGesetzt = await core.hatFernCodewort();
     } on MessengerException {
       return;
     }
     _planeFernloeschung();
+  }
+
+  /// Ob ein Fernloesch-Codewort gesetzt ist. Das Wort selbst kennt niemand
+  /// mehr — gespeichert ist nur ein gesalzener Hash (fern_codewort.dart).
+  bool fernCodewortGesetzt = false;
+
+  /// Setzt, aendert oder entfernt ([wort] null) das Fernloesch-Codewort.
+  ///
+  /// VERLANGT DEN BELEG EINER FRISCHEN ANMELDUNG, sobald es eine Sperre gibt
+  /// (die Oberflaeche holt ihn ueber `frischBestaetigt`, also
+  /// bestaetigeMit...). Sonst wirft es [NachweisNoetigException]. Wer das
+  /// entsperrte Telefon kurz in der Hand hat, soll das Wort weder abschalten
+  /// noch durch eines ersetzen koennen, das seine Vertrauten nicht kennen.
+  ///
+  /// Wirft [ArgumentError], wenn das Wort zu kurz ist — VOR dem Beleg, der
+  /// dann nicht verbraucht ist.
+  Future<void> setzeFernCodewort(String? wort) async {
+    if (wort != null && !FernCodewort.taugt(wort)) {
+      throw ArgumentError('Codewort zu kurz oder zu lang');
+    }
+    if (brauchtFrischeAnmeldung) {
+      final t = tresor;
+      final beleg = _nachweis;
+      _nachweis = null;
+      if (t == null) throw const NachweisNoetigException();
+      t.loeseNachweisEin(beleg);
+    }
+    await core.setzeFernCodewort(wort);
+    fernCodewortGesetzt = wort != null;
+    notifyListeners();
   }
 
   Future<void> setzeFernloeschung(Fernloeschung f) async {
@@ -1264,6 +1337,75 @@ class AppState extends ChangeNotifier {
   /// Text der Warnung — von der Oberflaeche uebersetzt gesetzt. NEUTRAL: die
   /// Benachrichtigung sieht auch, wer das Telefon gerade nicht haben sollte.
   String fernWarnText = 'BitDM needs your attention.';
+
+  // ═══════════════════════════════════════════════════════ Update-Hinweis
+  //
+  // DIE AUSKUNFT KOMMT NUR VOM RELAY, mit dem die App ohnehin verbunden ist
+  // (Feld `neueste` in `auth_result`, siehe RelayNeuesteFassung). Keine
+  // weitere Anfrage, kein Blick auf eine Webseite — sonst erfuehre ein
+  // Dritter, wer wann BitDM oeffnet. Der Hinweis haelt nichts auf: eine
+  // Karte ueber der Chatliste, "Spaeter" nimmt sie fuer diese Fassung weg.
+
+  /// Die neueste veroeffentlichte Fassung laut Relay, oder null.
+  String? neuesteFassung;
+
+  /// Die Fassung, auf die die Karte hinweist — oder null, wenn es keine
+  /// neuere gibt oder der Nutzer fuer genau diese "Spaeter" gesagt hat.
+  String? get updateHinweis {
+    final f = neuesteFassung;
+    if (f == null || !hatIdentitaet) return null;
+    if (!istNeuereFassung(f, eigen: eigeneFassung)) return null;
+    if (einstellungen.fassungSpaeter == f) return null;
+    return f;
+  }
+
+  /// Die eigene Fassung — austauschbar nur fuer Tests.
+  @visibleForTesting
+  String eigeneFassung = appFassung;
+
+  /// Ob eine neue Fassung EINMAL als Benachrichtigung kommt. Nur auf
+  /// Android: dort gibt es den Kanal (Benachrichtigungen), anderswo bleibt
+  /// es bei der Karte.
+  @visibleForTesting
+  bool updateBenachrichtigen =
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// Text der Benachrichtigung — von der Oberflaeche uebersetzt gesetzt.
+  String Function(String) updateMeldeText = (v) => 'BitDM $v is available.';
+
+  void _nimmNeuesteFassung(String f) {
+    neuesteFassung = f;
+    final h = updateHinweis;
+    if (h != null && einstellungen.fassungGemeldet != h) {
+      if (updateBenachrichtigen) {
+        unawaited(
+            Benachrichtigungen.instanz.zeigeUpdate(text: updateMeldeText(h)));
+      }
+      // Gemerkt auch ohne Benachrichtigung — "einmal" heisst je Fassung.
+      unawaited(_merkeEinstellung((e) => e.copyWith(fassungGemeldet: h)));
+    }
+    notifyListeners();
+  }
+
+  /// "Spaeter": die Karte verschwindet fuer genau diese Fassung, auch nach
+  /// einem Neustart.
+  Future<void> updateSpaeter() async {
+    final f = updateHinweis;
+    if (f == null) return;
+    await _merkeEinstellung((e) => e.copyWith(fassungSpaeter: f));
+    notifyListeners();
+  }
+
+  /// Schreibt eine Einstellung, ohne an einer gesperrten Datenbank zu
+  /// scheitern — ein Hinweis darf nie einen Fehler ausloesen.
+  Future<void> _merkeEinstellung(
+      AppPreferences Function(AppPreferences) aendere) async {
+    try {
+      await setzeEinstellungen(aendere(einstellungen));
+    } on MessengerException {
+      // Gesperrt oder geloescht, waehrend der Hinweis kam: dann eben nicht.
+    }
+  }
 
   /// Verteilerlisten (siehe [Verteiler]).
   List<Verteiler> verteiler = const [];
