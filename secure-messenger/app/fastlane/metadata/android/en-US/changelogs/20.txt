@@ -1,0 +1,1 @@
+New: your own code word for remote wipe (trusted contacts send it instead of /wipe; it never shows in the chat); the panic word may be a sentence and also works if you only unlock with your fingerprint; a notice when a new version is out (updating stays optional). Fixed: nearby mode went blind after the first lock until the app restarted.

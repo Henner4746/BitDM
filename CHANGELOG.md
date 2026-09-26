@@ -4,6 +4,19 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
+## 1.9.0 — 26.09.2026
+
+**Neu**
+- **Codewort für die Fernlöschung.** Du legst selbst ein Wort oder einen Satz fest und sagst es deinen Vertrauenskontakten persönlich. Schreibt ein Vertrauenskontakt dir genau dieses Wort (Groß/klein und Leerzeichen egal), zählt es wie `/wipe` — es erscheint nicht im Chat und löst keine Benachrichtigung aus. Von allen anderen ist es eine normale Nachricht. Gespeichert ist nur ein gesalzener Prüfwert, nicht das Wort. Setzen, ändern und entfernen verlangt eine frische Entsperrung.
+- **Panik-Wort oder -Satz.** Mindestens 4 Zeichen, auch mit Leerzeichen, keine Stärkeprobe mehr. Am Sperrbildschirm statt des Passworts eingetippt, löscht es still alles. Wer nur mit Fingerabdruck oder Geräte-PIN entsperrt, bekommt am Sperrbildschirm jetzt immer das Feld „App-Passwort“, um es einzutippen (vorher fehlte es nach dem erneuten Sperren).
+- **Update-Hinweis.** Der Relay nennt bei der Anmeldung die neueste Fassung; ist sie neuer, zeigt die Chatliste „BitDM X ist verfügbar. Du kannst aktualisieren, musst aber nicht.“ „Später“ blendet ihn für diese Fassung aus. Auf Android einmal pro Fassung eine leise Benachrichtigung. Keine zusätzlichen Anfragen.
+
+**Behoben (Nahbereich)**
+- Nach dem ersten Anhalten (Sperren, „Nahbereich aus“) hörte BitDM nicht mehr auf Bluetooth-Ereignisse, bis die App neu startete: Nachrichten über den Nahbereich blieben hängen. Geprüft auf einem Galaxy S25 Ultra mit dem PC als Gegenstelle, auch nach Sperren und Entsperren.
+
+**Geprüft**
+- Neuer Testlauf auf echtem Windows (`integration_test/windows_plattform_test.dart`): Screenshot-Sperre, Windows-Schlüsselspeicher, zwei und drei echte Kerne gegen einen lokalen Relay (Nachricht, Quittung, Anhang verschlüsselt auf der Platte, Gruppe, Codewort, Update-Hinweis), Passwort-Sperre und Panik-Satz über die Oberfläche.
+
 ## 1.8.3 — 26.09.2026
 
 **Behoben (Nahbereich)**

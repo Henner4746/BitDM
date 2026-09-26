@@ -1,0 +1,1 @@
+Neu: eigenes Codewort für die Fernlöschung (Vertrauenskontakte schreiben es statt /wipe, es erscheint nicht im Chat); Panik-Wort darf ein Satz sein und funktioniert auch, wenn du nur mit Fingerabdruck entsperrst; Hinweis, wenn eine neue Version da ist (freiwillig). Behoben: Nahbereich war nach dem ersten Sperren blind, bis die App neu startete.
