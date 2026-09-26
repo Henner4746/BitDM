@@ -4,6 +4,12 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
+## 1.8.3 — 26.09.2026
+
+**Behoben (Nahbereich)**
+- Android meldet BitDMs Bluetooth-Postfach jede Verbindung des Telefons — auf dem S25 sofort ein Fitbit und ein weiteres gekoppeltes Gerät. BitDM zählte sie als Gegenstellen, sie belegten Plätze, und BitDM versuchte sie zu trennen (bei mehr als vier Geräten, ab 1.8.1 schon nach 10 Sekunden Stille). Blieb eine solche Verbindung bestehen, verwarf BitDM danach alles, was über sie kam. Jetzt wird eine Verbindung erst mit dem ersten Schreiben ins Postfach zur Gegenstelle; andere Geräte fasst BitDM nicht an.
+- Geprüft auf einem Galaxy S25 Ultra (Android 16) mit dem PC als Gegenstelle: Schreiben sofort und nach 19 Sekunden Stille kommt an; mit 1.8.2 ging der zweite Fall verloren.
+
 ## 1.8.2 — 26.09.2026
 
 **Behoben**

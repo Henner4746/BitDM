@@ -1,0 +1,1 @@
+Fixed (nearby): Bluetooth devices connected to the phone, such as watches or fitness bands, were counted as peers and disconnected by BitDM; if a connection stayed silent for more than 10 seconds, data received afterwards was lost. Verified on a Galaxy S25 Ultra with a PC as the peer.

@@ -1,0 +1,1 @@
+Behoben (Nahbereich): Mit dem Telefon verbundene Bluetooth-Geräte wie Uhren oder Fitnessarmbänder wurden als Gegenstellen gezählt und von BitDM getrennt; schwieg eine Verbindung länger als 10 Sekunden, gingen danach empfangene Daten verloren. Auf einem Galaxy S25 Ultra mit dem PC als Gegenstelle geprüft.
