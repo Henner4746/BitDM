@@ -173,11 +173,6 @@ class NahfunkKanal(private val activity: Activity) :
          *  bevor sie getrennt wird. Zwei volle Umschlaege plus Rahmen. */
         const val JE_GEGENSTELLE_MAX = 150 * 1024
 
-        /** Wer in dieser Frist nach dem Verbinden nichts schreibt, fliegt. Ohne
-         *  das hielten vier stumme Gegenstellen alle Plaetze besetzt — vier
-         *  billige Funkplatinen, und kein echter Kontakt kaeme mehr durch. */
-        const val STUMM_MS = 10_000L
-
         /** Wer die Grenze ueberschreitet, bleibt so lange draussen — auch nach
          *  dem Neuverbinden. Bis 25.09.2026 setzte das Trennen den Zaehler auf
          *  null, und das Vollschreiben ging von vorn los. */
@@ -567,9 +562,15 @@ class NahfunkKanal(private val activity: Activity) :
     private var server: BluetoothGattServer? = null
     private var postfach: BluetoothGattCharacteristic? = null
 
-    /** Wie viel jede Gegenstelle bisher geschickt hat — gegen Vollschreiben.
-     *  NUR ANGENOMMENE Verbindungen stehen hier; wer abgewiesen wurde, darf
-     *  auch nicht schreiben. */
+    /** Wie viel jede SCHREIBENDE Gegenstelle bisher geschickt hat.
+     *
+     *  NUR WER INS POSTFACH SCHREIBT, steht hier (seit 26.09.2026). Android
+     *  meldet dem GATT-Dienst JEDE LE-Verbindung des Telefons — auf Henriks
+     *  S25 sofort einen Fitbit und ein zweites gekoppeltes Geraet. Die zaehlten
+     *  vorher als Gegenstellen, belegten Plaetze, und BitDM rief fuer sie
+     *  cancelConnection auf (erst bei mehr als vier Geraeten, ab 1.8.1 nach
+     *  zehn stummen Sekunden) — ein Uhrenarmband hat mit dem Postfach nichts
+     *  zu tun und darf von dieser App nie angefasst werden. */
     private val angekommen = ConcurrentHashMap<String, Int>()
 
     /** Adresse -> bis wann (elapsedRealtime) sie abgewiesen wird. */
@@ -623,22 +624,9 @@ class NahfunkKanal(private val activity: Activity) :
             override fun onConnectionStateChange(g: BluetoothDevice?, status: Int, neu: Int) {
                 val adr = g?.address ?: return
                 if (neu == BluetoothProfile.STATE_CONNECTED) {
+                    // Nichts entscheiden: ob das ein BitDM-Geraet ist, zeigt
+                    // erst ein Schreibvorgang ins Postfach.
                     raeumeKontenAuf()
-                    if (istGesperrt(adr) || angekommen.size >= GEGENSTELLEN_MAX) {
-                        // Mehr als eine Handvoll gleichzeitig ist kein
-                        // Normalfall, sondern jemand, der etwas versucht.
-                        try { server?.cancelConnection(g) } catch (_: SecurityException) {}
-                        return
-                    }
-                    angekommen[adr] = 0
-                    // Stumm verbunden = Platz besetzt. Nach der Frist raus,
-                    // wenn bis dahin kein einziges Byte kam.
-                    hauptfaden.postDelayed({
-                        if (angekommen[adr] == 0) {
-                            angekommen.remove(adr)
-                            try { server?.cancelConnection(g) } catch (_: SecurityException) {}
-                        }
-                    }, STUMM_MS)
                 } else {
                     angekommen.remove(adr)
                 }
@@ -662,8 +650,19 @@ class NahfunkKanal(private val activity: Activity) :
                 // nahm das Postfach auch von einer Verbindung, die es gerade
                 // wegen Ueberfuellung getrennt hatte (die Trennung ist
                 // asynchron), und zaehlte dabei von null.
-                val stand = angekommen[adr] ?: return
                 if (istGesperrt(adr)) return
+                // Der erste Schreibvorgang macht aus einer Verbindung eine
+                // Gegenstelle — und erst dann gilt die Hoechstzahl. Wer
+                // darueber liegt, wird nicht angenommen; getrennt wird nur,
+                // wer tatsaechlich ins Postfach schreibt (also BitDM spricht).
+                val stand = angekommen[adr] ?: run {
+                    if (angekommen.size >= GEGENSTELLEN_MAX) {
+                        try { server?.cancelConnection(g) } catch (_: SecurityException) {}
+                        return
+                    }
+                    angekommen[adr] = 0
+                    0
+                }
 
                 val jetzt = SystemClock.elapsedRealtime()
                 val konto = minutenKonto.getOrPut(adr) { longArrayOf(0L, jetzt) }
