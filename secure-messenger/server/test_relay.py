@@ -3490,3 +3490,27 @@ def test_tarnverkehr_bekommt_ein_ack_wie_eine_echte_nachricht(relay):
     assert len(json.dumps(tarn)) == len(json.dumps(echt))
     assert tarn == {"type": "ack", "to": tarn_an, "id": "7-123"}
     assert rs.db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 1
+
+
+def test_neueste_fassung_geht_im_auth_result_mit(relay, monkeypatch):
+    """Seit 26.09.2026: der Relay nennt die neueste App-Fassung ("neueste").
+
+    Die App zeigt daraufhin einen ruhigen Hinweis. Ohne gesetzten Wert fehlt
+    das Feld ganz — aeltere Apps kennen es ohnehin nicht.
+    """
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1)
+
+    monkeypatch.setattr(rs, "NEUESTE_FASSUNG", "")
+    ohne = _StummerSocket(henrik["user_id"], henrik["priv"], geraet=1)
+    asyncio.run(rs.ws_endpoint(ohne))
+    ergebnis = [m for m in ohne.gesendet if m.get("type") == "auth_result"]
+    assert ergebnis and ergebnis[0]["ok"] is True
+    assert "neueste" not in ergebnis[0]
+
+    monkeypatch.setattr(rs, "NEUESTE_FASSUNG", "1.9.0")
+    mit = _StummerSocket(henrik["user_id"], henrik["priv"], geraet=1)
+    asyncio.run(rs.ws_endpoint(mit))
+    ergebnis = [m for m in mit.gesendet if m.get("type") == "auth_result"]
+    assert ergebnis[0]["neueste"] == "1.9.0"

@@ -34,8 +34,10 @@ from pathlib import Path
 HIER = Path(__file__).resolve().parent
 SERVER = HIER.parent
 
-RELAY_PORT = 8080
-LAGER_PORT = 8099
+# Ueber Umgebungsvariablen verschiebbar: 8080 ist auf manchen Rechnern belegt
+# (26.09.2026: Steams Web-Helfer mit Millennium lauscht dort).
+RELAY_PORT = int(os.environ.get("BITDM_TEST_RELAY_PORT", 8080))
+LAGER_PORT = int(os.environ.get("BITDM_TEST_LAGER_PORT", 8099))
 
 
 def main() -> int:

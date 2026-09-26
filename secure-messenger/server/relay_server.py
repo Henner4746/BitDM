@@ -206,6 +206,17 @@ QUEUE_MAX_JE_ABSENDER = int(os.getenv("BITDM_QUEUE_MAX_SENDER", 2000))
 # die Challenge eine Signatur, also Millisekunden; 10 s decken auch eine
 # zaehe Tor-Strecke.
 WS_ANMELDEFRIST = float(os.getenv("BITDM_WS_AUTH_TIMEOUT", 10.0))
+
+# DIE NEUESTE VEROEFFENTLICHTE APP-FASSUNG (seit 26.09.2026). Geht bei der
+# Anmeldung im auth_result mit ("neueste"); die App zeigt daraufhin einen
+# ruhigen Hinweis "kannst du installieren, musst du aber nicht". Ueber den
+# Relay und nicht ueber eine Abfrage bei GitHub oder bitdm.net: die App ist
+# ohnehin mit ihm verbunden, und kein weiterer Server erfaehrt, wer BitDM
+# benutzt. Leer = nichts mitschicken. Nur Ziffern und Punkte, sonst leer —
+# der Wert landet unveraendert in der Oberflaeche.
+NEUESTE_FASSUNG = os.getenv("BITDM_NEUESTE_FASSUNG", "").strip()
+if not re.fullmatch(r"\d{1,4}(\.\d{1,4}){1,3}", NEUESTE_FASSUNG):
+    NEUESTE_FASSUNG = ""
 # Wie viele Verbindungen gleichzeitig im Vorraum stehen duerfen. Darueber
 # wird sofort geschlossen (1013 "try again later"); ein ehrlicher Client
 # verbindet nach seiner Wartezeit neu.
@@ -2227,9 +2238,12 @@ async def ws_endpoint(ws: WebSocket):
     # unten beim Versand). Ein Client sendet sie NUR, wenn das hier steht —
     # ein alter Relay wuerde sie sonst puffern und den Empfaenger per Anstoss
     # wecken, fuer ein "tippt gerade", das Stunden spaeter nichts mehr heisst.
-    await ws.send_json({"type": "auth_result", "ok": True,
-                        "empfangsnachweis": nachweis, "device_id": device_id,
-                        "fluechtig": True})
+    antwort = {"type": "auth_result", "ok": True,
+               "empfangsnachweis": nachweis, "device_id": device_id,
+               "fluechtig": True}
+    if NEUESTE_FASSUNG:
+        antwort["neueste"] = NEUESTE_FASSUNG
+    await ws.send_json(antwort)
 
     # Eine aktive Verbindung je (Adresse, GERAET): eine neue verdraengt nur die
     # alte DESSELBEN Geraets. Frueher verdraengte sie jede Verbindung der
