@@ -132,7 +132,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 | Signal protocol, X3DH + Double Ratchet | working | `libsignal_protocol_dart` 0.8.2, the library Signal uses |
 | Messages over the relay | working | end-to-end over the live relay |
 | Nearby transport, no network | **proven one direction** | 325 B / 1.35 s between two devices, both offline — the one figure here with no log in the repository; independently witnessed by an ESP32 rig acting as a foreign device |
-| Nearby, second direction | **not proven** | needs a second Android with BLE 5.0 — see [Known gaps](#known-gaps) |
+| Nearby, second direction | **working** | 26.09.2026: a Galaxy S25 Ultra in *nearby-only* mode sent Signal-encrypted messages on its own to a PC running the real BitDM core over Bluetooth 5.4; the PC decrypted, replied over Bluetooth, and delivery and read receipts came back the same way (`app/test_manuell/pc_kontakt_test.dart`, `tools/pc_kontakt/`) |
 | Nearby-only switch | working | the app opens no relay connection at all; `test/core/nur_nahbereich_test.dart`, `test/nah/schalter_test.dart`, `test/nah/schalter_echt_test.dart` |
 | Attachments | working | separate encrypted blob store, never through the relay |
 | Update over an existing install | working | 1.5.0+11 → 1.5.1+12, identity and contacts survived |
@@ -411,10 +411,10 @@ concerned. Two separate bugs in this project had that single root cause.
 - **Windows installs per user** (no admin rights), so any program running as
   the same user could modify the files; together with the missing signature
   there is no integrity check after installation.
-- **Nearby, second direction** is unproven: the phone only transmits when it has
-  something queued, and the ESP32 rig's contact stays pending because proving it
-  needs libsignal-compatible X3DH on the rig. Blocked on a second Android with
-  BLE 5.0.
+- **Nearby between two phones** has been measured phone→phone once (29.07.2026)
+  and phone↔PC in both directions (26.09.2026, the PC running the real core with
+  a Windows Bluetooth bridge). Two current phones against each other have not
+  been re-measured since 1.8.x.
 - **One identity per device, and that is what limits the desktop.** A second
   install with the same 12 words *takes the address over* instead of joining it:
   every install generates a fresh registration ID on purpose, and `/register` on

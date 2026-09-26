@@ -137,7 +137,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 | Signal-Protokoll, X3DH + Double Ratchet | läuft | `libsignal_protocol_dart` 0.8.2, die Bibliothek, die Signal benutzt |
 | Nachrichten über den Relay | läuft | Ende zu Ende über den laufenden Relay |
 | Nahbereich, ohne Netz | **in einer Richtung bewiesen** | 325 B / 1,35 s zwischen zwei Geräten, beide offline — die eine Angabe hier ohne Protokoll im Repository; unabhängig bezeugt von einem ESP32-Aufbau als fremdem Gerät |
-| Nahbereich, zweite Richtung | **nicht bewiesen** | braucht ein zweites Android mit BLE 5.0 — siehe [Bekannte Lücken](#bekannte-lücken) |
+| Nahbereich, zweite Richtung | **funktioniert** | 26.09.2026: ein Galaxy S25 Ultra im Modus *nur in der Nähe* schickte von sich aus Signal-verschlüsselte Nachrichten per Bluetooth 5.4 an einen PC mit dem echten BitDM-Kern; der PC entschlüsselte, antwortete per Bluetooth, Zustell- und Lesebestätigungen kamen ebenso zurück (`app/test_manuell/pc_kontakt_test.dart`, `tools/pc_kontakt/`) |
 | Schalter "Nur in der Nähe" | läuft | die App öffnet überhaupt keine Relay-Verbindung; `test/core/nur_nahbereich_test.dart`, `test/nah/schalter_test.dart`, `test/nah/schalter_echt_test.dart` |
 | Anhänge | läuft | eigenes verschlüsseltes Zwischenlager, nie über den Relay |
 | Aktualisierung über eine bestehende Installation | läuft | 1.5.0+11 → 1.5.1+12, Identität und Kontakte blieben erhalten |
@@ -434,10 +434,10 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
 - **Windows installiert je Benutzer** (ohne Adminrechte); jedes Programm unter
   demselben Benutzer könnte die Dateien ändern, und ohne Signatur prüft danach
   niemand ihre Unversehrtheit.
-- **Der Nahbereich in der zweiten Richtung** ist unbewiesen: das Telefon sendet
-  nur, wenn es etwas in der Warteschlange hat, und der Kontakt des
-  ESP32-Aufbaus bleibt schwebend, weil der Beweis libsignal-taugliches X3DH auf
-  dem Aufbau braucht. Blockiert durch das fehlende zweite Android mit BLE 5.0.
+- **Nahbereich zwischen zwei Telefonen** ist einmal Telefon→Telefon gemessen
+  (29.07.2026) und Telefon↔PC in beide Richtungen (26.09.2026; der PC mit dem
+  echten Kern und einer Windows-Bluetooth-Brücke). Zwei aktuelle Telefone
+  gegeneinander sind seit 1.8.x nicht neu gemessen.
 - **Eine Identität je Gerät, und das ist es, was den Desktop begrenzt.** Eine
   zweite Installation mit denselben 12 Wörtern *übernimmt die Adresse*, statt
   sich ihr anzuschließen: jede Installation erzeugt absichtlich eine neue
