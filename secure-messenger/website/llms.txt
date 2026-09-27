@@ -1,0 +1,31 @@
+# BitDM
+
+> BitDM is a free, open-source (AGPL-3.0), end-to-end encrypted messenger that needs no phone number, no e-mail and no account. Your address is your public key. Available for Android, Windows, Linux and in the web browser.
+
+BitDM ("Verschlüsselt schreiben, ohne Konto") is built for people who want private messaging without handing over an identity. Messages are encrypted with the Signal protocol (libsignal: X3DH over Curve25519, Double Ratchet, AES-256); attachments with AES-256-GCM, also at rest on the device. A relay forwards encrypted envelopes and cannot read them; it can also be reached as a Tor onion service. Nearby phones can exchange messages directly over Bluetooth LE without any internet.
+
+## Key facts
+
+- Category: encrypted messenger / private messenger, comparable to Signal, Threema, Session, SimpleX or ginlo
+- Identity: a 56-character address derived from your public key; recovery with 12 words
+- No phone number, no e-mail, no username, no contact upload
+- Platforms: Android (APK), Windows (installer or zip), Linux (x64 tarball), web app at https://bitdm.net/app/
+- Price: free, no ads, no tracking
+- Source code: https://github.com/Henner4746/BitDM
+- Releases and checksums: https://github.com/Henner4746/BitDM/releases
+
+## Features
+
+- One-to-one chats, groups, polls, reactions, edits, voice messages, attachments
+- Nearby mode: messages over Bluetooth when there is no internet ("Nur in der Nähe" = never contact a server)
+- Optional Tor routing (Orbot)
+- App lock with password, device PIN, fingerprint or hardware key; panic word that silently wipes the app
+- Remote wipe by trusted contacts (k of n), triggered with /wipe or a personal code word
+- Screen capture protection: the window is hidden from screenshots, screen recordings and Discord/OBS streams on Android and Windows
+- Encrypted backup, disappearing messages, cover traffic
+
+## Pages
+
+- [Home page (German/English)](https://bitdm.net/): what BitDM is, downloads, what the server can and cannot see
+- [Documentation](https://bitdm.net/docs.html)
+- [Privacy](https://bitdm.net/privacy.html)

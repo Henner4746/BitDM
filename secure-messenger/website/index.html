@@ -50,6 +50,74 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BitDM — Verschlüsselt schreiben, ohne Konto</title>
 <meta name="description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer und ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll (libsignal): AES-256, X3DH über Curve25519, Double Ratchet, AES-256-GCM für Anhänge. Quelloffen unter AGPL-3.0.">
+<link rel="canonical" href="https://bitdm.net/">
+<!-- LINKVORSCHAU UND MASCHINENLESBARE BESCHREIBUNG (seit 27.09.2026).
+     Ein Audit ("AI Visibility") fand: nichts im Code sagt einer Maschine, dass
+     BitDM ein verschluesselter Messenger ist — wer die Seite automatisch liest,
+     muss raten. Darum Open Graph fuer Vorschaukarten und schema.org als JSON-LD.
+     JSON-LD ist ein Datenblock, kein Skript: der Browser fuehrt ihn nicht aus.
+     softwareVersion zieht der Release-Ersatz (1.x.y) mit hoch. Keine
+     Personendaten — Herausgeber ist das Projekt, nicht ein Mensch. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="BitDM">
+<meta property="og:url" content="https://bitdm.net/">
+<meta property="og:title" content="BitDM — Verschlüsselt schreiben, ohne Konto">
+<meta property="og:description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer, ohne E-Mail, ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll, quelloffen (AGPL-3.0), für Android, Windows, Linux und im Browser.">
+<meta property="og:image" content="https://bitdm.net/bilder/icon-180.png">
+<meta property="og:locale" content="de_DE">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://bitdm.net/#website",
+      "url": "https://bitdm.net/",
+      "name": "BitDM",
+      "inLanguage": ["de", "en"],
+      "publisher": {"@id": "https://bitdm.net/#projekt"}
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://bitdm.net/#projekt",
+      "name": "BitDM",
+      "url": "https://bitdm.net/",
+      "logo": "https://bitdm.net/bilder/icon-180.png",
+      "sameAs": ["https://github.com/Henner4746/BitDM"]
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://bitdm.net/#app",
+      "name": "BitDM",
+      "alternateName": "BitDM Messenger",
+      "url": "https://bitdm.net/",
+      "description": "BitDM is an end-to-end encrypted messenger without phone number, e-mail or username: your address is your public key. It uses the Signal protocol (libsignal: X3DH over Curve25519, Double Ratchet, AES-256), encrypts attachments with AES-256-GCM, works over a relay, over Tor and directly between nearby phones via Bluetooth without internet. Open source under AGPL-3.0.",
+      "applicationCategory": "CommunicationApplication",
+      "applicationSubCategory": "Encrypted messenger",
+      "operatingSystem": "Android, Windows, Linux, Web browser",
+      "softwareVersion": "1.9.0",
+      "downloadUrl": "https://github.com/Henner4746/BitDM/releases/latest",
+      "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+      "isAccessibleForFree": true,
+      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"},
+      "featureList": [
+        "No phone number, no e-mail, no account",
+        "End-to-end encryption with the Signal protocol",
+        "Encrypted attachments, voice messages, groups, polls",
+        "Nearby messaging over Bluetooth without internet",
+        "Optional Tor routing, relay reachable as onion service",
+        "Remote wipe by trusted contacts, panic word",
+        "Window hidden from screenshots, screen recordings and Discord streams (Android, Windows)"
+      ],
+      "keywords": "encrypted messenger, end-to-end encryption, private messenger, no phone number, Signal protocol, open source messenger, Threema alternative, WhatsApp alternative, Bluetooth messenger, Tor",
+      "publisher": {"@id": "https://bitdm.net/#projekt"},
+      "sameAs": ["https://github.com/Henner4746/BitDM"]
+    }
+  ]
+}
+</script>
 <meta name="theme-color" content="#0b0c12">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">

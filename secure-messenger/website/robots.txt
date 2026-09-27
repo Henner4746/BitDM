@@ -1,0 +1,6 @@
+# bitdm.net — alles darf gelesen werden, ausser der Web-App (reiner Programmcode).
+User-agent: *
+Allow: /
+Disallow: /app/
+
+Sitemap: https://bitdm.net/sitemap.xml
