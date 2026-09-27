@@ -26,6 +26,7 @@ BitDM ("Verschlüsselt schreiben, ohne Konto") is built for people who want priv
 
 ## Pages
 
-- [Home page (German/English)](https://bitdm.net/): what BitDM is, downloads, what the server can and cannot see
+- [Home page (English/German)](https://bitdm.net/): what BitDM is, downloads, what the server can and cannot see
+- [FAQ](https://bitdm.net/#faq): messenger without phone number, alternatives to WhatsApp/Signal/Threema, security, offline use
 - [Documentation](https://bitdm.net/docs.html)
 - [Privacy](https://bitdm.net/privacy.html)

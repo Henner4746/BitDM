@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de" data-lang="de">
+<html lang="en" data-lang="en">
 <head>
 <meta charset="utf-8">
 <!--
@@ -39,17 +39,17 @@
   try {
     var l = localStorage.getItem('bitdm-lang');
   } catch (e) {}
-  if (l !== 'de' && l !== 'en') {
-    l = (navigator.language || 'de').slice(0, 2) === 'de' ? 'de' : 'en';
-  }
+  // ENGLISCH IST DER STANDARD (seit 27.09.2026), auch fuer deutsche Browser.
+  // Deutsch nur, wer es mit dem Umschalter waehlt — die Wahl bleibt gemerkt.
+  if (l !== 'de' && l !== 'en') l = 'en';
   var r = document.documentElement;
   r.setAttribute('data-lang', l);
   r.setAttribute('lang', l);
 })();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>BitDM — Verschlüsselt schreiben, ohne Konto</title>
-<meta name="description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer und ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll (libsignal): AES-256, X3DH über Curve25519, Double Ratchet, AES-256-GCM für Anhänge. Quelloffen unter AGPL-3.0.">
+<title>BitDM — Encrypted messenger, no phone number, no account</title>
+<meta name="description" content="Free end-to-end encrypted messenger without phone number, e-mail or username. Your address is your public key. Signal protocol (libsignal): X3DH over Curve25519, Double Ratchet, AES-256, AES-256-GCM for attachments. Works over Bluetooth without internet. Open source under AGPL-3.0.">
 <link rel="canonical" href="https://bitdm.net/">
 <!-- LINKVORSCHAU UND MASCHINENLESBARE BESCHREIBUNG (seit 27.09.2026).
      Ein Audit ("AI Visibility") fand: nichts im Code sagt einer Maschine, dass
@@ -61,11 +61,11 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="BitDM">
 <meta property="og:url" content="https://bitdm.net/">
-<meta property="og:title" content="BitDM — Verschlüsselt schreiben, ohne Konto">
-<meta property="og:description" content="Ende-zu-Ende verschlüsselter Messenger ohne Telefonnummer, ohne E-Mail, ohne Username. Die Adresse ist der öffentliche Schlüssel. Signal-Protokoll, quelloffen (AGPL-3.0), für Android, Windows, Linux und im Browser.">
+<meta property="og:title" content="BitDM — Encrypted messenger, no phone number, no account">
+<meta property="og:description" content="End-to-end encrypted messenger without phone number, e-mail or username. Your address is your public key. Signal protocol, open source (AGPL-3.0), for Android, Windows, Linux and the browser.">
 <meta property="og:image" content="https://bitdm.net/bilder/icon-180.png">
-<meta property="og:locale" content="de_DE">
-<meta property="og:locale:alternate" content="en_US">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="de_DE">
 <meta name="twitter:card" content="summary">
 <script type="application/ld+json">
 {
@@ -118,6 +118,111 @@
   ]
 }
 </script>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "FAQPage",
+ "@id": "https://bitdm.net/#faq",
+ "mainEntity": [
+  {
+   "@type": "Question",
+   "name": "What is BitDM?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "A free, open-source messenger with end-to-end encryption. You need no phone number, no e-mail and no username: your address is your public key."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is there a messenger that works without a phone number?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes. BitDM never asks for a number, e-mail or name and never uploads your address book. You add contacts by their address or a QR code."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is BitDM an alternative to WhatsApp, Signal or Threema?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How much does BitDM cost?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Nothing. No ads, no tracking, no subscription."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How secure is BitDM?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What can the server see?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No content and no names. It sees which address writes to which, when, and the rough size. To hide that too, turn on Tor or use nearby mode over Bluetooth."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Does BitDM work without internet?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, between nearby phones over Bluetooth (Android 12 or newer). With “Nearby only” the app never contacts a server at all."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Which devices does BitDM run on?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Android, Windows, Linux and in the browser at bitdm.net/app. There is no iPhone or Mac version yet."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What happens if I lose my phone?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Your twelve words bring your identity back on a new device. Beforehand you can choose trusted contacts who can jointly wipe the lost phone — with /wipe or a code word you pick yourself."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can others see my chats when I share my screen?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. With screenshot protection the BitDM window is missing from screenshots, recordings and streams, including Discord and OBS (Android and Windows). In the browser this is technically impossible."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What if someone forces me to unlock the app?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Set a panic word. Typed on the lock screen instead of your password, it silently wipes everything and the app looks freshly installed."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is BitDM open source?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, app, server and tests under AGPL-3.0 on GitHub: github.com/Henner4746/BitDM."
+   }
+  }
+ ]
+}
+</script>
 <meta name="theme-color" content="#0b0c12">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
@@ -149,7 +254,7 @@ body{
   overflow-x:hidden;
 }
 
-/* ─── Zweisprachigkeit: ohne JavaScript bleibt Deutsch sichtbar ───
+/* ─── Zweisprachigkeit: ohne JavaScript bleibt Englisch sichtbar ───
    !important ist hier kein Notnagel, sondern richtig: Sprachsichtbarkeit ist
    eine querschnittliche Regel und darf von keiner Bauteil-Regel ueberstimmt
    werden. Ohne das gewinnt z.B. `.mod-head .screen{display:block}` bei
@@ -508,6 +613,16 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     scroll-behavior:auto!important;
   }
 }
+/* ─── Fragen (FAQ) ─── */
+.faq{display:grid; gap:10px}
+.faq-item{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:0 19px}
+.faq-item summary{cursor:pointer; list-style:none; padding:16px 0; color:var(--ink);
+  font:600 14px/1.45 'Chivo Mono',monospace; display:flex; justify-content:space-between; gap:14px}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::after{content:'+'; color:var(--lit); flex:none}
+.faq-item[open] summary::after{content:'–'}
+.faq-item summary:focus-visible{outline:2px solid var(--lit); outline-offset:4px; border-radius:var(--r-sm)}
+.faq-item p{margin:0 0 17px; font-size:13.5px; line-height:1.65; color:var(--body)}
 </style>
 </head>
 
@@ -525,8 +640,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <span class="de">Quellcode</span><span class="en">Source</span>
     </a>
     <div class="toggle" role="group" aria-label="Sprache / Language">
-      <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
-      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+      <button type="button" data-set-lang="de" aria-pressed="false">DE</button>
+      <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
     </div>
   </div>
 </header>
@@ -1510,6 +1625,84 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </div>
   </section>
 
+  <!-- ═══════════ Fragen ═══════════
+       SEIT 27.09.2026. Ein Audit ("AI Visibility") riet: die Fragen, die Leute
+       einer KI stellen ("Messenger ohne Telefonnummer?", "Threema-Alternative?"),
+       direkt auf der Startseite beantworten. <details> braucht kein Skript.
+       Dieselben Fragen stehen unten als FAQPage (JSON-LD), auf Englisch. -->
+  <section class="wrap mod" id="faq">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul — Fragen</span>
+      <span class="screen screen-lit en">Module — questions</span>
+      <h2>
+        <span class="de">Häufige Fragen</span>
+        <span class="en">Frequently asked questions</span>
+      </h2>
+    </div>
+    <div class="faq">
+      <details class="faq-item">
+        <summary><span class="de">Was ist BitDM?</span><span class="en">What is BitDM?</span></summary>
+        <p class="de">Ein kostenloser, quelloffener Messenger mit Ende-zu-Ende-Verschlüsselung. Du brauchst keine Telefonnummer, keine E-Mail und keinen Benutzernamen: deine Adresse ist dein öffentlicher Schlüssel.</p>
+        <p class="en">A free, open-source messenger with end-to-end encryption. You need no phone number, no e-mail and no username: your address is your public key.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Gibt es einen Messenger ohne Telefonnummer?</span><span class="en">Is there a messenger that works without a phone number?</span></summary>
+        <p class="de">Ja. BitDM fragt nie nach Nummer, E-Mail oder Namen und lädt kein Adressbuch hoch. Kontakte fügst du über ihre Adresse oder einen QR-Code hinzu.</p>
+        <p class="en">Yes. BitDM never asks for a number, e-mail or name and never uploads your address book. You add contacts by their address or a QR code.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Ist BitDM eine Alternative zu WhatsApp, Signal oder Threema?</span><span class="en">Is BitDM an alternative to WhatsApp, Signal or Threema?</span></summary>
+        <p class="de">Ja. Verschlüsselt wird mit dem Signal-Protokoll, das auch Signal und WhatsApp nutzen. Anders als bei Signal und WhatsApp gibt es keine Telefonnummer; anders als Threema ist BitDM kostenlos, und App und Server sind beide quelloffen.</p>
+        <p class="en">Yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Was kostet BitDM?</span><span class="en">How much does BitDM cost?</span></summary>
+        <p class="de">Nichts. Keine Werbung, kein Tracking, kein Abo.</p>
+        <p class="en">Nothing. No ads, no tracking, no subscription.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Wie sicher ist BitDM?</span><span class="en">How secure is BitDM?</span></summary>
+        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), Anhänge über AES-256-GCM, auch auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht; der Quellcode liegt offen, damit jeder nachsehen kann.</p>
+        <p class="en">Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Was sieht der Server?</span><span class="en">What can the server see?</span></summary>
+        <p class="de">Keinen Inhalt und keine Namen. Er sieht, welche Adresse wann an welche schreibt, und die ungefähre Größe. Wer auch das verbergen will, schaltet Tor ein oder nutzt den Nahbereich über Bluetooth.</p>
+        <p class="en">No content and no names. It sees which address writes to which, when, and the rough size. To hide that too, turn on Tor or use nearby mode over Bluetooth.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Funktioniert BitDM ohne Internet?</span><span class="en">Does BitDM work without internet?</span></summary>
+        <p class="de">Ja, zwischen Telefonen in der Nähe über Bluetooth (Android 12 oder neuer). Mit „Nur in der Nähe“ spricht die App überhaupt keinen Server an.</p>
+        <p class="en">Yes, between nearby phones over Bluetooth (Android 12 or newer). With “Nearby only” the app never contacts a server at all.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Auf welchen Geräten läuft BitDM?</span><span class="en">Which devices does BitDM run on?</span></summary>
+        <p class="de">Android, Windows, Linux und im Browser unter bitdm.net/app. Für iPhone und Mac gibt es noch keine Version.</p>
+        <p class="en">Android, Windows, Linux and in the browser at bitdm.net/app. There is no iPhone or Mac version yet.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Was passiert, wenn mein Telefon weg ist?</span><span class="en">What happens if I lose my phone?</span></summary>
+        <p class="de">Mit deinen zwölf Wörtern holst du deine Identität auf einem neuen Gerät zurück. Vorher kannst du Vertrauenskontakte festlegen, die das verlorene Telefon gemeinsam löschen lassen können — mit /wipe oder einem Codewort, das du selbst bestimmst.</p>
+        <p class="en">Your twelve words bring your identity back on a new device. Beforehand you can choose trusted contacts who can jointly wipe the lost phone — with /wipe or a code word you pick yourself.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Sieht man meine Chats, wenn ich den Bildschirm teile?</span><span class="en">Can others see my chats when I share my screen?</span></summary>
+        <p class="de">Nein. Mit Screenshot-Schutz fehlt das BitDM-Fenster in Bildschirmfotos, Aufnahmen und Streams, auch in Discord und OBS (Android und Windows). Im Browser geht das technisch nicht.</p>
+        <p class="en">No. With screenshot protection the BitDM window is missing from screenshots, recordings and streams, including Discord and OBS (Android and Windows). In the browser this is technically impossible.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Und wenn mich jemand zwingt, die App zu öffnen?</span><span class="en">What if someone forces me to unlock the app?</span></summary>
+        <p class="de">Lege ein Panik-Wort fest. Am Sperrbildschirm statt des Passworts eingegeben, löscht es still alles, und die App sieht aus wie frisch installiert.</p>
+        <p class="en">Set a panic word. Typed on the lock screen instead of your password, it silently wipes everything and the app looks freshly installed.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Ist BitDM Open Source?</span><span class="en">Is BitDM open source?</span></summary>
+        <p class="de">Ja, App, Server und Tests unter AGPL-3.0 auf GitHub: github.com/Henner4746/BitDM.</p>
+        <p class="en">Yes, app, server and tests under AGPL-3.0 on GitHub: github.com/Henner4746/BitDM.</p>
+      </details>
+    </div>
+  </section>
+
 </main>
 
 <!-- ═══════════ Fuss ═══════════ -->
@@ -1599,7 +1792,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   });
   var saved = null;
   try{ saved = localStorage.getItem('bitdm-lang'); }catch(e){}
-  setLang(saved || ((navigator.language||'de').slice(0,2) === 'de' ? 'de' : 'en'));
+  setLang(saved === 'de' || saved === 'en' ? saved : 'en');
 
   /* ── Adressanzeige ─────────────────────────────────────────────────────
      Erzeugt eine Zeichenkette im echten Format: Base32-Alphabet, 56 Stellen,
