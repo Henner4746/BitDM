@@ -94,7 +94,7 @@ dependencies:
   # @visibleForTesting im Kern. Kam bisher nur ueber andere Pakete mit —
   # `flutter analyze` meldete den Import als nicht angegeben. Gleiche
   # Fassung wie im Lock, damit sich nichts verschiebt.
-  meta: 1.18.0
+  meta: 1.19.0
 
   # Verschluesselte lokale Datenbank.
   #
