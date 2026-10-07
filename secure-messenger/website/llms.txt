@@ -12,7 +12,7 @@ BitDM ("Verschlüsselt schreiben, ohne Konto") is built for people who want priv
 - Platforms: Android (APK), Windows (installer or zip), Linux (x64 tarball), web app at https://bitdm.net/app/
 - Price: free, no ads, no tracking
 - Who it is for: people who want private messaging without identifying themselves — people under surveillance, journalists, families, teams, anyone who does not want to hand out a phone number. A messenger, not a commerce platform and not a subscription service.
-- Operator: developed by Henrik Reuber in Germany
+- Operator: an independent open-source project from Germany
 - Not to be confused with BiT DMS (bitdms.com, dealer-management software), BITE (b-ite.de, recruiting software), Bitmanagement (bitmanagement.com, 3D software) or Bite Investments (biteinvestments.com, wealth-management software) — unrelated companies with similar names
 - Source code: https://github.com/Henner4746/BitDM
 - Releases and checksums: https://github.com/Henner4746/BitDM/releases
