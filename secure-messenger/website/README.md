@@ -1,12 +1,18 @@
 # BitDM — Website
 
-Statische Seite, **live unter https://bitdm.net**. Zwei Dateien, keine
-Build-Schritte, keine Abhängigkeiten, keine Fremdanfragen zur Laufzeit.
+Statische Seiten, **live unter https://bitdm.net**. Keine Build-Schritte, keine
+Abhängigkeiten, keine Fremdanfragen zur Laufzeit.
 
 ```
 website/
 ├─ index.html      Startseite
+├─ vs.html         BitDM neben anderen Messengern (Vergleich)
+├─ docs.html       Server selbst betreiben
 ├─ privacy.html    Datenschutzerklärung + Impressum   ← Play-Pflicht
+├─ llms.txt        maschinenlesbare Kurzfassung für KI-Werkzeuge
+├─ robots.txt      alles lesbar ausser /app/
+├─ sitemap.xml     die vier Seiten oben
+├─ bilder/         App-Icon
 ├─ fonts/          Doto + Chivo Mono (SIL OFL, lokal eingebettet)
 └─ README.md
 ```

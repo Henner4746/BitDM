@@ -1,0 +1,338 @@
+<!doctype html>
+<!--
+  BitDM neben anderen Messengern — der Vergleich.
+
+  Diese Seite gibt es seit 07.10.2026. Ein Sichtbarkeits-Audit fand: keine
+  Seite sagt, wie sich BitDM von anderen unterscheidet — wer eine KI nach
+  Alternativen fragt, baute die Antwort aus den Seiten der Wettbewerber allein.
+  Die Angaben hier sind bewusst nur, was jede Seite der Anbieter selbst
+  vorzeigt; nichts Behauptetes, nichts Geratenes. Wer nachfassen will: die
+  Quellen stehen am Fuss der Seite, die Funktionsbelege im Repository
+  (secure-messenger/docs/FUNKTIONSVERGLEICH.md).
+
+  Sie erbt die Nocturne-Welt der Startseite, tritt aber im Lese-Modus auf:
+  eine Spalte, ruhige Rhythmik, keine Anzeigen. Ein Geraetefeld gehoert auf die
+  Startseite; ein Beipackzettel ist ein Beipackzettel.
+-->
+<html lang="de" data-lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Messenger im Vergleich — BitDM</title>
+<meta name="description" content="BitDM neben WhatsApp, Signal, Threema, Session und SimpleX: Telefonnummer, Kennung, Quellcode, Preis, Betrieb ohne Internet, eigener Server — die Unterschiede auf einen Blick.">
+<meta name="theme-color" content="#0b0c12">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
+<!-- MASCHINENLESBARE BESCHREIBUNG: dieselbe Aussage wie auf der Startseite —
+     Kategorie "encrypted messenger", keine Plattform, kein Abo-Dienst. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="BitDM">
+<meta property="og:url" content="https://bitdm.net/vs.html">
+<meta property="og:title" content="Messenger im Vergleich — BitDM">
+<meta property="og:description" content="BitDM neben WhatsApp, Signal, Threema, Session und SimpleX: was man hergibt, was offen ist, was ohne Internet weiterläuft.">
+<meta property="og:locale" content="de_DE">
+<meta property="og:locale:alternate" content="en_US">
+
+<style>
+@font-face{font-family:'Doto';src:url('fonts/Doto.ttf') format('truetype');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Chivo Mono';src:url('fonts/ChivoMono.ttf') format('truetype');font-weight:100 900;font-display:swap}
+
+:root{
+  --ground:#0b0c12; --panel:#161826; --panel-2:#12141f;
+  --line:#3f424d; --line-soft:#272a38;
+  --lit-hi:#d2cefd; --lit:#b5abfc; --lit-mid:#9184d9;
+  --unlit:#5d5294; --unlit-deep:#423a6a; --dim:#8a80c2;
+  --ink:#f3f5fe; --body:#cfd3e5; --muted:#9397ab;
+  --r-lg:14px; --r:8px; --r-sm:4px; --r-pill:99px;
+  --rail:clamp(18px,4vw,56px);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0; background:var(--ground); color:var(--body);
+  font:400 16px/1.7 'Chivo Mono',ui-monospace,monospace; -webkit-font-smoothing:antialiased}
+
+/* !important: Sprachsichtbarkeit ist querschnittlich und darf von keiner
+   Bauteil-Regel ueberstimmt werden. Ohne das gewinnt `header.page .screen
+   {display:block}` bei gleicher Spezifitaet durch spaetere Position. */
+html[data-lang="de"] .en{display:none!important}
+html[data-lang="en"] .de{display:none!important}
+
+.screen{font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--muted)}
+.screen-lit{color:var(--lit-mid)}
+
+h1,h2{font-family:'Doto',monospace; font-weight:700; letter-spacing:.02em;
+  text-transform:uppercase; color:var(--ink); margin:0; line-height:1.1}
+a{color:var(--lit)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
+
+.wrap{max-width:760px; margin:0 auto; padding:0 var(--rail)}
+
+.bezel{position:sticky; top:0; z-index:40;
+  background:linear-gradient(180deg,#0d0e16 0%,rgba(11,12,18,.92) 100%);
+  border-bottom:1px solid var(--line-soft); backdrop-filter:saturate(140%) blur(8px)}
+.bezel-in{display:flex; align-items:center; gap:20px; height:58px;
+  max-width:1180px; margin:0 auto; padding:0 var(--rail)}
+.mark{display:flex; align-items:baseline; gap:10px; margin-right:auto; text-decoration:none}
+.mark-name{font-family:'Doto',monospace; font-weight:700; font-size:21px;
+  letter-spacing:.04em; color:var(--ink); text-transform:uppercase}
+.back{color:var(--muted); text-decoration:none;
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s}
+.back:hover{color:var(--lit)}
+.toggle{display:flex; border:1px solid var(--line); border-radius:var(--r-pill);
+  padding:2px; background:var(--panel-2)}
+.toggle button{appearance:none; border:0; background:transparent; cursor:pointer;
+  padding:5px 11px; border-radius:var(--r-pill); color:var(--muted);
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s, background .18s}
+.toggle button:hover{color:var(--body)}
+.toggle button[aria-pressed="true"]{background:var(--unlit-deep); color:var(--lit-hi)}
+
+header.page{padding:clamp(44px,7vw,80px) 0 clamp(22px,3vw,32px)}
+header.page .screen{display:block; margin-bottom:15px}
+header.page h1{font-size:clamp(24px,4.6vw,38px)}
+header.page .stamp{margin:20px 0 0; font-size:12.5px; color:var(--muted)}
+
+section{padding:clamp(28px,4vw,42px) 0; border-top:1px solid var(--line-soft)}
+section h2{font-size:clamp(16px,2.6vw,21px); margin-bottom:18px}
+section p{margin:0 0 15px; max-width:68ch}
+section p:last-child{margin-bottom:0}
+section ul{margin:0 0 15px; padding-left:20px; max-width:68ch}
+section li{margin-bottom:9px}
+strong{color:var(--lit-hi); font-weight:600}
+
+/* Die eine Aussage, um die es hier eigentlich geht */
+.headline-claim{
+  border:1px solid var(--line); border-left:1px solid var(--line);
+  border-radius:var(--r-lg); background:var(--panel);
+  padding:clamp(20px,3vw,28px); margin:0 0 26px;
+}
+.headline-claim p{margin:0; font-size:clamp(15px,2vw,17px); line-height:1.65; color:var(--lit-hi)}
+
+/* Die Tabelle ist ein Geraeteblatt: feste Fluchten, eingebrannte
+   Beschriftungsspalte links, BitDM-Spalte hell. Auf schmalen Schirmen
+   schiebt sie sich seitlich, statt zu zerbrechen. */
+.tbl-scroll{overflow-x:auto; margin:0 0 15px;
+  border:1px solid var(--line); border-radius:var(--r-lg)}
+.tbl{border-collapse:collapse; width:100%; min-width:720px; font-size:13px; line-height:1.55}
+.tbl th,.tbl td{padding:11px 13px; text-align:left; vertical-align:top;
+  border-bottom:1px solid var(--line-soft)}
+.tbl thead th{background:var(--panel-2); color:var(--muted);
+  font:600 10.5px/1.5 'Chivo Mono',monospace; letter-spacing:.13em; text-transform:uppercase}
+.tbl tbody th{background:var(--panel-2); color:var(--muted); width:170px;
+  font:600 10.5px/1.5 'Chivo Mono',monospace; letter-spacing:.13em; text-transform:uppercase}
+.tbl td{background:var(--panel)}
+.tbl .col-bdm{color:var(--lit-hi); background:#191b2c}
+.tbl thead .col-bdm{color:var(--lit)}
+.tbl tbody tr:last-child th,.tbl tbody tr:last-child td{border-bottom:0}
+
+/* footer.wrap UND NICHT NUR footer — sonst greift nichts davon
+   (siehe den Kommentar in docs.html: .wrap ueberstimmt die Kurzschreibweisen). */
+footer.wrap{padding:0 var(--rail) 44px; margin:34px auto 0}
+footer.wrap > p{border-top:1px solid var(--line-soft); padding-top:34px}
+footer p{margin:0; font-size:11.5px; line-height:1.7; color:var(--muted)}
+footer a{color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important; transition-duration:.01ms!important}
+}
+</style>
+</head>
+
+<body>
+
+<header class="bezel">
+  <div class="bezel-in">
+    <a class="mark" href="/"><span class="mark-name">BitDM</span></a>
+    <a class="back" href="/">
+      <span class="de">← Zurück</span><span class="en">← Back</span>
+    </a>
+    <div class="toggle" role="group" aria-label="Sprache / Language">
+      <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
+      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <header class="page">
+    <span class="screen screen-lit de">Vergleich</span>
+    <span class="screen screen-lit en">Comparison</span>
+    <h1><span class="de">BitDM neben anderen Messengern</span><span class="en">BitDM next to other messengers</span></h1>
+    <p class="stamp">
+      <span class="de">Sechs Messenger, eine Zeile je Unterschied. Stand: 7.&nbsp;Oktober 2026; die Angaben zu den anderen kommen von deren eigenen Seiten und ändern sich dort, wo sie ändern.</span>
+      <span class="en">Six messengers, one line per difference. As of 7&nbsp;October 2026; the facts about the others come from their own pages and change where they change.</span>
+    </p>
+  </header>
+
+  <section>
+    <h2><span class="de">Worin sie sich unterscheiden</span><span class="en">Where they differ</span></h2>
+    <div class="headline-claim">
+      <p class="de">Der Unterschied ist nicht die Verschlüsselung — die haben alle. Der Unterschied ist, <strong>was du hergibst</strong>: BitDM verlangt keine Telefonnummer und keine andere Kennung, arbeitet ohne Internet über Bluetooth weiter und lässt sich mit eigenem Server betreiben.</p>
+      <p class="en">The difference is not the encryption — they all have that. The difference is <strong>what you hand over</strong>: BitDM asks for no phone number and no other identifier, keeps working without internet over Bluetooth, and can run on a server of your own.</p>
+    </div>
+    <div class="tbl-scroll">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th scope="col"><span class="de">Merkmal</span><span class="en">Feature</span></th>
+            <th scope="col" class="col-bdm">BitDM</th>
+            <th scope="col">WhatsApp</th>
+            <th scope="col">Signal</th>
+            <th scope="col">Threema</th>
+            <th scope="col">Session</th>
+            <th scope="col">SimpleX</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row"><span class="de">Was man hergibt</span><span class="en">What you hand out</span></th>
+            <td class="col-bdm"><span class="de">56-Zeichen-Adresse — der öffentliche Schlüssel selbst</span><span class="en">56-character address — the public key itself</span></td>
+            <td><span class="de">Telefonnummer</span><span class="en">Phone number</span></td>
+            <td><span class="de">Telefonnummer</span><span class="en">Phone number</span></td>
+            <td><span class="de">Threema-ID</span><span class="en">Threema ID</span></td>
+            <td><span class="de">Session-ID</span><span class="en">Session ID</span></td>
+            <td><span class="de">Einladungslink je Kontakt</span><span class="en">Invite link per contact</span></td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="de">Telefonnummer nötig</span><span class="en">Phone number required</span></th>
+            <td class="col-bdm"><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Ja</span><span class="en">Yes</span></td>
+            <td><span class="de">Ja</span><span class="en">Yes</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="de">Ende-zu-Ende-verschlüsselt</span><span class="en">End-to-end encrypted</span></th>
+            <td class="col-bdm"><span class="de">Ja (Signal-Protokoll)</span><span class="en">Yes (Signal protocol)</span></td>
+            <td><span class="de">Ja</span><span class="en">Yes</span></td>
+            <td><span class="de">Ja</span><span class="en">Yes</span></td>
+            <td><span class="de">Ja</span><span class="en">Yes</span></td>
+            <td><span class="de">Ja</span><span class="en">Yes</span></td>
+            <td><span class="de">Ja</span><span class="en">Yes</span></td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="de">Quellcode offen</span><span class="en">Open source</span></th>
+            <td class="col-bdm"><span class="de">App und Server (AGPL-3.0)</span><span class="en">App and server (AGPL-3.0)</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">App und Server</span><span class="en">App and server</span></td>
+            <td><span class="de">Apps offen, Server nicht vollständig</span><span class="en">Apps open, server not fully</span></td>
+            <td><span class="de">App und Server</span><span class="en">App and server</span></td>
+            <td><span class="de">App und Server</span><span class="en">App and server</span></td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="de">Preis</span><span class="en">Price</span></th>
+            <td class="col-bdm"><span class="de">Kostenlos</span><span class="en">Free</span></td>
+            <td><span class="de">Kostenlos</span><span class="en">Free</span></td>
+            <td><span class="de">Kostenlos</span><span class="en">Free</span></td>
+            <td><span class="de">Einmalige Kauf-App</span><span class="en">One-time purchase</span></td>
+            <td><span class="de">Kostenlos</span><span class="en">Free</span></td>
+            <td><span class="de">Kostenlos</span><span class="en">Free</span></td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="de">Ohne Internet weiter (Bluetooth)</span><span class="en">Keeps working offline (Bluetooth)</span></th>
+            <td class="col-bdm"><span class="de">Ja (Android 12+)</span><span class="en">Yes (Android 12+)</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="de">Server selbst betreibbar</span><span class="en">Self-hostable server</span></th>
+            <td class="col-bdm"><span class="de">Ja — ein Befehl</span><span class="en">Yes — one command</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein — Community-Netzwerk</span><span class="en">No — community network</span></td>
+            <td><span class="de">Ja</span><span class="en">Yes</span></td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="de">Fenster fehlt in Aufnahmen</span><span class="en">Window hidden from captures</span></th>
+            <td class="col-bdm"><span class="de">Ja — Android, Windows, auch Streams</span><span class="en">Yes — Android, Windows, including streams</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Teilweise — Android, in der App</span><span class="en">Partial — Android, in-app</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+            <td><span class="de">Nein</span><span class="en">No</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="de">Briar kann den Offline-Betrieb ebenfalls und fehlt hier nur, weil die Liste kurz bleiben sollte. Wo BitDM nachliefern muss: keine Anrufe, keine iPhone- und Mac-Version, Gruppen bis zwanzig Personen, kein Post-Quanten-Schlüsseltausch — und ein unabhängiges Sicherheitsaudit steht noch aus.</p>
+    <p class="en">Briar also works offline and is missing here only to keep the list short. Where BitDM still has to catch up: no calls, no iPhone or Mac version, groups up to twenty people, no post-quantum key exchange — and an independent security audit is still pending.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Nicht zu verwechseln</span><span class="en">Not to be confused</span></h2>
+    <p class="de">BitDM hat nichts mit <strong>BiT DMS</strong> (bitdms.com, Händler-Software aus den USA), <strong>BITE</strong> (b-ite.de, Bewerbermanagement), <strong>Bitmanagement</strong> (bitmanagement.com, 3D-Software) oder <strong>Bite Investments</strong> (biteinvestments.com, Software für Vermögensverwaltung) zu tun. Die Namen liegen einen Buchstaben auseinander, die Unternehmen nichts.</p>
+    <p class="en">BitDM has nothing to do with <strong>BiT DMS</strong> (bitdms.com, dealer-management software from the US), <strong>BITE</strong> (b-ite.de, recruiting software), <strong>Bitmanagement</strong> (bitmanagement.com, 3D software) or <strong>Bite Investments</strong> (biteinvestments.com, wealth-management software). The names are one letter apart; the companies share nothing.</p>
+    <p class="de">BitDM ist ein verschlüsselter Messenger aus Deutschland, entwickelt von Henrik Reuber, quelloffen unter AGPL-3.0.</p>
+    <p class="en">BitDM is an encrypted messenger from Germany, developed by Henrik Reuber, open source under AGPL-3.0.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Belege und Quellen</span><span class="en">Evidence and sources</span></h2>
+    <ul class="de">
+      <li>Die Funktionen von BitDM sind nicht behauptet, sondern getestet: jeder Haken im
+        <a href="https://github.com/Henner4746/BitDM/blob/main/secure-messenger/docs/FUNKTIONSVERGLEICH.md" rel="noopener">Funktionsvergleich im Repository</a>
+        nennt die Testdatei, die ihn belegt.</li>
+      <li>Die Angaben zu den anderen Messengern stammen von deren eigenen Seiten:
+        <a href="https://signal.org/" rel="noopener">signal.org</a>,
+        <a href="https://threema.com/en/faq/features" rel="noopener">threema.com</a>,
+        <a href="https://simplex.chat/" rel="noopener">simplex.chat</a>,
+        <a href="https://getsession.org/" rel="noopener">getsession.org</a>,
+        <a href="https://www.whatsapp.com/" rel="noopener">whatsapp.com</a>.</li>
+    </ul>
+    <ul class="en">
+      <li>BitDM's features are not claimed but tested: every check mark in the
+        <a href="https://github.com/Henner4746/BitDM/blob/main/secure-messenger/docs/FUNKTIONSVERGLEICH.md" rel="noopener">feature comparison in the repository</a>
+        names the test file that proves it.</li>
+      <li>The facts about the other messengers come from their own pages:
+        <a href="https://signal.org/" rel="noopener">signal.org</a>,
+        <a href="https://threema.com/en/faq/features" rel="noopener">threema.com</a>,
+        <a href="https://simplex.chat/" rel="noopener">simplex.chat</a>,
+        <a href="https://getsession.org/" rel="noopener">getsession.org</a>,
+        <a href="https://www.whatsapp.com/" rel="noopener">whatsapp.com</a>.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <p>
+    <span class="de">BitDM ist quelloffen unter AGPL-3.0 —
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>.
+      Alle genannten Namen und Produkte sind Marken ihrer jeweiligen Inhaber.</span>
+    <span class="en">BitDM is open source under AGPL-3.0 —
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>.
+      All names and products mentioned are trademarks of their respective owners.</span>
+  </p>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var root = document.documentElement;
+  function setLang(l){
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l);
+    document.querySelectorAll('[data-set-lang]').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.setLang === l));
+    });
+    try{ localStorage.setItem('bitdm-lang', l); }catch(e){}
+  }
+  document.querySelectorAll('[data-set-lang]').forEach(function(b){
+    b.addEventListener('click', function(){ setLang(b.dataset.setLang); });
+  });
+  var saved = null;
+  try{ saved = localStorage.getItem('bitdm-lang'); }catch(e){}
+  setLang(saved || ((navigator.language||'de').slice(0,2) === 'de' ? 'de' : 'en'));
+})();
+</script>
+</body>
+</html>
