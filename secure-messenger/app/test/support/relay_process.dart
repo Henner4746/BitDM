@@ -4,8 +4,11 @@
 // App hatten je einen Test gegen einen Nachbau der Gegenseite, beide gruen,
 // waehrend der Relay 47 % aller gueltigen Signaturen ablehnte.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import 'python_befehl.dart';
 
 class Relay {
   Relay._(this.process, this.port, this.datenverzeichnis);
@@ -41,10 +44,9 @@ class Relay {
 
     final Process p;
     try {
-      p = await Process.start(
-        'py',
+      p = await startePython(
         [
-          '-3', '-m', 'uvicorn', 'relay_server:app',
+          '-m', 'uvicorn', 'relay_server:app',
           '--app-dir', serverDir,
           '--host', '127.0.0.1',
           '--port', '$port',
@@ -75,19 +77,25 @@ class Relay {
   }
 
   Future<bool> _warteAufBereitschaft() async {
-    final client = HttpClient();
+    // MIT FRIST JE ANFRAGE. Ohne sie wartet ein `await req.close()` auf einen
+    // Port, der annimmt, aber nie antwortet, beliebig lange — die 30 s unten
+    // pruefen nur ZWISCHEN den Versuchen, und der Test hing dann bis zu
+    // seinem eigenen Zeitlimit (Pruefung vom 14.10.2026, N4).
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
     try {
       final frist = DateTime.now().add(const Duration(seconds: 30));
       while (DateTime.now().isBefore(frist)) {
         try {
           final req = await client.getUrl(uri.replace(path: '/health'));
-          final resp = await req.close();
+          final resp = await req.close().timeout(const Duration(seconds: 5));
           await resp.drain<void>();
           if (resp.statusCode == 200) return true;
         } on SocketException {
           // noch nicht oben
         } on HttpException {
           // noch nicht oben
+        } on TimeoutException {
+          // nimmt an, antwortet aber noch nicht
         }
         await Future<void>.delayed(const Duration(milliseconds: 150));
       }

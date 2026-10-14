@@ -12,6 +12,7 @@ import 'package:bitdm/core/messenger_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/nutzer.dart';
+import '../support/python_befehl.dart';
 import '../support/relay_process.dart';
 
 void main() {
@@ -47,8 +48,8 @@ void main() {
     // Der Relay vergisst Alice — so, wie es das Aufraeumen vergessener
     // Geraete oder eine frische Datenbank tut.
     final db = '${relay!.datenverzeichnis.path}/relay.db'.replaceAll('\\', '/');
-    final r = await Process.run('py', [
-      '-3', '-c',
+    final r = await fuehrePythonAus([
+      '-c',
       'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); '
           'c.execute("DELETE FROM one_time_prekeys WHERE user_id=?", (sys.argv[2],)); '
           'c.execute("DELETE FROM identities WHERE user_id=?", (sys.argv[2],)); '

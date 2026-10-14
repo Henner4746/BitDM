@@ -8,9 +8,12 @@
 //
 // Ein Nachbau des Lagers in Dart wuerde genau diese Stelle ueberspringen.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
+import 'python_befehl.dart';
 
 class Lager {
   Lager._(this.process, this.port, this.verzeichnis, this._vorbau);
@@ -59,10 +62,9 @@ class Lager {
 
     final Process p;
     try {
-      p = await Process.start(
-        'py',
+      p = await startePython(
         [
-          '-3', '-m', 'uvicorn', 'blob_server:app',
+          '-m', 'uvicorn', 'blob_server:app',
           '--app-dir', serverDir,
           '--host', '127.0.0.1',
           '--port', '$port',
@@ -97,50 +99,76 @@ class Lager {
   }
 
   /// Teilt die Wege auf, so wie nginx es tut.
+  ///
+  /// JEDER FEHLER WIRD HIER ZU EINER ANTWORT. Bis zum 14.10.2026 lief die
+  /// Durchreiche ungeschuetzt: fragte jemand den Vorbau, bevor uvicorn
+  /// lauschte, warf `openUrl` eine SocketException im listen-Rumpf. Die landete
+  /// nicht beim Fragenden, sondern in der Zone des Tests und liess dessen
+  /// setUpAll scheitern — und die Anfrage selbst bekam nie eine Antwort und
+  /// hing. Je nach Startreihenfolge fielen so ausgerechnet die
+  /// Ende-zu-Ende-Tests fuer Anhaenge aus (Pruefung vom 14.10.2026, N4).
+  /// nginx antwortet in diesem Fall mit 502, das tut dieses Stueck jetzt auch.
   void _bedieneVorbau() {
     final durchreiche = HttpClient();
     _vorbau.listen((a) async {
-      final teile = a.uri.pathSegments;
-      final erstes = teile.isEmpty ? '' : teile.first;
-
-      // GET /blob/<kennung> — direkt von der Platte, mit Bereichs-Anfragen.
-      if (a.method == 'GET' && erstes == 'blob' && teile.length == 2) {
-        final datei =
-            File('${verzeichnis.path}${Platform.pathSeparator}${teile[1]}');
-        if (!datei.existsSync()) {
-          a.response.statusCode = 404;
-        } else {
-          final bytes = await datei.readAsBytes();
-          final bereich = a.headers.value(HttpHeaders.rangeHeader);
-          var ab = 0;
-          if (bereich != null) {
-            ab = int.parse(
-                RegExp(r'bytes=(\d+)-').firstMatch(bereich)!.group(1)!);
-            a.response.statusCode = 206;
-          }
-          a.response.add(Uint8List.sublistView(bytes, ab));
+      try {
+        await _bedieneEine(a, durchreiche);
+      } catch (_) {
+        try {
+          a.response.statusCode = HttpStatus.badGateway;
+        } on StateError {
+          // Kopfzeilen schon draussen — dann bleibt nur, abzubrechen.
         }
-        await a.response.close();
-        return;
+        try {
+          await a.response.close();
+        } catch (_) {
+          // Gegenstelle schon weg.
+        }
       }
-
-      // Alles andere an den Dienst weiterreichen. /health bleibt hier drin,
-      // damit der Test die Zahl der Bloecke abfragen kann — im Betrieb laesst
-      // nginx ihn NICHT durch, weil er verriete, wie viel gerade unterwegs
-      // ist.
-      final weiter = await durchreiche.openUrl(
-          a.method, Uri.parse('http://127.0.0.1:$port${a.uri.path}'));
-      a.headers.forEach((name, werte) {
-        if (name.toLowerCase() == 'host') return;
-        for (final w in werte) {
-          weiter.headers.add(name, w);
-        }
-      });
-      await weiter.addStream(a);
-      final antwort = await weiter.close();
-      a.response.statusCode = antwort.statusCode;
-      await antwort.pipe(a.response);
     });
+  }
+
+  Future<void> _bedieneEine(HttpRequest a, HttpClient durchreiche) async {
+    final teile = a.uri.pathSegments;
+    final erstes = teile.isEmpty ? '' : teile.first;
+
+    // GET /blob/<kennung> — direkt von der Platte, mit Bereichs-Anfragen.
+    if (a.method == 'GET' && erstes == 'blob' && teile.length == 2) {
+      final datei =
+          File('${verzeichnis.path}${Platform.pathSeparator}${teile[1]}');
+      if (!datei.existsSync()) {
+        a.response.statusCode = 404;
+      } else {
+        final bytes = await datei.readAsBytes();
+        final bereich = a.headers.value(HttpHeaders.rangeHeader);
+        var ab = 0;
+        if (bereich != null) {
+          ab = int.parse(
+              RegExp(r'bytes=(\d+)-').firstMatch(bereich)!.group(1)!);
+          a.response.statusCode = 206;
+        }
+        a.response.add(Uint8List.sublistView(bytes, ab));
+      }
+      await a.response.close();
+      return;
+    }
+
+    // Alles andere an den Dienst weiterreichen. /health bleibt hier drin,
+    // damit der Test die Zahl der Bloecke abfragen kann — im Betrieb laesst
+    // nginx ihn NICHT durch, weil er verriete, wie viel gerade unterwegs
+    // ist.
+    final weiter = await durchreiche.openUrl(
+        a.method, Uri.parse('http://127.0.0.1:$port${a.uri.path}'));
+    a.headers.forEach((name, werte) {
+      if (name.toLowerCase() == 'host') return;
+      for (final w in werte) {
+        weiter.headers.add(name, w);
+      }
+    });
+    await weiter.addStream(a);
+    final antwort = await weiter.close();
+    a.response.statusCode = antwort.statusCode;
+    await antwort.pipe(a.response);
   }
 
   /// Wie viele Bloecke gerade liegen. Ueber /health, den nginx im Betrieb
@@ -157,20 +185,27 @@ class Lager {
     }
   }
 
+  /// DIREKT AM DIENST und nicht ueber den Vorbau: gefragt wird, ob uvicorn
+  /// lauscht, und das weiss nur sein eigener Port. Ueber den Vorbau loeste
+  /// genau diese Schleife den Fehler aus, der in [_bedieneVorbau] beschrieben
+  /// ist. Mit Frist je Anfrage, aus demselben Grund wie in relay_process.dart.
   Future<bool> _warteAufBereitschaft() async {
-    final client = HttpClient();
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+    final dienst = Uri.parse('http://127.0.0.1:$port/health');
     try {
       final frist = DateTime.now().add(const Duration(seconds: 30));
       while (DateTime.now().isBefore(frist)) {
         try {
-          final req = await client.getUrl(uri.replace(path: '/health'));
-          final resp = await req.close();
+          final req = await client.getUrl(dienst);
+          final resp = await req.close().timeout(const Duration(seconds: 5));
           await resp.drain<void>();
           if (resp.statusCode == 200) return true;
         } on SocketException {
           // noch nicht oben
         } on HttpException {
           // noch nicht oben
+        } on TimeoutException {
+          // nimmt an, antwortet aber noch nicht
         }
         await Future<void>.delayed(const Duration(milliseconds: 150));
       }
