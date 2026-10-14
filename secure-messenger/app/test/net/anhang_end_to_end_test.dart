@@ -24,10 +24,14 @@ import 'dart:typed_data';
 
 import 'package:bitdm/core/anhang/lager_client.dart';
 import 'package:bitdm/core/anhang/ruhe_datei.dart';
+import 'package:bitdm/core/crypto/key_derivation.dart';
 import 'package:bitdm/core/errors.dart';
 import 'package:bitdm/core/models.dart';
 import 'package:bitdm/core/real_messenger_core.dart';
 import 'package:bitdm/core/secret_store.dart';
+import 'package:bitdm/core/store/chat_repository.dart';
+import 'package:bitdm/core/store/encrypted_database.dart';
+import 'package:bitdm/core/store/signal_store_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/lager_process.dart';
@@ -238,6 +242,43 @@ void main() {
       expect(await bob.initialize(), isTrue);
       final wieder = await bob.entschluesselterAnhang(alice.myId, beiBob.id);
       expect(await wieder.readAsBytes(), vorher);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    // B2 der Pruefung vom 14.10.2026: brach ein Download mittendrin ab (App
+    // weggewischt, gesperrt), blieb der Zustand fuer immer "laedt". Die
+    // Oberflaeche zeigt dann einen Fortschritt statt des Holen-Knopfs — der
+    // Anhang war nie wieder zu bekommen. Die Aufraeummethode gab es, nur rief
+    // sie niemand auf.
+    test('EIN ABGEBROCHENER DOWNLOAD IST NACH DEM ENTSPERREN WIEDER HOLBAR', () async {
+      if (relay == null || lager == null) return;
+      final quelle = await dateiMit(ordner, 40000, 'abgebrochen.bin');
+      final vorher = await quelle.readAsBytes();
+      final angekommen = bob.incomingMessages.first;
+      await alice.sendeAnhang(bob.myId, quelle);
+      final beiBob = await angekommen.timeout(const Duration(seconds: 20));
+
+      // Den Stand nach einem Abbruch herstellen: gesperrt, und in der
+      // Datenbank steht "laedt". Von aussen, mit demselben Schluessel aus
+      // denselben Woertern — so wie ihn die App beim naechsten Start vorfindet.
+      final woerter = await bob.getRecoveryPhrase();
+      await bob.lock();
+      final schluessel = await KeyDerivation.fromMnemonic(woerter);
+      final db = EncryptedDatabase.open(
+          '${ordner.path}${Platform.pathSeparator}bob.db', schluessel.databaseKey);
+      final chats = ChatRepository(db, SignalStoreRepository(db));
+      chats.setzeAnhangZustand(
+          alice.myId, alice.myId, beiBob.id, AnhangZustand.laedt);
+      expect(chats.anhaenge(alice.myId)[beiBob.id]!.zustand, AnhangZustand.laedt);
+      db.close();
+
+      expect(await bob.initialize(), isTrue);
+      final danach = (await bob.getAnhaenge(alice.myId))[beiBob.id]!;
+      expect(danach.zustand, AnhangZustand.gescheitert,
+          reason: 'der haengende Download blieb auf "laedt" stehen');
+
+      final geholt = await bob.holeAnhang(alice.myId, beiBob.id);
+      expect(geholt.zustand, AnhangZustand.da);
+      expect(await bob.anhangInhalt(alice.myId, beiBob.id), vorher);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('UMSTELLUNG: ein alter Klartextanhang wird beim Entsperren verschluesselt', () async {

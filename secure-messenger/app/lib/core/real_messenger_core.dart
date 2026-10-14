@@ -580,6 +580,14 @@ class RealMessengerCore implements MessengerCore {
     // Was waehrend der App-Pause abgelaufen ist, verschwindet beim Start —
     // nicht erst, wenn jemand die Unterhaltung oeffnet und es noch sieht.
     _chats!.loescheAbgelaufene();
+    // EIN DOWNLOAD, DER BEIM LETZTEN MAL MITTENDRIN ABBRACH (App weggewischt,
+    // gesperrt, abgestuerzt), steht sonst fuer immer auf "laedt": die
+    // Oberflaeche zeichnet dann einen Fortschritt statt des Holen-Knopfs, und
+    // der Anhang ist nie wieder zu bekommen. Hier kann noch nichts laden —
+    // jeder Download braucht die Datenbank, die gerade erst aufgeht. Die
+    // Methode gab es seit Juli, nur rief sie niemand auf (Pruefung vom
+    // 14.10.2026, B2).
+    _chats!.raeumeHaengendeAnhaengeAuf();
 
     _fuelleVorratAuf();
 
