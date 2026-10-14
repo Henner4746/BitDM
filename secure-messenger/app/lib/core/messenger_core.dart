@@ -130,6 +130,9 @@ abstract class MessengerCore {
 
   /// Add a peer by address and send a contact request.
   /// Returns the new contact in `ContactState.outgoingPending`.
+  /// A peer whose request is already waiting (`incomingPending`) is accepted
+  /// instead and returned `active`; any other known contact is returned
+  /// unchanged.
   /// Throws `InvalidAddressException`, `NotInitializedException`.
   Future<Contact> addContact(String address, {String? displayName});
 

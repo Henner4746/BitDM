@@ -1582,7 +1582,7 @@ class RealMessengerCore implements MessengerCore {
               _legeEingangAb(von, payload, ueberNaehe);
             }
           case PayloadKind.contactRequest:
-            _legeEingangAb(von, payload, ueberNaehe);
+            _nimmAnfrage(von, payload, ueberNaehe);
           case PayloadKind.anhang:
             _legeAnhangAb(von, payload, ueberNaehe);
           case PayloadKind.contactAccept:
@@ -2475,10 +2475,53 @@ class RealMessengerCore implements MessengerCore {
             refs: [messageId]));
   }
 
+  /// Eine Kontaktanfrage. Was sie heisst, haengt davon ab, wo der Absender
+  /// bei uns steht.
+  ///
+  /// UNBEKANNT ODER SCHON MIT KARTE: der Nutzer entscheidet
+  /// ([_legeEingangAb]); eine Wiederholung legt keine zweite Karte an.
+  ///
+  /// SELBST ANGEFRAGT: beide wollen dasselbe. Das ist der Normalfall beim
+  /// Treffen — beide scannen den Code des anderen. Bis 15.10.2026 fiel die
+  /// Anfrage hier als "bekannter Absender" durch: nur die Sitzung gespeichert,
+  /// kein Zustandswechsel, keine Karte. Beide standen fuer immer auf
+  /// "Anfrage gesendet", mit Internet genauso wie ohne. Jetzt gilt sie als
+  /// Zusage, und wir sagen zurueck zu — die eigene Anfrage kann bei der
+  /// Gegenseite ja verloren gegangen sein.
+  ///
+  /// SCHON AKTIV: die Gegenseite fragt nur, solange sie wartet (bei jedem
+  /// Verbinden, [_wiederholeKontaktanfragen]). Kommt ihre Anfrage bei einem
+  /// aktiven Kontakt an, fehlt ihr also unsere Zusage — wir schicken sie noch
+  /// einmal. Das heilt auch jede Zusage, die vor dem Ausgang verloren ging.
+  /// Der Nutzer hat hier nichts mehr zu entscheiden: er hat den Kontakt
+  /// angenommen und nie entfernt.
+  void _nimmAnfrage(String von, Payload p, bool ueberNaehe) {
+    switch (_chats!.kontakt(von)?.state) {
+      case null:
+      case ContactState.incomingPending:
+        _legeEingangAb(von, p, ueberNaehe);
+      case ContactState.outgoingPending:
+        _bestaetigeKontakt(von);
+        unawaited(_antworte(von, PayloadKind.contactAccept));
+      case ContactState.active:
+        unawaited(_antworte(von, PayloadKind.contactAccept));
+    }
+  }
+
+  /// Eine Zusage — gilt NUR fuer eine eigene, offene Anfrage.
+  ///
+  /// Bis 15.10.2026 machte sie jeden Kontakt aktiv, der es noch nicht war,
+  /// auch einen mit offener EINGEHENDER Anfrage: wer anfragte und sich gleich
+  /// selbst zusagte, stand ohne Zutun des Nutzers als bestaetigter Kontakt in
+  /// der Chatliste. Eine ehrliche App schickt das nie, eine veraenderte schon
+  /// (nahweg_test "EINE ZUSAGE, UM DIE NIEMAND GEBETEN HAT").
+  ///
+  /// Dass eine Zusage bei einem schon aktiven Kontakt nichts tut, macht sie
+  /// wiederholbar — Voraussetzung dafuer, dass sie im Ausgang warten darf.
   void _bestaetigeKontakt(String von) {
     final chats = _chats!;
     final k = chats.kontakt(von);
-    if (k == null || k.state == ContactState.active) return;
+    if (k == null || k.state != ContactState.outgoingPending) return;
     chats.speichereKontakt(k.copyWith(state: ContactState.active));
     _contacts.add(ContactEvent(
         type: ContactEventType.requestAccepted,
@@ -2486,12 +2529,58 @@ class RealMessengerCore implements MessengerCore {
         at: DateTime.now().toUtc()));
   }
 
+  /// Eine Absage — gilt ebenfalls NUR fuer eine eigene, offene Anfrage.
+  ///
+  /// Bis 15.10.2026 entfernte sie jeden Kontakt, auch einen laengst
+  /// bestaetigten, und mit ihm den ganzen Verlauf auf DIESEM Telefon — auf
+  /// Zuruf der Gegenseite. Einen Kontakt entfernt jeder nur fuer sich
+  /// ([removeContact] schickt nichts); eine Absage beantwortet eine Anfrage.
   void _lehnteAb(String von) {
-    _chats!.entferneKontakt(von);
+    final chats = _chats!;
+    if (chats.kontakt(von)?.state != ContactState.outgoingPending) return;
+    final weg = chats.entferneKontakt(von);
+    // Ein Anhang kann schon da sein: auch wer noch nicht zugesagt hat, kann
+    // schreiben ([_legeEingangAb]). Dasselbe Aufraeumen wie in [removeContact].
+    unawaited(_loescheDateien(weg.dateien));
+    _nahGeheimnisse.remove(von);
     _contacts.add(ContactEvent(
         type: ContactEventType.requestDeclined,
         contactId: von,
         at: DateTime.now().toUtc()));
+  }
+
+  /// Zu- oder Absage auf eine Anfrage — UEBER DEN AUSGANG.
+  ///
+  /// Bis 15.10.2026 ging sie einmal hinaus oder nie: gescheitert (kein Netz,
+  /// "nur in der Naehe" ohne Gegenseite in Reichweite), war sie weg. Die
+  /// Gegenseite stand fuer immer auf "ausstehend", und ihre wiederholte
+  /// Anfrage fiel bei uns als Wiederholung durch. Im Ausgang wartet sie jetzt
+  /// wie eine Quittung, bis ein Weg offen ist — beim Verbinden ODER wenn die
+  /// Gegenseite in Reichweite kommt ([_sendeUnversandtes]).
+  ///
+  /// NUR DIE LETZTE ANTWORT ZAEHLT. Wartet noch eine Absage und der Nutzer
+  /// nimmt eine neue Anfrage derselben Adresse an, ginge sonst erst die
+  /// Absage hinaus — die Gegenseite entfernte den Kontakt, und die Zusage
+  /// danach traefe auf nichts mehr. Hoechstens eine Antwort je Adresse haelt
+  /// den Ausgang ausserdem klein, egal wie oft jemand fragt.
+  Future<void> _antworte(String an, PayloadKind art) async {
+    final chats = _chats;
+    if (chats == null) return;
+    for (final a in chats.ausgang()) {
+      if (a.chatId != an) continue;
+      final PayloadKind alt;
+      try {
+        alt = Payload.fromBytes(a.nutzlast).kind;
+      } on PayloadFormatException {
+        continue;
+      }
+      if (alt == PayloadKind.contactAccept ||
+          alt == PayloadKind.contactDecline) {
+        chats.trageAusDemAusgang(a.seq);
+      }
+    }
+    await _sendeSteuerung(
+        an, Payload.control(art, _neueId(), DateTime.now().toUtc()));
   }
 
   void _quittiere(String von, List<String> refs, MessageStatus status) {
@@ -2550,6 +2639,12 @@ class RealMessengerCore implements MessengerCore {
   /// Der Nachversand fuer Nachrichten gibt es laengst; hier ist sein
   /// Gegenstueck. Ausgeloest beim Verbinden, denn genau dann ist der Grund
   /// weggefallen, an dem es beim ersten Mal lag.
+  ///
+  /// NUR BEIM VERBINDEN, nicht wenn jemand in Reichweite kommt: mit "nur in
+  /// der Naehe" geht eine Anfrage deshalb nie hinaus (nahweg_test "EIN NEUER
+  /// KONTAKT ENTSTEHT NICHT UEBER FUNK", an dem die Anleitung haengt). Die
+  /// ANTWORT darauf wartet dagegen im Ausgang und geht auch ueber Funk
+  /// ([_antworte]).
   void _wiederholeKontaktanfragen() {
     final chats = _chats;
     if (chats == null) return;
@@ -2574,6 +2669,14 @@ class RealMessengerCore implements MessengerCore {
     }
 
     final vorhanden = _chats!.kontakt(adresse);
+    // WER SCHON ANGEFRAGT HAT UND JETZT HINZUGEFUEGT WIRD, IST ANGENOMMEN.
+    // Dieselbe Absicht wie beim gegenseitigen Hinzufuegen ([_nimmAnfrage]),
+    // nur kam die Anfrage hier zuerst an. Bis 15.10.2026 gab `addContact`
+    // den Kontakt einfach zurueck: nichts ging hinaus, und der Bildschirm
+    // sagte trotzdem "Anfrage gesendet".
+    if (vorhanden?.state == ContactState.incomingPending) {
+      return _nimmAn(vorhanden!, displayName: displayName);
+    }
     if (vorhanden != null) return vorhanden;
 
     final kontakt = Contact(
@@ -2595,20 +2698,29 @@ class RealMessengerCore implements MessengerCore {
 
   @override
   Future<void> acceptRequest(String contactId) async {
-    final k = _fordereKontakt(contactId);
-    _chats!.speichereKontakt(k.copyWith(state: ContactState.active));
-    unawaited(_versucheZuSenden(contactId,
-        Payload.control(PayloadKind.contactAccept, _neueId(),
-            DateTime.now().toUtc())));
+    _nimmAn(_fordereKontakt(contactId));
+  }
+
+  /// Nimmt [k] an: aktiv, und die Zusage geht in den Ausgang ([_antworte]).
+  Contact _nimmAn(Contact k, {String? displayName}) {
+    final aktiv = k.copyWith(
+        state: ContactState.active, displayName: k.displayName ?? displayName);
+    _chats!.speichereKontakt(aktiv);
+    unawaited(_antworte(k.id, PayloadKind.contactAccept));
+    return aktiv;
   }
 
   @override
   Future<void> declineRequest(String contactId) async {
     _fordereKontakt(contactId);
-    unawaited(_versucheZuSenden(contactId,
-        Payload.control(PayloadKind.contactDecline, _neueId(),
-            DateTime.now().toUtc())));
-    _chats!.entferneKontakt(contactId);
+    // ERST ENTFERNEN, DANN DIE ABSAGE IN DEN AUSGANG: `entferneKontakt` leert
+    // den Ausgang dieser Adresse, andersherum naehme es die Absage gleich
+    // mit. Die Sitzung bleibt stehen (anders als in removeContact) — ohne sie
+    // liesse sich die Absage nicht verschluesseln.
+    final weg = _chats!.entferneKontakt(contactId);
+    unawaited(_antworte(contactId, PayloadKind.contactDecline));
+    // Was er vor der Entscheidung geschickt hat, kann ein Anhang sein.
+    await _loescheDateien(weg.dateien);
     // DASSELBE AUFRAEUMEN WIE IN removeContact, und aus demselben Grund.
     //
     // Eine Absage ist eine Entfernung — nur eine, die man nie bestaetigt hat.
@@ -3325,10 +3437,11 @@ class RealMessengerCore implements MessengerCore {
   ///
   /// ERST IN DEN AUSGANG, DANN SENDEN — dieselbe Reihenfolge wie bei einer
   /// Textnachricht. Stuerzt die App dazwischen ab, holt der Nachversand sie.
-  /// Alle drei Arten sind wiederholbar (eine Reaktion ersetzt sich selbst,
-  /// eine Bearbeitung mit demselben Zeitstempel wird nicht zweimal
-  /// uebernommen, ein Widerruf trifft kein zweites Mal), deshalb schadet es
-  /// nicht, wenn sie bei einem mehrdeutigen Fehlschlag doppelt hinausgeht.
+  /// Alle Arten sind wiederholbar (eine Reaktion ersetzt sich selbst, eine
+  /// Bearbeitung mit demselben Zeitstempel wird nicht zweimal uebernommen,
+  /// ein Widerruf trifft kein zweites Mal, eine Zu- oder Absage gilt nur fuer
+  /// eine offene eigene Anfrage — siehe [_bestaetigeKontakt]), deshalb schadet
+  /// es nicht, wenn sie bei einem mehrdeutigen Fehlschlag doppelt hinausgeht.
   Future<void> _sendeSteuerung(String an, Payload p) async {
     final chats = _chats;
     if (chats == null) return;
@@ -4044,12 +4157,15 @@ class RealMessengerCore implements MessengerCore {
   /// Nachricht an einen neuen Kontakt trotzdem eine Anfrage an den Server —
   /// hinter dem Ruecken eines Schalters, der genau das ausschliesst.
   ///
-  /// DIE LOESUNG IST DIE ZEILE UNTEN, und sie ist eine Absage, keine
-  /// Umgehung: gibt es keine Sitzung und darf kein Server gefragt werden,
-  /// bleibt die Nachricht liegen. Nicht "gescheitert" — sie geht hinaus,
-  /// sobald der Schalter wieder aus ist. Ein Schluesselaustausch ueber die
-  /// Naehe waere der ehrliche Ausweg; den gibt es noch nicht, und ihn hier
-  /// vorzutaeuschen waere schlimmer als die Wartezeit.
+  /// DIE LOESUNG IST DER ZWEIG UNTEN, und er fragt keinen Server: gibt es
+  /// keine Sitzung und darf kein Server gefragt werden, geht eine
+  /// Buendelanfrage UEBER FUNK hinaus (`Nahtyp.buendelAnfrage`), falls die
+  /// Gegenseite in Reichweite ist, und die Nachricht bleibt liegen. Nicht
+  /// "gescheitert" — kommt das Buendel zurueck ([_nimmBuendelUeberFunk]),
+  /// geht sie beim naechsten Anlauf hinaus, sonst sobald der Schalter wieder
+  /// aus ist. In Reichweite erkennt der Funk aber nur, wer einen schon als
+  /// Kontakt hat; und die Kontaktanfrage selbst schickt nur connect() nach
+  /// ([_wiederholeKontaktanfragen]).
   ///
   /// Wer schon einmal miteinander geschrieben hat, merkt davon nichts: die
   /// Sitzung steht, und ab da braucht kein Weg mehr einen Server.

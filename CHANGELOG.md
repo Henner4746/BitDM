@@ -15,6 +15,11 @@ in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE
 - Mit einem Sicherheitsschlüssel (FIDO-Stick) hing die Oberfläche während jeder USB-Übertragung bis zu fünf Sekunden. Die Übertragung läuft jetzt auf einem eigenen Faden.
 - Die Einstellungen der Passwort-Ableitung (Argon2id) aus der Fachdatei werden vor dem Entsperren geprüft. Eine manipulierte Datei konnte die App vorher abstürzen oder minutenlang hängen lassen.
 - Der Wiederherstellen-Bildschirm sagt jetzt, dass ein anderes Gerät mit denselben 12 Wörtern angemeldet bleibt und weiter Nachrichten bekommt.
+- Fügten sich zwei Leute gegenseitig hinzu (beide scannen den Code des anderen), standen beide für immer auf „Anfrage gesendet“ — auch mit Internet. Jetzt gilt das auf beiden Seiten als Zusage. Wer eine Anfrage schon hat und den anderen selbst hinzufügt, nimmt damit an, und der Chat geht auf.
+- Eine Zusage oder Absage ohne Verbindung (oder mit „Nur in der Nähe“, während die Gegenseite nicht in Reichweite war) ging verloren, und die Gegenseite wartete für immer. Sie wartet jetzt und geht beim nächsten Verbinden hinaus, mit „Nur in der Nähe“ auch über Bluetooth, sobald die Gegenseite da ist. Wer schon so festhängt, kommt los, sobald beide Seiten diese Fassung haben und die wartende Seite verbindet.
+- Eine veränderte App konnte sich mit einer eigenen Zusage selbst zum bestätigten Kontakt machen und mit einer „Absage“ einen bestehenden Kontakt samt Verlauf auf dem anderen Telefon löschen. Zu- und Absage gelten jetzt nur noch als Antwort auf eine eigene, offene Anfrage.
+- Der Hinzufügen-Bildschirm sagte auch mit „Nur in der Nähe“ „Anfrage gesendet“, obwohl dort keine Anfrage hinausgeht — und ebenso bei jemandem, der schon Kontakt war.
+- Ein Telefon ohne Bluetooth 5 bekam in den Einstellungen keinen Hinweis, dass der Nahbereich darauf nicht geht. Bei ausgeschaltetem Bluetooth konnte dort „kein Bluetooth LE“ stehen statt „Bluetooth ist ausgeschaltet“.
 
 **Behoben (Relay)**
 - Ein Fremder konnte die Anmeldung eines Geräts stören, indem er dessen Einmal-Nonce verdrängte. Die Plätze gehören jetzt der Herkunft der Anfrage; über Tor dem Circuit, sobald der Onion-Dienst die Circuit-Kennung weitergibt.

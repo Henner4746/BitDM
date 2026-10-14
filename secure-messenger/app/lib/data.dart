@@ -182,6 +182,13 @@ const Map<String, Map<String, String>> strings = {
     'shareFailed': 'No app to share with was found.',
     'addTitle': 'Add contact', 'idLabel': 'BitDM ID', 'paste': 'Paste', 'scan': 'Scan QR', 'sendReq': 'Send request',
     'pending': 'Pending', 'reqSentNote': 'Request sent. The chat opens once the other side confirms.',
+    // Mit "nur in der Naehe" geht eine Kontaktanfrage nicht hinaus (nahweg_test
+    // "EIN NEUER KONTAKT ENTSTEHT NICHT UEBER FUNK"). Bis 15.10.2026 stand hier
+    // trotzdem "Anfrage gesendet".
+    'reqWaitsNote': 'Saved, but not sent: with “Nearby only” on, a contact '
+        'request does not go out. It goes by itself once you switch that off. '
+        'The chat opens once the other side confirms.',
+    'reqKnownNote': 'Already one of your contacts — nothing was sent.',
 
     'addFoot': 'No messages are transmitted before confirmation. A contact can be removed unilaterally at any time.',
     'chats': 'Chats', 'connOnline': 'connected', 'connConnecting': 'connecting', 'connOffline': 'offline', 'connError': 'no connection', 'connGeraeteVoll': 'too many devices', 'wantsChat': 'Wants to start an encrypted chat with you.', 'accept': 'Accept', 'decline': 'Decline',
@@ -464,6 +471,12 @@ const Map<String, Map<String, String>> strings = {
         'scan as locating you and demands location access — and that is one '
         'permission BitDM will not ask for.',
     'nearbyNoHardware': 'This phone has no Bluetooth LE.',
+    // Getrennt von "kein Bluetooth LE": ein Telefon mit BLE 4.2 hat Bluetooth
+    // LE, aber keine erweiterte Werbung — und genau die braucht der
+    // Nahbereich (funk.dart `erweitert`).
+    'nearbyNoExtended': 'This phone has no Bluetooth 5 (extended advertising). '
+        'Nearby needs it on both phones — without it, this phone can neither '
+        'be found nor find anyone.',
     'nearbyBtOff': 'Bluetooth is switched off.',
     'nearbyNoPerm': 'BitDM is not allowed to use Bluetooth yet.',
     'nearbyAllow': 'Allow',
@@ -604,6 +617,11 @@ const Map<String, Map<String, String>> strings = {
     'shareFailed': 'Es wurde keine App zum Teilen gefunden.',
     'addTitle': 'Kontakt hinzufügen', 'idLabel': 'BitDM-ID', 'paste': 'Einfügen', 'scan': 'QR scannen', 'sendReq': 'Anfrage senden',
     'pending': 'Ausstehend', 'reqSentNote': 'Anfrage gesendet. Der Chat öffnet sich, sobald die Gegenseite bestätigt.',
+    'reqWaitsNote': 'Gespeichert, aber nicht gesendet: mit „Nur in der Nähe“ '
+        'geht keine Kontaktanfrage hinaus. Sie geht von selbst, sobald du den '
+        'Schalter ausschaltest. Der Chat öffnet sich, sobald die Gegenseite '
+        'bestätigt.',
+    'reqKnownNote': 'Steht schon in deinen Kontakten — gesendet wurde nichts.',
 
     'addFoot': 'Vor der Bestätigung werden keine Nachrichten übertragen. Ein Kontakt kann jederzeit einseitig entfernt werden.',
     'chats': 'Chats', 'connOnline': 'verbunden', 'connConnecting': 'verbindet', 'connOffline': 'offline', 'connError': 'keine Verbindung', 'connGeraeteVoll': 'zu viele Geräte', 'wantsChat': 'Möchte einen verschlüsselten Chat mit dir beginnen.', 'accept': 'Annehmen', 'decline': 'Ablehnen',
@@ -850,6 +868,9 @@ const Map<String, Map<String, String>> strings = {
         'Standortzugriff — und das ist die eine Berechtigung, die BitDM nicht '
         'abfragt.',
     'nearbyNoHardware': 'Dieses Telefon hat kein Bluetooth LE.',
+    'nearbyNoExtended': 'Diesem Telefon fehlt Bluetooth 5 (erweiterte '
+        'Werbung). Der Nahbereich braucht es auf beiden Telefonen — ohne wird '
+        'dieses Telefon weder gefunden, noch findet es jemanden.',
     'nearbyBtOff': 'Bluetooth ist ausgeschaltet.',
     'nearbyNoPerm': 'BitDM darf Bluetooth noch nicht benutzen.',
     'nearbyAllow': 'Erlauben',
