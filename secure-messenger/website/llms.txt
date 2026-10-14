@@ -34,3 +34,9 @@ BitDM ("Verschlüsselt schreiben, ohne Konto") is built for people who want priv
 - [Documentation](https://bitdm.net/docs.html)
 - [Privacy and imprint](https://bitdm.net/privacy.html)
 - [Comparison: BitDM next to other messengers](https://bitdm.net/vs.html): WhatsApp, Signal, Threema, Session, SimpleX — phone number, identifier, open source, price, offline mode, own server
+
+## Guides
+
+- [Messenger without a phone number](https://bitdm.net/messenger-without-phone-number.html): the three ways to do without a number (an ID, an invite link per contact, the public key as address), what each hands out, and what you give up — recovery only via 12 words, a fixed address, no names
+- [Messaging without internet over Bluetooth](https://bitdm.net/messaging-without-internet-bluetooth.html): BitDM's nearby mode — Android 12+, Bluetooth LE 5.0 on both sides, about ten metres indoors, text only, no mesh; measured 325 bytes in 1.35 s, 700 bytes in 202 ms over GATT
+- [Anonymous messenger without an account](https://bitdm.net/anonymous-messenger-without-account.html): no sign-up, address = public key; what the relay still sees (who writes to whom and when, padded sizes, IP address unless Tor) and how Tor, your own relay or nearby mode reduce it; pseudonymous, not anonymous; no independent audit yet

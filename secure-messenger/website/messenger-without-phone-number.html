@@ -1,0 +1,347 @@
+<!doctype html>
+<!--
+  Ratgeber: Messenger ohne Telefonnummer.
+
+  Seit 14.10.2026, eine von drei Ratgeberseiten. Jede beantwortet genau EINE
+  Frage, die Leute so in eine Suchmaschine tippen ("messenger without phone
+  number"), und ueberschneidet sich nicht mit vs.html: dort steht die Tabelle,
+  hier die Erklaerung, was die Wege ohne Nummer unterscheidet und was man
+  jeweils aufgibt.
+
+  Fakten nur aus dem Repository: README.md, docs/FUNKTIONSVERGLEICH.md,
+  docs/MEHRGERAETE.md und die Texte der App (app/lib/data.dart). Die Angaben zu
+  anderen Messengern sind dieselben wie in vs.html — von deren eigenen Seiten,
+  nichts darueber hinaus. Keine Personennamen.
+
+  Gestaltung wie vs.html: Lese-Modus, eine Spalte, Nocturne. Englisch zuerst,
+  Deutsch einen Klick entfernt (localStorage 'bitdm-lang', wie ueberall).
+-->
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Sprachblitz verhindern: Begruendung im gleichen Block der Startseite. -->
+<script>
+(function () {
+  try {
+    var l = localStorage.getItem('bitdm-lang');
+  } catch (e) {}
+  if (l !== 'de' && l !== 'en') l = 'en';
+  var r = document.documentElement;
+  r.setAttribute('data-lang', l);
+  r.setAttribute('lang', l);
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Messenger without a phone number: how it works — BitDM</title>
+<meta name="description" content="How a messenger can work without a phone number: an ID, an invite link, or the public key as your address. What each way hands out, and what you give up in return.">
+<link rel="canonical" href="https://bitdm.net/messenger-without-phone-number.html">
+<meta name="theme-color" content="#0b0c12">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="BitDM">
+<meta property="og:url" content="https://bitdm.net/messenger-without-phone-number.html">
+<meta property="og:title" content="Messenger without a phone number: how it works">
+<meta property="og:description" content="An ID, an invite link, or the public key as your address — what each way hands out, and what you give up in return.">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="de_DE">
+<!-- Datenblock, kein Skript. Die FAQ-Antworten sind woertlich die englischen
+     Antworten unten auf der Seite — sichtbarer Text und Datenblock duerfen
+     nicht auseinanderlaufen. Beim Aendern beide anfassen. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Article",
+      "@id": "https://bitdm.net/messenger-without-phone-number.html#article",
+      "headline": "Messenger without a phone number: how it works",
+      "description": "How a messenger can work without a phone number: an ID, an invite link, or the public key as your address. What each way hands out, and what you give up in return.",
+      "inLanguage": ["en", "de"],
+      "datePublished": "2026-10-14",
+      "dateModified": "2026-10-14",
+      "mainEntityOfPage": "https://bitdm.net/messenger-without-phone-number.html",
+      "author": {"@id": "https://bitdm.net/#projekt", "@type": "Organization", "name": "BitDM", "url": "https://bitdm.net/"},
+      "publisher": {"@id": "https://bitdm.net/#projekt", "@type": "Organization", "name": "BitDM", "url": "https://bitdm.net/"},
+      "about": {"@id": "https://bitdm.net/#app", "@type": "SoftwareApplication", "name": "BitDM", "url": "https://bitdm.net/", "applicationCategory": "CommunicationApplication"}
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://bitdm.net/messenger-without-phone-number.html#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Is there a messenger that works without a phone number?",
+          "acceptedAnswer": {"@type": "Answer", "text": "Yes, several. Threema and Session give you an ID, SimpleX uses one invite link per contact, and BitDM uses your public key as your address. BitDM is free and open source under AGPL-3.0."}
+        },
+        {
+          "@type": "Question",
+          "name": "How do I add someone without a phone number?",
+          "acceptedAnswer": {"@type": "Answer", "text": "In BitDM you scan the other person's QR code or paste their 56-character address. Nothing from your address book is uploaded."}
+        },
+        {
+          "@type": "Question",
+          "name": "How do I get my account back without a phone number?",
+          "acceptedAnswer": {"@type": "Answer", "text": "There is no account to reset. Your 12 words bring your identity back on a new device, or the parts you gave to trusted contacts. Old messages come back only from an encrypted backup."}
+        }
+      ]
+    }
+  ]
+}
+</script>
+
+<style>
+@font-face{font-family:'Doto';src:url('fonts/Doto.ttf') format('truetype');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Chivo Mono';src:url('fonts/ChivoMono.ttf') format('truetype');font-weight:100 900;font-display:swap}
+
+:root{
+  --ground:#0b0c12; --panel:#161826; --panel-2:#12141f;
+  --line:#3f424d; --line-soft:#272a38;
+  --lit-hi:#d2cefd; --lit:#b5abfc; --lit-mid:#9184d9;
+  --unlit:#5d5294; --unlit-deep:#423a6a; --dim:#8a80c2;
+  --ink:#f3f5fe; --body:#cfd3e5; --muted:#9397ab;
+  --r-lg:14px; --r:8px; --r-sm:4px; --r-pill:99px;
+  --rail:clamp(18px,4vw,56px);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0; background:var(--ground); color:var(--body);
+  font:400 16px/1.7 'Chivo Mono',ui-monospace,monospace; -webkit-font-smoothing:antialiased}
+
+/* !important: Sprachsichtbarkeit ist querschnittlich (Begruendung in vs.html). */
+html[data-lang="de"] .en{display:none!important}
+html[data-lang="en"] .de{display:none!important}
+
+.screen{font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--muted)}
+.screen-lit{color:var(--lit-mid)}
+
+h1,h2{font-family:'Doto',monospace; font-weight:700; letter-spacing:.02em;
+  text-transform:uppercase; color:var(--ink); margin:0; line-height:1.1}
+a{color:var(--lit)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
+
+.wrap{max-width:760px; margin:0 auto; padding:0 var(--rail)}
+
+.bezel{position:sticky; top:0; z-index:40;
+  background:linear-gradient(180deg,#0d0e16 0%,rgba(11,12,18,.92) 100%);
+  border-bottom:1px solid var(--line-soft); backdrop-filter:saturate(140%) blur(8px)}
+.bezel-in{display:flex; align-items:center; gap:20px; height:58px;
+  max-width:1180px; margin:0 auto; padding:0 var(--rail)}
+.mark{display:flex; align-items:baseline; gap:10px; margin-right:auto; text-decoration:none}
+.mark-name{font-family:'Doto',monospace; font-weight:700; font-size:21px;
+  letter-spacing:.04em; color:var(--ink); text-transform:uppercase}
+.back{color:var(--muted); text-decoration:none;
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s}
+.back:hover{color:var(--lit)}
+.toggle{display:flex; border:1px solid var(--line); border-radius:var(--r-pill);
+  padding:2px; background:var(--panel-2)}
+.toggle button{appearance:none; border:0; background:transparent; cursor:pointer;
+  padding:5px 11px; border-radius:var(--r-pill); color:var(--muted);
+  font:600 10px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s, background .18s}
+.toggle button:hover{color:var(--body)}
+.toggle button[aria-pressed="true"]{background:var(--unlit-deep); color:var(--lit-hi)}
+
+header.page{padding:clamp(44px,7vw,80px) 0 clamp(22px,3vw,32px)}
+header.page .screen{display:block; margin-bottom:15px}
+header.page h1{font-size:clamp(24px,4.6vw,38px)}
+header.page .stamp{margin:20px 0 0; font-size:12.5px; color:var(--muted)}
+
+section{padding:clamp(28px,4vw,42px) 0; border-top:1px solid var(--line-soft)}
+section h2{font-size:clamp(16px,2.6vw,21px); margin-bottom:18px}
+section p{margin:0 0 15px; max-width:68ch}
+section p:last-child{margin-bottom:0}
+section ul{margin:0 0 15px; padding-left:20px; max-width:68ch}
+section li{margin-bottom:9px}
+strong{color:var(--lit-hi); font-weight:600}
+code{font:500 13px/1 'Chivo Mono',monospace; color:var(--lit-hi)}
+
+/* Die eine Aussage, um die es auf der Seite geht */
+.headline-claim{
+  border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel);
+  padding:clamp(20px,3vw,28px); margin:0 0 26px;
+}
+.headline-claim p{margin:0; font-size:clamp(15px,2vw,17px); line-height:1.65; color:var(--lit-hi)}
+
+/* Die Wege als Geraetekarten: eingebrannte Beschriftung oben, Text darunter */
+.ways{list-style:none; padding:0; margin:0 0 15px; max-width:68ch}
+.ways li{border:1px solid var(--line-soft); border-radius:var(--r); background:var(--panel-2);
+  padding:14px 16px; margin-bottom:10px}
+.ways .way-name{display:block; margin-bottom:7px;
+  font:600 10.5px/1.5 'Chivo Mono',monospace; letter-spacing:.13em; text-transform:uppercase; color:var(--lit-mid)}
+
+/* Kurze Antworten — dieselben Saetze wie im FAQPage-Datenblock oben */
+.qa{margin:0; max-width:68ch}
+.qa dt{color:var(--ink); font-weight:600; margin:0 0 6px}
+.qa dd{margin:0 0 20px}
+.qa dd:last-child{margin-bottom:0}
+
+/* footer.wrap UND NICHT NUR footer — sonst greift nichts davon
+   (siehe den Kommentar in docs.html: .wrap ueberstimmt die Kurzschreibweisen). */
+footer.wrap{padding:0 var(--rail) 44px; margin:34px auto 0}
+footer.wrap > p{border-top:1px solid var(--line-soft); padding-top:34px}
+footer p{margin:0; font-size:11.5px; line-height:1.7; color:var(--muted)}
+footer a{color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important; transition-duration:.01ms!important}
+}
+</style>
+</head>
+
+<body>
+
+<header class="bezel">
+  <div class="bezel-in">
+    <a class="mark" href="/"><span class="mark-name">BitDM</span></a>
+    <a class="back" href="/">
+      <span class="de">← Zurück</span><span class="en">← Back</span>
+    </a>
+    <div class="toggle" role="group" aria-label="Sprache / Language">
+      <button type="button" data-set-lang="de" aria-pressed="false">DE</button>
+      <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <header class="page">
+    <span class="screen screen-lit de">Ratgeber</span>
+    <span class="screen screen-lit en">Guide</span>
+    <h1><span class="de">Messenger ohne Telefonnummer</span><span class="en">Messenger without a phone number</span></h1>
+    <p class="stamp">
+      <span class="de">Was das heißt, welche Wege es gibt und was man jeweils hergibt. Stand: 14.&nbsp;Oktober 2026.</span>
+      <span class="en">What it means, which ways exist, and what each one hands out. As of 14&nbsp;October 2026.</span>
+    </p>
+  </header>
+
+  <section>
+    <h2><span class="de">Warum die Nummer das Problem ist</span><span class="en">Why the number is the problem</span></h2>
+    <div class="headline-claim">
+      <p class="de">Ein Messenger ohne Telefonnummer ersetzt die Nummer durch etwas, das man weitergeben kann, <strong>ohne sich selbst weiterzugeben</strong>.</p>
+      <p class="en">A messenger without a phone number replaces the number with something you can hand out <strong>without handing out yourself</strong>.</p>
+    </div>
+    <p class="de">Die meisten Messenger fragen zuerst nach der Telefonnummer. Sie wird zum Konto und zu dem Weg, auf dem andere einen finden. Das ist bequem — und genau das Problem: Eine Nummer läuft oft auf den eigenen Namen, lässt sich schwer wechseln, und wer sie hat, kann auch anrufen, SMS schicken und einen im eigenen Adressbuch wiederfinden.</p>
+    <p class="en">Most messengers start by asking for your phone number. It becomes your account and the way other people find you. That is convenient, and it is exactly the problem: a number is often registered in your name, it is hard to change, and anyone who has it can also call you, text you and find you in their own address book.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Drei Wege ohne Nummer</span><span class="en">Three ways to do without it</span></h2>
+    <ul class="ways">
+      <li>
+        <span class="way-name de">Eine Kennung — Threema, Session</span>
+        <span class="way-name en">An ID — Threema, Session</span>
+        <span class="de">Statt einer Nummer bekommt man eine Kennung (Threema-ID, Session-ID). Man gibt sie weiter wie eine Nummer, aber sie verrät nicht, wer man ist.</span>
+        <span class="en">Instead of a number you get an identifier (Threema ID, Session ID). You hand it out like a number, but it does not say who you are.</span>
+      </li>
+      <li>
+        <span class="way-name de">Ein Einladungslink je Kontakt — SimpleX</span>
+        <span class="way-name en">An invite link per contact — SimpleX</span>
+        <span class="de">Es gibt gar keine dauerhafte Kennung: Für jeden Kontakt entsteht ein eigener Link. Ohne Link von einem selbst findet einen niemand — dafür gibt es auch keine feste Adresse, die man auf eine Karte drucken könnte.</span>
+        <span class="en">There is no permanent identifier at all: each contact gets a link of its own. Nobody finds you without a link from you — and there is no fixed address you could print on a card either.</span>
+      </li>
+      <li>
+        <span class="way-name de">Der Schlüssel als Adresse — BitDM</span>
+        <span class="way-name en">The key as the address — BitDM</span>
+        <span class="de">Beim ersten Start erzeugt BitDM auf dem Telefon ein Schlüsselpaar. Die 56 Zeichen lange Adresse, die es anzeigt, ist die öffentliche Hälfte davon, dazu drei Prüfbytes gegen Tippfehler. Es gibt kein Verzeichnis, in dem ein Server den Schlüssel zu einer Adresse nachschlägt — die Adresse <em>ist</em> der Schlüssel. Deshalb kann kein Server einem Kontakt einen falschen unterschieben.</span>
+        <span class="en">On first launch BitDM creates a key pair on the phone. The 56-character address it shows you is the public half of it, plus three check bytes against typos. There is no directory in which a server looks up the key for an address — the address <em>is</em> the key. That is why no server can slip your contacts a wrong one.</span>
+      </li>
+    </ul>
+    <p class="de">Was Signal, WhatsApp und die drei oben im Einzelnen verlangen und anbieten, steht nebeneinander in der Tabelle auf der <a href="vs.html">Vergleichsseite</a>.</p>
+    <p class="en">What Signal, WhatsApp and the three above each ask for and offer is laid out side by side in the table on the <a href="vs.html">comparison page</a>.</p>
+  </section>
+
+  <section>
+    <h2><span class="de">Was man dafür aufgibt</span><span class="en">What you give up in return</span></h2>
+    <ul class="de">
+      <li><strong>Keine SMS, die das Konto zurückholt.</strong> Bei BitDM sind zwölf Wörter der einzige Weg zurück: Sie stellen die Identität auf einem neuen Gerät wieder her. Sind sie weg, ist die Adresse weg — es gibt keine Stelle, die sie zurücksetzen könnte. Wahlweise lassen sich die Wörter in Teile für Vertrauenspersonen zerlegen; je nach Wahl stellen 2 von 3, 3 von 5 oder 4 von 7 Teilen sie wieder her.</li>
+      <li><strong>Niemand findet einen zufällig.</strong> Ohne hochgeladenes Adressbuch findet einen niemand aus Versehen — aber auch niemand absichtlich. Adressen tauscht man per QR-Code oder durch Einfügen aus.</li>
+      <li><strong>Eine feste Adresse ist eine feste Kennung.</strong> Wer die BitDM-Adresse hat, kann schreiben, solange man sie benutzt. Eine neue Adresse heißt neue Identität, die man den Kontakten neu gibt. SimpleX umgeht das mit Links je Kontakt; bei BitDM ist die Adresse als Schlüssel der Kern des Entwurfs.</li>
+      <li><strong>Kontakte haben keine Namen.</strong> BitDM zeigt sie als Adresse und Muster — Namen gibt es nicht, auch nicht lokal.</li>
+      <li><strong>Wer die zwölf Wörter hat, ist man selbst.</strong> Jede Installation mit denselben Wörtern wird ein weiteres Gerät derselben Adresse (bis zu fünf) und bekommt jede neue Nachricht. Ein Gerät abmelden geht nicht; nach einem Diebstahl schneidet nur eine neue Identität das alte Telefon sicher ab.</li>
+    </ul>
+    <ul class="en">
+      <li><strong>No text message that gets your account back.</strong> With BitDM, twelve words are the only way back: they restore your identity on a new device. Lose them and the address is gone — there is nobody who could reset it. Optionally the words can be split into parts for people you trust; depending on your choice, 2 of 3, 3 of 5 or 4 of 7 parts restore them.</li>
+      <li><strong>Nobody finds you by chance.</strong> Without an uploaded address book nobody finds you by accident — and nobody finds you on purpose either. You exchange addresses by QR code or by pasting them.</li>
+      <li><strong>A fixed address is a fixed identifier.</strong> Whoever has your BitDM address can write to you for as long as you use it. A new address means a new identity that you pass on to your contacts again. SimpleX avoids this with per-contact links; for BitDM, the address being the key is the core of the design.</li>
+      <li><strong>Contacts have no names.</strong> BitDM shows them as an address and a pattern — there are no names, not even local ones.</li>
+      <li><strong>Whoever has the twelve words is you.</strong> Every installation with the same words becomes another device of the same address (up to five) and receives every new message. A device cannot be logged out; after a theft, only a new identity cuts the old phone off for certain.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="de">Kurze Antworten</span><span class="en">Short answers</span></h2>
+    <dl class="qa de">
+      <dt>Gibt es einen Messenger ohne Telefonnummer?</dt>
+      <dd>Ja, mehrere. Threema und Session geben einem eine Kennung, SimpleX arbeitet mit einem Einladungslink je Kontakt, und BitDM nimmt den öffentlichen Schlüssel als Adresse. BitDM ist kostenlos und quelloffen unter AGPL-3.0.</dd>
+      <dt>Wie füge ich jemanden ohne Telefonnummer hinzu?</dt>
+      <dd>In BitDM scannst du den QR-Code der anderen Person oder fügst ihre 56 Zeichen lange Adresse ein. Aus deinem Adressbuch wird nichts hochgeladen.</dd>
+      <dt>Wie bekomme ich mein Konto ohne Telefonnummer zurück?</dt>
+      <dd>Es gibt kein Konto, das jemand zurücksetzen müsste. Deine zwölf Wörter holen die Identität auf ein neues Gerät zurück — oder die Teile, die du Vertrauenspersonen gegeben hast. Alte Nachrichten kommen nur aus einer verschlüsselten Sicherung zurück.</dd>
+    </dl>
+    <dl class="qa en">
+      <dt>Is there a messenger that works without a phone number?</dt>
+      <dd>Yes, several. Threema and Session give you an ID, SimpleX uses one invite link per contact, and BitDM uses your public key as your address. BitDM is free and open source under AGPL-3.0.</dd>
+      <dt>How do I add someone without a phone number?</dt>
+      <dd>In BitDM you scan the other person's QR code or paste their 56-character address. Nothing from your address book is uploaded.</dd>
+      <dt>How do I get my account back without a phone number?</dt>
+      <dd>There is no account to reset. Your 12 words bring your identity back on a new device, or the parts you gave to trusted contacts. Old messages come back only from an encrypted backup.</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2><span class="de">Weiterlesen</span><span class="en">Read on</span></h2>
+    <ul class="de">
+      <li><a href="anonymous-messenger-without-account.html">Anonymer Messenger ohne Konto</a> — was der Server trotzdem sieht</li>
+      <li><a href="messaging-without-internet-bluetooth.html">Nachrichten ohne Internet über Bluetooth</a> — wenn kein Netz da ist</li>
+      <li><a href="vs.html">BitDM neben anderen Messengern</a> — die Tabelle</li>
+    </ul>
+    <ul class="en">
+      <li><a href="anonymous-messenger-without-account.html">Anonymous messenger without an account</a> — what the server still sees</li>
+      <li><a href="messaging-without-internet-bluetooth.html">Messaging without internet over Bluetooth</a> — when there is no network</li>
+      <li><a href="vs.html">BitDM next to other messengers</a> — the table</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <p>
+    <span class="de">BitDM ist quelloffen unter AGPL-3.0 —
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>.
+      Ein unabhängiges Sicherheitsaudit steht noch aus.
+      Alle genannten Namen und Produkte sind Marken ihrer jeweiligen Inhaber.</span>
+    <span class="en">BitDM is open source under AGPL-3.0 —
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>.
+      An independent security audit is still pending.
+      All names and products mentioned are trademarks of their respective owners.</span>
+  </p>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var root = document.documentElement;
+  function setLang(l){
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l);
+    document.querySelectorAll('[data-set-lang]').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.setLang === l));
+    });
+    try{ localStorage.setItem('bitdm-lang', l); }catch(e){}
+  }
+  document.querySelectorAll('[data-set-lang]').forEach(function(b){
+    b.addEventListener('click', function(){ setLang(b.dataset.setLang); });
+  });
+  var saved = null;
+  try{ saved = localStorage.getItem('bitdm-lang'); }catch(e){}
+  // Englisch ist der Standard, auch fuer deutsche Browser — wie auf der Startseite.
+  setLang(saved === 'de' || saved === 'en' ? saved : 'en');
+})();
+</script>
+</body>
+</html>

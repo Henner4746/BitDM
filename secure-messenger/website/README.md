@@ -9,9 +9,12 @@ website/
 ├─ vs.html         BitDM neben anderen Messengern (Vergleich)
 ├─ docs.html       Server selbst betreiben
 ├─ privacy.html    Datenschutzerklärung + Impressum   ← Play-Pflicht
+├─ messenger-without-phone-number.html      Ratgeber: ohne Telefonnummer
+├─ messaging-without-internet-bluetooth.html Ratgeber: ohne Internet, per Bluetooth
+├─ anonymous-messenger-without-account.html Ratgeber: anonym, ohne Konto
 ├─ llms.txt        maschinenlesbare Kurzfassung für KI-Werkzeuge
 ├─ robots.txt      alles lesbar ausser /app/
-├─ sitemap.xml     die vier Seiten oben + llms.txt, je mit .html
+├─ sitemap.xml     alle Seiten oben + llms.txt, je mit .html
 ├─ 1e0f…5274.txt   IndexNow-Schlüssel (öffentlich mit Absicht, siehe unten)
 ├─ bilder/         App-Icon
 ├─ fonts/          Doto + Chivo Mono (SIL OFL, lokal eingebettet)
@@ -230,6 +233,11 @@ Deutsch einen Klick entfernt schon geladen.
   Browser. Grund: Suchmaschinen und KI-Leser ordnen eine Seite nach diesen
   Angaben einer Sprache zu; mit `lang="de"` war der Vergleich für die Suche
   „BitDM vs Signal" eine deutsche Seite.
+- **Die drei Ratgeber sind ebenfalls englisch zuerst** (seit 14.10.2026).
+  Jeder beantwortet genau eine Suchfrage und hat deshalb einen sprechenden
+  englischen Dateinamen. Die Antworten unter „Short answers“ stehen
+  wörtlich auch im FAQPage-Datenblock im Kopf — wer sie ändert, ändert beide.
+  Fakten nur aus dem Repository; was dort fehlt, steht auch hier nicht.
 - **`docs.html` und `privacy.html` sind deutsch zuerst** und folgen der
   Browsersprache — die Datenschutzerklärung ist ein deutscher Rechtstext.
 
