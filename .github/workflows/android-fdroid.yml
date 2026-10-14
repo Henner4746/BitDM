@@ -61,6 +61,16 @@ jobs:
           VERSION=$(sed -n 's/^version: *\([^+]*\)+.*/\1/p' "$P")
           CODE=$(sed -n 's/^version: *[^+]*+\([0-9]*\).*/\1/p' "$P")
           test -n "$VERSION" && test -n "$CODE"
+          # DIE APP MUSS IHRE EIGENE FASSUNG KENNEN. lib/fassung.dart traegt sie
+          # fuer den Update-Hinweis; stand sie hinter der pubspec, hielt sich
+          # 1.9.1 fuer 1.9.0 und haette sich selbst als veraltet gemeldet
+          # (Tag v1.9.1 vom 15.10.2026, vor der Veroeffentlichung bemerkt).
+          FASSUNG=$(sed -n "s/^const String appFassung = '\([^']*\)';.*/\1/p" \
+            quelle/secure-messenger/app/lib/fassung.dart)
+          if [ "$FASSUNG" != "$VERSION" ]; then
+            echo "::error::lib/fassung.dart sagt '$FASSUNG', pubspec.yaml sagt '$VERSION'"
+            exit 1
+          fi
           mkdir -p "$HOME_VAGRANT/metadata"
           # Fassung, Code und Commit eintragen; `Binaries` und
           # `AllowedAPKSigningKeys` heraus — die signierte APK gibt es ja erst

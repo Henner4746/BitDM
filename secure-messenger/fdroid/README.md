@@ -63,10 +63,12 @@ Telefon bleibt der Windows-Bau, wie er ist.
 
 ## Release-Ablauf (Android), ab 1.9.1
 
-1. Fassung in `app/pubspec.yaml` heben (`1.9.1+21`), Changelogs
+1. Fassung in `app/pubspec.yaml` heben (`1.9.1+21`) **und** `appFassung` in
+   `app/lib/fassung.dart` gleich mit (der Workflow bricht sonst ab), Changelogs
    `app/fastlane/metadata/android/{en-US,de-DE}/changelogs/<versionCode>.txt`
    (je höchstens 500 Zeichen), `CHANGELOG.md`.
-2. Tag setzen und pushen (`git tag v1.9.1 && git push origin v1.9.1`). Der
+2. Erst wenn die CI auf `main` grün ist: Tag setzen und pushen
+   (`git tag v1.9.1 && git push origin v1.9.1`). Der
    Workflow **Android (F-Droid-Bau)** baut die unsignierte APK und beglaubigt
    sie. Dauer rund eine halbe Stunde.
 3. Holen und prüfen:
