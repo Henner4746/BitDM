@@ -4,12 +4,13 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
-## Noch nicht veröffentlicht
+## 1.9.1 — noch nicht veröffentlicht
 
 Behebungen aus der Prüfung vom 14.10.2026 (Quellstand `e5aefdf`), Einzelheiten
 in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE-2026-10-14.md).
 
 **Behoben (App)**
+- Die APK enthielt einen unvollständigen Ordner für x86_64 (Plugin-Bibliotheken ohne Flutter). Ein x86_64-Gerät wie ein Chromebook wählte genau diesen Ordner, und die App stürzte beim Start ab. Verpackt wird jetzt nur, wofür Flutter gebaut hat.
 - Ein Download, der mittendrin abbrach (App weggewischt oder gesperrt), stand für immer auf „lädt“, und der Anhang ließ sich nicht mehr holen. Beim nächsten Öffnen wird er jetzt zurückgesetzt.
 - Mit einem Sicherheitsschlüssel (FIDO-Stick) hing die Oberfläche während jeder USB-Übertragung bis zu fünf Sekunden. Die Übertragung läuft jetzt auf einem eigenen Faden.
 - Die Einstellungen der Passwort-Ableitung (Argon2id) aus der Fachdatei werden vor dem Entsperren geprüft. Eine manipulierte Datei konnte die App vorher abstürzen oder minutenlang hängen lassen.
@@ -27,6 +28,9 @@ in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE
 
 **Tests**
 - Die Testhilfen laufen auch unter Linux und macOS (`python3`, `BITDM_PYTHON`), und die Anhang-Tests hängen nicht mehr je nach Startreihenfolge.
+
+**Bau**
+- Die Android-APK entsteht ab dieser Fassung im F-Droid-Image (Workflow „Android (F-Droid-Bau)“) und wird lokal signiert. So kann F-Droid sie bitgleich nachbauen und die Entwickler-Signatur übernehmen. Flutter liegt dafür als Submodul in `secure-messenger/app/.flutter`. Einzelheiten in [`secure-messenger/fdroid/README.md`](secure-messenger/fdroid/README.md).
 
 ## 1.9.0 — 26.09.2026
 
