@@ -1,85 +1,117 @@
-# F-Droid — vorbereitet, nicht eingereicht
+# F-Droid — bereit zum Einreichen ab 1.9.1
 
-Stand 25.09.2026, BitDM 1.7.0 (versionCode 15).
+Stand 14.10.2026. Das Rezept `com.bitdm.bitdm.yml` besteht `fdroid lint` und
+ist in F-Droids Normalform (`fdroid rewritemeta` ändert nichts, fdroidserver
+2.4.5). Eingereicht wird es mit der ersten Fassung, die nach dem Ablauf unten
+gebaut ist — 1.9.1. Die 1.9.0-APK kann F-Droid nicht nachbauen (siehe Messung).
 
-## Was erledigt ist
+## Was F-Droid verlangt, und wie es hier gelöst ist
 
-- **Store-Texte und Bilder** im Fastlane/Triple-T-Format unter
-  `app/fastlane/metadata/android/` — F-Droid liest sie direkt aus dem Repo,
-  sie gehören also NICHT in fdroiddata.
-  - `en-US/` und `de-DE/`: `title.txt`, `short_description.txt` (≤ 80 Zeichen),
-    `full_description.txt`, `changelogs/14.txt` (1.6.1) und `changelogs/15.txt`
-    (1.7.0, je ≤ 500 Zeichen).
-  - `en-US/images/icon.png` (512 px aus `icon_bitdm_1024.png`) und sechs
-    Telefon-Bildschirmfotos aus dem Emulatorlauf (Testkennungen, keine echten
-    Daten). Andere Sprachen fallen auf `en-US` zurück.
-  - Für jede neue Fassung: `changelogs/<versionCode>.txt` in beiden Sprachen.
-- **Baurezept-Entwurf** `com.bitdm.bitdm.yml` für fdroiddata: Flutter 3.44.8
-  als srclib, NDK r28c, ein APK für alle drei ABIs wie im GitHub-Release,
-  `pub get --enforce-lockfile`, Reproducible-Build-Felder (`Binaries`,
-  `AllowedAPKSigningKeys`), Anti-Feature `TetheredNet`, Update-Prüfung über
-  Tags `v*` und `pubspec.yaml`.
-- **Gradle** baut ohne `android/key.properties` eine unsignierte Release-APK
-  und warnt nur (`app/android/app/build.gradle.kts`); abgebrochen wird nur mit
-  `-PbitdmRequireSigning=true`. Das Rezept setzt die Eigenschaft nicht.
-- **Abhängigkeiten geprüft** (`pubspec.lock`, alle 128 Pakete): kein Firebase,
-  keine Google Play Services, kein ML Kit, keine Werbung oder Tracker. Alle
-  Lizenzen frei (BSD, MIT, Apache-2.0, MPL-2.0; `libsignal_protocol_dart` ist
-  GPL-3.0 und mit der AGPL-3.0 vereinbar). Push läuft über UnifiedPush, nicht
-  FCM. Schriften unter OFL im Repo.
+| Vorgabe (MR-Vorlage „App inclusion“) | Stand |
+|---|---|
+| Store-Texte, Bilder, Changelogs im Fastlane-Format, `en-US` dabei | `app/fastlane/metadata/android/` (en-US, de-DE), Changelogs je versionCode |
+| `commit` als voller Hash, kein Tag | der Workflow trägt ihn ein; beim Einreichen den Hash des Release-Tags nehmen |
+| Externe Repos als Git-Submodul statt srclib | Flutter liegt als Submodul in `app/.flutter`, fest auf 3.44.8 (`058e0af2c2b5…`). Damit reist die Flutter-Fassung mit dem Quellstand: ein späteres Flutter-Update bricht F-Droids automatische Aktualisierung nicht |
+| Reproducible Builds — „if you don't enable reproducible build then the apk will be signed with our key so you can't enable it later“ | `Binaries` + `AllowedAPKSigningKeys` im Rezept; die Release-APK entsteht im F-Droid-Image (unten) |
+| Releases getaggt, Auto-Update an | `UpdateCheckMode: Tags ^v[0-9.]+$`, `AutoUpdateMode: Version` |
+| AuthorName, Issue-Tracker | ja |
+| Keine proprietären Abhängigkeiten | geprüft (alle 128 Pakete in `pubspec.lock`): kein Firebase, keine Play Services, kein ML Kit, keine Tracker; Push über UnifiedPush; sqlite3mc aus Quelltext (`app/third_party/sqlite3mc/`); alle Pakete exakt gepinnt, Bau mit `pub get --enforce-lockfile` |
+| ABI-Split, wenn die APK groß ist | **bewusst nicht**, siehe unten |
 
-## Was vor dem Einreichen noch fehlt
+## Die Messung vom 14.10.2026
 
-1. ~~**sqlite3mc aus Quelltext bauen.**~~ **Erledigt am 25.09.2026:** die
-   Amalgamation liegt in `app/third_party/sqlite3mc/` (Fassung 2.3.6, Pruefsumme
-   im README dort), `pubspec.yaml` steht auf `source: source`. Nachgeprueft:
-   der Hook uebersetzt die Datei selbst, und Datenbanken aus der vorher
-   vorgebauten Bibliothek oeffnen weiter (Rechner und Emulator).
-2. ~~**Abhaengigkeits-Block und vcsInfo.**~~ **Erledigt am 25.09.2026** in
-   `app/android/app/build.gradle.kts`; an der gebauten APK geprueft: kein
-   `DEPENDENCY_INFO_BLOCK`, keine `version-control-info.textproto`.
-   Beides gilt ab der ersten Fassung NACH 1.7.0 — das Rezept muss auf sie
-   zeigen, nicht auf v1.7.0.
-3. **Reproduzierbarkeit nachweisen.** Die 1.7.0-APK wurde unter Windows gebaut,
-   F-Droid baut unter Debian in `/home/vagrant/build/com.bitdm.bitdm`. Vor dem
-   Einreichen selbst unter Linux mit genau dem Rezept bauen (`fdroid build` im
-   fdroiddata-Checkout oder ein Docker-Buildserver) und mit
-   `apksigcopier compare` bzw. `diffoscope` gegen die Release-APK vergleichen.
-   Am besten die eigenen Releases künftig ebenfalls unter Linux (CI) bauen,
-   mit Flutter 3.44.8 und NDK r28c. Klappt es nicht, `Binaries` und
-   `AllowedAPKSigningKeys` im Rezept auskommentieren — dann signiert F-Droid
-   mit eigenem Schlüssel, und Nutzer können nicht zwischen GitHub- und
-   F-Droid-APK wechseln (anderer Signaturschlüssel).
-4. **fdroiddata-Merge-Request.**
-   - https://gitlab.com/fdroid/fdroiddata forken (GitLab-Konto nötig).
-   - `com.bitdm.bitdm.yml` nach `metadata/` kopieren, die Kopfkommentare
-     kürzen.
-   - `fdroid readmeta`, `fdroid rewritemeta com.bitdm.bitdm`,
-     `fdroid lint com.bitdm.bitdm`, `fdroid build -v -l com.bitdm.bitdm`.
-   - Branch `com.bitdm.bitdm` pushen, Merge-Request mit der Vorlage „App
-     inclusion" öffnen; die Pipeline baut die App dort noch einmal.
-5. **Berechtigungen im MR begründen** — Reviewer fragen danach:
-   `RECORD_AUDIO` (nur Sprachnachrichten, seit 1.6.0), `CAMERA` (nur
-   QR-Scan), `BLUETOOTH_SCAN` mit `neverForLocation`, `BLUETOOTH_ADVERTISE`,
-   `BLUETOOTH_CONNECT` (Nahbereich, ab Android 12), `NFC` (Sicherheitsschlüssel),
-   `FOREGROUND_SERVICE_DATA_SYNC` (Hintergrundempfang, ab Werk aus),
-   `WAKE_LOCK` (von UnifiedPush). Kein Standort, kein Speicherzugriff.
-6. **TetheredNet** fällt weg, sobald die Relay-Adresse in der App einstellbar
-   ist; bis dahin ist die Angabe ehrlich und bleibt drin.
+v1.9.0 nach dem Rezept unter Linux (WSL, Ubuntu 24.04, Flutter 3.44.8 als
+Git-Checkout, NDK r28c, cmake 3.22.1), Inhalte Datei für Datei verglichen:
 
-## Gefundene Ungereimtheiten (nicht geändert)
+| Vergleich | Ergebnis |
+|---|---|
+| zweimal derselbe Pfad, JDK 17 | **bitgleich** (ganze Datei, sha256 `f475e11e…`) |
+| anderer Pfad, JDK 17 | `libapp.so`, `libdartjni.so`, `libwebcrypto.so` verschieden |
+| JDK 17 gegen JDK 25 | zusätzlich `classes.dex` und das Baseline-Profil |
+| Linux gegen die Windows-Release-APK 1.9.0 | zusätzlich `libsqlite3.so`, `NOTICES.Z`, `NativeAssetsManifest.json`; die Ordner unter `lib/x86_64` passen gar nicht |
 
-- **Lizenz:** `LICENSE`, beide READMEs, `docs.html` und `privacy.html` sagen
-  AGPL-3.0. Noch **GPL-3.0** steht in `website/index.html` (Meta-Beschreibung
-  Zeile 52 und Abschnitt Quellcode Zeile 1408/1411), in `PRODUCT.md`
-  (Zeilen 47, 96, 102) und im Schrift-Kommentar in `app/pubspec.yaml`. Im
-  Rezept steht `AGPL-3.0-only`, weil nirgends „or later" erklärt ist — wer
-  „or later" will, muss das im Repo sagen.
-- **Pins:** Der Kommentar in `pubspec.yaml` sagt „alle Versionen EXAKT
-  gepinnt", sieben Einträge haben aber noch `^`. Reproduzierbar ist der Bau
-  trotzdem über die eingecheckte `pubspec.lock`, solange mit
-  `--enforce-lockfile` geholt wird.
-- **Release-Text 1.7.0/1.6.1:** „arm64 + arm32" — die APK enthält auch
-  `x86_64`.
-- **README „Bekannte Lücken"** nennt noch „Keine Gruppenchats", obwohl
-  Gruppen bis 20 seit 1.6.0 gebaut sind.
+Woher der Pfad kommt: `libapp.so` trägt den absoluten Pfad des App-Ordners
+(`file:///…/secure-messenger/app/.dart_tool/flutter_build/dart_plugin_registrant.dart`),
+`libwebcrypto.so` die Pfade der BoringSSL-Quellen im Pub-Cache (`__FILE__`),
+und daraus folgt eine andere Build-ID in `libdartjni.so`. SDK- und NDK-Pfade
+stehen nicht darin.
+
+**Daraus folgt:** bitgleich wird es nur im selben Pfad mit demselben JDK. F-Droid
+baut in `/home/vagrant/build/com.bitdm.bitdm`, im Image
+`registry.gitlab.com/fdroid/fdroidserver:buildserver-trixie`, mit OpenJDK 21.
+Also entsteht die Release-APK genau dort: `.github/workflows/android-fdroid.yml`
+lässt `fdroid build` mit diesem Rezept laufen — Scanner eingeschlossen, denn der
+löscht vor dem Bau Binärdateien in `.flutter` und `.pub-cache` (`scandelete`).
+
+**Windows-Bauten werden nicht mehr veröffentlicht.** Für Tests auf dem eigenen
+Telefon bleibt der Windows-Bau, wie er ist.
+
+## Nur ARM, eine APK
+
+- **Kein x86_64.** Die 1.9.0-APK hatte einen Ordner `lib/x86_64` mit vier
+  Plugin-Bibliotheken, aber ohne `libflutter.so`, `libapp.so` und
+  `libsqlite3.so` — ein x86_64-Gerät (Chromebook, Emulator) wählt diesen Ordner
+  und stürzt beim Start ab. Seit 14.10.2026 verpackt `android/app/build.gradle.kts`
+  nur, wofür Flutter gebaut hat; gebaut wird mit
+  `--target-platform android-arm,android-arm64`. x86_64-Geräte nehmen die
+  ARM-Fassung über die Übersetzung des Systems.
+- **Kein ABI-Split.** Die APK hat rund 47 MB, je ABI wären es etwa 25. Ein Split
+  hieße drei versionCodes je Fassung (Flutter rechnet 1000/2000/4000 dazu), drei
+  Release-Dateien und ein Downgrade-Problem für alle, die zwischen GitHub-APK
+  und F-Droid wechseln. Fragt der Reviewer danach: das ist die Begründung, und
+  umstellbar ist es später mit `VercodeOperation` und `Binaries` je ABI.
+
+## Release-Ablauf (Android), ab 1.9.1
+
+1. Fassung in `app/pubspec.yaml` heben (`1.9.1+21`), Changelogs
+   `app/fastlane/metadata/android/{en-US,de-DE}/changelogs/<versionCode>.txt`
+   (je höchstens 500 Zeichen), `CHANGELOG.md`.
+2. Tag setzen und pushen (`git tag v1.9.1 && git push origin v1.9.1`). Der
+   Workflow **Android (F-Droid-Bau)** baut die unsignierte APK und beglaubigt
+   sie. Dauer rund eine halbe Stunde.
+3. Holen und prüfen:
+   ```
+   gh run download <lauf-id> -R Henner4746/BitDM -n android-unsigniert
+   gh attestation verify bitdm-1.9.1-unsigned.apk -R Henner4746/BitDM
+   ```
+4. Lokal signieren — der Schlüssel verlässt den Rechner nicht. Speicherdatei und
+   Alias stehen in `app/android/key.properties` (`storeFile`, `keyAlias`):
+   ```
+   %LOCALAPPDATA%\Android\Sdk\build-tools\36.0.0\apksigner.bat sign --ks <storeFile> --ks-key-alias <keyAlias> --out bitdm-1.9.1.apk bitdm-1.9.1-unsigned.apk
+   %LOCALAPPDATA%\Android\Sdk\build-tools\36.0.0\apksigner.bat verify --print-certs bitdm-1.9.1.apk
+   ```
+   Der Zertifikats-Fingerabdruck (SHA-256) muss `e325b01c…2063` sein — derselbe
+   wie in `AllowedAPKSigningKeys`.
+5. `bitdm-1.9.1.apk` an den GitHub-Release hängen (der Name muss genau so sein,
+   `Binaries:` im Rezept zeigt darauf), danach wie bisher die Seite.
+6. Erste Fassung: Merge-Request in fdroiddata mit dem vollen Commit-Hash des
+   Tags (`git rev-list -n1 v1.9.1`). Danach findet F-Droid neue Tags selbst.
+
+## Gegenprobe ohne GitHub
+
+`vergleich.py` vergleicht zwei APKs Eintrag für Eintrag ohne die
+Signaturdateien — so ist die Messung oben entstanden:
+
+```
+python3 vergleich.py bitdm-1.9.1-unsigned.apk eigener-bau.apk
+```
+
+## Berechtigungen (für Rückfragen im Merge-Request)
+
+Ausgelesen aus der gebauten APK (`aapt2 dump permissions`, 14.10.2026):
+
+`INTERNET`, `ACCESS_NETWORK_STATE` für den Relay · `RECORD_AUDIO` nur für
+Sprachnachrichten · `CAMERA` nur für den QR-Scan · `BLUETOOTH_SCAN` mit
+`neverForLocation`, `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT` für den
+Nahbereich (ab Android 12) · `NFC` für Sicherheitsschlüssel · `USE_BIOMETRIC`,
+`USE_FINGERPRINT` für die App-Sperre · `POST_NOTIFICATIONS`, `VIBRATE` für
+Benachrichtigungen · `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` für
+den Hintergrundempfang (ab Werk aus) · `WAKE_LOCK` von UnifiedPush. Kein
+Standort, kein Speicherzugriff — die Speicherrechte, die das camera-Plugin
+mitbringt, entfernt das Manifest.
+
+## TetheredNet
+
+Bleibt, solange die Relay-Adresse nur beim Bauen einstellbar ist
+(`--dart-define=BITDM_RELAY`). Der Relay ist freie Software im selben Repo,
+deshalb nicht NonFreeNet.

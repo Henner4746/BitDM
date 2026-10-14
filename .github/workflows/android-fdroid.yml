@@ -1,0 +1,146 @@
+# Die Android-APK so bauen, wie F-Droid sie baut — damit F-Droid sie bitgleich
+# nachbauen und die Entwickler-Signatur uebernehmen kann (Reproducible Builds).
+#
+# WARUM HIER UND NICHT AUF DEM WINDOWS-RECHNER (gemessen am 14.10.2026, siehe
+# secure-messenger/fdroid/README.md): der Flutter-Bau schreibt absolute Pfade
+# in libapp.so und libwebcrypto.so, und das JDK beeinflusst classes.dex. Zwei
+# Bauten im selben Pfad mit demselben JDK sind bitgleich, alles andere nicht.
+# F-Droid baut in /home/vagrant/build/com.bitdm.bitdm im Image
+# buildserver-trixie mit OpenJDK 21. Also wird genau dort gebaut, mit genau
+# `fdroid build` — auch der Scanner laeuft mit, denn er loescht vor dem Bau
+# Binaerdateien (scandelete), und das muss hier genauso geschehen.
+#
+# HERAUS KOMMT EINE UNSIGNIERTE APK. Signiert wird beim Entwickler, der
+# Schluessel kommt nie auf GitHub. Danach: signierte APK an den Release als
+# bitdm-<fassung>.apk — F-Droid holt sie ueber `Binaries:` und vergleicht.
+#
+# ZWEI AUFTRAEGE wie in linux.yml: `bauen` laeuft fremden Code (Gradle, pub,
+# Bau-Hooks) und darf deshalb nur lesen; `beglaubigen` bestaetigt per Sigstore,
+# dass die APK aus diesem Lauf stammt (`gh attestation verify`).
+name: Android (F-Droid-Bau)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bauen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    container:
+      image: registry.gitlab.com/fdroid/fdroidserver:buildserver-trixie
+    env:
+      ANDROID_HOME: /opt/android-sdk
+      HOME_VAGRANT: /home/vagrant
+      # fdroidserver fest auf eine Fassung. F-Droids eigene Pipeline nimmt den
+      # jeweils neuesten Stand; weicht der Scanner einmal ab, hier anheben.
+      FDROIDSERVER_TAG: '2.4.5'
+    outputs:
+      apk: ${{ steps.raus.outputs.apk }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          path: quelle
+
+      - name: Rezept fuer genau diesen Stand
+        id: rezept
+        run: |
+          set -eu
+          P=quelle/secure-messenger/app/pubspec.yaml
+          VERSION=$(sed -n 's/^version: *\([^+]*\)+.*/\1/p' "$P")
+          CODE=$(sed -n 's/^version: *[^+]*+\([0-9]*\).*/\1/p' "$P")
+          test -n "$VERSION" && test -n "$CODE"
+          mkdir -p "$HOME_VAGRANT/metadata"
+          # Fassung, Code und Commit eintragen; `Binaries` und
+          # `AllowedAPKSigningKeys` heraus — die signierte APK gibt es ja erst
+          # NACH diesem Lauf.
+          python3 - "$VERSION" "$CODE" "$GITHUB_SHA" \
+            < quelle/secure-messenger/fdroid/com.bitdm.bitdm.yml \
+            > "$HOME_VAGRANT/metadata/com.bitdm.bitdm.yml" <<'PY'
+          import re, sys
+          version, code, commit = sys.argv[1:4]
+          s = sys.stdin.read()
+          s = re.sub(r"(?m)^(Binaries|AllowedAPKSigningKeys):.*\n", "", s)
+          s = re.sub(r"(?m)^(  - versionName: ).*$", r"\g<1>" + version, s, count=1)
+          s = re.sub(r"(?m)^(    versionCode: ).*$", r"\g<1>" + code, s, count=1)
+          s = re.sub(r"(?m)^(    commit: ).*$", r"\g<1>" + commit, s, count=1)
+          s = re.sub(r"(?m)^(CurrentVersion: ).*$", r"\g<1>" + version, s)
+          s = re.sub(r"(?m)^(CurrentVersionCode: ).*$", r"\g<1>" + code, s)
+          sys.stdout.write(s)
+          PY
+          cat "$HOME_VAGRANT/metadata/com.bitdm.bitdm.yml"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: fdroidserver
+        run: |
+          set -eu
+          git clone -q --depth 1 --branch "$FDROIDSERVER_TAG" \
+            https://gitlab.com/fdroid/fdroidserver.git /opt/fdroidserver-bitdm
+
+      # Dieselben Schritte wie der Auftrag "fdroid build" in fdroiddata
+      # (.gitlab-ci.yml): als Benutzer vagrant, mit sudo fuer den sudo-Block
+      # des Rezepts (fdroid build --on-server nimmt sudo danach wieder weg).
+      - name: Bauen wie F-Droid
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y sudo openjdk-21-jdk-headless
+          update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
+          for d in build tmp unsigned logs .android .gradle; do mkdir -p "$HOME_VAGRANT/$d"; done
+          chown -R vagrant "$HOME_VAGRANT" /opt/fdroidserver-bitdm
+          cd "$HOME_VAGRANT"
+          sudo --preserve-env --user vagrant \
+            env PATH=/opt/fdroidserver-bitdm:$PATH \
+                PYTHONPATH=/opt/fdroidserver-bitdm \
+                PYTHONUNBUFFERED=true \
+                HOME="$HOME_VAGRANT" \
+                GRADLE_USER_HOME="$HOME_VAGRANT/.gradle" \
+            fdroid build --verbose --test --refresh-scanner --on-server --no-tarball \
+              "com.bitdm.bitdm:${{ steps.rezept.outputs.code }}"
+
+      - name: Unsignierte APK
+        id: raus
+        run: |
+          set -eu
+          APK="bitdm-${{ steps.rezept.outputs.version }}-unsigned.apk"
+          mkdir -p "$GITHUB_WORKSPACE/aus"
+          cp "$HOME_VAGRANT/tmp/com.bitdm.bitdm_${{ steps.rezept.outputs.code }}.apk" \
+             "$GITHUB_WORKSPACE/aus/$APK"
+          cd "$GITHUB_WORKSPACE/aus" && sha256sum "$APK" | tee "$APK.sha256"
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+          echo "### $APK" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat "$APK.sha256" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-unsigniert
+          path: ${{ github.workspace }}/aus/
+
+  beglaubigen:
+    needs: bauen
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-unsigniert
+          path: aus
+      - name: Pruefsumme nachrechnen
+        working-directory: aus
+        run: sha256sum -c "${{ needs.bauen.outputs.apk }}.sha256"
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: aus/${{ needs.bauen.outputs.apk }}

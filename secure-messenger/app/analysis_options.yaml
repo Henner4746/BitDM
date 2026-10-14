@@ -9,6 +9,15 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+# .flutter ist Flutter selbst, als Git-Submodul fuer den F-Droid-Bau
+# (../fdroid/README.md), und .pub-cache legt das F-Droid-Rezept hier an.
+# Beides ist nicht unser Code — ohne diese Zeilen pruefte `flutter analyze`
+# das ganze SDK mit.
+analyzer:
+  exclude:
+    - .flutter/**
+    - .pub-cache/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

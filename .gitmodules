@@ -1,0 +1,4 @@
+[submodule "secure-messenger/app/.flutter"]
+	path = secure-messenger/app/.flutter
+	url = https://github.com/flutter/flutter.git
+	shallow = true
