@@ -106,6 +106,37 @@ android {
         includeInApk = false
         includeInBundle = false
     }
+
+    // KEIN ABI-ORDNER OHNE FLUTTER (seit 14.10.2026). Releases werden nur fuer
+    // ARM gebaut (`--target-platform android-arm,android-arm64`), aber Plugins
+    // wie CameraX bringen ihre .so fuer ALLE Architekturen mit. Die 1.9.0-APK
+    // hatte deshalb einen Ordner lib/x86_64 mit vier Plugin-Bibliotheken und
+    // ohne libflutter.so, libapp.so und libsqlite3.so. Ein x86_64-Geraet
+    // (Chromebook, manches Tablet, der Emulator) waehlt genau diesen Ordner —
+    // und die App stuerzt beim Start ab. Ohne ihn nimmt es die ARM-Fassung
+    // ueber die Uebersetzung des Systems.
+    //
+    // Darum: was Flutter nicht baut, wird auch nicht verpackt. Flutter gibt
+    // die Zielplattformen als Eigenschaft `target-platform` herein; fehlt sie,
+    // baut es alle, und dann bleibt alles drin. Ueber `packaging` und nicht
+    // ueber ndk.abiFilters, weil abiFilters mit --split-per-abi kollidiert.
+    val flutterAbis = mapOf(
+        "android-arm" to "armeabi-v7a",
+        "android-arm64" to "arm64-v8a",
+        "android-x64" to "x86_64",
+    )
+    val zielPlattformen = (project.findProperty("target-platform") as String?)
+        ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+    if (zielPlattformen.isNotEmpty()) {
+        packaging {
+            jniLibs {
+                flutterAbis.filterKeys { it !in zielPlattformen }.values.forEach {
+                    excludes += "lib/$it/**"
+                }
+            }
+        }
+    }
+
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
