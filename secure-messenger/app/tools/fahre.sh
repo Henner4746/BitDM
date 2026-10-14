@@ -20,10 +20,17 @@ baum() {
 # Tippt auf das Element, dessen Beschriftung mit $1 anfaengt.
 # Flutter haengt sie an content-desc, nicht an text — text tragen nur
 # Eingabefelder.
+# Macht aus einer Beschriftung ein woertliches ERE-Muster fuer grep -E.
+# Ohne das war "$text" selbst ein regulaerer Ausdruck: ein Punkt, eine Klammer
+# oder ein Plus in der Beschriftung verfaelschte die Suche, und `$text[` las
+# bash als Array-Zugriff (shellcheck SC1087, Pruefung vom 14.10.2026).
+woertlich() { printf '%s' "$1" | sed 's/[][\\.*^$+?(){}|/]/\\&/g'; }
+
 tippe() {
   local text="$1"
+  local muster; muster=$(woertlich "$text")
   local b
-  b=$(baum | grep -oE "(content-desc|text)=\"$text[^\"]*\"[^>]*bounds=\"[^\"]*\"" \
+  b=$(baum | grep -oE "(content-desc|text)=\"${muster}[^\"]*\"[^>]*bounds=\"[^\"]*\"" \
       | grep -o 'bounds="[^"]*"' | head -1 | sed 's/bounds="//;s/"//')
   if [ -z "$b" ]; then echo "   !! '$text' nicht gefunden"; return 1; fi
   local x1 y1 x2 y2

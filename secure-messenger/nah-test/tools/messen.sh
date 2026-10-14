@@ -18,8 +18,15 @@ B="${B:-RF8M9112BJE}"   # Galaxy S10
 # Ueber uiautomator statt fester Koordinaten: die Knoepfe stehen in einem Wrap
 # und rutschen je nach Bildschirmbreite. Feste Zahlen sind am 26.07. schon
 # einmal bei 1080 statt 1440 Pixeln danebengegangen.
+# Macht aus einer Beschriftung ein woertliches ERE-Muster fuer grep -E.
+# Ohne das war "$text" selbst ein regulaerer Ausdruck: ein Punkt, eine Klammer
+# oder ein Plus in der Beschriftung verfaelschte die Suche, und `$text[` las
+# bash als Array-Zugriff (shellcheck SC1087, Pruefung vom 14.10.2026).
+woertlich() { printf '%s' "$1" | sed 's/[][\\.*^$+?(){}|/]/\\&/g'; }
+
 tippe() {
   local d="$1" text="$2"
+  local muster; muster=$(woertlich "$text")
   # MSYS_NO_PATHCONV: Git Bash macht sonst aus "/sdcard/ui.xml" den
   # Windows-Pfad "C:/Program Files/Git/sdcard/ui.xml" und adb legt die Datei
   # ins Nirgendwo. Der Fehler sieht aus wie ein kaputtes uiautomator.
@@ -31,7 +38,7 @@ tippe() {
   # spart beim naechsten Mal die Viertelstunde, die es heute gekostet hat.
   local bounds
   bounds=$(echo "$xml" \
-           | grep -oE "(content-desc|text)=\"$text[^\"]*\"[^>]*bounds=\"[^\"]*\"" \
+           | grep -oE "(content-desc|text)=\"${muster}[^\"]*\"[^>]*bounds=\"[^\"]*\"" \
            | grep -o 'bounds="[^"]*"' | head -1 | sed 's/bounds="//;s/"//')
   if [ -z "$bounds" ]; then
     echo "   !! Knopf '$text' nicht gefunden auf $d"

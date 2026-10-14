@@ -39,9 +39,16 @@ vordergrund() {
 }
 
 # Tippt auf das Element, dessen Beschriftung mit $2 anfaengt.
+# Macht aus einer Beschriftung ein woertliches ERE-Muster fuer grep -E.
+# Ohne das war "$text" selbst ein regulaerer Ausdruck: ein Punkt, eine Klammer
+# oder ein Plus in der Beschriftung verfaelschte die Suche, und `$text[` las
+# bash als Array-Zugriff (shellcheck SC1087, Pruefung vom 14.10.2026).
+woertlich() { printf '%s' "$1" | sed 's/[][\\.*^$+?(){}|/]/\\&/g'; }
+
 tippe() {
   local d="$1" text="$2" b
-  b=$(baum "$d" | grep -oE "(content-desc|text)=\"$text[^\"]*\"[^>]*bounds=\"[^\"]*\"" \
+  local muster; muster=$(woertlich "$text")
+  b=$(baum "$d" | grep -oE "(content-desc|text)=\"${muster}[^\"]*\"[^>]*bounds=\"[^\"]*\"" \
       | grep -o 'bounds="[^"]*"' | head -1 | sed 's/bounds="//;s/"//')
   [ -z "$b" ] && { echo "   !! '$text' nicht auf $d"; return 1; }
   local x1 y1 x2 y2
