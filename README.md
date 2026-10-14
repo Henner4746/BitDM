@@ -137,7 +137,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 | Attachments | working | separate encrypted blob store, never through the relay |
 | Update over an existing install | working | 1.5.0+11 → 1.5.1+12, identity and contacts survived |
 | Recovery on a new device | working | 12 BIP39 words restore identity and contacts, not message history |
-| Desktop client | **builds, cannot be linked** | Windows binary runs; it cannot join an existing identity — see [Known gaps](#known-gaps) |
+| Desktop client | runs, as an additional device | the Windows binary joins with the same 12 words as another device of the same address and sees everything new from then on, but no old history — see [Known gaps](#known-gaps) |
 | Independent security audit | **none** | — |
 
 The nearby proof used an **ESP32 as the counterpart on purpose.** Two BitDM
@@ -353,6 +353,17 @@ actually resolves to the machine, installs what is missing, and sets up the
 certificate, nginx and the service. No config file to touch. Running it again
 is safe, and it refuses to take over an existing relay without asking.
 
+It installs **one fixed release**, not whatever is on `main` right now: the
+script names a tag and a commit (`REF`, `REF_COMMIT`) and fetches exactly that
+commit; git checks while fetching that the content matches it. Whether
+bitdm.net serves the same file as the repository can be compared over two
+separate routes:
+
+```bash
+curl -fsSL https://bitdm.net/install.sh | sha256sum
+curl -fsSL https://raw.githubusercontent.com/Henner4746/BitDM/main/secure-messenger/website/install.sh | sha256sum
+```
+
 > [!NOTE]
 > **Everyone involved needs the same relay.** There is no federation between
 > instances. Two people on different relays cannot message each other.
@@ -415,13 +426,23 @@ concerned. Two separate bugs in this project had that single root cause.
   and phone↔PC in both directions (26.09.2026, the PC running the real core with
   a Windows Bluetooth bridge). Two current phones against each other have not
   been re-measured since 1.8.x.
-- **One identity per device, and that is what limits the desktop.** A second
-  install with the same 12 words *takes the address over* instead of joining it:
-  every install generates a fresh registration ID on purpose, and `/register` on
-  the relay upserts the key bundle and drops the old one-time prekeys. So the
-  Windows build starts with an empty conversation list, and the phone that had
-  been using that address stops being reachable. Linked devices need the Sesame
-  protocol, which is not built.
+- **Several devices, but no way to log one out — not even after a theft.** A
+  second install with the same 12 words *joins the address* rather than taking
+  it over: the relay keeps up to five devices per address
+  (`BITDM_GERAETE_MAX`), each with its own key bundle, and every message goes to
+  all of them. **So the old device stays reachable**, even when you enter the
+  words on a new phone because the old one is lost. A device cannot be logged
+  out: whoever has the words or an unlocked device is an equal of every other
+  device of that address. The relay only drops a device by itself after 30 days
+  without a connection (`BITDM_GERAET_TTL`). The app shows in its settings how
+  many devices use the identity and warns from two upwards.
+  What helps with a lost phone: with the app lock on, it does not connect and
+  receives nothing until someone unlocks it. Without the app lock it keeps
+  receiving until a trusted contact wipes it remotely with your code word. It
+  is only cut off for certain by a new identity whose address you give to your
+  contacts. A new device sees no old history; read and delivery ticks are not
+  synchronised between devices
+  ([specification](secure-messenger/docs/MEHRGERAETE.md), §6 and §9).
 - **The web build runs at <https://bitdm.net/app/>, but limited.** Identity,
   app password, unlock after reload, restore from the 12 words and text
   messages between two browsers work (tested headless against a local relay).

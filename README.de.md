@@ -142,7 +142,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 | Anhänge | läuft | eigenes verschlüsseltes Zwischenlager, nie über den Relay |
 | Aktualisierung über eine bestehende Installation | läuft | 1.5.0+11 → 1.5.1+12, Identität und Kontakte blieben erhalten |
 | Wiederherstellung auf einem neuen Gerät | läuft | 12 BIP39-Wörter holen Identität und Kontakte zurück, nicht den Nachrichtenverlauf |
-| Desktop-Programm | **baut, lässt sich nicht verknüpfen** | die Windows-Datei läuft; sie kann sich keiner bestehenden Identität anschließen — siehe [Bekannte Lücken](#bekannte-lücken) |
+| Desktop-Programm | läuft, als weiteres Gerät | die Windows-Datei schließt sich mit denselben 12 Wörtern als weiteres Gerät derselben Adresse an und sieht ab dann alles Neue, aber keinen alten Verlauf — siehe [Bekannte Lücken](#bekannte-lücken) |
 | Unabhängige Sicherheitsprüfung | **keine** | — |
 
 Für den Nahbereichs-Beweis stand **absichtlich ein ESP32 auf der Gegenseite.**
@@ -372,6 +372,17 @@ richtet Zertifikat, nginx und den Dienst ein. Keine Konfigurationsdatei, die man
 anfassen muss. Ein zweiter Lauf ist gefahrlos, und einen bestehenden Relay
 übernimmt es nicht, ohne zu fragen.
 
+Eingerichtet wird **ein festes Release**, nicht der jeweils neueste Stand von
+`main`: das Skript nennt Tag und Commit (`REF`, `REF_COMMIT`) und holt genau
+diesen Commit; git prüft beim Holen, dass der Inhalt dazu passt. Ob bitdm.net
+dieselbe Datei ausliefert wie das Repository, lässt sich über zwei getrennte
+Wege vergleichen:
+
+```bash
+curl -fsSL https://bitdm.net/install.sh | sha256sum
+curl -fsSL https://raw.githubusercontent.com/Henner4746/BitDM/main/secure-messenger/website/install.sh | sha256sum
+```
+
 > [!NOTE]
 > **Alle Beteiligten brauchen denselben Relay.** Es gibt keine Föderation
 > zwischen Instanzen. Zwei Leute an verschiedenen Relays können sich nicht
@@ -438,14 +449,24 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   (29.07.2026) und Telefon↔PC in beide Richtungen (26.09.2026; der PC mit dem
   echten Kern und einer Windows-Bluetooth-Brücke). Zwei aktuelle Telefone
   gegeneinander sind seit 1.8.x nicht neu gemessen.
-- **Eine Identität je Gerät, und das ist es, was den Desktop begrenzt.** Eine
-  zweite Installation mit denselben 12 Wörtern *übernimmt die Adresse*, statt
-  sich ihr anzuschließen: jede Installation erzeugt absichtlich eine neue
-  Registrierungs-ID, und `/register` auf dem Relay ersetzt das Schlüsselbündel
-  und verwirft die alten Einmal-Prekeys. Der Windows-Build fängt deshalb mit
-  einer leeren Unterhaltungsliste an, und das Telefon, das diese Adresse bisher
-  benutzt hat, ist nicht mehr erreichbar. Verbundene Geräte brauchen das
-  Sesame-Protokoll, das nicht gebaut ist.
+- **Mehrere Geräte, aber kein Abmelden — auch nicht nach einem Diebstahl.**
+  Eine zweite Installation mit denselben 12 Wörtern *schließt sich der Adresse
+  an*, sie übernimmt sie nicht: der Relay führt bis zu fünf Geräte je Adresse
+  (`BITDM_GERAETE_MAX`), jedes mit eigenem Schlüsselbündel, und jede Nachricht
+  geht an alle. **Das bisherige Gerät bleibt also erreichbar**, auch wenn du
+  die Wörter auf einem neuen Telefon eingibst, weil das alte verloren ist. Ein
+  Gerät abmelden geht nicht: wer die Wörter oder ein entsperrtes Gerät hat,
+  ist gegenüber der Adresse gleichberechtigt. Der Relay räumt ein Gerät erst
+  nach 30 Tagen ohne Verbindung von selbst ab (`BITDM_GERAET_TTL`). Die App
+  zeigt in den Einstellungen, wie viele Geräte die Identität benutzen, und
+  warnt ab zwei.
+  Was bei einem verlorenen Telefon hilft: Mit App-Sperre verbindet es sich
+  nicht und empfängt nichts, solange niemand es entsperrt. Ohne App-Sperre
+  empfängt es weiter, bis ein Vertrauenskontakt es mit deinem Codewort aus der
+  Ferne löscht. Sicher abgeschnitten ist es nur durch eine neue Identität, deren
+  Adresse du deinen Kontakten gibst. Ein neues Gerät sieht keinen alten
+  Verlauf; Lese- und Zustellhaken werden zwischen den Geräten nicht abgeglichen
+  ([Festlegung](secure-messenger/docs/MEHRGERAETE.md), §6 und §9).
 - **Der Web-Build läuft unter <https://bitdm.net/app/>, aber eingeschränkt.**
   Identität, App-Passwort, Entsperren nach dem Neuladen, Wiederherstellen aus
   den 12 Wörtern und Textnachrichten zwischen zwei Browsern gehen (headless
