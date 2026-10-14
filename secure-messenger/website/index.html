@@ -1753,16 +1753,19 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="de">Quellcode auf GitHub</span><span class="en">Source on GitHub</span></a>
       <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">
         <span class="de">Lizenz AGPL-3.0</span><span class="en">AGPL-3.0 licence</span></a>
-      <a href="docs">
+      <!-- Mit .html: das ist die Form in Sitemap, Canonical, og:url und
+           llms.txt. Ohne Endung liefert nginx dieselbe Seite unter einer
+           zweiten Adresse aus (try_files $uri.html) — eine Dublette. -->
+      <a href="docs.html">
         <span class="de">Server selbst betreiben</span><span class="en">Run your own server</span></a>
-      <a href="vs">
+      <a href="vs.html">
         <span class="de">Im Vergleich</span><span class="en">How it compares</span></a>
     </div>
     <div class="foot-col">
       <span class="screen de">Rechtliches</span><span class="screen en">Legal</span>
-      <a href="privacy">
+      <a href="privacy.html">
         <span class="de">Datenschutzerklärung</span><span class="en">Privacy policy</span></a>
-      <a href="privacy#impressum">
+      <a href="privacy.html#impressum">
         <span class="de">Impressum</span><span class="en">Imprint</span></a>
     </div>
     <div class="foot-col">

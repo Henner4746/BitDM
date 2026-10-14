@@ -13,13 +13,33 @@
   Sie erbt die Nocturne-Welt der Startseite, tritt aber im Lese-Modus auf:
   eine Spalte, ruhige Rhythmik, keine Anzeigen. Ein Geraetefeld gehoert auf die
   Startseite; ein Beipackzettel ist ein Beipackzettel.
+
+  ENGLISCH ZUERST (seit 14.10.2026), wie die Startseite seit 27.09. Beide
+  Sprachen standen schon im HTML, aber lang="de", deutscher Titel und deutsche
+  Beschreibung sagten jeder Suchmaschine und jedem KI-Leser: das ist eine
+  deutsche Seite. Wer nach "BitDM vs Signal" sucht, fand sie so nicht. Deutsch
+  bleibt einen Klick entfernt, die Wahl teilt sich der Umschalter mit der
+  Startseite (localStorage 'bitdm-lang').
 -->
-<html lang="de" data-lang="de">
+<html lang="en" data-lang="en">
 <head>
 <meta charset="utf-8">
+<!-- Sprachblitz verhindern: Begruendung im gleichen Block der Startseite. -->
+<script>
+(function () {
+  try {
+    var l = localStorage.getItem('bitdm-lang');
+  } catch (e) {}
+  if (l !== 'de' && l !== 'en') l = 'en';
+  var r = document.documentElement;
+  r.setAttribute('data-lang', l);
+  r.setAttribute('lang', l);
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Messenger im Vergleich — BitDM</title>
-<meta name="description" content="BitDM neben WhatsApp, Signal, Threema, Session und SimpleX: Telefonnummer, Kennung, Quellcode, Preis, Betrieb ohne Internet, eigener Server — die Unterschiede auf einen Blick.">
+<title>BitDM vs. WhatsApp, Signal, Threema, Session, SimpleX — messenger comparison</title>
+<meta name="description" content="BitDM next to WhatsApp, Signal, Threema, Session and SimpleX: phone number, identifier, source code, price, offline use over Bluetooth, own server — the differences at a glance.">
+<link rel="canonical" href="https://bitdm.net/vs.html">
 <meta name="theme-color" content="#0b0c12">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="index,follow">
@@ -29,10 +49,10 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="BitDM">
 <meta property="og:url" content="https://bitdm.net/vs.html">
-<meta property="og:title" content="Messenger im Vergleich — BitDM">
-<meta property="og:description" content="BitDM neben WhatsApp, Signal, Threema, Session und SimpleX: was man hergibt, was offen ist, was ohne Internet weiterläuft.">
-<meta property="og:locale" content="de_DE">
-<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="BitDM vs. WhatsApp, Signal, Threema, Session, SimpleX">
+<meta property="og:description" content="BitDM next to WhatsApp, Signal, Threema, Session and SimpleX: what you hand over, what is open source, what keeps working without internet.">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="de_DE">
 
 <style>
 @font-face{font-family:'Doto';src:url('fonts/Doto.ttf') format('truetype');font-weight:100 900;font-display:swap}
@@ -150,8 +170,8 @@ footer a{color:var(--muted)}
       <span class="de">← Zurück</span><span class="en">← Back</span>
     </a>
     <div class="toggle" role="group" aria-label="Sprache / Language">
-      <button type="button" data-set-lang="de" aria-pressed="true">DE</button>
-      <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+      <button type="button" data-set-lang="de" aria-pressed="false">DE</button>
+      <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
     </div>
   </div>
 </header>
@@ -331,7 +351,8 @@ footer a{color:var(--muted)}
   });
   var saved = null;
   try{ saved = localStorage.getItem('bitdm-lang'); }catch(e){}
-  setLang(saved || ((navigator.language||'de').slice(0,2) === 'de' ? 'de' : 'en'));
+  // Englisch ist der Standard, auch fuer deutsche Browser — wie auf der Startseite.
+  setLang(saved === 'de' || saved === 'en' ? saved : 'en');
 })();
 </script>
 </body>
