@@ -11,9 +11,13 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Rohes Lesen und Schreiben mit einem eingesteckten Sicherheitsschluessel.
@@ -32,6 +36,22 @@ import io.flutter.plugin.common.MethodChannel
  * 0xF1D0 zu pruefen. Android gibt den Deskriptor aber nicht ohne Weiteres
  * heraus, und die Endpunkt-Erkennung ist das, was auch andere Umsetzungen
  * benutzen.
+ *
+ * WO GEARBEITET WIRD
+ * Flutter ruft onMethodCall auf dem Hauptfaden auf. Bis zum 14.10.2026 lief
+ * `bulkTransfer` genau dort — und das blockiert bis zu seiner Frist: 3 s beim
+ * Schreiben, beim Lesen so lange, wie Dart verlangt (5 s Vorgabe). In der Zeit
+ * zeichnete die App nichts und nahm keine Eingabe an; ab 5 s meldet Android
+ * "App reagiert nicht" (Pruefung vom 14.10.2026, B1; zuerst gefunden am
+ * 26.07.2026).
+ *
+ * Jetzt laeuft ALLES, was die Verbindung anfasst — oeffnen, schreiben, lesen,
+ * schliessen —, auf EINEM eigenen Faden, und nur die Antwort geht zurueck auf
+ * den Hauptfaden (dort muss sie hin, das verlangt Flutter). Ein Faden und kein
+ * Pool: CTAPHID ist Frage und Antwort in fester Reihenfolge, zwei
+ * Uebertragungen gleichzeitig wuerden die Pakete vertauschen. Und weil nur
+ * dieser Faden die Felder unten schreibt, kann kein Schliessen einer laufenden
+ * Uebertragung die Verbindung unter den Fuessen wegziehen.
  */
 class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandler {
 
@@ -51,6 +71,46 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
 
     private var erlaubnisEmpfaenger: BroadcastReceiver? = null
 
+    /** Der eine Faden fuer alles, was die Verbindung anfasst. Siehe oben. */
+    private val usbFaden = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "bitdm-usb").apply { isDaemon = true }
+    }
+    private val hauptfaden = Handler(Looper.getMainLooper())
+
+    /** Arbeit auf den USB-Faden, Antwort zurueck auf den Hauptfaden. */
+    private fun imUsbFaden(ergebnis: MethodChannel.Result, arbeit: (Antwort) -> Unit) {
+        val antwort = Antwort(ergebnis)
+        try {
+            usbFaden.execute {
+                try {
+                    arbeit(antwort)
+                } catch (e: Exception) {
+                    // Nichts darf den Faden mit einer offenen Antwort verlassen:
+                    // Dart wartete sonst fuer immer auf ein Ergebnis.
+                    antwort.fehler("usb", e.message ?: e.javaClass.simpleName)
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            // Nach schliesseAlles(): die Activity ist weg.
+            antwort.fehler("zu", "Kanal geschlossen")
+        }
+    }
+
+    /** Antwortet genau einmal, und immer auf dem Hauptfaden. */
+    private inner class Antwort(private val ergebnis: MethodChannel.Result) {
+        private var fertig = false
+        private fun einmal(block: () -> Unit) {
+            hauptfaden.post {
+                if (!fertig) {
+                    fertig = true
+                    block()
+                }
+            }
+        }
+        fun ok(wert: Any?) = einmal { ergebnis.success(wert) }
+        fun fehler(code: String, text: String) = einmal { ergebnis.error(code, text, null) }
+    }
+
     override fun onMethodCall(aufruf: MethodCall, ergebnis: MethodChannel.Result) {
         when (aufruf.method) {
             "liste" -> ergebnis.success(findeSticks().map {
@@ -66,35 +126,46 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
             "oeffne" -> oeffne(aufruf.argument<String>("name"), ergebnis)
 
             "schreibe" -> {
+                // Die Argumente HIER lesen, auf dem Hauptfaden: der Aufruf
+                // gehoert Flutter und gilt nur waehrend onMethodCall.
                 val daten = aufruf.argument<ByteArray>("daten")
-                val v = verbindung
-                val e = raus
-                if (daten == null || v == null || e == null) {
-                    ergebnis.error("zu", "Kein Geraet offen", null); return
+                imUsbFaden(ergebnis) { antwort ->
+                    val v = verbindung
+                    val e = raus
+                    if (daten == null || v == null || e == null) {
+                        antwort.fehler("zu", "Kein Geraet offen")
+                    } else {
+                        // Immer volle 64 Byte. Ein kuerzerer Bericht wird vom
+                        // Stick verworfen, ohne dass jemand etwas meldet.
+                        val paket = ByteArray(PAKETGROESSE)
+                        System.arraycopy(daten, 0, paket, 0, minOf(daten.size, PAKETGROESSE))
+                        val n = v.bulkTransfer(e, paket, paket.size, 3000)
+                        if (n < 0) antwort.fehler("schreiben", "USB-Schreiben fehlgeschlagen")
+                        else antwort.ok(true)
+                    }
                 }
-                // Immer volle 64 Byte. Ein kuerzerer Bericht wird vom Stick
-                // verworfen, ohne dass jemand etwas meldet.
-                val paket = ByteArray(PAKETGROESSE)
-                System.arraycopy(daten, 0, paket, 0, minOf(daten.size, PAKETGROESSE))
-                val n = v.bulkTransfer(e, paket, paket.size, 3000)
-                if (n < 0) ergebnis.error("schreiben", "USB-Schreiben fehlgeschlagen", null)
-                else ergebnis.success(true)
             }
 
             "lies" -> {
-                val v = verbindung
-                val e = rein
-                if (v == null || e == null) {
-                    ergebnis.error("zu", "Kein Geraet offen", null); return
-                }
-                val puffer = ByteArray(PAKETGROESSE)
                 val frist = aufruf.argument<Int>("fristMs") ?: 5000
-                val n = v.bulkTransfer(e, puffer, puffer.size, frist)
-                if (n < 0) ergebnis.error("lesen", "Keine Antwort vom Stick", null)
-                else ergebnis.success(puffer)
+                imUsbFaden(ergebnis) { antwort ->
+                    val v = verbindung
+                    val e = rein
+                    if (v == null || e == null) {
+                        antwort.fehler("zu", "Kein Geraet offen")
+                    } else {
+                        val puffer = ByteArray(PAKETGROESSE)
+                        val n = v.bulkTransfer(e, puffer, puffer.size, frist)
+                        if (n < 0) antwort.fehler("lesen", "Keine Antwort vom Stick")
+                        else antwort.ok(puffer)
+                    }
+                }
             }
 
-            "schliesse" -> { schliesse(); ergebnis.success(true) }
+            "schliesse" -> imUsbFaden(ergebnis) { antwort ->
+                schliesse()
+                antwort.ok(true)
+            }
 
             else -> ergebnis.notImplemented()
         }
@@ -134,12 +205,15 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
                 // Broadcast kam bis 25.09.2026 unter Android 13 von jeder App
                 // an, und ein gefaelschtes "erteilt" liess openDevice mit einer
                 // SecurityException auf dem Hauptfaden abstuerzen.
-                if (erteilt && usb.hasPermission(geraet)) oeffneJetzt(geraet, ergebnis)
-                else ergebnis.error("verweigert", "Zugriff auf den Stick abgelehnt", null)
+                if (erteilt && usb.hasPermission(geraet)) {
+                    imUsbFaden(ergebnis) { antwort -> oeffneJetzt(geraet, antwort) }
+                } else {
+                    ergebnis.error("verweigert", "Zugriff auf den Stick abgelehnt", null)
+                }
             }
             return
         }
-        oeffneJetzt(geraet, ergebnis)
+        imUsbFaden(ergebnis) { antwort -> oeffneJetzt(geraet, antwort) }
     }
 
     private fun frageErlaubnis(geraet: UsbDevice, fertig: (Boolean) -> Unit) {
@@ -172,7 +246,8 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
         usb.requestPermission(geraet, absicht)
     }
 
-    private fun oeffneJetzt(geraet: UsbDevice, ergebnis: MethodChannel.Result) {
+    /** Nur auf dem USB-Faden aufrufen. */
+    private fun oeffneJetzt(geraet: UsbDevice, antwort: Antwort) {
         schliesse()
         val v = try {
             usb.openDevice(geraet)
@@ -180,7 +255,7 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
             null
         }
         if (v == null) {
-            ergebnis.error("oeffnen", "Der Stick liess sich nicht oeffnen", null)
+            antwort.fehler("oeffnen", "Der Stick liess sich nicht oeffnen")
             return
         }
 
@@ -199,17 +274,33 @@ class UsbHidKanal(private val context: Context) : MethodChannel.MethodCallHandle
             }
             verbindung = v
             schnittstelle = s
-            ergebnis.success(true)
+            antwort.ok(true)
             return
         }
 
         v.close()
-        ergebnis.error("schnittstelle", "Keine FIDO-Schnittstelle gefunden", null)
+        antwort.fehler("schnittstelle", "Keine FIDO-Schnittstelle gefunden")
     }
 
-    /** Beim Beenden der Activity: Schnittstelle wieder hergeben. */
-    fun schliesseAlles() = schliesse()
+    /**
+     * Beim Beenden der Activity: Schnittstelle wieder hergeben.
+     *
+     * Ueber den USB-Faden, damit eine laufende Uebertragung erst zu Ende geht
+     * (hoechstens ihre Frist) und ihr niemand die Verbindung wegschliesst.
+     * Danach nimmt der Faden nichts mehr an und endet von selbst.
+     */
+    fun schliesseAlles() {
+        erlaubnisEmpfaenger?.let { runCatching { context.unregisterReceiver(it) } }
+        erlaubnisEmpfaenger = null
+        try {
+            usbFaden.execute { schliesse() }
+        } catch (_: RejectedExecutionException) {
+            // Schon geschlossen.
+        }
+        usbFaden.shutdown()
+    }
 
+    /** Nur auf dem USB-Faden aufrufen. */
     private fun schliesse() {
         schnittstelle?.let { verbindung?.releaseInterface(it) }
         verbindung?.close()
