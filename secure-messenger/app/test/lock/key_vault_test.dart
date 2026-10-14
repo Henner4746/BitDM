@@ -286,6 +286,83 @@ void main() {
     });
   });
 
+  // N3 der Pruefung vom 14.10.2026: wer die Fachdatei schreiben kann, durfte
+  // beliebige Argon2-Werte eintragen, und die App rechnete sie beim Entsperren
+  // aus — Speicher bis zum Absturz. Jetzt endet das beim Einlesen.
+  group('Argon2-Werte aus der Datei', () {
+    Map<String, Object?> werte(
+            {Object? memory = 19456,
+            Object? iterations = 2,
+            Object? parallelism = 1,
+            Object? salt}) =>
+        {
+          'algorithm': 'argon2id',
+          'memory': memory,
+          'iterations': iterations,
+          'parallelism': parallelism,
+          'salt': salt ?? base64.encode(List.filled(16, 7)),
+        };
+
+    test('was die App schreibt, kommt unveraendert zurueck', () {
+      final p = Argon2Params.owasp();
+      final zurueck = Argon2Params.fromJson(p.toJson());
+      expect(zurueck.canonical, p.canonical);
+      // Die billigen Testfaecher bleiben lesbar.
+      expect(Argon2Params.fromJson(werte(memory: 64, iterations: 1)).memory, 64);
+    });
+
+    test('ueberzogene Werte werden abgelehnt, BEVOR abgeleitet wird', () {
+      final faelle = <String, Map<String, Object?>>{
+        'Speicher 2 TB': werte(memory: 2000000000),
+        'Speicher knapp ueber der Grenze':
+            werte(memory: Argon2Params.maxSpeicherKiB + 1),
+        'eine Million Runden': werte(iterations: 1000000),
+        'Parallelitaet 255': werte(parallelism: 255),
+        'Parallelitaet 0': werte(parallelism: 0),
+        'Runden 0': werte(iterations: 0),
+        'Speicher unter 8 je Faden': werte(memory: 31, parallelism: 4),
+        'Salz 4 Bytes': werte(salt: base64.encode([1, 2, 3, 4])),
+        'Salz 1 MB': werte(salt: base64.encode(List.filled(1 << 20, 1))),
+        'Speicher als Text': werte(memory: '19456'),
+        'Speicher fehlt': werte()..remove('memory'),
+        'Salz kein base64': werte(salt: '***'),
+      };
+      faelle.forEach((name, j) {
+        expect(() => Argon2Params.fromJson(j),
+            throwsA(isA<VaultFormatException>()),
+            reason: name);
+      });
+    });
+
+    test('die Obergrenzen selbst sind noch erlaubt', () {
+      final p = Argon2Params.fromJson(werte(
+          memory: Argon2Params.maxSpeicherKiB,
+          iterations: Argon2Params.maxRunden,
+          parallelism: Argon2Params.maxParallel));
+      expect(p.memory, Argon2Params.maxSpeicherKiB);
+    });
+
+    test('ein ueberzogenes Fach in der Datei scheitert beim Einlesen', () async {
+      final vault = KeyVault(slots: [
+        await KeyVault.sealSlot(
+            secret: geheimnis,
+            kek: kek(1),
+            kind: UnlockFactorKind.passphrase,
+            label: 'Passwort',
+            kdf: Argon2Params.owasp(),
+            createdAt: zeit),
+      ]);
+      // Gegenprobe: unveraendert geht die Datei durch. Sonst bestuende der
+      // Test unten auch, wenn sie aus einem ganz anderen Grund scheiterte.
+      final roh = jsonDecode(vault.toJsonString()) as Map<String, dynamic>;
+      expect(KeyVault.fromJsonString(jsonEncode(roh)).slots, hasLength(1));
+
+      ((roh['slots'] as List).single as Map)['kdf']['memory'] = 2000000000;
+      expect(() => KeyVault.fromJsonString(jsonEncode(roh)),
+          throwsA(isA<VaultFormatException>()));
+    });
+  });
+
   group('Passwort als Faktor', () {
     test('das richtige Passwort oeffnet, ein anderes nicht', () async {
       final f = PassphraseFactor('korrekt-pferd-batterie-heftklammer',

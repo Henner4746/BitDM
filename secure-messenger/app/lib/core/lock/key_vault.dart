@@ -102,16 +102,70 @@ class Argon2Params {
         'salt': base64.encode(salt),
       };
 
+  // ── Grenzen fuer Werte, die von der Platte kommen (seit 14.10.2026) ──────
+  //
+  // Die Werte stehen im Fach, und das Fach liegt in einer Datei. Wer die Datei
+  // schreiben kann (Schadprogramm, eine Sicherung, unter Windows jedes Programm
+  // desselben Benutzers), konnte bis dahin `memory: 2000000000` eintragen —
+  // und die App hat das beim Entsperren ausgefuehrt, bevor irgendetwas
+  // auffallen konnte: Speicher bis zum Absturz oder minutenlanges Haengen
+  // (Pruefung vom 14.10.2026, N3).
+  //
+  // NACH OBEN ist die Grenze Schutz vor genau diesem Ausfall. Sie steht weit
+  // ueber dem, was die App schreibt ([Argon2Params.owasp], 19 MiB, 2 Runden),
+  // damit ein spaeteres Anheben nicht an ihr scheitert — wer anhebt, prueft
+  // diese Zahlen mit.
+  //
+  // NACH UNTEN steht nur, was Argon2 selbst verlangt (RFC 9106, 3.1). Eine
+  // Untergrenze gegen ABSCHWAECHEN braucht es nicht: schwaechere Werte ergeben
+  // einen anderen Fachschluessel, und mit dem geht das Fach nicht auf
+  // (key_vault_test.dart, "eine abgeschwaechte Ableitung macht das Fach
+  // unlesbar"). Die Tests legen ausserdem bewusst billige Faecher an.
+  static const maxSpeicherKiB = 256 * 1024;
+  static const maxRunden = 10;
+  static const maxParallel = 16;
+  static const minSalzBytes = 8;
+  static const maxSalzBytes = 64;
+
   static Argon2Params fromJson(Map<String, Object?> j) {
     final algo = j['algorithm'];
     if (algo != 'argon2id') {
       throw VaultFormatException('unbekannte Ableitung: $algo');
     }
+    final memory = j['memory'];
+    final iterations = j['iterations'];
+    final parallelism = j['parallelism'];
+    final salzText = j['salt'];
+    if (memory is! int || iterations is! int || parallelism is! int ||
+        salzText is! String) {
+      throw const VaultFormatException('Ableitung unvollstaendig');
+    }
+    final Uint8List salt;
+    try {
+      salt = base64.decode(salzText);
+    } on FormatException {
+      throw const VaultFormatException('Salz nicht lesbar');
+    }
+    // Die Reihenfolge ist egal, geprueft wird alles, BEVOR abgeleitet wird.
+    if (parallelism < 1 || parallelism > maxParallel) {
+      throw VaultFormatException('Parallelitaet ausserhalb 1..$maxParallel');
+    }
+    if (iterations < 1 || iterations > maxRunden) {
+      throw VaultFormatException('Runden ausserhalb 1..$maxRunden');
+    }
+    if (memory < 8 * parallelism || memory > maxSpeicherKiB) {
+      throw VaultFormatException(
+          'Speicher ausserhalb ${8 * parallelism}..$maxSpeicherKiB KiB');
+    }
+    if (salt.length < minSalzBytes || salt.length > maxSalzBytes) {
+      throw VaultFormatException(
+          'Salz ausserhalb $minSalzBytes..$maxSalzBytes Bytes');
+    }
     return Argon2Params(
-      memory: j['memory']! as int,
-      iterations: j['iterations']! as int,
-      parallelism: j['parallelism']! as int,
-      salt: base64.decode(j['salt']! as String),
+      memory: memory,
+      iterations: iterations,
+      parallelism: parallelism,
+      salt: salt,
     );
   }
 
