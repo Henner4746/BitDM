@@ -61,12 +61,17 @@ jobs:
           # Fassung, Code und Commit eintragen; `Binaries` und
           # `AllowedAPKSigningKeys` heraus — die signierte APK gibt es ja erst
           # NACH diesem Lauf.
+          #
+          # Das Rezept als PFAD und nicht ueber stdin: stdin gehoert hier dem
+          # Programm selbst (Heredoc). Bis zum 15.10.2026 stand beides da, die
+          # Shell nahm nur die letzte Umleitung, und heraus kam eine LEERE
+          # Metadatendatei ("No such versionCode").
           python3 - "$VERSION" "$CODE" "$GITHUB_SHA" \
-            < quelle/secure-messenger/fdroid/com.bitdm.bitdm.yml \
+            quelle/secure-messenger/fdroid/com.bitdm.bitdm.yml \
             > "$HOME_VAGRANT/metadata/com.bitdm.bitdm.yml" <<'PY'
           import re, sys
-          version, code, commit = sys.argv[1:4]
-          s = sys.stdin.read()
+          version, code, commit, rezept = sys.argv[1:5]
+          s = open(rezept, encoding="utf-8").read()
           s = re.sub(r"(?m)^(Binaries|AllowedAPKSigningKeys):.*\n", "", s)
           s = re.sub(r"(?m)^(  - versionName: ).*$", r"\g<1>" + version, s, count=1)
           s = re.sub(r"(?m)^(    versionCode: ).*$", r"\g<1>" + code, s, count=1)
@@ -76,6 +81,9 @@ jobs:
           sys.stdout.write(s)
           PY
           cat "$HOME_VAGRANT/metadata/com.bitdm.bitdm.yml"
+          # Nicht still mit einer kaputten Datei weiterlaufen.
+          grep -q "^    versionCode: $CODE\$" "$HOME_VAGRANT/metadata/com.bitdm.bitdm.yml"
+          grep -q "^    commit: $GITHUB_SHA\$" "$HOME_VAGRANT/metadata/com.bitdm.bitdm.yml"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
