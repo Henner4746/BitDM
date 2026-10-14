@@ -2956,13 +2956,13 @@ class _Kopf:
         self.client = None
 
 
-def _registriere_mit(rs, user, nonce, priv=None, geraet=None):
+def _registriere_mit(rs, user, nonce, priv=None, geraet=None, anfrage=None):
     """/register mit einer Signatur ueber GENAU dieses Nonce."""
     bundle = _bundle_mit(user, geraet)
     sig = sign(priv or user["priv"],
                nonce + hashlib.sha256(bundle.canonical_bytes()).digest())
     return rs.register(rs.RegisterRequest(bundle=bundle, signature=b64(sig)),
-                       _Anfrage())
+                       anfrage or _Anfrage())
 
 
 # ---------------------------------------------- 1  Speicher der Nonces und Eimer
@@ -3190,6 +3190,83 @@ def test_mehr_als_die_plaetze_verdraengen_das_aelteste_nonce(relay):
     assert rs._nonce_zahl == rs.NONCE_PLAETZE
 
 
+# B3 der Pruefung vom 14.10.2026: mit acht Plaetzen je Paar verdraengte ein
+# Fremder das Nonce des Opfers weiterhin, wenn er acht Challenges in dessen
+# Fenster legte. Jetzt gehoeren die Plaetze der Herkunft.
+
+def _challenge(rs, user, anfrage, geraet=None):
+    r = rs.register_challenge(
+        rs.ChallengeRequest(user_id=user["user_id"], device_id=geraet), anfrage)
+    return base64.b64decode(r["nonce"])
+
+
+def test_ein_stoerer_aus_einem_anderen_netz_verdraengt_das_nonce_nicht(relay):
+    rs = relay
+    opfer = make_user()
+    beim_opfer = _Kopf(x_forwarded_for="198.51.100.20")
+    nonce = _challenge(rs, opfer, beim_opfer)
+    # Dreimal so viele Challenges, wie es Plaetze gibt — von woanders.
+    for _ in range(3 * rs.NONCE_PLAETZE):
+        rs.issue_nonce(opfer["user_id"], None, "203.0.113.7")
+    assert _registriere_mit(rs, opfer, nonce, anfrage=beim_opfer)["ok"] is True
+
+
+def test_derselbe_angriff_ueber_einen_anderen_tor_circuit(relay):
+    rs = relay
+    opfer = make_user()
+    kreis_a = _Kopf(x_bitdm_onion="1", x_forwarded_for="127.0.0.1",
+                    x_bitdm_kreis="fc00:dead:beef:4dad::1:2a")
+    kreis_b = _Kopf(x_bitdm_onion="1", x_forwarded_for="127.0.0.1",
+                    x_bitdm_kreis="fc00:dead:beef:4dad::1:2b")
+    nonce = _challenge(rs, opfer, kreis_a)
+    for _ in range(3 * rs.NONCE_PLAETZE):
+        _challenge(rs, opfer, kreis_b)
+    assert _registriere_mit(rs, opfer, nonce, anfrage=kreis_a)["ok"] is True
+
+
+def test_aus_derselben_herkunft_bleibt_es_bei_acht_plaetzen(relay):
+    """Die Gegenprobe: innerhalb EINER Herkunft gilt die alte Regel weiter."""
+    rs = relay
+    henrik = make_user()
+    hier = _Kopf(x_forwarded_for="198.51.100.20")
+    erstes = _challenge(rs, henrik, hier)
+    for _ in range(rs.NONCE_PLAETZE):
+        _challenge(rs, henrik, hier)
+    with pytest.raises(rs.HTTPException) as fehler:
+        _registriere_mit(rs, henrik, erstes, anfrage=hier)
+    assert fehler.value.status_code == 403
+
+
+def test_ein_netzwechsel_zwischen_challenge_und_register_schadet_nicht(relay):
+    """WLAN -> Mobilfunk, IPv4 -> IPv6: das eigene Nonce liegt dann unter der
+    alten Herkunft und muss trotzdem zaehlen."""
+    rs = relay
+    henrik = make_user()
+    nonce = _challenge(rs, henrik, _Kopf(x_forwarded_for="198.51.100.20"))
+    neu = _Kopf(x_forwarded_for="2001:db8:5:6::1")
+    assert _registriere_mit(rs, henrik, nonce, anfrage=neu)["ok"] is True
+
+
+def test_das_paar_hat_trotzdem_ein_dach(relay):
+    rs = relay
+    henrik = make_user()
+    erstes = rs.issue_nonce(henrik["user_id"], None, "netz-0")
+    for i in range(rs.NONCE_HERKUENFTE * rs.NONCE_PLAETZE):
+        rs.issue_nonce(henrik["user_id"], None, f"netz-{i % rs.NONCE_HERKUENFTE + 1}")
+    offen = rs.offene_nonces(henrik["user_id"])
+    assert len(offen) == rs.NONCE_HERKUENFTE * rs.NONCE_PLAETZE
+    assert erstes not in offen, "ueber dem Dach faellt das aelteste des Paares"
+    assert rs._nonce_zahl == len(offen)
+
+
+def test_die_eigene_herkunft_wird_zuerst_geprueft(relay):
+    rs = relay
+    henrik = make_user()
+    fremd = [rs.issue_nonce(henrik["user_id"], None, "anderswo") for _ in range(3)]
+    eigen = rs.issue_nonce(henrik["user_id"], None, "hier")
+    assert rs.offene_nonces(henrik["user_id"], None, "hier") == [eigen, *fremd]
+
+
 # ------------------------------------------------ 6  Herkunft, Onion, Vorraum
 
 def test_ipv6_zaehlt_je_64er_netz(relay):
@@ -3211,6 +3288,36 @@ def test_onion_nur_von_der_schleife(relay):
     assert rs.limit_schluessel(ueber_tor) is None
     assert not rs.kommt_ueber_onion(gefaelscht)
     assert rs.limit_schluessel(gefaelscht) == "203.0.113.7"
+
+
+def test_der_tor_circuit_wird_zur_herkunft(relay):
+    rs = relay
+    ueber_tor = dict(x_bitdm_onion="1", x_forwarded_for="127.0.0.1")
+    assert rs.limit_schluessel(
+        _Kopf(**ueber_tor, x_bitdm_kreis="fc00:dead:beef:4dad::ffff:ffff")) == "kreis:4294967295"
+    assert rs.limit_schluessel(
+        _Kopf(**ueber_tor, x_bitdm_kreis="fc00:dead:beef:4dad::2a")) == "kreis:42"
+    # Alles, was tor so nicht schreibt, zaehlt nicht als Circuit.
+    for falsch in ["", "2001:db8::2a", "fc00:dead:beef:4dae::2a", "127.0.0.1", "kreis:42"]:
+        assert rs.limit_schluessel(_Kopf(**ueber_tor, x_bitdm_kreis=falsch)) is None, falsch
+    # Und von aussen hilft die Kopfzeile nichts: dort zaehlt die echte IP.
+    gefaelscht = _Kopf(x_bitdm_onion="1", x_forwarded_for="203.0.113.7",
+                       x_bitdm_kreis="fc00:dead:beef:4dad::2a")
+    assert rs.limit_schluessel(gefaelscht) == "203.0.113.7"
+    assert rs.nonce_herkunft(_Kopf(**ueber_tor)) == "onion"
+
+
+def test_ein_tor_circuit_bremst_nur_sich_selbst(relay, monkeypatch):
+    rs = relay
+    monkeypatch.setattr(rs, "RATE_CAPACITY", 1)
+    monkeypatch.setattr(rs, "RATE_REFILL_PER_SEC", 0.0)
+    kreis = lambda n: _Kopf(x_bitdm_onion="1", x_forwarded_for="127.0.0.1",
+                            x_bitdm_kreis=f"fc00:dead:beef:4dad::{n:x}")
+    rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))), kreis(1))
+    with pytest.raises(rs.HTTPException) as fehler:
+        rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))), kreis(1))
+    assert fehler.value.status_code == 429
+    rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))), kreis(2))
 
 
 def test_tor_nutzer_teilen_sich_keine_ip_bremse(relay, monkeypatch):
@@ -3270,6 +3377,16 @@ def test_die_deploy_dateien_tragen_die_onion_riegel():
     # der /ws-location, die den Schnipsel nicht einbindet.
     assert len(re.findall(r'proxy_set_header\s+X-BitDM-Onion\s+""', install)) >= 2
     assert "$bitdm_limit_key" in install
+    # DIE CIRCUIT-KENNUNG (seit 14.10.2026) gibt es nur als Paar: tor schreibt
+    # sie, nginx muss sie an BEIDEN listen-Zeilen erwarten. Eines ohne das
+    # andere legt den Onion-Dienst lahm.
+    assert "HiddenServiceExportCircuitID haproxy" in torrc
+    listen = re.findall(r"^\s*listen\s+127\.0\.0\.1:847[01][^;]*;", onion, re.M)
+    assert len(listen) == 2 and all("proxy_protocol" in z for z in listen), listen
+    assert len(re.findall(r"proxy_set_header\s+X-BitDM-Kreis\s+\$proxy_protocol_addr", onion)) >= 2
+    assert "zone=bitdm_onion_kreis" in onion
+    assert len(re.findall(r'proxy_set_header\s+X-BitDM-Kreis\s+""', install)) >= 2
+    assert 'Strict-Transport-Security' in install
 
 
 # ------------------------------------------------ 7/12  Zwischenlager-Marken
@@ -3293,6 +3410,8 @@ def test_die_tagesmenge_des_ganzen_relays(relay, monkeypatch):
     rs = relay
     monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
     monkeypatch.setattr(rs, "BLOB_TAGESMENGE_GESAMT", 100)
+    # Hier geht es um die Rechnung, nicht um die Mindestmenge je Marke.
+    monkeypatch.setattr(rs, "BLOB_MINDESTMENGE", 1)
     alice = make_user()
     _lege_an(rs, alice)
     with rs.db:
@@ -3305,6 +3424,27 @@ def test_die_tagesmenge_des_ganzen_relays(relay, monkeypatch):
     assert [m.get("kennung") for m in raus
             if m.get("reason") == "Zwischenlager fuer heute ausgelastet"] == ["a" * 52]
     assert [m["kennung"] for m in raus if m.get("type") == "blob_marke_ok"] == ["b" * 52]
+
+
+def test_eine_winzige_marke_kostet_die_mindestmenge(relay, monkeypatch):
+    """B4 der Pruefung vom 14.10.2026: gezaehlt wurden nur Bytes, also gab es
+    fuer 1-Byte-Marken praktisch kein Dach — je eine Zeile und je eine Datei."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    monkeypatch.setattr(rs, "BLOB_MINDESTMENGE", 1024**2)
+    monkeypatch.setattr(rs, "BLOB_TAGESMENGE", 3 * 1024**2)
+    alice = make_user()
+    _lege_an(rs, alice)
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": c * 52, "groesse": 10} for c in "abcd"
+    ])
+    ok = [m for m in raus if m.get("type") == "blob_marke_ok"]
+    assert [m["kennung"][0] for m in ok] == ["a", "b", "c"]
+    assert all(m["groesse"] == 10 for m in ok), "die Marke gilt fuer die echte Groesse"
+    assert [m.get("reason") for m in raus if m.get("type") == "error"] == ["Tagesmenge erschoepft"]
+    summe = rs.db.execute("SELECT SUM(groesse) FROM blob_marken WHERE user_id=?",
+                          (alice["user_id"],)).fetchone()[0]
+    assert summe == 3 * 1024**2
 
 
 # ------------------------------------------------ 9  Strenges base64

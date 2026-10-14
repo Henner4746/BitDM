@@ -97,6 +97,25 @@ NONCE_TTL_SECONDS = 120
 # legen (meist unter einer Sekunde), und zwar bei jedem Versuch neu.
 NONCE_PLAETZE = int(os.getenv("BITDM_NONCE_SLOTS", 8))
 
+# SEIT 14.10.2026 GEHOEREN DIE PLAETZE EINER HERKUNFT, nicht dem Paar.
+#
+# Mit acht Plaetzen je Paar blieb ein Rest (Pruefung vom 14.10.2026, B3): wer
+# acht Challenges in das Fenster zwischen Challenge und /register des Opfers
+# legte, verdraengte dessen Nonce weiterhin — ueber Tor ganz ohne Bremse, weil
+# dort alle von 127.0.0.1 kommen. Jetzt hat jede Herkunft (IP, IPv6-/64,
+# Tor-Circuit, siehe nonce_herkunft) ihre eigenen acht Plaetze. Ein Stoerer
+# verdraengt damit nur seine eigenen Nonces; das des Opfers liegt in einer
+# anderen Liste.
+#
+# Damit das Paar trotzdem nicht unbegrenzt waechst, gibt es ein Dach ueber
+# alle Herkuenfte: NONCE_HERKUENFTE * NONCE_PLAETZE Eintraege. Erst darueber
+# faellt das AELTESTE des Paares, gleich von wem. Einen Fremden kostet das
+# also nicht acht Anfragen, sondern so viele aus mindestens NONCE_HERKUENFTE
+# verschiedenen Netzen (oder Circuits), und zwar bei jedem Versuch neu. Das
+# Dach haelt ausserdem die Zahl der Signaturpruefungen in /register klein
+# (hoechstens 128 statt beliebig vieler).
+NONCE_HERKUENFTE = int(os.getenv("BITDM_NONCE_ORIGINS", 16))
+
 # ── Speicherdeckel fuer die beiden Tabellen im Arbeitsspeicher ────────────
 #
 # _nonces und _buckets wuchsen frueher unbegrenzt: /register/challenge nimmt
@@ -375,6 +394,19 @@ BLOB_TAGESMENGE = int(os.getenv("BITDM_BLOB_QUOTA", 25 * 1024**3))
 # schon bei 80 GB frei. Sie begrenzt die GESCHWINDIGKEIT, mit der sich die
 # Platte fuellen laesst, nicht den ehrlichen Betrieb.
 BLOB_TAGESMENGE_GESAMT = int(os.getenv("BITDM_BLOB_QUOTA_TOTAL", 200 * 1024**3))
+
+# Was eine Marke MINDESTENS von der Tagesmenge kostet (seit 14.10.2026).
+#
+# Gezaehlt wurden nur Bytes. Eine Marke fuer 1 Byte kostete also 1 Byte, und
+# 25 GiB am Tag waren damit 26 Milliarden Marken: je eine Zeile in
+# blob_marken und, wenn hochgeladen, je eine Datei im Lager — die Grenze fuer
+# die Platte hielt, die fuer Zeilen und Dateien gab es nicht (Pruefung vom
+# 14.10.2026, B4). Mit 1 MiB je Marke sind es hoechstens 25 600 Marken je
+# Adresse und 204 800 fuer den ganzen Relay am Tag. Das IST das Zaehlerdach,
+# nur in derselben Einheit wie die Menge — ein zweiter Zaehler daneben haette
+# dieselbe Zahl anders ausgedrueckt. Ein ehrlicher Nutzer merkt es nicht:
+# hundert kleine Bilder am Tag kosten 100 MiB von 25 GiB.
+BLOB_MINDESTMENGE = int(os.getenv("BITDM_BLOB_MIN_CHARGE", 1024**2))
 
 # fullmatch und kein `$`: `^...$` mit .match() nimmt auch eine Kennung mit
 # angehaengtem Zeilenumbruch an ("a"*52 + "\n"), weil `$` VOR einem letzten
@@ -1045,6 +1077,37 @@ def kommt_ueber_onion(request: Request) -> bool:
     return _ist_schleife(client_ip(request))
 
 
+# DER TOR-CIRCUIT ALS HERKUNFT (seit 14.10.2026). Mit
+# `HiddenServiceExportCircuitID haproxy` (deploy/onion/torrc.snippet) schreibt
+# tor jeder Verbindung eine PROXY-Kopfzeile voran, deren Absenderadresse im
+# Netz fc00:dead:beef:4dad::/64 liegt und in den letzten 32 Bit die Kennung des
+# Circuits traegt. nginx reicht sie als X-BitDM-Kreis durch (relay-onion.nginx).
+# Ein Circuit ist kein Mensch — ein Tor-Client baut neue —, aber er ist das,
+# was einer allein nicht beliebig schnell vervielfacht, und vor allem: zwei
+# verschiedene Tor-Nutzer teilen sich keinen.
+TOR_KREIS_NETZ = ipaddress.ip_network("fc00:dead:beef:4dad::/64")
+
+
+def tor_kreis(request: Request) -> str | None:
+    """Die Circuit-Kennung einer Onion-Anfrage — oder None.
+
+    NUR fuer Anfragen, die [kommt_ueber_onion] besteht, und nur in der Form,
+    die tor schreibt. Der oeffentliche vHost leert die Kopfzeile; und selbst
+    wenn nicht, zaehlte sie dort nicht, weil die Herkunft dann keine Schleife
+    ist.
+    """
+    if not kommt_ueber_onion(request):
+        return None
+    wert = request.headers.get("x-bitdm-kreis", "").strip()
+    try:
+        adresse = ipaddress.ip_address(wert)
+    except ValueError:
+        return None
+    if adresse.version != 6 or adresse not in TOR_KREIS_NETZ:
+        return None
+    return f"kreis:{int(adresse) & 0xFFFFFFFF}"
+
+
 def limit_schluessel(request: Request) -> str | None:
     """Wonach die Bremse je Herkunft zaehlt — oder None fuer "gar nicht".
 
@@ -1055,15 +1118,16 @@ def limit_schluessel(request: Request) -> str | None:
     obendrein _buckets. Ein /64 ist die kleinste Einheit, die ein Anschluss
     nicht beliebig vervielfachen kann.
 
-    ONION: None. Ueber Tor kommen ALLE von 127.0.0.1, eine Bremse je IP waere
-    dort eine einzige gemeinsame Bremse fuer alle Tor-Nutzer — ein Stoerer
-    sperrte damit alle anderen aus. Stattdessen greifen dort die Grenzen je
-    Adresse (otk_limit_ok, msg_limit_ok, NONCE_PLAETZE), die Grenzen im
-    Onion-vHost (limit_req/limit_conn), das Speicherdach (SPEICHER_MAX) und
-    die Grenzen in tor selbst (HiddenServiceMaxStreams).
+    ONION: je Tor-Circuit, wenn tor ihn mitteilt ([tor_kreis]); sonst None.
+    Ueber Tor kommen ALLE von 127.0.0.1, eine Bremse je IP waere dort eine
+    einzige gemeinsame Bremse fuer alle Tor-Nutzer — ein Stoerer sperrte damit
+    alle anderen aus. Ohne Circuit greifen dort nur die Grenzen je Adresse
+    (otk_limit_ok, msg_limit_ok, NONCE_PLAETZE), die Grenzen im Onion-vHost
+    (limit_req/limit_conn), das Speicherdach (SPEICHER_MAX) und die Grenzen in
+    tor selbst (HiddenServiceMaxStreams).
     """
     if kommt_ueber_onion(request):
-        return None
+        return tor_kreis(request)
     ip = client_ip(request)
     try:
         adresse = ipaddress.ip_address(ip)
@@ -1074,6 +1138,15 @@ def limit_schluessel(request: Request) -> str | None:
             return str(adresse.ipv4_mapped)
         return str(ipaddress.ip_network(f"{adresse}/64", strict=False))
     return str(adresse)
+
+
+def nonce_herkunft(request: Request) -> str:
+    """Wem ein Challenge-Nonce gehoert: dieselbe Einteilung wie die Bremse.
+
+    Ueber Tor ohne Circuit-Kennung teilen sich alle die Herkunft "onion" —
+    das ist der Stand vor dem 14.10.2026, nicht schlechter.
+    """
+    return limit_schluessel(request) or "onion"
 
 
 def herkunft_ok(request: Request, familie: str, cost: float = 1.0) -> bool:
@@ -1104,7 +1177,9 @@ def herkunft_ok(request: Request, familie: str, cost: float = 1.0) -> bool:
 # sein Nonce bei /register NICHT zurueck — das ist so ausgeliefert und bleibt
 # so. register() probiert die Signatur deshalb gegen jedes offene Nonce des
 # Paares; bei acht Plaetzen sind das hoechstens acht Pruefungen.
-_nonces: dict[tuple[str, int | None], list[tuple[bytes, float]]] = {}
+# JEDER EINTRAG TRAEGT SEINE HERKUNFT (seit 14.10.2026, siehe NONCE_HERKUENFTE):
+# (Nonce, Ablauf, Herkunft), in der Reihenfolge der Ausgabe.
+_nonces: dict[tuple[str, int | None], list[tuple[bytes, float, str]]] = {}
 # Wie viele Nonces insgesamt in _nonces stehen — mitgefuehrt, damit das Dach
 # nicht bei jeder Anfrage ueber alle Listen zaehlen muss.
 _nonce_zahl = 0
@@ -1114,7 +1189,8 @@ class Ueberlastet(Exception):
     """Der Speicherdeckel ist erreicht; die Anfrage bekommt 503."""
 
 
-def issue_nonce(user_id: str, device_id: int | None = None) -> bytes:
+def issue_nonce(user_id: str, device_id: int | None = None,
+                herkunft: str = "") -> bytes:
     global _nonce_zahl
     nonce = secrets.token_bytes(32)
     with _speichersperre:
@@ -1124,10 +1200,12 @@ def issue_nonce(user_id: str, device_id: int | None = None) -> bytes:
         alt = _nonces.get(schluessel, [])
         offen = [e for e in alt if e[1] > jetzt]
         _nonce_zahl -= len(alt) - len(offen)
-        # Nur ein NEUES Paar scheitert am Dach. Ein Paar, das schon da ist,
-        # tauscht hoechstens ein altes Nonce gegen ein neues und belegt damit
-        # nichts dazu.
-        if len(offen) < NONCE_PLAETZE and _nonce_zahl >= SPEICHER_MAX:
+        eigene = sum(1 for e in offen if e[2] == herkunft)
+        dach = NONCE_PLAETZE * NONCE_HERKUENFTE
+        # Nur ein Eintrag, der NICHTS verdraengt, scheitert am Speicherdach.
+        # Wer schon da ist, tauscht hoechstens ein altes Nonce gegen ein neues
+        # und belegt damit nichts dazu.
+        if eigene < NONCE_PLAETZE and len(offen) < dach and _nonce_zahl >= SPEICHER_MAX:
             if offen:
                 _nonces[schluessel] = offen
             else:
@@ -1135,22 +1213,37 @@ def issue_nonce(user_id: str, device_id: int | None = None) -> bytes:
             raise Ueberlastet()
         # Voll: das AELTESTE faellt, nicht das neue. Das neue gehoert zu der
         # Anfrage, die gerade laeuft — ein ehrlicher Client schickt gleich
-        # darauf sein /register.
-        while len(offen) >= NONCE_PLAETZE:
-            offen.pop(0)
+        # darauf sein /register. Zuerst innerhalb DIESER Herkunft: so trifft
+        # ein Stoerer nur sich selbst.
+        if eigene >= NONCE_PLAETZE:
+            i = next(i for i, e in enumerate(offen) if e[2] == herkunft)
+            del offen[i]
             _nonce_zahl -= 1
-        offen.append((nonce, jetzt + NONCE_TTL_SECONDS))
+        elif len(offen) >= dach:
+            del offen[0]
+            _nonce_zahl -= 1
+        offen.append((nonce, jetzt + NONCE_TTL_SECONDS, herkunft))
         _nonce_zahl += 1
         _nonces[schluessel] = offen
     return nonce
 
 
-def offene_nonces(user_id: str, device_id: int | None = None) -> list[bytes]:
-    """Die noch gueltigen Nonces dieses Paares, OHNE sie zu verbrauchen."""
+def offene_nonces(user_id: str, device_id: int | None = None,
+                  herkunft: str | None = None) -> list[bytes]:
+    """Die noch gueltigen Nonces dieses Paares, OHNE sie zu verbrauchen.
+
+    Mit [herkunft] stehen deren eigene vorne: /register kommt fast immer von
+    dort, wo die Challenge herkam, und findet sein Nonce dann sofort. Die
+    anderen bleiben dahinter, damit ein Telefon, das zwischen den beiden
+    Anfragen das Netz wechselt (WLAN -> Mobilfunk, IPv4 -> IPv6), nicht an
+    seinem eigenen Nonce scheitert.
+    """
     jetzt = time.monotonic()
     with _speichersperre:
-        return [n for n, ablauf in _nonces.get((user_id, device_id), [])
-                if ablauf > jetzt]
+        offen = [e for e in _nonces.get((user_id, device_id), []) if e[1] > jetzt]
+    if herkunft is not None:
+        offen.sort(key=lambda e: e[2] != herkunft)
+    return [e[0] for e in offen]
 
 
 def verbrauche_nonce(user_id: str, device_id: int | None, nonce: bytes) -> bool:
@@ -1169,7 +1262,7 @@ def verbrauche_nonce(user_id: str, device_id: int | None, nonce: bytes) -> bool:
         liste = _nonces.get((user_id, device_id))
         if not liste:
             return False
-        for i, (n, ablauf) in enumerate(liste):
+        for i, (n, ablauf, _) in enumerate(liste):
             if n == nonce:
                 del liste[i]
                 _nonce_zahl -= 1
@@ -1590,7 +1683,7 @@ def register_challenge(req: ChallengeRequest, request: Request):
     if not speicher_hat_platz():
         raise HTTPException(503, "Relay ueberlastet, bitte spaeter erneut")
     try:
-        nonce = issue_nonce(req.user_id, req.device_id)
+        nonce = issue_nonce(req.user_id, req.device_id, nonce_herkunft(request))
     except Ueberlastet as exc:
         raise HTTPException(503, "Relay ueberlastet, bitte spaeter erneut") from exc
     return {"nonce": b64e(nonce)}
@@ -1671,7 +1764,8 @@ def register(req: RegisterRequest, request: Request):
     # 1.8). Also wird die Signatur gegen JEDES offene Nonce des Paares
     # geprueft, und verbraucht wird nur das, zu dem sie passt — siehe
     # verbrauche_nonce, warum erst danach.
-    kandidaten = offene_nonces(bundle.user_id, bundle.device_id)
+    kandidaten = offene_nonces(bundle.user_id, bundle.device_id,
+                               nonce_herkunft(request))
     if not kandidaten:
         raise HTTPException(401, "kein gueltiges Nonce — erst /register/challenge")
 
@@ -2525,8 +2619,11 @@ async def ws_endpoint(ws: WebSocket):
                 # hochgeladen wurde. Wer sich Marken holt und sie verfallen
                 # laesst, verbraucht damit sein eigenes Kontingent; das ist die
                 # richtige Richtung fuer den Irrtum.
+                # Angerechnet wird mindestens BLOB_MINDESTMENGE, siehe dort. Die
+                # Marke selbst gilt weiter fuer genau `groesse` Bytes.
+                angerechnet = max(groesse, BLOB_MINDESTMENGE)
                 verbraucht = blob_menge_heute(user_id)
-                if verbraucht + groesse > BLOB_TAGESMENGE:
+                if verbraucht + angerechnet > BLOB_TAGESMENGE:
                     await ws.send_json({
                         "type": "error",
                         "reason": "Tagesmenge erschoepft",
@@ -2539,7 +2636,7 @@ async def ws_endpoint(ws: WebSocket):
                 # Nutzer "du warst es", und das stimmt hier nicht. Aeltere
                 # Clients zeigen den Text einfach an.
                 gesamt = blob_menge_heute_gesamt()
-                if gesamt + groesse > BLOB_TAGESMENGE_GESAMT:
+                if gesamt + angerechnet > BLOB_TAGESMENGE_GESAMT:
                     await ws.send_json({
                         "type": "error",
                         "reason": "Zwischenlager fuer heute ausgelastet",
@@ -2567,7 +2664,7 @@ async def ws_endpoint(ws: WebSocket):
                 with schreibsperre, db:
                     db.execute(
                         "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
-                        (user_id, groesse, time.time()),
+                        (user_id, angerechnet, time.time()),
                     )
                 await ws.send_json({
                     "type": "blob_marke_ok",

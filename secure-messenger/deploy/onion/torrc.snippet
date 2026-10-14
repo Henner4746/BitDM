@@ -12,3 +12,10 @@ HiddenServiceEnableIntroDoSDefense 1
 # unbegrenzt, und fuer nginx und den Relay kam alles von 127.0.0.1).
 HiddenServiceMaxStreams 20
 HiddenServiceMaxStreamsCloseCircuit 1
+# Die Kennung des Circuits an nginx (seit 14.10.2026). tor schreibt jeder
+# Verbindung eine PROXY-Kopfzeile voran; die Absenderadresse darin liegt in
+# fc00:dead:beef:4dad::/64 und traegt die Circuit-Kennung. NUR ZUSAMMEN mit
+# `proxy_protocol` an BEIDEN listen-Zeilen in relay-onion.nginx — fehlt es
+# dort, liest nginx die Kopfzeile als Anfrage und jede Verbindung scheitert;
+# fehlt es hier, wartet nginx auf eine Kopfzeile, die nie kommt.
+HiddenServiceExportCircuitID haproxy

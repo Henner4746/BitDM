@@ -273,6 +273,9 @@ proxy_set_header X-Real-IP         $remote_addr;
 # Kopfzeile unveraendert durch. Der Relay prueft zusaetzlich die Herkunft —
 # das hier ist die erste der beiden Sicherungen.
 proxy_set_header X-BitDM-Onion     "";
+# Dasselbe fuer die Tor-Circuit-Kennung (seit 14.10.2026). Der Relay liest sie
+# nur auf dem Onion-Weg; leer ist sie trotzdem, aus demselben Grund.
+proxy_set_header X-BitDM-Kreis     "";
 proxy_http_version 1.1;
 proxy_read_timeout 30s;
 proxy_connect_timeout 5s;
@@ -364,6 +367,12 @@ server {
     add_header X-Content-Type-Options "nosniff"     always;
     add_header Referrer-Policy        "no-referrer" always;
     add_header X-Frame-Options        "DENY"        always;
+    # HSTS wie auf relay.bitdm.net (dort seit 25.09.2026). Die App spricht
+    # ohnehin nur https/wss; das hier haelt auch einen Browser davon ab, sich
+    # einmal per http umleiten zu lassen. Fehlte bis 14.10.2026 in dieser
+    # Vorlage (Pruefung vom 14.10.2026, N5). KEIN add_header in den locations
+    # darunter — ein einziges dort loescht alle hier oben.
+    add_header Strict-Transport-Security "max-age=31536000" always;
 
     location = /ws {
         limit_req zone=bitdm_relay_req64 burst=100 nodelay;
@@ -376,6 +385,7 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         # Diese location bindet den Schnipsel nicht ein — also auch hier leeren.
         proxy_set_header X-BitDM-Onion     "";
+        proxy_set_header X-BitDM-Kreis     "";
         # Eine ruhende Verbindung darf nicht nach 60 s abgeraeumt werden —
         # staendiges Neuverbinden kostet auf einem Telefon Akku.
         proxy_read_timeout  1h;

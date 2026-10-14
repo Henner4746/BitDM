@@ -19,15 +19,29 @@
 limit_req_zone  $server_port zone=bitdm_onion_req:1m rate=30r/s;
 limit_conn_zone $server_port zone=bitdm_onion_conn:1m;
 
+# ── Und je CIRCUIT (seit 14.10.2026) ──────────────────────────────────────
+#
+# Mit dem Deckel oben allein konnte EIN Tor-Client die 30 r/s fuer alle
+# aufbrauchen (Pruefung vom 14.10.2026, N5). tor nennt jetzt den Circuit
+# (HiddenServiceExportCircuitID haproxy, torrc.snippet), nginx bekommt ihn als
+# $proxy_protocol_addr. Ein Circuit darf hoechstens ein Sechstel des Ganzen —
+# den Rest kann er nur mit weiteren Circuits holen, und jeder neue Circuit zu
+# einem Onion-Dienst kostet ihn einen Rendezvous-Aufbau (gebremst durch
+# HiddenServiceEnableIntroDoSDefense). Eine App braucht beim Verbinden drei,
+# vier Anfragen und danach eine WebSocket.
+limit_req_zone  $proxy_protocol_addr zone=bitdm_onion_kreis:2m rate=5r/s;
+
 server {
-    listen 127.0.0.1:8470;
+    # proxy_protocol: tor schreibt die Circuit-Kennung voran (torrc.snippet,
+    # HiddenServiceExportCircuitID). Beide Zeilen oder keine — siehe dort.
+    listen 127.0.0.1:8470 proxy_protocol;
     # TLS IM ONION-DIENST (seit 25.09.2026, App ab 1.8.1). Tor verschluesselt
     # bis hierher; TLS schuetzt den Weg davor — den Klartext-Socket zwischen
     # App und Orbot auf 127.0.0.1:9050, den auf Android jede andere App
     # belegen kann, wenn Orbot nicht laeuft. Das Zertifikat ist das von
     # relay.bitdm.net; die App prueft genau diesen Namen
     # (Netzweg.zertifikatsName). Port 80 bleibt fuer die Fassungen bis 1.8.0.
-    listen 127.0.0.1:8471 ssl http2;
+    listen 127.0.0.1:8471 ssl http2 proxy_protocol;
     ssl_certificate     /etc/letsencrypt/live/relay.bitdm.net/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/relay.bitdm.net/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
@@ -79,6 +93,11 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-BitDM-Onion "1";
+    # Der Circuit, aus dem die Anfrage kam. Der Relay bremst damit je Circuit
+    # und haelt die Challenge-Nonces verschiedener Tor-Nutzer auseinander
+    # (relay_server.py, tor_kreis). Gesetzt, nicht durchgereicht: was ein
+    # Client selbst als X-BitDM-Kreis schickt, ueberschreibt diese Zeile.
+    proxy_set_header X-BitDM-Kreis $proxy_protocol_addr;
     proxy_http_version 1.1;
     proxy_read_timeout 30s;
     proxy_connect_timeout 5s;
@@ -86,6 +105,7 @@ server {
     location = /ws {
         # Neue Verbindungen je Sekunde; eine bestehende kostet danach nichts.
         limit_req zone=bitdm_onion_req burst=60 nodelay;
+        limit_req zone=bitdm_onion_kreis burst=20 nodelay;
         proxy_pass http://127.0.0.1:8465;
         # Eine location mit EIGENEM proxy_set_header erbt KEINEN von oben —
         # deshalb hier alles noch einmal.
@@ -95,13 +115,14 @@ server {
         proxy_set_header Host       $host;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-BitDM-Onion "1";
+        proxy_set_header X-BitDM-Kreis $proxy_protocol_addr;
         proxy_read_timeout  1h;
         proxy_send_timeout  1h;
         proxy_buffering     off;
     }
-    location = /register/challenge { limit_req zone=bitdm_onion_req burst=60 nodelay; proxy_pass http://127.0.0.1:8465; }
-    location = /register           { limit_req zone=bitdm_onion_req burst=60 nodelay; proxy_pass http://127.0.0.1:8465; }
-    location ^~ /prekey/           { limit_req zone=bitdm_onion_req burst=120 nodelay; proxy_pass http://127.0.0.1:8465; }
+    location = /register/challenge { limit_req zone=bitdm_onion_req burst=60 nodelay; limit_req zone=bitdm_onion_kreis burst=20 nodelay; proxy_pass http://127.0.0.1:8465; }
+    location = /register           { limit_req zone=bitdm_onion_req burst=60 nodelay; limit_req zone=bitdm_onion_kreis burst=20 nodelay; proxy_pass http://127.0.0.1:8465; }
+    location ^~ /prekey/           { limit_req zone=bitdm_onion_req burst=120 nodelay; limit_req zone=bitdm_onion_kreis burst=40 nodelay; proxy_pass http://127.0.0.1:8465; }
     location = /health { return 404; }
     location / { return 404; }
 }
