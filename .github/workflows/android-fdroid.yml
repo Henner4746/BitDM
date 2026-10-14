@@ -38,9 +38,13 @@ jobs:
     env:
       ANDROID_HOME: /opt/android-sdk
       HOME_VAGRANT: /home/vagrant
-      # fdroidserver fest auf eine Fassung. F-Droids eigene Pipeline nimmt den
-      # jeweils neuesten Stand; weicht der Scanner einmal ab, hier anheben.
-      FDROIDSERVER_TAG: '2.4.5'
+      # fdroidserver fest auf einen Commit von master. F-Droids eigene Pipeline
+      # nimmt den jeweils neuesten Stand von master, und der unterscheidet sich
+      # vom Release 2.4.5 deutlich in build.py, scanner.py und common.py — der
+      # Scanner entscheidet mit, was vor dem Bau geloescht wird. Ein fester
+      # Commit haelt den Lauf nachvollziehbar; weicht F-Droid einmal ab, hier
+      # anheben (`git ls-remote https://gitlab.com/fdroid/fdroidserver.git master`).
+      FDROIDSERVER_COMMIT: '5806784d0d43bed7b938fd4b327162da68927060'
     outputs:
       apk: ${{ steps.raus.outputs.apk }}
     steps:
@@ -90,8 +94,10 @@ jobs:
       - name: fdroidserver
         run: |
           set -eu
-          git clone -q --depth 1 --branch "$FDROIDSERVER_TAG" \
-            https://gitlab.com/fdroid/fdroidserver.git /opt/fdroidserver-bitdm
+          git init -q /opt/fdroidserver-bitdm
+          git -C /opt/fdroidserver-bitdm fetch -q --depth 1 \
+            https://gitlab.com/fdroid/fdroidserver.git "$FDROIDSERVER_COMMIT"
+          git -C /opt/fdroidserver-bitdm checkout -q --detach "$FDROIDSERVER_COMMIT"
 
       # Dieselben Schritte wie der Auftrag "fdroid build" in fdroiddata
       # (.gitlab-ci.yml): als Benutzer vagrant, mit sudo fuer den sudo-Block
@@ -105,14 +111,19 @@ jobs:
           for d in build tmp unsigned logs .android .gradle; do mkdir -p "$HOME_VAGRANT/$d"; done
           chown -R vagrant "$HOME_VAGRANT" /opt/fdroidserver-bitdm
           cd "$HOME_VAGRANT"
-          sudo --preserve-env --user vagrant \
-            env PATH=/opt/fdroidserver-bitdm:$PATH \
-                PYTHONPATH=/opt/fdroidserver-bitdm \
-                PYTHONUNBUFFERED=true \
-                HOME="$HOME_VAGRANT" \
-                GRADLE_USER_HOME="$HOME_VAGRANT/.gradle" \
-            fdroid build --verbose --test --refresh-scanner --on-server --no-tarball \
-              "com.bitdm.bitdm:${{ steps.rezept.outputs.code }}"
+          # `fdroid` als vagrant; examples/ im Pfad, dort liegt das Plugin
+          # fetchsrclibs. Im Modus --on-server holt `fdroid build` den
+          # Quelltext NICHT selbst (das tut im Betrieb der Gastgeber) — ohne
+          # fetchsrclibs davor endete der Lauf am 15.10.2026 mit
+          # "NoSuchPathError: build/com.bitdm.bitdm".
+          FD="sudo --preserve-env --user vagrant env PATH=/opt/fdroidserver-bitdm:$PATH PYTHONPATH=/opt/fdroidserver-bitdm:/opt/fdroidserver-bitdm/examples PYTHONUNBUFFERED=true HOME=$HOME_VAGRANT GRADLE_USER_HOME=$HOME_VAGRANT/.gradle fdroid"
+          APP="com.bitdm.bitdm:${{ steps.rezept.outputs.code }}"
+          $FD fetchsrclibs --verbose "$APP"
+          git -C "$HOME_VAGRANT/build/com.bitdm.bitdm" log -1 --format='Quelle: %H'
+          git -C "$HOME_VAGRANT/build/com.bitdm.bitdm" submodule status
+          # fdroid build --on-server nimmt sudo nach dem sudo-Block des Rezepts
+          # wieder weg; die folgenden Schritte laufen ohnehin als root.
+          $FD build --verbose --test --refresh-scanner --on-server --no-tarball "$APP"
 
       - name: Unsignierte APK
         id: raus
