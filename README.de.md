@@ -141,7 +141,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 | Schalter "Nur in der Nähe" | läuft | die App öffnet überhaupt keine Relay-Verbindung; `test/core/nur_nahbereich_test.dart`, `test/nah/schalter_test.dart`, `test/nah/schalter_echt_test.dart` |
 | Anhänge | läuft | eigenes verschlüsseltes Zwischenlager, nie über den Relay |
 | Aktualisierung über eine bestehende Installation | läuft | 1.5.0+11 → 1.5.1+12, Identität und Kontakte blieben erhalten |
-| Wiederherstellung auf einem neuen Gerät | läuft | 12 BIP39-Wörter holen Identität und Kontakte zurück, nicht den Nachrichtenverlauf |
+| Wiederherstellung auf einem neuen Gerät | läuft | 12 BIP39-Wörter holen Identität und Adresse zurück, nicht Kontakte und Verlauf — die kommen nur aus der verschlüsselten Sicherung |
 | Desktop-Programm | läuft, als weiteres Gerät | die Windows-Datei schließt sich mit denselben 12 Wörtern als weiteres Gerät derselben Adresse an und sieht ab dann alles Neue, aber keinen alten Verlauf — siehe [Bekannte Lücken](#bekannte-lücken) |
 | Unabhängige Sicherheitsprüfung | **keine** | — |
 
@@ -232,7 +232,8 @@ musst.
 
 **Lies zuerst [Bekannte Lücken](#bekannte-lücken), wenn du BitDM schon auf
 einem Telefon benutzt.** Eine zweite Installation mit denselben 12 Wörtern
-schließt sich deiner Identität nicht an, sie übernimmt sie.
+schließt sich deiner Identität als weiteres Gerät an: Sie sieht ab dann alles
+Neue, aber keinen alten Verlauf, und das Telefon bleibt angemeldet.
 
 Der Installer entsteht aus
 [`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss) — er

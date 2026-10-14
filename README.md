@@ -136,7 +136,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 | Nearby-only switch | working | the app opens no relay connection at all; `test/core/nur_nahbereich_test.dart`, `test/nah/schalter_test.dart`, `test/nah/schalter_echt_test.dart` |
 | Attachments | working | separate encrypted blob store, never through the relay |
 | Update over an existing install | working | 1.5.0+11 → 1.5.1+12, identity and contacts survived |
-| Recovery on a new device | working | 12 BIP39 words restore identity and contacts, not message history |
+| Recovery on a new device | working | 12 BIP39 words restore identity and address, not contacts or message history — those only come back from the encrypted backup |
 | Desktop client | runs, as an additional device | the Windows binary joins with the same 12 words as another device of the same address and sees everything new from then on, but no old history — see [Known gaps](#known-gaps) |
 | Independent security audit | **none** | — |
 
@@ -222,8 +222,9 @@ the hash, so the warning becomes something you can check rather than something
 you have to believe.
 
 **Read [Known gaps](#known-gaps) first if you already use BitDM on a phone.**
-A second install with the same 12 words does not join your identity, it takes
-it over.
+A second install with the same 12 words joins your identity as another device:
+it sees everything new from then on, but no old history, and the phone stays
+signed in.
 
 The installer comes from
 [`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss) — it installs
