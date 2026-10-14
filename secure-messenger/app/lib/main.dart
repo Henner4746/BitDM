@@ -7727,10 +7727,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
   /// Schritt fuer Schritt, was "nur in der Naehe" verlangt und was es leistet.
   ///
-  /// EHRLICH AN DER STELLE, AN DER ES WEHTUT: die Zustellung ueber Funk ist
-  /// noch nicht gebaut. Das steht hier nicht im Kleingedruckten, sondern in
-  /// einem eigenen Kasten ganz oben — wer die Schritte befolgt und dann
-  /// vergeblich wartet, verliert das Vertrauen in alles andere mit.
+  /// EHRLICH AN DER STELLE, AN DER ES WEHTUT: Funk erreicht nur Kontakte, die
+  /// schon bestaetigt sind, und nur ueber wenige Meter. Das steht hier nicht im
+  /// Kleingedruckten, sondern in einem eigenen Kasten ganz oben — wer die
+  /// Schritte befolgt und dann vergeblich wartet, verliert das Vertrauen in
+  /// alles andere mit. Bis 15.10.2026 stand in diesem Kasten, die Zustellung
+  /// ueber Funk sei noch nicht gebaut; das war seit dem 29.07.2026 ueberholt.
   ///
   /// NUR UNTER ANDROID ERREICHBAR. Der einzige Weg hierher ist `go('nahHilfe')`
   /// in `nahbereichBlock()`, und der ganze Block steht in den Einstellungen
@@ -7775,7 +7777,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           Expanded(child: h2(t('nearGuide'), size: 20)),
         ]),
         const SizedBox(height: 12),
-        _hinweisKasten(t('nearGuideNotYet')),
+        _hinweisKasten(t('nearGuideKurz')),
         const SizedBox(height: 18),
         label6(t('nearGuideWhat')),
         Text(t('nearGuideWhatBody'),
