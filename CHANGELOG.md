@@ -4,6 +4,30 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
+## Noch nicht veröffentlicht
+
+Behebungen aus der Prüfung vom 14.10.2026 (Quellstand `e5aefdf`), Einzelheiten
+in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE-2026-10-14.md).
+
+**Behoben (App)**
+- Ein Download, der mittendrin abbrach (App weggewischt oder gesperrt), stand für immer auf „lädt“, und der Anhang ließ sich nicht mehr holen. Beim nächsten Öffnen wird er jetzt zurückgesetzt.
+- Mit einem Sicherheitsschlüssel (FIDO-Stick) hing die Oberfläche während jeder USB-Übertragung bis zu fünf Sekunden. Die Übertragung läuft jetzt auf einem eigenen Faden.
+- Die Einstellungen der Passwort-Ableitung (Argon2id) aus der Fachdatei werden vor dem Entsperren geprüft. Eine manipulierte Datei konnte die App vorher abstürzen oder minutenlang hängen lassen.
+- Der Wiederherstellen-Bildschirm sagt jetzt, dass ein anderes Gerät mit denselben 12 Wörtern angemeldet bleibt und weiter Nachrichten bekommt.
+
+**Behoben (Relay)**
+- Ein Fremder konnte die Anmeldung eines Geräts stören, indem er dessen Einmal-Nonce verdrängte. Die Plätze gehören jetzt der Herkunft der Anfrage; über Tor dem Circuit, sobald der Onion-Dienst die Circuit-Kennung weitergibt.
+- Jede Zwischenlager-Marke zählt mindestens 1 MiB gegen die Tagesmenge. Vorher ließen sich mit winzigen Marken beliebig viele Einträge und Dateien anlegen.
+- Der Onion-Dienst bremst je Circuit statt nur für alle zusammen (Vorlage in `deploy/onion/`).
+- Die Relay-Vorlage setzt HSTS.
+- `install.sh` richtet ein festes Release ein (Tag und Commit), nicht mehr den jeweils neuesten Stand von `main`.
+
+**Dokumentation**
+- Das README beschrieb das Mehrgeräte-Verhalten falsch („eine Identität je Gerät“). Richtig ist: bis zu fünf Geräte je Adresse, und ein Gerät abmelden geht nicht.
+
+**Tests**
+- Die Testhilfen laufen auch unter Linux und macOS (`python3`, `BITDM_PYTHON`), und die Anhang-Tests hängen nicht mehr je nach Startreihenfolge.
+
 ## 1.9.0 — 26.09.2026
 
 **Neu**
