@@ -6,7 +6,7 @@ Diese Seite auf [Englisch](README.md).
 Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 
 [![Lizenz: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.9.0-6f62a8)
+![Version](https://img.shields.io/badge/version-1.9.1-6f62a8)
 ![Plattform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows_%7C_Linux_%7C_Web-6f62a8)
 
 | Plattform | Zustand |
@@ -184,8 +184,8 @@ Grenzen es gibt: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSV
 ### Android
 
 ```bash
-curl -fsSLO https://bitdm.net/bitdm-1.9.0.apk
-sha256sum bitdm-1.9.0.apk
+curl -fsSLO https://bitdm.net/bitdm-1.9.1.apk
+sha256sum bitdm-1.9.1.apk
 ```
 
 Android warnt beim Installieren. Es warnt bei **jeder** App, deren Zertifikat
@@ -194,11 +194,11 @@ Werte sagen etwas, und sie sind nicht dasselbe:
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des APK) | `428b3e79379ad84fba276c0fd77910a9a71a412597d74f0c7005f5d48da264ea` |
+| **Diese Datei** (sha256 des APK) | `7df868de06e6075994d435b8750edc1ac6e079fffbd5586e8a1e4e1b70a01e98` |
 | **Signierschlüssel** (Zertifikatsabdruck) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash
-apksigner verify --print-certs bitdm-1.9.0.apk
+apksigner verify --print-certs bitdm-1.9.1.apk
 ```
 
 Der erste Wert deckt nur diese eine Datei. Der zweite deckt jede künftige
@@ -213,15 +213,15 @@ Einreichungen bei Google Play und F-Droid sind vorbereitet, nicht erfolgt.
 
 ### Windows
 
-Installer [`bitdm-windows-setup-1.9.0.exe`](https://bitdm.net/bitdm-windows-setup-1.9.0.exe)
-(13.699.682 Byte) oder [`bitdm-windows-1.9.0.zip`](https://bitdm.net/bitdm-windows-1.9.0.zip)
-(16.561.532 Byte, auspacken und `bitdm.exe` starten). Beide hängen auch am
-[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.9.0).
+Installer [`bitdm-windows-setup-1.9.1.exe`](https://bitdm.net/bitdm-windows-setup-1.9.1.exe)
+(13.705.137 Byte) oder [`bitdm-windows-1.9.1.zip`](https://bitdm.net/bitdm-windows-1.9.1.zip)
+(16.566.719 Byte, auspacken und `bitdm.exe` starten). Beide hängen auch am
+[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.9.1).
 
 | Was | Wert |
 |---|---|
-| **Installer** (sha256) | `194372626075de128f4a7e1229e2473f6c4dad19e2152ed376a48883f0c42f1c` |
-| **Zip** (sha256) | `05bc43c68cac44a5b79308301785fbbbb4650f22aeaf2ffd34c8f406f1e3e577` |
+| **Installer** (sha256) | `3a79ba7e27ffcb6587a5f01f272b102cbe3b20e53ed59a69fbbc406b76362b7f` |
+| **Zip** (sha256) | `aa8fc2a5bd1f717bd87e62d4829ebe523845c0375f4b9991289bd92958acce02` |
 
 SmartScreen wird davor warnen, und daran ist hier nichts zu ändern: das
 Signieren von Windows-Programmen braucht ein Authenticode-Zertifikat von einer
@@ -242,8 +242,8 @@ legt keinen Autostart-Eintrag an.
 
 ### Linux
 
-`bitdm-linux-x64-1.9.0.tar.gz` am
-[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.9.0),
+`bitdm-linux-x64-1.9.1.tar.gz` am
+[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.9.1),
 gebaut von [`.github/workflows/linux.yml`](.github/workflows/linux.yml) auf
 Ubuntu 22.04 aus dem markierten Quellcode; das Protokoll des Laufs nennt die
 sha256. Auspacken und `./bitdm` starten; gebraucht werden GTK 3 und libsecret.
@@ -326,7 +326,7 @@ liegt in `data/app.so`. Gib den ganzen Ordner weiter. Für ein
 Installationsprogramm statt eines Zip:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=1.9.0 windows\bitdm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=1.9.1 windows\bitdm.iss
 ```
 
 Tests:
