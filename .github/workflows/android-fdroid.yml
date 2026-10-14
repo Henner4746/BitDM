@@ -119,8 +119,9 @@ jobs:
           FD="sudo --preserve-env --user vagrant env PATH=/opt/fdroidserver-bitdm:$PATH PYTHONPATH=/opt/fdroidserver-bitdm:/opt/fdroidserver-bitdm/examples PYTHONUNBUFFERED=true HOME=$HOME_VAGRANT GRADLE_USER_HOME=$HOME_VAGRANT/.gradle fdroid"
           APP="com.bitdm.bitdm:${{ steps.rezept.outputs.code }}"
           $FD fetchsrclibs --verbose "$APP"
-          git -C "$HOME_VAGRANT/build/com.bitdm.bitdm" log -1 --format='Quelle: %H'
-          git -C "$HOME_VAGRANT/build/com.bitdm.bitdm" submodule status
+          # Als root in ein Repo von vagrant schauen verlangt safe.directory.
+          git -c safe.directory='*' -C "$HOME_VAGRANT/build/com.bitdm.bitdm" log -1 --format='Quelle: %H'
+          git -c safe.directory='*' -C "$HOME_VAGRANT/build/com.bitdm.bitdm" submodule status
           # fdroid build --on-server nimmt sudo nach dem sudo-Block des Rezepts
           # wieder weg; die folgenden Schritte laufen ohnehin als root.
           $FD build --verbose --test --refresh-scanner --on-server --no-tarball "$APP"
