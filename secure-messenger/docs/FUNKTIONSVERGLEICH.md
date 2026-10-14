@@ -74,7 +74,6 @@ Zeile mit ✅ ist gebaut UND durch Tests belegt; die Testdatei steht dabei.
 | Linkvorschau | Signal, WhatsApp | Die Vorschau lädt die Seite — also erfährt der fremde Server, dass und wann jemand den Link bekommen hat. Das widerspricht dem Grund, warum es BitDM gibt. |
 | Anzeigenamen/Spitznamen | alle | Die App sagt ausdrücklich „Namen gibt es nicht — auch nicht lokal“ (`noNames`). Das ist eine Produktentscheidung, keine Lücke. |
 | Anrufe (Sprache, Video) | Signal, Session, Threema | Braucht WebRTC und TURN-Server, die Metadaten sehen. Ein eigenes Vorhaben mit eigener Bedrohungsanalyse. |
-| Onion-Routing / Tor | Session, Briar, Cwtch | Der Relay sieht heute die IP-Adresse. Tor wäre der Weg dagegen; das ist eine Netzschicht, kein Menüpunkt. Offen. |
 | Post-Quanten-Schlüsseltausch (PQXDH) | Signal, SimpleX | `libsignal_protocol_dart` 0.8.2 kennt kein Kyber. Hängt an der Bibliothek. |
 | Keine dauerhafte Kennung | SimpleX | Bei BitDM IST die Adresse der Schlüssel — der Kern des Entwurfs. |
 | Storys, Sticker, Zahlungen | Signal | Kein Messenger-Kern; jede davon vergrößert die Angriffsfläche. |
@@ -96,6 +95,13 @@ Zeile mit ✅ ist gebaut UND durch Tests belegt; die Testdatei steht dabei.
   nicht erreichbar (Kommentar in `gruppen_test.dart`).
 - **Notizen:** Bearbeiten, Reaktionen und Löschen in den Notizen bleiben auf
   dem Gerät, auf dem sie passieren; nur neue Notizen werden gespiegelt.
+- **Tor:** ab Werk aus und nur mit laufendem Orbot (SOCKS5, Standard
+  127.0.0.1:9050); im Browser wirkungslos, der kann weder SOCKS noch .onion.
+  Der eingebaute Relay wird als Onion-Dienst erreicht (ein eigener nur mit
+  `BITDM_RELAY_ONION`, sonst über einen Tor-Ausgang), das Zwischenlager über
+  einen Tor-Ausgang. Ohne den Schalter sieht der Relay die IP-Adresse. Bis
+  15.10.2026 stand Tor zusätzlich oben unter „bewusst NICHT gebaut“ als
+  „Offen“ — überholt seit der dritten Runde.
 - **Sprachnachrichten:** nur Android. Das Manifest trägt dafür wieder
   `RECORD_AUDIO` (vorher ausdrücklich entfernt) — Begründung dort.
 - **Tipp-Anzeige:** braucht einen Relay mit flüchtigen Rahmen (ab dieser

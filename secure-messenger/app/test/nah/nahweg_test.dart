@@ -695,6 +695,54 @@ void main() {
       expect(relay!.buendelAbrufe, abrufeVorher);
       expect((await letzte()).ueberNaehe, isTrue);
     });
+
+    test('EIN NEUER KONTAKT ENTSTEHT NICHT UEBER FUNK — die Anfrage wartet '
+        'auf den Relay', () async {
+      // AN DIESEM TEST HAENGT DIE ANLEITUNG (data.dart: nearStep1,
+      // nearOnlyWarnRadio, nearGuideBackBody): "werdet vorher Kontakte, mit
+      // Internet". Das Schluesselbuendel reist zwar ueber Funk (Gruppe "Das
+      // Schluesselbuendel ueber Funk"), die Kontaktanfrage aber nicht — sie
+      // wird nur aus connect() nachgeschickt, und mit "nur in der Naehe" gibt
+      // es kein Verbinden. Bis 15.10.2026 versprach nearOnlyWarnRadio das
+      // Gegenteil. Wer die Anfrage ueber Funk baut, macht diesen Test rot und
+      // muss die Texte mit aendern.
+      await funkAn(nurNahbereich: true);
+      final bert = await Gegenstelle.neu();
+      gegenstellen[bert.adresse] = bert;
+
+      await kern.addContact(bert.adresse);
+      await kern.nahRuhtFuerTest;
+
+      // Bert steht daneben und hat uns seinerseits schon aufgenommen — sonst
+      // saehe ihn der Funk gar nicht. Der guenstigste Fall also.
+      funk.sieh(Gesehen(
+          geraet: 'BB:22',
+          rssi: -40,
+          leuchtfeuer: [
+            await bert.leuchtfeuerFuer(BitdmAddress.decode(kern.myId), jetzt)
+          ]));
+      await Future<void>.delayed(Duration.zero);
+      expect(nah.inReichweite, contains(bert.adresse),
+          reason: 'ohne Bert in Reichweite prueft der Test darunter nichts');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(funk.gesendet, isEmpty,
+          reason: 'etwas ging ueber Funk an Bert — dann stimmt die Anleitung '
+              'nicht mehr');
+      expect(relaysGebaut, 0, reason: 'und an einen Server schon gar nicht');
+      expect((await kern.getContacts()).single.state,
+          ContactState.outgoingPending,
+          reason: 'die Oberflaeche zeigt ihn als ausstehende Anfrage, und '
+              'schreiben laesst sie erst nach der Bestaetigung (reqSentNote)');
+
+      // DIE GEGENPROBE, und zugleich das Versprechen von nearGuideBackBody:
+      // Schalter aus, und die Anfrage geht ueber den Relay hinaus.
+      await kern.setPreferences(const AppPreferences(naheAn: true));
+      await warteBis(
+          () => relay?.gesendet.any((g) => g.an == bert.adresse) ?? false);
+      expect(relay!.gesendet.where((g) => g.an == bert.adresse), hasLength(1),
+          reason: 'nach dem Ausschalten muss die Anfrage von selbst hinaus');
+    });
   });
 
   group('Was liegenblieb, geht nach', () {
