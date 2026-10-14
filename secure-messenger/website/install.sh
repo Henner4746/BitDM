@@ -9,6 +9,16 @@
 #   curl -fsSLO https://bitdm.net/install.sh
 #   less install.sh && sudo bash install.sh
 #
+# To check that bitdm.net serves the same file as the repository, compare it
+# with the copy on GitHub — two hosts, two operators, one would have to fall
+# for both:
+#
+#   curl -fsSL https://bitdm.net/install.sh | sha256sum
+#   curl -fsSL https://raw.githubusercontent.com/Henner4746/BitDM/main/secure-messenger/website/install.sh | sha256sum
+#
+# It installs one fixed release (REF / REF_COMMIT below), not whatever is on
+# the main branch right now.
+#
 # To see what it would do without changing anything:
 #
 #   curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
@@ -30,6 +40,21 @@ run() {
 
 REPO="https://github.com/Henner4746/BitDM.git"
 TARGET="/opt/bitdm"
+
+# ── Welche Fassung eingerichtet wird (seit 14.10.2026) ────────────────────
+# FEST EINGETRAGEN, und zwar als Commit. Bis zum 14.10.2026 holte dieses
+# Skript den jeweils neuesten Stand von main und fuehrte daraus als root
+# install-relay.sh aus, ungeprueft. Wer das GitHub-Konto oder den Zweig main
+# uebernahm, bekam damit root auf jedem Relay, der danach eingerichtet oder
+# aktualisiert wurde — und Relays sehen Metadaten (Pruefung vom 14.10.2026,
+# N2). Jetzt wird genau dieser Commit geholt, per Kennung: git prueft beim
+# Holen, dass der Inhalt zu ihr passt. Ein verschobenes Tag oder ein neuer
+# Stand auf main aendert daran nichts.
+#
+# BEI JEDEM RELEASE beide Zeilen hochziehen: erst das Tag setzen, dann hier
+# eintragen (`git rev-list -n1 vX.Y.Z`), dann die Seite ausrollen.
+REF="v1.9.0"
+REF_COMMIT="0ebf43ad001569327ba1ae9e5075b5905c7b689a"
 
 red=$'\033[31m'; green=$'\033[32m'; yellow=$'\033[33m'; bold=$'\033[1m'; off=$'\033[0m'
 say()  { printf '%s\n' "$*"; }
@@ -141,10 +166,25 @@ ok "/var/www/acme created, nginx running"
 # ── Source ────────────────────────────────────────────────────────────────
 say ""
 say "${bold}Source${off}"
-if [[ -d $TARGET/.git ]]; then
-  run git -C "$TARGET" pull --ff-only --quiet && ok "updated: $TARGET"
+if [[ -d $TARGET/.git ]] && git -C "$TARGET" merge-base --is-ancestor "$REF_COMMIT" HEAD 2>/dev/null; then
+  # Schon auf diesem Stand oder darueber (etwa ein Checkout, der main folgt).
+  # NICHT zuruecksetzen: das waere ein Rueckschritt, und ein Checkout auf einem
+  # Zweig stuende danach losgeloest da.
+  ok "already at $REF or newer: $TARGET ($(git -C "$TARGET" rev-parse --short HEAD))"
 else
-  run git clone --depth 1 --quiet "$REPO" "$TARGET" && ok "cloned to $TARGET"
+  if [[ -d $TARGET/.git ]]; then
+    run git -C "$TARGET" fetch --quiet "$REPO" "$REF_COMMIT"
+  else
+    run git init --quiet "$TARGET"
+    run git -C "$TARGET" fetch --quiet --depth 1 "$REPO" "$REF_COMMIT"
+  fi
+  run git -C "$TARGET" checkout --quiet --detach "$REF_COMMIT"
+  if [[ -z $DRY ]]; then
+    ist=$(git -C "$TARGET" rev-parse HEAD)
+    [[ $ist == "$REF_COMMIT" ]] \
+      || die "$TARGET is at $ist, expected $REF ($REF_COMMIT) — stopping."
+  fi
+  ok "$REF ($(cut -c1-12 <<<"$REF_COMMIT")) in $TARGET"
 fi
 
 SCRIPT="$TARGET/secure-messenger/deploy/install-relay.sh"
