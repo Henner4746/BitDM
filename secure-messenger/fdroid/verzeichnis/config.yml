@@ -1,0 +1,42 @@
+# Eigenes F-Droid-Verzeichnis von BitDM: https://bitdm.net/fdroid/repo
+#
+# F-Droid hat BitDM am 15.10.2026 nicht aufgenommen (fdroiddata!52566). Dieses
+# Verzeichnis liefert DIESELBE APK aus wie der GitHub-Release — unveraendert,
+# mit der Entwickler-Signatur. Signiert wird hier nur der Index.
+#
+# Das ist die Vorlage: veroeffentlichen.sh kopiert sie in den Arbeitsordner
+# (WSL, ~/bitdm-fdroid/verzeichnis) und ruft dort fdroid auf.
+#
+# KEINE GEHEIMNISSE IN DIESER DATEI. Schluesseldatei und Passwort liegen nur
+# auf dem Rechner des Entwicklers; das Skript reicht sie ueber
+# Umgebungsvariablen herein ({env: ...} versteht fdroidserver seit 2.0).
+
+repo_url: https://bitdm.net/fdroid/repo
+repo_name: BitDM
+repo_icon: bitdm-icon.png
+repo_description: >-
+  The official repository of BitDM, an end-to-end encrypted messenger without
+  a phone number. It serves the same signed APK as the GitHub release.
+  https://bitdm.net
+
+# Drei Fassungen bleiben im Repo (Rueckweg bei einem kaputten Update), aeltere
+# wandern ins Archiv. Jede APK hat rund 47 MB.
+archive_older: 3
+archive_url: https://bitdm.net/fdroid/archive
+archive_name: BitDM (archive)
+archive_icon: bitdm-icon.png
+archive_description: Older BitDM versions, moved out of the main repository.
+
+# Der Index-Schluessel ist NICHT der APK-Schluessel (bitdm-release.jks). Sein
+# Fingerabdruck steht in der Repo-Adresse; geht er verloren, muessen alle
+# Nutzer das Repo neu hinzufuegen (die App selbst bleibt davon unberuehrt).
+keystore: {env: BITDM_FDROID_KEYSTORE}
+repo_keyalias: bitdm-fdroid-index
+keystorepass: {env: BITDM_FDROID_PASS}
+keypass: {env: BITDM_FDROID_PASS}
+keydname: CN=BitDM F-Droid Repo, OU=F-Droid, O=BitDM
+
+# SSH-Name aus ~/.ssh/config in WSL. Am anderen Ende laesst rrsync den
+# Schluessel nur nach /var/www/bitdm-fdroid schreiben; "/fdroid" ist relativ
+# dazu. fdroid deploy verlangt, dass der Pfad auf "fdroid" endet.
+serverwebroot: bitdm-fdroid-vps:/fdroid

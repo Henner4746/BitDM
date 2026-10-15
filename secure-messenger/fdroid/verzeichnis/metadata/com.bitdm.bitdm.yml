@@ -1,0 +1,31 @@
+# BitDM im eigenen F-Droid-Verzeichnis (bitdm.net/fdroid).
+#
+# Ausgangspunkt war das Rezept fuer fdroiddata (../com.bitdm.bitdm.yml). Der
+# Bau-Block fehlt hier mit Absicht: dieses Verzeichnis baut nicht, es nimmt
+# die signierte Release-APK. Name, Kurz- und Langbeschreibung, Bilder und
+# Changelogs kommen aus app/fastlane/metadata/android/ im Release-Tag —
+# veroeffentlichen.sh legt sie als metadata/com.bitdm.bitdm/ daneben.
+
+AntiFeatures:
+  TetheredNet:
+    en-US: Messages go through the developer's relay (relay.bitdm.net). The relay
+      is free software and can be self-hosted, but its address can only be changed
+      at build time, not in the app.
+    de-DE: Nachrichten laufen über den Relay des Entwicklers (relay.bitdm.net). Der
+      Relay ist freie Software und selbst betreibbar, seine Adresse lässt sich aber
+      nur beim Bauen ändern, nicht in der App.
+Categories:
+  - Connectivity
+  - Messaging
+License: AGPL-3.0-only
+AuthorName: Henner4746
+WebSite: https://bitdm.net
+SourceCode: https://github.com/Henner4746/BitDM
+IssueTracker: https://github.com/Henner4746/BitDM/issues
+Changelog: https://github.com/Henner4746/BitDM/blob/HEAD/CHANGELOG.md
+
+AutoName: BitDM
+
+# fdroid update nimmt nur APKs auf, die mit genau diesem Zertifikat signiert
+# sind (SHA-256 des Entwicklerschluessels, derselbe wie im fdroiddata-Rezept).
+AllowedAPKSigningKeys: e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063

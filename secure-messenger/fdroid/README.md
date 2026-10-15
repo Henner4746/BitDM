@@ -95,7 +95,10 @@ Telefon bleibt der Windows-Bau, wie er ist.
    wie in `AllowedAPKSigningKeys`.
 5. `bitdm-1.9.1.apk` an den GitHub-Release hängen (der Name muss genau so sein,
    `Binaries:` im Rezept zeigt darauf), danach wie bisher die Seite.
-6. Erste Fassung: Merge-Request in fdroiddata mit dem vollen Commit-Hash des
+6. Eigenes F-Droid-Verzeichnis (bitdm.net/fdroid/repo), in WSL:
+   `bash secure-messenger/fdroid/verzeichnis/veroeffentlichen.sh 1.9.1` —
+   übernimmt genau diese APK vom Release, siehe `verzeichnis/README.md`.
+7. Erste Fassung: Merge-Request in fdroiddata mit dem vollen Commit-Hash des
    Tags (`git rev-list -n1 v1.9.1`). Danach findet F-Droid neue Tags selbst.
 
 ## Gegenprobe ohne GitHub
