@@ -194,7 +194,7 @@ Werte sagen etwas, und sie sind nicht dasselbe:
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des APK) | `7df868de06e6075994d435b8750edc1ac6e079fffbd5586e8a1e4e1b70a01e98` |
+| **Diese Datei** (sha256 des APK) | `7b69794fca313b9033b233be8be6a3635610ff9b534327fb3ef4a64e05e7ded5` |
 | **Signierschlüssel** (Zertifikatsabdruck) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash

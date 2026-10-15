@@ -79,9 +79,18 @@ Telefon bleibt der Windows-Bau, wie er ist.
 4. Lokal signieren — der Schlüssel verlässt den Rechner nicht. Speicherdatei und
    Alias stehen in `app/android/key.properties` (`storeFile`, `keyAlias`):
    ```
-   %LOCALAPPDATA%\Android\Sdk\build-tools\36.0.0\apksigner.bat sign --ks <storeFile> --ks-key-alias <keyAlias> --out bitdm-1.9.1.apk bitdm-1.9.1-unsigned.apk
-   %LOCALAPPDATA%\Android\Sdk\build-tools\36.0.0\apksigner.bat verify --print-certs bitdm-1.9.1.apk
+   & "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.0.0\apksigner.bat" sign --alignment-preserved --ks <storeFile> --ks-key-alias <keyAlias> --out bitdm-1.9.1.apk bitdm-1.9.1-unsigned.apk
+   & "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.0.0\apksigner.bat" verify --print-certs bitdm-1.9.1.apk
    ```
+   **`--alignment-preserved` IST PFLICHT.** Ohne den Schalter baut apksigner die
+   Datei beim Signieren um (eigene Ausrichtungsfelder in den Dateiköpfen), und
+   F-Droid kann die Signatur nicht mehr auf seinen eigenen, bitgleichen Bau
+   übertragen: „compared built binary to supplied reference binary but
+   failed … CHUNKED_SHA512 digest mismatch“. So geschehen bei der ersten
+   Einreichung von 1.9.1 (15.10.2026). Die unsignierte APK aus dem Workflow ist
+   bereits richtig ausgerichtet (4 Byte, `.so` auf 16 KiB), es geht dabei nichts
+   verloren. Gegenprobe vor dem Hochladen, genau wie F-Droid sie macht:
+   `apksigcopier compare bitdm-1.9.1.apk --unsigned bitdm-1.9.1-unsigned.apk`.
    Der Zertifikats-Fingerabdruck (SHA-256) muss `e325b01c…2063` sein — derselbe
    wie in `AllowedAPKSigningKeys`.
 5. `bitdm-1.9.1.apk` an den GitHub-Release hängen (der Name muss genau so sein,
