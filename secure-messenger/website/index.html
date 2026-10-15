@@ -482,6 +482,20 @@ html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
 .pruef-auf summary:focus-visible{outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
 .pruef-auf .pruef{margin-top:6px}
 .pruef-auf .hint{margin-top:12px}
+/* F-Droid-Verzeichnis: der QR-Code steht auf Weiss, weil Scanner dunkle
+   Module auf hellem Grund erwarten; die Adresse bricht wie ein Hash mitten im
+   Zeichen, sonst sprengt sie das Telefon. */
+.fd{display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; margin-top:10px}
+.fd-qr{width:164px; height:164px; flex:none; border-radius:var(--r-sm); background:#fff}
+.fd-text{display:grid; gap:10px; flex:1 1 240px; min-width:0}
+.pruef-auf .fd .hint{margin:0}
+.fd-adresse{font-size:11.5px; line-height:1.6; color:var(--body); word-break:break-all}
+/* Breite wie jeder .btn: auf dem Telefon volle Breite, in der grossen Karte
+   ab 640 px nur so breit wie noetig — dann linksbuendig statt gestreckt. */
+.fd .fd-kopier{justify-self:start}
+/* .btn setzt display und schlaegt damit das hidden-Attribut; ohne Skript
+   (keine Zwischenablage) soll der Knopf aber wirklich weg sein. */
+.fd-kopier[hidden]{display:none}
 .pruef .befehl{display:block; margin-top:3px; color:var(--dim)}
 
 /* Laempchen: nur noch im Abschnitt "Was der Server sieht". */
@@ -804,7 +818,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
        nur laden will, sieht zwei Knoepfe und einen Satz.
 
        BEIM NEUEN RELEASE: Dateinamen, Groessen und Pruefwerte in allen vier
-       Karten nachziehen. Die Messwerte zu Windows stehen im Kommentar dort. -->
+       Karten nachziehen. Die Messwerte zu Windows stehen im Kommentar dort.
+       Das F-Droid-Verzeichnis bekommt die APK ueber
+       secure-messenger/fdroid/verzeichnis/veroeffentlichen.sh; Adresse und
+       QR-Code in der Android-Karte bleiben dabei gleich. -->
   <section class="wrap dl-bereich" id="download" aria-labelledby="dl-titel">
     <h2 id="dl-titel" class="dl-titel">
       <span class="de">Herunterladen</span><span class="en">Download</span>
@@ -825,6 +842,20 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
           <a class="btn btn-primary" href="bitdm-1.9.1.apk" download>
             <span class="de">APK herunterladen</span><span class="en">Download APK</span>
           </a>
+          <!-- F-DROID: unser EIGENES Verzeichnis (bitdm.net/fdroid/repo), nicht
+               der offizielle Katalog, der BitDM am 15.10.2026 abgelehnt hat. Es
+               liefert bitgenau dieselbe APK wie oben, siehe
+               secure-messenger/fdroid/verzeichnis/README.md.
+               fdroidrepos:// statt https://fdroid.link aus demselben Grund wie
+               bei Obtainium: niemand geht ueber Dritte. F-Droid 2.x faengt NUR
+               diese beiden Formen ab, die nackte https-Adresse oeffnete bloss den
+               Browser (geprueft am 15.10.2026 mit F-Droid 2.0.1: Link -> Repo
+               hinzufuegen -> 1.9.1 installiert -> bitgleich mit dieser APK).
+               Ohne F-Droid tut der Knopf nichts; QR-Code und Adresse stehen
+               deshalb unten unter "F-Droid-Verzeichnis". -->
+          <a class="btn" href="fdroidrepos://bitdm.net/fdroid/repo?fingerprint=7C35B6517F5E4E2D35729C15EE9AC0839930E44C773D57ED60A959CD8F1D6B85">
+            <span class="de">In F-Droid hinzufügen</span><span class="en">Add to F-Droid</span>
+          </a>
           <!-- OBTAINIUM: direkt obtainium:// und NICHT ueber die
                Weiterleitungsseite apps.obtainium.imranr.dev, weil diese Seite
                niemanden ueber Dritte schickt. Ohne Obtainium tut der Knopf
@@ -836,13 +867,51 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <p class="dl-text">
           <span class="de">Android warnt beim Installieren, weil Google das Zertifikat
             nicht kennt. Ob du die echte Datei hast, zeigen dir die Prüfwerte.
-            <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
-            holt neue Fassungen von selbst.</span>
+            Neue Fassungen kommen von selbst, über
+            <a href="https://f-droid.org" rel="noopener">F-Droid</a> mit unserem
+            eigenen Verzeichnis oder über
+            <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>.</span>
           <span class="en">Android warns you when installing because Google does not
             know the certificate. The check values tell you whether you have the
-            real file. <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
-            fetches new versions by itself.</span>
+            real file. New versions arrive by themselves, through
+            <a href="https://f-droid.org" rel="noopener">F-Droid</a> with our own
+            repository or through
+            <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>.</span>
         </p>
+        <!-- QR-CODE: bilder/fdroid-repo.svg, aus genau der Adresse darunter
+             erzeugt und am 15.10.2026 mit zbarimg gegengelesen. Dunkel auf
+             Weiss, weil Scanner das brauchen. Adresse und Code bleiben gleich,
+             solange der Index-Schluessel derselbe ist; bei einem Release
+             aendert sich hier nichts. -->
+        <details class="pruef-auf">
+          <summary><span class="de">F-Droid-Verzeichnis</span><span class="en">F-Droid repository</span></summary>
+          <div class="fd">
+            <img class="fd-qr" src="bilder/fdroid-repo.svg" width="164" height="164" loading="lazy"
+                 alt="QR: https://bitdm.net/fdroid/repo?fingerprint=7C35B6517F5E4E2D35729C15EE9AC0839930E44C773D57ED60A959CD8F1D6B85">
+            <div class="fd-text">
+              <p class="hint">
+                <span class="de">In F-Droid, Droid-ify oder Neo Store ein Repository
+                  hinzufügen: den Code scannen oder diese Adresse einfügen.</span>
+                <span class="en">Add a repository in F-Droid, Droid-ify or Neo Store:
+                  scan the code or paste this address.</span>
+              </p>
+              <code class="fd-adresse">https://bitdm.net/fdroid/repo?fingerprint=7C35B6517F5E4E2D35729C15EE9AC0839930E44C773D57ED60A959CD8F1D6B85</code>
+              <button type="button" class="btn fd-kopier" hidden
+                      data-kopier="https://bitdm.net/fdroid/repo?fingerprint=7C35B6517F5E4E2D35729C15EE9AC0839930E44C773D57ED60A959CD8F1D6B85">
+                <span class="de">Adresse kopieren</span><span class="en">Copy address</span>
+              </button>
+              <p class="hint">
+                <span class="de">Der Fingerabdruck am Ende sorgt dafür, dass die App nur
+                  ein Verzeichnis annimmt, das mit unserem Schlüssel signiert ist. Es
+                  liefert dieselbe APK wie hier und auf GitHub. Wer BitDM schon hat,
+                  wechselt ohne Neuinstallation.</span>
+                <span class="en">The fingerprint at the end makes the app accept only a
+                  repository signed with our key. It serves the same APK as here and on
+                  GitHub. If you already have BitDM, you switch without reinstalling.</span>
+              </p>
+            </div>
+          </div>
+        </details>
         <details class="pruef-auf">
           <summary><span class="de">Prüfwerte</span><span class="en">Check values</span></summary>
           <dl class="pruef">
@@ -1036,6 +1105,32 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     el.parentNode.insertBefore(el, el.parentNode.firstElementChild);
     el.classList.add('dl-dein');
     document.documentElement.setAttribute('data-geraet', geraet);
+  })();
+
+  // "Adresse kopieren" erst zeigen, wenn es die Zwischenablage gibt. Ohne
+  // Skript bleibt die Adresse darueber zum Markieren stehen. Verweigert der
+  // Browser das Schreiben (Berechtigung, eingebettete Ansicht — so geschehen
+  // am 15.10.2026 in einer Vorschau), wird die Adresse wenigstens markiert.
+  (function () {
+    if (!navigator.clipboard) return;
+    document.querySelectorAll('[data-kopier]').forEach(function (b) {
+      var de = b.querySelector('.de'), en = b.querySelector('.en');
+      var vorher = [de.textContent, en.textContent];
+      var adresse = b.parentNode.querySelector('.fd-adresse');
+      b.hidden = false;
+      b.addEventListener('click', function () {
+        navigator.clipboard.writeText(b.getAttribute('data-kopier')).then(function () {
+          de.textContent = 'Kopiert'; en.textContent = 'Copied';
+          setTimeout(function () { de.textContent = vorher[0]; en.textContent = vorher[1]; }, 1800);
+        }, function () {
+          if (!adresse) return;
+          var r = document.createRange();
+          r.selectNodeContents(adresse);
+          var s = window.getSelection();
+          s.removeAllRanges(); s.addRange(r);
+        });
+      });
+    });
   })();
   </script>
 
@@ -1614,9 +1709,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              APK hier und auf GitHub (Releases v1.6.1 bis v1.9.1). Nicht in Google
              Play oder F-Droid, und im Alltag noch nicht erprobt — das bleibt stehen.
              Bis 15.10.2026 stand hier "bei F-Droid beantragt"; F-Droid hat den
-             Antrag (fdroiddata!52566) an dem Tag abgelehnt. -->
-        <dd><span class="de">Vorabversion. Als Download hier und auf GitHub, nicht in F-Droid oder Google Play und noch nicht im Alltag erprobt.</span>
-            <span class="en">Pre-release. Available as a download here and on GitHub, not in F-Droid or Google Play, and not yet proven in daily use.</span></dd>
+             Antrag (fdroiddata!52566) an dem Tag abgelehnt. Seit demselben Abend
+             gibt es das eigene Verzeichnis bitdm.net/fdroid/repo — im
+             offiziellen Katalog ist BitDM weiterhin nicht. -->
+        <dd><span class="de">Vorabversion. Als Download hier, auf GitHub und im eigenen F-Droid-Verzeichnis, nicht im offiziellen F-Droid-Katalog oder in Google Play, und noch nicht im Alltag erprobt.</span>
+            <span class="en">Pre-release. Available as a download here, on GitHub and in our own F-Droid repository, not in the official F-Droid catalogue or Google Play, and not yet proven in daily use.</span></dd>
       </div>
     </dl>
   </section>
