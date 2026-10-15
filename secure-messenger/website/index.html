@@ -169,7 +169,7 @@
    "name": "What can the server see?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No content and no names. It sees which address writes to which, when, and the rough size. To hide that too, turn on Tor or use nearby mode over Bluetooth."
+    "text": "No content and no names. It sees which address writes to which, when, the rough size and your IP address. Tor hides your IP address, but not who writes to whom. Only nearby mode over Bluetooth bypasses the server entirely."
    }
   },
   {
@@ -837,14 +837,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
           <span class="de">Android warnt beim Installieren, weil Google das Zertifikat
             nicht kennt. Ob du die echte Datei hast, zeigen dir die Prüfwerte.
             <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
-            holt neue Fassungen von selbst. Bei F-Droid ist BitDM
-            <a href="https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566" rel="noopener">beantragt</a>.</span>
+            holt neue Fassungen von selbst.</span>
           <span class="en">Android warns you when installing because Google does not
             know the certificate. The check values tell you whether you have the
             real file. <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
-            fetches new versions by itself. BitDM is
-            <a href="https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566" rel="noopener">pending</a>
-            at F-Droid.</span>
+            fetches new versions by itself.</span>
         </p>
         <details class="pruef-auf">
           <summary><span class="de">Prüfwerte</span><span class="en">Check values</span></summary>
@@ -1615,9 +1612,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <dt><span class="de">Reife</span><span class="en">Maturity</span></dt>
         <!-- "NOCH NICHT VEROEFFENTLICHT" stimmte bis 25.09.2026: seitdem liegt die
              APK hier und auf GitHub (Releases v1.6.1 bis v1.9.1). Nicht in Google
-             Play oder F-Droid, und im Alltag noch nicht erprobt — das bleibt stehen. -->
-        <dd><span class="de">Vorabversion. Als Download hier und auf GitHub, bei F-Droid beantragt, nicht in Google Play und noch nicht im Alltag erprobt.</span>
-            <span class="en">Pre-release. Available as a download here and on GitHub, requested at F-Droid, not in Google Play, and not yet proven in daily use.</span></dd>
+             Play oder F-Droid, und im Alltag noch nicht erprobt — das bleibt stehen.
+             Bis 15.10.2026 stand hier "bei F-Droid beantragt"; F-Droid hat den
+             Antrag (fdroiddata!52566) an dem Tag abgelehnt. -->
+        <dd><span class="de">Vorabversion. Als Download hier und auf GitHub, nicht in F-Droid oder Google Play und noch nicht im Alltag erprobt.</span>
+            <span class="en">Pre-release. Available as a download here and on GitHub, not in F-Droid or Google Play, and not yet proven in daily use.</span></dd>
       </div>
     </dl>
   </section>
@@ -1718,8 +1717,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Was sieht der Server?</span><span class="en">What can the server see?</span></summary>
-        <p class="de">Keinen Inhalt und keine Namen. Er sieht, welche Adresse wann an welche schreibt, und die ungefähre Größe. Wer auch das verbergen will, schaltet Tor ein oder nutzt den Nahbereich über Bluetooth.</p>
-        <p class="en">No content and no names. It sees which address writes to which, when, and the rough size. To hide that too, turn on Tor or use nearby mode over Bluetooth.</p>
+        <p class="de">Keinen Inhalt und keine Namen. Er sieht, welche Adresse wann an welche schreibt, die ungefähre Größe und deine IP-Adresse. Tor verbirgt die IP-Adresse, aber nicht, wer an wen schreibt. Ganz am Server vorbei geht nur der Nahbereich über Bluetooth.</p>
+        <p class="en">No content and no names. It sees which address writes to which, when, the rough size and your IP address. Tor hides your IP address, but not who writes to whom. Only nearby mode over Bluetooth bypasses the server entirely.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Funktioniert BitDM ohne Internet?</span><span class="en">Does BitDM work without internet?</span></summary>

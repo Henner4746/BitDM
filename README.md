@@ -209,9 +209,10 @@ above, checked by Android against the same signing key.
 redirect page, because GitHub strips `obtainium://` links; on
 [bitdm.net](https://bitdm.net) the button opens Obtainium directly).
 
-**F-Droid:** inclusion is requested
-([fdroiddata!52566](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566)) and waiting for review; F-Droid's own build of
-1.9.1 is bit-identical to the APK above. Google Play: not submitted.
+**F-Droid and Google Play:** BitDM is in neither. The APK above is still built
+reproducibly with F-Droid's own tooling (`fdroid build`, workflow
+`.github/workflows/android-fdroid.yml`); F-Droid's test build of 1.9.1 came out
+bit-identical to it.
 
 ### Windows
 
@@ -469,7 +470,7 @@ concerned. Two separate bugs in this project had that single root cause.
 - **The Windows binaries are unsigned** — installer and zip alike.
 - **Groups are limited:** up to 20 members, fan-out over one-to-one sessions
   (no sender keys — reasoning in `docs/FUNKTIONSVERGLEICH.md`).
-- **Not in Google Play; F-Droid inclusion is requested** ([fdroiddata!52566](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566), in review).
+- **Not in Google Play or F-Droid.**
 
 ---
 
