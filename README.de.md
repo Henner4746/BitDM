@@ -208,8 +208,18 @@ nicht mehr dieselbe App.**
 
 Braucht **Android 9 oder neuer.** Der Nahbereich braucht **Android 12**;
 darunter verweigert die App ihn mit einem klaren Grund, statt nach der
-Standortberechtigung zu fragen, die eine BLE-Suche dort sonst verlangt. Die
-Einreichungen bei Google Play und F-Droid sind vorbereitet, nicht erfolgt.
+Standortberechtigung zu fragen, die eine BLE-Suche dort sonst verlangt.
+
+**Updates von selbst:** [Obtainium](https://github.com/ImranR98/Obtainium) holt
+jede neue Fassung direkt aus den GitHub-Releases — dieselbe Datei wie oben, von
+Android gegen denselben Signierschlüssel geprüft.
+[BitDM in Obtainium hinzufügen](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.bitdm.bitdm%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FHenner4746%2FBitDM%22%2C%22author%22%3A%22Henner4746%22%2C%22name%22%3A%22BitDM%22%7D) (der Link geht über Obtainiums
+eigene Weiterleitungsseite, weil GitHub `obtainium://`-Links entfernt; auf
+[bitdm.net](https://bitdm.net) öffnet der Knopf Obtainium direkt).
+
+**F-Droid:** Die Aufnahme ist beantragt
+([fdroiddata!52566](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566)) und wartet auf die Prüfung; F-Droids eigener Bau von
+1.9.1 ist bitgleich mit der APK oben. Google Play: nicht eingereicht.
 
 ### Windows
 
@@ -484,8 +494,8 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
 - **Die Windows-Dateien sind unsigniert** — Installer wie Zip.
 - **Gruppen mit Grenzen:** bis 20 Mitglieder, Verteilung über Einzelsitzungen
   (keine Sender Keys — Begründung in `docs/FUNKTIONSVERGLEICH.md`).
-- **Die Einreichungen bei Google Play und F-Droid sind vorbereitet, nicht
-  erfolgt.**
+- **Nicht in Google Play; die Aufnahme bei F-Droid ist beantragt**
+  ([fdroiddata!52566](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566), in Prüfung).
 
 ---
 

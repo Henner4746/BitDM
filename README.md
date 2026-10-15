@@ -200,8 +200,18 @@ version — Android accepts an update only if it carries the same signing key.
 
 Requires **Android 9 or newer.** Nearby mode needs **Android 12**; below that
 the app refuses it with a plain reason instead of asking for the location
-permission a BLE scan would otherwise require. Google Play and F-Droid
-submissions are prepared, not done.
+permission a BLE scan would otherwise require.
+
+**Automatic updates:** [Obtainium](https://github.com/ImranR98/Obtainium)
+fetches every new version straight from the GitHub releases — the same file as
+above, checked by Android against the same signing key.
+[Add BitDM to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.bitdm.bitdm%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FHenner4746%2FBitDM%22%2C%22author%22%3A%22Henner4746%22%2C%22name%22%3A%22BitDM%22%7D) (the link goes through Obtainium's own
+redirect page, because GitHub strips `obtainium://` links; on
+[bitdm.net](https://bitdm.net) the button opens Obtainium directly).
+
+**F-Droid:** inclusion is requested
+([fdroiddata!52566](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566)) and waiting for review; F-Droid's own build of
+1.9.1 is bit-identical to the APK above. Google Play: not submitted.
 
 ### Windows
 
@@ -459,7 +469,7 @@ concerned. Two separate bugs in this project had that single root cause.
 - **The Windows binaries are unsigned** — installer and zip alike.
 - **Groups are limited:** up to 20 members, fan-out over one-to-one sessions
   (no sender keys — reasoning in `docs/FUNKTIONSVERGLEICH.md`).
-- **Google Play and F-Droid submissions are prepared, not done.**
+- **Not in Google Play; F-Droid inclusion is requested** ([fdroiddata!52566](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566), in review).
 
 ---
 

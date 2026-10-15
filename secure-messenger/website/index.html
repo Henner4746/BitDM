@@ -782,6 +782,17 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <a class="btn btn-primary" href="bitdm-1.9.1.apk" download>
           <span class="de">APK herunterladen</span><span class="en">Download APK</span>
         </a>
+        <!-- OBTAINIUM (seit 15.10.2026): holt jede neue Fassung direkt aus den
+             GitHub-Releases. Der Link uebergibt eine fertige Einstellung (App-ID,
+             Quelle, Name); Obtainium zeigt sie vor dem Hinzufuegen zur
+             Bestaetigung an. DIREKT obtainium:// und NICHT ueber die
+             Weiterleitungsseite apps.obtainium.imranr.dev: die Seite laesst
+             niemanden ueber Dritte laufen. Ohne Obtainium tut der Knopf nichts —
+             dafuer steht der Hinweis darunter. Im README auf GitHub steht die
+             Weiterleitung, weil GitHub obtainium://-Links entfernt. -->
+        <a class="btn" href="obtainium://app/%7B%22id%22%3A%22com.bitdm.bitdm%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FHenner4746%2FBitDM%22%2C%22author%22%3A%22Henner4746%22%2C%22name%22%3A%22BitDM%22%7D">
+          <span class="de">In Obtainium hinzufügen</span><span class="en">Add to Obtainium</span>
+        </a>
       </div>
 
       <dl class="pruef">
@@ -803,6 +814,16 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
           every future version: Android accepts an update only if it carries the
           same signing key. If that second value ever changes, it is no longer
           the same app.</span>
+      </p>
+      <p class="hint">
+        <span class="de">Updates von selbst: <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
+          holt jede neue Fassung direkt aus den GitHub-Releases, dieselbe Datei wie
+          hier, und Android prüft wie oben den Schlüssel. Der zweite Knopf trägt
+          BitDM dort ein, wenn Obtainium installiert ist.</span>
+        <span class="en">Updates on their own: <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
+          fetches every new version straight from the GitHub releases, the same
+          file as here, and Android checks the key as above. The second button adds
+          BitDM to it once Obtainium is installed.</span>
       </p>
     </div>
 
@@ -835,10 +856,20 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <p class="en">The open-source app catalogue. There the app is not built by
         the developer but by F-Droid itself, from the source you can read too.
         That is exactly why we want to be there.</p>
+      <!-- SEIT 15.10.2026 BEANTRAGT. Lampe bleibt aus, bis BitDM im Katalog
+           steht; dann Lampe an und der Knopf zeigt auf f-droid.org/packages/com.bitdm.bitdm. -->
+      <p class="hint">
+        <span class="de">Beantragt am 15.&nbsp;Oktober 2026 und in Prüfung. F-Droids
+          eigener Bau von 1.9.1 ist bitgleich mit der APK oben, darum trägt die
+          F-Droid-Fassung denselben Schlüssel.</span>
+        <span class="en">Requested on 15&nbsp;October 2026 and under review. F-Droid's
+          own build of 1.9.1 is bit-identical to the APK above, so the F-Droid
+          version carries the same key.</span>
+      </p>
       <div class="act">
-        <span class="btn" aria-disabled="true">
-          <span class="de">Noch nicht eingereicht</span><span class="en">Not submitted yet</span>
-        </span>
+        <a class="btn" href="https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566" rel="noopener">
+          <span class="de">Antrag ansehen</span><span class="en">View the request</span>
+        </a>
       </div>
     </div>
 
@@ -1590,8 +1621,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <!-- "NOCH NICHT VEROEFFENTLICHT" stimmte bis 25.09.2026: seitdem liegt die
              APK hier und auf GitHub (Releases v1.6.1 bis v1.9.1). Nicht in Google
              Play oder F-Droid, und im Alltag noch nicht erprobt — das bleibt stehen. -->
-        <dd><span class="de">Vorabversion. Als Download hier und auf GitHub, noch nicht in Google Play oder F-Droid und noch nicht im Alltag erprobt.</span>
-            <span class="en">Pre-release. Available as a download here and on GitHub, not yet in Google Play or F-Droid, and not yet proven in daily use.</span></dd>
+        <dd><span class="de">Vorabversion. Als Download hier und auf GitHub, bei F-Droid beantragt, nicht in Google Play und noch nicht im Alltag erprobt.</span>
+            <span class="en">Pre-release. Available as a download here and on GitHub, requested at F-Droid, not in Google Play, and not yet proven in daily use.</span></dd>
       </div>
     </dl>
   </section>
