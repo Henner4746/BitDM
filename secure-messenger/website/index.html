@@ -432,31 +432,67 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 .thesis p{font-size:clamp(15px,1.9vw,18px); line-height:1.7; color:var(--body); margin:0 0 16px}
 .thesis strong{color:var(--lit-hi); font-weight:600}
 
-/* ════════════ Bedienleiste ════════════ */
-.rail{
-  display:grid; gap:14px; padding-bottom:clamp(40px,6vw,72px);
-  grid-template-columns:repeat(auto-fit,minmax(258px,1fr));
+/* ════════════ Herunterladen ════════════
+   Eine Karte je Plattform. Die ERSTE ist die grosse: ohne Skript Android,
+   sonst das Geraet, mit dem man gerade hier ist (Skript unter der Sektion).
+   Kein Laempchen mehr: jede Karte hier fuehrt zu etwas, das man laden kann,
+   ein Licht wuerde nichts unterscheiden. */
+/* NUR oben und unten: die Kurzschreibweise `padding:a 0 b` naehme .wrap den
+   seitlichen Rand, und die Karten klebten am Bildschirmrand. */
+.dl-bereich{padding-top:clamp(30px,5vw,54px); padding-bottom:clamp(40px,6vw,72px)}
+.dl-titel{font-size:clamp(20px,3.4vw,31px); margin-bottom:clamp(18px,2.6vw,26px)}
+/* Unter der grossen Karte stehen immer genau drei: darum feste Spalten statt
+   auto-fit, das bei 1180 px eine vierte, leere Spalte anlegte. */
+.dl-liste{display:grid; gap:14px; grid-template-columns:1fr}
+@media (min-width:640px){.dl-liste{grid-template-columns:repeat(2,1fr)}}
+/* Bei zwei Spalten bliebe neben der vierten Karte ein Loch. */
+@media (min-width:640px) and (max-width:959px){.dl:nth-child(4){grid-column:1/-1}}
+@media (min-width:960px){.dl-liste{grid-template-columns:repeat(3,1fr)}}
+.dl{border:1px solid var(--line-soft); border-radius:var(--r-lg); background:var(--panel);
+  padding:20px; display:flex; flex-direction:column; gap:12px; min-width:0}
+.dl-kopf{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+.dl h3{font-size:18px}
+.dl-meta{margin:0; font-size:12px; line-height:1.5; color:var(--dim)}
+.dl-text{margin:0; font-size:13px; line-height:1.6; color:var(--muted)}
+.dl .act{display:flex; flex-direction:column; gap:8px}
+.dl:first-child{grid-column:1/-1; border-color:var(--line); padding:clamp(20px,3vw,30px)}
+.dl:first-child h3{font-size:clamp(22px,3.2vw,28px)}
+.dl:first-child .dl-meta{font-size:13px}
+.dl:first-child .dl-text{font-size:14.5px; color:var(--body); max-width:66ch}
+@media (min-width:640px){
+  .dl:first-child .act{flex-direction:row; flex-wrap:wrap}
+  .dl:first-child .btn{width:auto; min-width:230px}
 }
-.slot{
-  border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel);
-  padding:20px; display:flex; flex-direction:column; gap:12px;
-}
-.slot-head{display:flex; align-items:center; gap:9px}
+.dl-dein-marke{display:none; font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--lit-mid)}
+.dl-dein .dl-dein-marke{display:inline}
+.dl-nur{display:none}
+html[data-geraet="ios"] .dl-nur[data-fuer="ios"],
+html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
+
+/* Pruefwerte zum Aufklappen */
+.pruef-auf{border-top:1px solid var(--line-soft); padding-top:8px}
+.pruef-auf summary{cursor:pointer; list-style:none; display:flex; align-items:center; gap:9px;
+  padding:6px 0; font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted); transition:color .18s cubic-bezier(.33,1,.68,1)}
+.pruef-auf summary::-webkit-details-marker{display:none}
+.pruef-auf summary::before{content:'+'; color:var(--lit); width:1ch}
+.pruef-auf[open] summary::before{content:'\2013'}
+.pruef-auf summary:hover{color:var(--body)}
+.pruef-auf summary:focus-visible{outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
+.pruef-auf .pruef{margin-top:6px}
+.pruef-auf .hint{margin-top:12px}
+.pruef .befehl{display:block; margin-top:3px; color:var(--dim)}
+
+/* Laempchen: nur noch im Abschnitt "Was der Server sieht". */
 .lamp{width:8px; height:8px; border-radius:var(--r-pill); flex:none;
   background:var(--unlit-deep); box-shadow:none}
 .lamp.on{background:var(--lit); box-shadow:0 0 10px rgba(181,171,252,.75)}
-.slot p{margin:0; font-size:13.5px; line-height:1.6; color:var(--muted)}
-.slot .act{margin-top:auto}
-/* Die beiden echten Downloads — Android und Windows — tragen Prueftexte von
-   64 Zeichen. In einer Spalte streckt so ein Kasten die Platzhalter daneben
-   ins Leere, darum laeuft er ueber die ganze Breite.
-   BIS ZUM 30.07.2026 STAND HIER "der einzige echte Knopf": es gab nur die APK.
-   Seit dem Windows-Bau sind es zwei, und beide Kaesten tragen .slot-breit. */
-.slot-breit{grid-column:1/-1}
-.slot-breit .act{margin-top:0}
-@media(min-width:720px){.pruef{display:grid; grid-template-columns:1fr 1fr;
-  gap:0 30px}
-  .pruef dt{margin-top:0}}
+
+.dl-fehlt{margin:16px 0 0; font-size:13px; color:var(--muted)}
+.dl-bescheid{margin-top:clamp(24px,3.4vw,34px); padding-top:clamp(20px,3vw,26px);
+  border-top:1px solid var(--line-soft); display:grid; gap:12px; max-width:640px}
+.dl-bescheid p{margin:0; font-size:13.5px; line-height:1.6; color:var(--muted)}
 
 .btn{
   display:inline-flex; align-items:center; justify-content:center; gap:9px;
@@ -468,7 +504,7 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 }
 .btn:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
 .btn-primary{background:var(--unlit-deep); border-color:var(--unlit); color:var(--lit-hi)}
-.btn-primary:hover{background:#4d4482; box-shadow:0 8px 22px -10px rgba(0,0,0,.85)}
+.btn-primary:hover{background:#4d4482}
 .btn[aria-disabled="true"]{
   cursor:not-allowed; color:var(--dim); border-style:dashed;
   border-color:var(--line-soft); background:transparent;
@@ -752,304 +788,259 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </p>
   </section>
 
-  <!-- ═══════════ Bedienleiste ═══════════ -->
-  <section class="wrap rail" aria-label="App beziehen" data-en-aria-label="Get the app">
+  <!-- ═══════════ Herunterladen ═══════════
+       SEIT 15.10.2026 EINE KARTE JE PLATTFORM, DAS EIGENE GERAET ZUERST.
+       Vorher standen acht gleich grosse Kaesten untereinander, auf dem Telefon
+       3 500 Pixel lang, darunter zwei fuer Dinge, die es gar nicht gibt (Google
+       Play, macOS). Wer mit Android kam, las erst ueber Windows-Zertifikate.
 
-    <!-- WAS DIE LAMPE IN DIESER LEISTE BEDEUTET: es gibt jetzt eine Datei, die
-         man laden kann. Sie brennt bei Android und bei Windows und bleibt bei
-         Google Play, F-Droid, Linux, macOS und der Web-App dunkel. ("Bescheid
-         bekommen" brennt weiter, das Formular tut ja etwas.)
-         VORHER WAR SIE HIER DUNKEL, und mit dem Windows-Kasten daneben waere
-         daraus eine Aussage geworden, die nicht stimmt: die APK liegt genauso
-         bereit und ist die aeltere der beiden. Wer eine neue Zeile ergaenzt,
-         entscheidet an dieser Regel und nicht nach Gefuehl. -->
-    <div class="slot slot-breit">
-      <div class="slot-head">
-        <span class="lamp on" aria-hidden="true"></span>
-        <span class="screen screen-lit de">Android — direkter Download</span>
-        <span class="screen screen-lit en">Android — direct download</span>
-      </div>
-      <p class="de">Version 1.9.1, 47 MB, für arm64 und arm32. Android wird beim
-        Installieren warnen: es warnt bei jeder App, deren Zertifikat Google
-        nicht kennt, unabhängig davon, was in der Datei steht. Was in dieser
-        steht, lässt sich an den zwei Werten darunter nachprüfen.</p>
-      <p class="en">Version 1.9.1, 47 MB, for arm64 and arm32. Android will warn you
-        when installing: it warns about every app whose certificate Google does
-        not know, regardless of what the file contains. What this one contains
-        can be checked against the two values below.</p>
+       Jetzt: das Skript direkt unter dieser Sektion erkennt das Geraet und
+       schiebt dessen Karte nach vorn; die erste Karte ist immer die grosse.
+       OHNE JAVASCRIPT bleibt die Reihenfolge, wie sie hier steht: Android,
+       Windows, Linux, Browser. iPhone und Mac bekommen die Browser-Karte mit
+       einem Satz dazu, weil es fuer sie keine App gibt.
 
-      <div class="act">
-        <a class="btn btn-primary" href="bitdm-1.9.1.apk" download>
-          <span class="de">APK herunterladen</span><span class="en">Download APK</span>
-        </a>
-        <!-- OBTAINIUM (seit 15.10.2026): holt jede neue Fassung direkt aus den
-             GitHub-Releases. Der Link uebergibt eine fertige Einstellung (App-ID,
-             Quelle, Name); Obtainium zeigt sie vor dem Hinzufuegen zur
-             Bestaetigung an. DIREKT obtainium:// und NICHT ueber die
-             Weiterleitungsseite apps.obtainium.imranr.dev: die Seite laesst
-             niemanden ueber Dritte laufen. Ohne Obtainium tut der Knopf nichts —
-             dafuer steht der Hinweis darunter. Im README auf GitHub steht die
-             Weiterleitung, weil GitHub obtainium://-Links entfernt. -->
-        <a class="btn" href="obtainium://app/%7B%22id%22%3A%22com.bitdm.bitdm%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FHenner4746%2FBitDM%22%2C%22author%22%3A%22Henner4746%22%2C%22name%22%3A%22BitDM%22%7D">
-          <span class="de">In Obtainium hinzufügen</span><span class="en">Add to Obtainium</span>
-        </a>
-      </div>
+       Die Pruefwerte stehen in <details>: wer pruefen will, klappt sie auf; wer
+       nur laden will, sieht zwei Knoepfe und einen Satz.
 
-      <dl class="pruef">
-        <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
-        <dd><code>7b69794fca313b9033b233be8be6a3635610ff9b534327fb3ef4a64e05e7ded5</code>
-          — <code>sha256sum bitdm-1.9.1.apk</code></dd>
-        <dt><span class="de">Der Schlüssel, mit dem sie signiert ist</span>
-            <span class="en">The key it is signed with</span></dt>
-        <dd><code>e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063</code>
-          — <code>apksigner verify --print-certs bitdm-1.9.1.apk</code></dd>
-      </dl>
+       BEIM NEUEN RELEASE: Dateinamen, Groessen und Pruefwerte in allen vier
+       Karten nachziehen. Die Messwerte zu Windows stehen im Kommentar dort. -->
+  <section class="wrap dl-bereich" id="download" aria-labelledby="dl-titel">
+    <h2 id="dl-titel" class="dl-titel">
+      <span class="de">Herunterladen</span><span class="en">Download</span>
+    </h2>
 
-      <p class="hint">
-        <span class="de">Der erste Wert gilt nur für diese Datei, der zweite für
-          alle künftigen Versionen: Android nimmt ein Update nur an, wenn es mit
-          demselben Schlüssel signiert ist. Ändert sich dieser Wert je, ist es
-          nicht mehr dieselbe App.</span>
-        <span class="en">The first value covers only this file; the second covers
-          every future version: Android accepts an update only if it carries the
-          same signing key. If that second value ever changes, it is no longer
-          the same app.</span>
+    <div class="dl-liste">
+
+      <article class="dl" data-plattform="android">
+        <div class="dl-kopf">
+          <h3>Android</h3>
+          <span class="dl-dein-marke"><span class="de">Dein Gerät</span><span class="en">Your device</span></span>
+        </div>
+        <p class="dl-meta">
+          <span class="de">Version 1.9.1 · 47 MB · ab Android 9</span>
+          <span class="en">Version 1.9.1 · 47 MB · Android 9 or newer</span>
+        </p>
+        <div class="act">
+          <a class="btn btn-primary" href="bitdm-1.9.1.apk" download>
+            <span class="de">APK herunterladen</span><span class="en">Download APK</span>
+          </a>
+          <!-- OBTAINIUM: direkt obtainium:// und NICHT ueber die
+               Weiterleitungsseite apps.obtainium.imranr.dev, weil diese Seite
+               niemanden ueber Dritte schickt. Ohne Obtainium tut der Knopf
+               nichts; der Satz darunter sagt, was es ist. -->
+          <a class="btn" href="obtainium://app/%7B%22id%22%3A%22com.bitdm.bitdm%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FHenner4746%2FBitDM%22%2C%22author%22%3A%22Henner4746%22%2C%22name%22%3A%22BitDM%22%7D">
+            <span class="de">In Obtainium hinzufügen</span><span class="en">Add to Obtainium</span>
+          </a>
+        </div>
+        <p class="dl-text">
+          <span class="de">Android warnt beim Installieren, weil Google das Zertifikat
+            nicht kennt. Ob du die echte Datei hast, zeigen dir die Prüfwerte.
+            <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
+            holt neue Fassungen von selbst. Bei F-Droid ist BitDM
+            <a href="https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566" rel="noopener">beantragt</a>.</span>
+          <span class="en">Android warns you when installing because Google does not
+            know the certificate. The check values tell you whether you have the
+            real file. <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
+            fetches new versions by itself. BitDM is
+            <a href="https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566" rel="noopener">pending</a>
+            at F-Droid.</span>
+        </p>
+        <details class="pruef-auf">
+          <summary><span class="de">Prüfwerte</span><span class="en">Check values</span></summary>
+          <dl class="pruef">
+            <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
+            <dd><code>7b69794fca313b9033b233be8be6a3635610ff9b534327fb3ef4a64e05e7ded5</code>
+              <code class="befehl">sha256sum bitdm-1.9.1.apk</code></dd>
+            <dt><span class="de">Der Schlüssel, mit dem sie signiert ist</span>
+                <span class="en">The key it is signed with</span></dt>
+            <dd><code>e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063</code>
+              <code class="befehl">apksigner verify --print-certs bitdm-1.9.1.apk</code></dd>
+          </dl>
+          <p class="hint">
+            <span class="de">Der erste Wert gilt für diese Datei, der zweite für alle
+              künftigen. Android nimmt ein Update nur mit demselben Schlüssel an.
+              Ändert sich dieser Wert, hast du eine andere App vor dir.</span>
+            <span class="en">The first value covers this file, the second covers every
+              future one. Android accepts an update only with the same key. If that
+              value changes, you are looking at a different app.</span>
+          </p>
+        </details>
+      </article>
+
+      <!-- WINDOWS. GEMESSEN AM 15.10.2026 (1.9.1), damit spaeter niemand raten muss:
+             Zip       releases/1.9.1/bitdm-windows-1.9.1.zip, 16 566 719 Byte = 15,8 MiB
+                       ("16 MB"), entpackt 38 955 329 Byte ueber 24 Eintraege.
+             Installer bitdm-windows-setup-1.9.1.exe, 13 705 137 Byte ("13 MB"),
+                       gebaut mit Inno Setup aus windows/bitdm.iss.
+           Der Pruefwert gilt fuer GENAU diese Datei. Wer ein neues Zip hierher
+           legt, MUSS ihn neu messen, sonst behauptet die Seite eine Pruefsumme,
+           die nicht zur Datei gehoert. -->
+      <article class="dl" data-plattform="windows">
+        <div class="dl-kopf">
+          <h3>Windows</h3>
+          <span class="dl-dein-marke"><span class="de">Dein Gerät</span><span class="en">Your device</span></span>
+        </div>
+        <p class="dl-meta">
+          <span class="de">Version 1.9.1 · x64 · Installer 13 MB, Zip 16 MB</span>
+          <span class="en">Version 1.9.1 · x64 · installer 13 MB, zip 16 MB</span>
+        </p>
+        <div class="act">
+          <a class="btn btn-primary" href="bitdm-windows-setup-1.9.1.exe" download>
+            <span class="de">Installer herunterladen</span><span class="en">Download installer</span>
+          </a>
+          <a class="btn" href="bitdm-windows-1.9.1.zip" download>
+            <span class="de">Zip herunterladen</span><span class="en">Download zip</span>
+          </a>
+        </div>
+        <p class="dl-text">
+          <span class="de">Der Installer braucht keine Adminrechte und richtet BitDM
+            nur für deinen Benutzer ein. Windows warnt beim ersten Start, weil die
+            Datei nicht signiert ist; ein Zertifikat dafür kostet jedes Jahr Geld.
+            Was am PC anders läuft als am Telefon, steht <a href="#desktop">weiter unten</a>.</span>
+          <span class="en">The installer needs no admin rights and sets BitDM up for
+            your user only. Windows warns on first start because the file is not
+            signed; a certificate for that costs money every year. What works
+            differently on a PC than on a phone is <a href="#desktop">further down</a>.</span>
+        </p>
+        <details class="pruef-auf">
+          <summary><span class="de">Prüfwerte</span><span class="en">Check values</span></summary>
+          <dl class="pruef">
+            <dt>Installer</dt>
+            <dd><code>3a79ba7e27ffcb6587a5f01f272b102cbe3b20e53ed59a69fbbc406b76362b7f</code>
+              <code class="befehl">certutil -hashfile bitdm-windows-setup-1.9.1.exe SHA256</code></dd>
+            <dt>Zip</dt>
+            <dd><code>aa8fc2a5bd1f717bd87e62d4829ebe523845c0375f4b9991289bd92958acce02</code>
+              <code class="befehl">certutil -hashfile bitdm-windows-1.9.1.zip SHA256</code></dd>
+          </dl>
+          <p class="hint">
+            <span class="de">Jeder Wert gilt nur für seine eine Datei. Einen Wert, der
+              über alle Versionen gleich bleibt, gibt es unter Windows erst mit einer
+              Signatur.</span>
+            <span class="en">Each value covers its one file only. A value that stays
+              the same across versions needs a signature on Windows.</span>
+          </p>
+        </details>
+      </article>
+
+      <!-- LINUX. Gebaut auf einem Ubuntu-22.04-Runner von GitHub
+           (.github/workflows/linux.yml, ausgeloest vom Versions-Tag), der das
+           Paket an den Release haengt. Hier liegt es nicht, darum fuehrt der
+           Knopf zum Release. Gestartet hat dieses Paket noch niemand; der Text
+           sagt das. -->
+      <article class="dl" data-plattform="linux">
+        <div class="dl-kopf">
+          <h3>Linux</h3>
+          <span class="dl-dein-marke"><span class="de">Dein Gerät</span><span class="en">Your device</span></span>
+        </div>
+        <p class="dl-meta">
+          <span class="de">Version 1.9.1 · x64 · braucht GTK 3 und libsecret</span>
+          <span class="en">Version 1.9.1 · x64 · needs GTK 3 and libsecret</span>
+        </p>
+        <div class="act">
+          <a class="btn btn-primary" href="https://github.com/Henner4746/BitDM/releases/tag/v1.9.1">
+            <span class="de">Paket auf GitHub</span><span class="en">Package on GitHub</span>
+          </a>
+        </div>
+        <p class="dl-text">
+          <span class="de">GitHub baut das Paket aus diesem Quellcode. Auspacken,
+            <code>./bitdm</code> starten. Ausprobiert hat es noch niemand; selbst bauen
+            erklärt <code>docs/LINUX.md</code>.</span>
+          <span class="en">GitHub builds the package from this source. Unpack
+            it and run <code>./bitdm</code>. Nobody has tried it yet; to build it
+            yourself, see <code>docs/LINUX.md</code>.</span>
+        </p>
+      </article>
+
+      <!-- WEB-APP unter /app/: derselbe Quellcode als Browser-Bau, nichts von
+           Dritten. Die Grenzen im Text stimmen mit sqlite_zugang.dart ueberein
+           (dauerhaft nur mit App-Passwort). Fuer iPhone und Mac ist das die
+           einzige Fassung; die Saetze mit data-fuer erscheinen nur dort. -->
+      <article class="dl" data-plattform="web">
+        <div class="dl-kopf">
+          <h3><span class="de">Im Browser</span><span class="en">In the browser</span></h3>
+          <span class="dl-dein-marke"><span class="de">Für dein Gerät</span><span class="en">For your device</span></span>
+        </div>
+        <p class="dl-meta">
+          <span class="de">Ohne Installation</span><span class="en">Nothing to install</span>
+        </p>
+        <p class="dl-text dl-nur" data-fuer="ios">
+          <span class="de">Für das iPhone gibt es keine App. Die Web-App läuft in Safari.</span>
+          <span class="en">There is no iPhone app. The web app runs in Safari.</span>
+        </p>
+        <p class="dl-text dl-nur" data-fuer="mac">
+          <span class="de">Für den Mac gibt es keine App. Die Web-App läuft in jedem Browser.</span>
+          <span class="en">There is no Mac app. The web app runs in any browser.</span>
+        </p>
+        <div class="act">
+          <a class="btn btn-primary" href="/app/">
+            <span class="de">Im Browser öffnen</span><span class="en">Open in the browser</span>
+          </a>
+        </div>
+        <p class="dl-text">
+          <span class="de">Nachrichten, Gruppen und Kontakte gehen. Anhänge,
+            Sprachnachrichten und der Nahbereich fehlen, und bei geschlossenem Tab
+            kommt nichts an. Deine Identität übersteht das Neuladen nur mit
+            App-Passwort; sonst holst du sie mit den zwölf Wörtern zurück.</span>
+          <span class="en">Messages, groups and contacts work. Attachments, voice
+            messages and nearby mode are missing, and nothing arrives while the tab
+            is closed. Your identity survives a reload only with an app password;
+            otherwise the twelve words bring it back.</span>
+        </p>
+      </article>
+
+    </div>
+
+    <p class="dl-fehlt">
+      <span class="de">Kein Google Play, keine App für iPhone oder Mac.</span>
+      <span class="en">No Google Play, no app for iPhone or Mac.</span>
+    </p>
+
+    <div class="dl-bescheid">
+      <p>
+        <span class="de">Bescheid bekommen, wenn es eine neue Version gibt. Wir
+          führen keine Liste; deine Adresse liegt in einem Postfach und sonst nirgends.</span>
+        <span class="en">Get told when there is a new version. We keep no list;
+          your address sits in one mailbox and nowhere else.</span>
       </p>
-      <p class="hint">
-        <span class="de">Updates von selbst: <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
-          holt jede neue Fassung direkt aus den GitHub-Releases, dieselbe Datei wie
-          hier, und Android prüft wie oben den Schlüssel. Der zweite Knopf trägt
-          BitDM dort ein, wenn Obtainium installiert ist.</span>
-        <span class="en">Updates on their own: <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
-          fetches every new version straight from the GitHub releases, the same
-          file as here, and Android checks the key as above. The second button adds
-          BitDM to it once Obtainium is installed.</span>
-      </p>
+      <form class="field" id="notify">
+        <label for="mail" class="screen" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">E-Mail</label>
+        <input id="mail" type="email" name="mail" required
+               placeholder="du@beispiel.de" data-en-placeholder="you@example.com" autocomplete="email" spellcheck="false">
+        <button class="btn btn-primary" type="submit" style="width:auto;white-space:nowrap">
+          <span class="de">Senden</span><span class="en">Send</span>
+        </button>
+      </form>
     </div>
-
-    <div class="slot">
-      <div class="slot-head">
-        <span class="lamp" aria-hidden="true"></span>
-        <span class="screen de">Google Play</span>
-        <span class="screen en">Google Play</span>
-      </div>
-      <p class="de">Die Veröffentlichung ist vorbereitet, aber noch nicht erfolgt.
-        Sobald die Prüfung durch ist, steht der Link hier.</p>
-      <p class="en">Publication is prepared but has not happened yet. The link
-        will appear here once review is through.</p>
-      <div class="act">
-        <span class="btn" aria-disabled="true">
-          <span class="de">Noch nicht verfügbar</span><span class="en">Not yet available</span>
-        </span>
-      </div>
-    </div>
-
-    <div class="slot">
-      <div class="slot-head">
-        <span class="lamp" aria-hidden="true"></span>
-        <span class="screen de">F-Droid</span>
-        <span class="screen en">F-Droid</span>
-      </div>
-      <p class="de">Der quelloffene App-Katalog. Dort baut nicht der Entwickler
-        die App, sondern F-Droid selbst, aus dem Quellcode, den du auch lesen
-        kannst. Genau deshalb wollen wir dort hin.</p>
-      <p class="en">The open-source app catalogue. There the app is not built by
-        the developer but by F-Droid itself, from the source you can read too.
-        That is exactly why we want to be there.</p>
-      <!-- SEIT 15.10.2026 BEANTRAGT. Lampe bleibt aus, bis BitDM im Katalog
-           steht; dann Lampe an und der Knopf zeigt auf f-droid.org/packages/com.bitdm.bitdm. -->
-      <p class="hint">
-        <span class="de">Beantragt am 15.&nbsp;Oktober 2026 und in Prüfung. F-Droids
-          eigener Bau von 1.9.1 ist bitgleich mit der APK oben, darum trägt die
-          F-Droid-Fassung denselben Schlüssel.</span>
-        <span class="en">Requested on 15&nbsp;October 2026 and under review. F-Droid's
-          own build of 1.9.1 is bit-identical to the APK above, so the F-Droid
-          version carries the same key.</span>
-      </p>
-      <div class="act">
-        <a class="btn" href="https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566" rel="noopener">
-          <span class="de">Antrag ansehen</span><span class="en">View the request</span>
-        </a>
-      </div>
-    </div>
-
-    <!-- WINDOWS. Der zweite Kasten mit einem echten Knopf, darum .slot-breit.
-         GEMESSEN AM 15.10.2026 (1.9.1), damit spaeter niemand raten muss:
-           Datei    releases/1.9.1/bitdm-windows-1.9.1.zip, 16 566 719 Byte
-                    (`stat -c%s`) = 15,8 MiB, hier als "16 MB"; die APK daneben
-                    hat 49 090 879 Byte und steht als "47 MB".
-           Entpackt 38 955 329 Byte ueber 24 Eintraege (Python zipfile,
-                    Summe file_size).
-           sha256   aa8fc2a5… aus `sha256sum bitdm-windows-1.9.1.zip`.
-           Installer bitdm-windows-setup-1.9.1.exe, 13 705 137 Byte,
-                    sha256 3a79ba7e…, gebaut mit Inno Setup aus windows/bitdm.iss.
-         (1.9.0: Zip 16 561 532 Byte, sha256 05bc43c6…; Installer 13 699 682 Byte.)
-         (1.7.0: 15 943 227 Byte, entpackt 38 321 475, 28 Eintraege.)
-         (1.6.1: 15 903 078 Byte, entpackt 38 255 939, 28 Eintraege.)
-         (1.5.1 am 30.07.2026: 15 419 797 Byte, entpackt 37 026 435, 27 Eintraege.)
-         WICHTIG BEIM NEU BAUEN: der Wert gilt fuer GENAU diese Datei. Das Zip
-         entstand um 02:26; im Bauverzeichnis lag um 14:15 schon ein neuerer
-         Stand (app.so 8 061 840 statt 8 258 448 Byte). Wer ein neues Zip
-         hierher legt, MUSS den Wert oben neu messen — sonst behauptet die
-         Seite eine Pruefsumme, die nicht zur Datei gehoert, und das ist genau
-         der Fehler, den dieser Kasten verhindern soll. -->
-    <div class="slot slot-breit">
-      <div class="slot-head">
-        <span class="lamp on" aria-hidden="true"></span>
-        <span class="screen screen-lit de">Windows</span>
-        <span class="screen screen-lit en">Windows</span>
-      </div>
-      <p class="de">Version 1.9.1 für x64: ein Installer mit 13 MB (ohne
-        Adminrechte, nur für den eigenen Benutzer, mit Eintrag unter „Apps") oder
-        ein Zip mit 16 MB, entpackt 37 MB — entpacken, <code>bitdm.exe</code>
-        starten, fertig.</p>
-      <p class="en">Version 1.9.1 for x64: a 13 MB installer (no admin rights,
-        installs for your user only, shows up under "Apps") or a 16 MB zip, 37 MB
-        unpacked — unpack it, start <code>bitdm.exe</code>, done.</p>
-      <p class="de">Windows wird beim Start warnen, und zwar aus demselben Grund
-        wie Android bei der APK: die Datei ist nicht signiert. Ein
-        Authenticode-Zertifikat kostet jährlich Geld, und der Android-Schlüssel
-        taugt dafür nicht. SmartScreen prüft ohnehin nicht den Inhalt, sondern
-        wie bekannt eine Signatur ist. Den Inhalt prüft der Wert darunter.</p>
-      <p class="en">Windows will warn you when you start it, for the same reason
-        Android warns about the APK: the file is not signed. An Authenticode
-        certificate costs money every year, and the Android key is no substitute.
-        SmartScreen does not check the contents anyway, it checks how well known
-        a signature is. The contents are what the value below covers.</p>
-
-      <div class="act">
-        <a class="btn btn-primary" href="bitdm-windows-setup-1.9.1.exe" download>
-          <span class="de">Installer herunterladen</span><span class="en">Download installer</span>
-        </a>
-        <a class="btn" href="bitdm-windows-1.9.1.zip" download>
-          <span class="de">Zip herunterladen</span><span class="en">Download zip</span>
-        </a>
-      </div>
-
-      <dl class="pruef">
-        <dt><span class="de">Installer</span><span class="en">Installer</span></dt>
-        <dd><code>3a79ba7e27ffcb6587a5f01f272b102cbe3b20e53ed59a69fbbc406b76362b7f</code>
-          — <code>certutil -hashfile bitdm-windows-setup-1.9.1.exe SHA256</code></dd>
-        <dt><span class="de">Zip</span><span class="en">Zip</span></dt>
-        <dd><code>aa8fc2a5bd1f717bd87e62d4829ebe523845c0375f4b9991289bd92958acce02</code>
-          — <code>certutil -hashfile bitdm-windows-1.9.1.zip SHA256</code></dd>
-      </dl>
-
-      <p class="hint">
-        <span class="de">Jeder Wert gilt nur für seine eine Datei. Einen zweiten, der über alle künftigen Versionen
-          gleich bleibt, gibt es unter Windows erst mit einer Signatur; auf
-          Android leistet das der Schlüssel im Kasten oben. Was auf dem Desktop
-          anders läuft als am Telefon, steht <a href="#desktop">weiter
-          unten</a>.</span>
-        <span class="en">Each value covers its one file only.
-          A second one that stays the same across future versions needs a
-          signature on Windows. On Android the signing key above does that job.
-          What behaves differently on the desktop is spelled out
-          <a href="#desktop">further down</a>.</span>
-      </p>
-    </div>
-
-    <!-- LINUX. Seit 1.8.0 (25.09.2026) gibt es ein Paket. Gebaut auf einem
-         Ubuntu-22.04-Runner von GitHub (.github/workflows/linux.yml, ausgeloest
-         vom Tag v1.8.0), der es an den Release haengt — hier liegt es nicht,
-         darum fuehrt der Knopf zum Release. EHRLICH DAZUGESAGT: gestartet hat
-         dieses Paket noch niemand; der Text sagt das. -->
-    <div class="slot slot-breit">
-      <div class="slot-head">
-        <span class="lamp on" aria-hidden="true"></span>
-        <span class="screen screen-lit de">Linux</span>
-        <span class="screen screen-lit en">Linux</span>
-      </div>
-      <p class="de">Version 1.9.1 für x64, gebaut auf GitHub aus genau diesem
-        Quellcode (Ubuntu 22.04). Auspacken, <code>./bitdm</code> starten;
-        gebraucht werden GTK 3 und libsecret. Gestartet hat dieses Paket noch
-        niemand, die Angaben zu Windows gelten dafür also nicht. Selbst bauen:
-        <code>docs/LINUX.md</code> im Quellcode.</p>
-      <p class="en">Version 1.9.1 for x64, built on GitHub from exactly this
-        source (Ubuntu 22.04). Unpack it and run <code>./bitdm</code>; it needs
-        GTK 3 and libsecret. Nobody has launched this package yet, so what is
-        said about Windows does not carry over. To build it yourself see
-        <code>docs/LINUX.md</code> in the source.</p>
-      <div class="act">
-        <a class="btn btn-primary" href="https://github.com/Henner4746/BitDM/releases/tag/v1.9.1">
-          <span class="de">Zum Paket auf GitHub</span><span class="en">Package on GitHub</span>
-        </a>
-      </div>
-    </div>
-
-    <div class="slot">
-      <div class="slot-head">
-        <span class="lamp" aria-hidden="true"></span>
-        <span class="screen de">macOS</span>
-        <span class="screen en">macOS</span>
-      </div>
-      <p class="de">Im Quellcode gibt es kein <code>macos</code>-Verzeichnis.
-        Flutter würde eines anlegen, angelegt hat es niemand: nicht gebaut, nicht
-        gestartet, nicht geprüft. Zum Prüfen fehlt in diesem Projekt ein Mac, und
-        ohne Gerät zum Nachsehen wäre jede Angabe dazu geraten.</p>
-      <p class="en">There is no <code>macos</code> directory in the source.
-        Flutter would create one, but nobody has: not built, not launched, not
-        checked. This project has no Mac to check it on, and without a device to
-        look at, any statement about it would be guesswork.</p>
-      <div class="act">
-        <span class="btn" aria-disabled="true">
-          <span class="de">Nicht gebaut</span><span class="en">Not built</span>
-        </span>
-      </div>
-    </div>
-
-    <!-- WEB-APP. Seit 1.8.0 (25.09.2026) unter /app/, derselbe Quellcode als
-         Browser-Bau (flutter build web --base-href /app/ --no-web-resources-cdn,
-         also nichts von Dritten). Die Grenzen im Text sind echt:
-         app/lib/core/store/sqlite_zugang.dart legt die Datenbank im Browser nur
-         mit App-Passwort dauerhaft ab; Anhaenge, Sprachnachrichten, Nahbereich
-         und Hintergrundempfang haben im Browser keine Gegenseite. -->
-    <div class="slot slot-breit">
-      <div class="slot-head">
-        <span class="lamp on" aria-hidden="true"></span>
-        <span class="screen screen-lit de">Im Browser</span>
-        <span class="screen screen-lit en">In the browser</span>
-      </div>
-      <p class="de">Dieselbe App ohne Installation. Nachrichten, Gruppen und
-        Kontakte gehen; Anhänge, Sprachnachrichten, der Nahbereich und Empfang
-        bei geschlossenem Tab nicht. Dauerhaft gespeichert wird nur mit einem
-        App-Passwort — ohne ist die Identität beim Neuladen weg, die zwölf
-        Wörter holen sie zurück. Geladen wird nichts von fremden Servern.</p>
-      <p class="en">The same app, nothing to install. Messages, groups and
-        contacts work; attachments, voice messages, nearby mode and receiving
-        with the tab closed do not. It only persists with an app password —
-        without one the identity is gone on reload, and the twelve words bring
-        it back. Nothing is loaded from third-party servers.</p>
-      <div class="act">
-        <a class="btn btn-primary" href="/app/">
-          <span class="de">Im Browser öffnen</span><span class="en">Open in the browser</span>
-        </a>
-      </div>
-    </div>
-
-    <div class="slot">
-      <div class="slot-head">
-        <span class="lamp on" aria-hidden="true"></span>
-        <span class="screen screen-lit de">Bescheid bekommen</span>
-        <span class="screen screen-lit en">Get notified</span>
-      </div>
-      <p class="de">Eine Zeile genügt. Wir führen keine Liste. Deine Mail liegt
-        in einem Postfach und sonst nirgends.</p>
-      <p class="en">One line is enough. We keep no mailing list; your address
-        sits in a mailbox and nowhere else.</p>
-      <div class="act">
-        <form class="field" id="notify">
-          <label for="mail" class="screen" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">E-Mail</label>
-          <input id="mail" type="email" name="mail" required
-                 placeholder="du@beispiel.de" data-en-placeholder="you@example.com" autocomplete="email" spellcheck="false">
-          <button class="btn btn-primary" type="submit" style="width:auto;white-space:nowrap">
-            <span class="de">Senden</span><span class="en">Send</span>
-          </button>
-        </form>
-      </div>
-    </div>
-
   </section>
+
+  <!-- DAS EIGENE GERAET ZUERST. Steht direkt unter der Sektion und nicht am
+       Dateiende, damit die Reihenfolge feststeht, bevor jemand dorthin scrollt.
+       Nur die Browserkennung, nichts wird gespeichert oder verschickt.
+       Chromebooks bekommen den Browser: eine APK laesst sich dort nur im
+       Entwicklermodus installieren. -->
+  <script>
+  (function () {
+    var ua = navigator.userAgent || '';
+    var p = (navigator.userAgentData && navigator.userAgentData.platform) || '';
+    var tippMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;   // iPad im Desktop-Modus
+    var geraet =
+      /Android/i.test(ua + p)                   ? 'android' :
+      /iPhone|iPad|iPod/.test(ua) || tippMac    ? 'ios' :
+      /Windows/i.test(ua + p)                   ? 'windows' :
+      /CrOS|Chrome OS/i.test(ua + p)            ? 'chromeos' :
+      /Macintosh|Mac OS X|macOS/i.test(ua + p)  ? 'mac' :
+      /Linux|X11/i.test(ua + p)                 ? 'linux' : '';
+    var karte = {android:'android', windows:'windows', linux:'linux',
+                 ios:'web', mac:'web', chromeos:'web'}[geraet];
+    if (!karte) return;
+    var el = document.querySelector('.dl[data-plattform="' + karte + '"]');
+    if (!el) return;
+    el.parentNode.insertBefore(el, el.parentNode.firstElementChild);
+    el.classList.add('dl-dein');
+    document.documentElement.setAttribute('data-geraet', geraet);
+  })();
+  </script>
 
   <!-- ═══════════ Was der Server sieht ═══════════ -->
   <section class="wrap mod">
