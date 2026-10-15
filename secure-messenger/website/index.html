@@ -1417,9 +1417,9 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <div class="step">
         <span class="screen de">Schritt 1</span><span class="screen en">Step 1</span>
         <h3><span class="de">In Stücke teilen</span><span class="en">Split into pieces</span></h3>
-        <p class="de">16 MiB je Stück. Reißt die Verbindung ab — auf Mobilfunk bei drei
+        <p class="de">32 MiB je Stück. Reißt die Verbindung ab — auf Mobilfunk bei drei
           Gigabyte der Normalfall —, kostet das ein Stück und nicht die ganze Datei.</p>
-        <p class="en">16 MiB each. If the connection drops — the normal case for three
+        <p class="en">32 MiB each. If the connection drops — the normal case for three
           gigabytes over mobile — it costs one piece, not the whole file.</p>
       </div>
       <div class="step">
@@ -1562,8 +1562,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Geräte</span><span class="en">Devices</span></dt>
-        <dd><span class="de">Ein Gerät je Identität. Wiederherstellung auf einem zweiten legt das erste still.</span>
-            <span class="en">One device per identity. Restoring on a second one retires the first.</span></dd>
+        <!-- BIS 15.10.2026 STAND HIER "ein Geraet je Identitaet, Wiederherstellung
+             legt das erste still". Falsch seit Mehrgeraete: der Relay fuehrt bis zu
+             fuenf Geraete je Adresse, und abmelden laesst sich keines (Befund N1,
+             docs/BEFUNDE-2026-10-14.md). -->
+        <dd><span class="de">Bis zu fünf Geräte je Identität. Eine Wiederherstellung legt das alte Gerät nicht still, und abmelden lässt sich keines.</span>
+            <span class="en">Up to five devices per identity. Restoring on a new one does not retire the old one, and none can be logged out.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Umfang</span><span class="en">Scope</span></dt>
@@ -1824,12 +1828,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </div>
   </div>
   <p class="foot-note">
-    <span class="de">BitDM ist eine Vorabversion und noch nicht veröffentlicht. Die
-      oben gezeigte Adresse und die zwölf Wörter sind Beispiele zur Veranschaulichung,
-      keine echten Schlüssel. Google Play und das Google-Play-Logo sind Marken von Google LLC.</span>
-    <span class="en">BitDM is a pre-release and not published yet. The address and
-      the twelve words shown above are illustrative examples, not real keys.
-      Google Play and the Google Play logo are trademarks of Google LLC.</span>
+    <span class="de">BitDM ist eine Vorabversion. Die Adresse und die zwölf Wörter
+      oben sind Beispiele, keine echten Schlüssel.</span>
+    <span class="en">BitDM is a pre-release. The address and the twelve words
+      above are examples, not real keys.</span>
   </p>
 </footer>
 
