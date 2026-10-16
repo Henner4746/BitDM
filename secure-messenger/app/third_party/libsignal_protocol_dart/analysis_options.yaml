@@ -1,0 +1,10 @@
+# Dies ist der eigene, gepatchte Stand der Bibliothek (siehe
+# BITDM-AENDERUNGEN.md). Die Vorlage band hier `very_good_analysis` ein. Das
+# ist ein reines Analyse-Paket, das BitDM nicht einbindet und das F-Droid beim
+# Bau mitziehen muesste, ohne dass es dem Ergebnis etwas hinzufuegt.
+# Stattdessen gelten dieselben Regeln wie fuer den uebrigen fremden Quelltext
+# unter third_party/: geprueft wird ueber die Tests in
+# ../../test/crypto/signal_bibliothek_test.dart, nicht ueber Lints.
+analyzer:
+  exclude:
+    - example/**

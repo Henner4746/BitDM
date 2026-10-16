@@ -13,10 +13,16 @@ include: package:flutter_lints/flutter.yaml
 # (../fdroid/README.md), und .pub-cache legt das F-Droid-Rezept hier an.
 # Beides ist nicht unser Code — ohne diese Zeilen pruefte `flutter analyze`
 # das ganze SDK mit.
+#
+# third_party/ enthaelt fremden Quelltext (sqlite3mc, die gepatchte
+# Signal-Bibliothek) mit eigenen Analyse-Regeln, die hier nicht aufloesbar
+# sind. Die Signal-Bibliothek wird stattdessen ueber die Tests in
+# test/crypto/signal_bibliothek_test.dart geprueft.
 analyzer:
   exclude:
     - .flutter/**
     - .pub-cache/**
+    - third_party/**
 
 linter:
   # The lint rules applied to this project can be customized in the
