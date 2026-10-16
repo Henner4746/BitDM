@@ -87,6 +87,10 @@ Versuch: `BitDM-audit-arbeit/werkzeuge/libsignal_spike/bin/spike.dart`, reines D
 
 **Durchstich:** zwei Web-Clients mit der Produktions-CSP und getrennter Herkunft gegen einen lokalen Relay mit `BITDM_KYBER_PFLICHT=1`. Anmeldung mit Kyber, Kontaktanfrage (PQXDH), Annahme, Nachricht und Antwort liefen durch, mit Lesebestätigung.
 
+## Durchstich Android (17.10.2026)
+
+Zwei Emulatoren (Android 15, x86_64) auf dem Mini-PC (CT 107), Release-APK nur für x86_64 mit `BITDM_RELAY=http://10.0.2.2:8611`, Relay aus `server/tools/testaufbau.py` mit `BITDM_KYBER_PFLICHT=1`, Emulatoren ohne DNS. `tools/durchstich_zwei_geraete.ps1 -Weiter -Lokal -ZielA … -ZielB …` lief in 128 s durch: zwei Identitäten, Kontaktanfrage (PQXDH), Annahme, Nachricht A → B, Antwort B → A. Beide Anmeldungen nahm der Relay unter Kyber-Pflicht an. Die APK enthält `liblibsignal_frb.so` für x86_64; auf ARM-Geräten steht der Lauf noch aus.
+
 ## Befunde beim Umbau (16.10.2026)
 
 Die Tests gegen die neue Bibliothek haben zwei schwere Eigenheiten der Anbindung und zwei Fehler im Kern gezeigt. Alle vier sind behoben und mit Tests belegt.

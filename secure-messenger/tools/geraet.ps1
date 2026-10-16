@@ -10,6 +10,12 @@ $script:Emu = "$script:Sdk\emulator\emulator.exe"
 $script:Ziel = 'emulator-5554'
 $script:Paket = 'com.bitdm.bitdm'
 
+# ADB SPRICHT UTF-8, Windows PowerShell liest native Ausgaben aber in der
+# OEM-Codepage. Aus dem Zurueck-Pfeil `‹` wurde dabei Zeichensalat, und der
+# Durchstich vom 17.10.2026 fand ihn nicht. Gestartet aus einer Konsole, die
+# schon auf UTF-8 stand, fiel das nie auf.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 function Nimm-Geraet([string]$Ziel) { $script:Ziel = $Ziel }
 
 # KEIN `2>$null` bei nativen Programmen: Windows PowerShell verpackt jede
