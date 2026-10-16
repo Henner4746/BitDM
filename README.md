@@ -129,7 +129,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 
 | Component | State | How that was established |
 |---|---|---|
-| Signal protocol, X3DH + Double Ratchet | working | `libsignal_protocol_dart` 0.8.2, the library Signal uses |
+| Signal protocol, X3DH + Double Ratchet | working | `libsignal_protocol_dart` 0.8.2, a community Dart port, **not** Signal's own audited library |
 | Messages over the relay | working | end-to-end over the live relay |
 | Nearby transport, no network | **proven one direction** | 325 B / 1.35 s between two devices, both offline — the one figure here with no log in the repository; independently witnessed by an ESP32 rig acting as a foreign device |
 | Nearby, second direction | **working** | 26.09.2026: a Galaxy S25 Ultra in *nearby-only* mode sent Signal-encrypted messages on its own to a PC running the real BitDM core over Bluetooth 5.4; the PC decrypted, replied over Bluetooth, and delivery and read receipts came back the same way (`app/test_manuell/pc_kontakt_test.dart`, `tools/pc_kontakt/`) |
@@ -390,15 +390,15 @@ problem. See [`docs/ZWISCHENLAGER.md`](secure-messenger/docs/ZWISCHENLAGER.md).
 
 ```
 secure-messenger/
-  app/lib/               Flutter app — 67 files, 22,471 lines Dart
-    main.dart              5,078 of them; the platform switches live here
+  app/lib/               Flutter app — 86 files, 39,531 lines Dart
+    main.dart              8,540 of them; the platform switches live here
     core/crypto/           libsignal sessions, identity, address encoding, BIP39
     core/nah/              nearby: beacons, BLE radio, chunking, route choice
     core/anhang/           attachments: chunk crypto, recipe, blob store client
     core/store/            encrypted local database
-  app/test/              73 files, 16,980 lines — 820 tests, all green
-  app/integration_test/  1 file, 153 lines — attachment throughput on real hardware
-  app/android/…/kotlin/  8 files, 2,574 lines — BLE, keystore, foreground service
+  app/test/              120 files, 28,741 lines — 1,308 tests in CI (15.10.2026)
+  app/integration_test/  2 files, 428 lines — attachment throughput on real hardware
+  app/android/…/kotlin/  9 files, 3,062 lines — BLE, keystore, foreground service
                          (plus 2 test files)
   app/windows/           CMake, runner, and bitdm.iss for the installer
   app/linux/  app/web/   project files; no published build

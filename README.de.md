@@ -134,7 +134,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 
 | Baustein | Zustand | Wie das festgestellt wurde |
 |---|---|---|
-| Signal-Protokoll, X3DH + Double Ratchet | läuft | `libsignal_protocol_dart` 0.8.2, die Bibliothek, die Signal benutzt |
+| Signal-Protokoll, X3DH + Double Ratchet | läuft | `libsignal_protocol_dart` 0.8.2, eine Dart-Portierung aus der Gemeinschaft, **nicht** Signals eigene geprüfte Bibliothek |
 | Nachrichten über den Relay | läuft | Ende zu Ende über den laufenden Relay |
 | Nahbereich, ohne Netz | **in einer Richtung bewiesen** | 325 B / 1,35 s zwischen zwei Geräten, beide offline — die eine Angabe hier ohne Protokoll im Repository; unabhängig bezeugt von einem ESP32-Aufbau als fremdem Gerät |
 | Nahbereich, zweite Richtung | **funktioniert** | 26.09.2026: ein Galaxy S25 Ultra im Modus *nur in der Nähe* schickte von sich aus Signal-verschlüsselte Nachrichten per Bluetooth 5.4 an einen PC mit dem echten BitDM-Kern; der PC entschlüsselte, antwortete per Bluetooth, Zustell- und Lesebestätigungen kamen ebenso zurück (`app/test_manuell/pc_kontakt_test.dart`, `tools/pc_kontakt/`) |
@@ -410,15 +410,15 @@ Netzproblem aussieht. Siehe
 
 ```
 secure-messenger/
-  app/lib/               Flutter-App — 67 Dateien, 22.471 Zeilen Dart
-    main.dart              5.078 davon; hier liegen die Plattform-Weichen
+  app/lib/               Flutter-App — 86 Dateien, 39.531 Zeilen Dart
+    main.dart              8.540 davon; hier liegen die Plattform-Weichen
     core/crypto/           libsignal-Sitzungen, Identität, Adresskodierung, BIP39
     core/nah/              Nahbereich: Leuchtfeuer, BLE-Funk, Zerlegen, Wegwahl
     core/anhang/           Anhänge: Stückkrypto, Rezept, Zwischenlager-Anbindung
     core/store/            verschlüsselte lokale Datenbank
-  app/test/              73 Dateien, 16.980 Zeilen — 820 Tests, alle grün
-  app/integration_test/  1 Datei, 153 Zeilen — Anhang-Durchsatz auf echter Hardware
-  app/android/…/kotlin/  8 Dateien, 2.574 Zeilen — BLE, Schlüsselspeicher,
+  app/test/              120 Dateien, 28.741 Zeilen — 1.308 Tests in der CI (15.10.2026)
+  app/integration_test/  2 Dateien, 428 Zeilen — Anhang-Durchsatz auf echter Hardware
+  app/android/…/kotlin/  9 Dateien, 3.062 Zeilen — BLE, Schlüsselspeicher,
                          Vordergrunddienst (plus 2 Testdateien)
   app/windows/           CMake, Runner und bitdm.iss für das Installationsprogramm
   app/linux/  app/web/   Projektdateien; kein veröffentlichter Build

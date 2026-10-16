@@ -49,7 +49,7 @@
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BitDM — Encrypted messenger, no phone number, no account</title>
-<meta name="description" content="Free end-to-end encrypted messenger without phone number, e-mail or username. Your address is your public key. Signal protocol (libsignal): X3DH over Curve25519, Double Ratchet, AES-256, AES-256-GCM for attachments. Works over Bluetooth without internet. Open source under AGPL-3.0.">
+<meta name="description" content="Free end-to-end encrypted messenger without phone number, e-mail or username. Your address is your public key. Signal protocol via the community Dart port libsignal_protocol_dart: X3DH over Curve25519, Double Ratchet, AES-256, AES-256-GCM for attachments. Works over Bluetooth without internet. Open source under AGPL-3.0.">
 <link rel="canonical" href="https://bitdm.net/">
 <!-- LINKVORSCHAU UND MASCHINENLESBARE BESCHREIBUNG (seit 27.09.2026).
      Ein Audit ("AI Visibility") fand: nichts im Code sagt einer Maschine, dass
@@ -93,7 +93,7 @@
       "name": "BitDM",
       "alternateName": "BitDM Messenger",
       "url": "https://bitdm.net/",
-      "description": "BitDM is an end-to-end encrypted messenger without phone number, e-mail or username: your address is your public key. It uses the Signal protocol (libsignal: X3DH over Curve25519, Double Ratchet, AES-256), encrypts attachments with AES-256-GCM, works over a relay, over Tor and directly between nearby phones via Bluetooth without internet. Open source under AGPL-3.0.",
+      "description": "BitDM is an end-to-end encrypted messenger without phone number, e-mail or username: your address is your public key. It uses the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256) through the community Dart port libsignal_protocol_dart, not Signal's own library, encrypts attachments with AES-256-GCM, works over a relay, over Tor and directly between nearby phones via Bluetooth without internet. Open source under AGPL-3.0.",
       "applicationCategory": "CommunicationApplication",
       "applicationSubCategory": "Encrypted messenger",
       "operatingSystem": "Android, Windows, Linux, Web browser",
@@ -145,7 +145,7 @@
    "name": "Is BitDM an alternative to WhatsApp, Signal or Threema?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source."
+    "text": "For everyday use, yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use, but through the community Dart port libsignal_protocol_dart, not Signal's own library. BitDM is a pre-release and has not been independently audited. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source."
    }
   },
   {
@@ -161,7 +161,7 @@
    "name": "How secure is BitDM?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check."
+    "text": "Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), implemented with the community Dart port libsignal_protocol_dart, not Signal's own library; attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check."
    }
   },
   {
@@ -225,7 +225,7 @@
    "name": "Who is BitDM for?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "For anyone who wants to write privately without identifying themselves: people under surveillance, journalists, families, teams — and anyone who simply does not want to hand out a phone number. BitDM is a messenger, not a commerce platform and not a subscription service."
+    "text": "For anyone who wants to write privately without handing out a phone number: families, friends, teams. If your safety depends on the encryption holding, for example as a journalist or under surveillance, use Signal until BitDM has had an independent audit. BitDM is a messenger, not a commerce platform and not a subscription service."
    }
   },
   {
@@ -1799,8 +1799,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Ist BitDM eine Alternative zu WhatsApp, Signal oder Threema?</span><span class="en">Is BitDM an alternative to WhatsApp, Signal or Threema?</span></summary>
-        <p class="de">Ja. Verschlüsselt wird mit dem Signal-Protokoll, das auch Signal und WhatsApp nutzen. Anders als bei Signal und WhatsApp gibt es keine Telefonnummer; anders als Threema ist BitDM kostenlos, und App und Server sind beide quelloffen.</p>
-        <p class="en">Yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source.</p>
+        <p class="de">Für den Alltag ja. Verschlüsselt wird mit dem Signal-Protokoll, das auch Signal und WhatsApp nutzen, allerdings über die Dart-Portierung libsignal_protocol_dart aus der Gemeinschaft, nicht Signals eigene Bibliothek. BitDM ist eine Vorabversion und noch nicht unabhängig geprüft. Anders als bei Signal und WhatsApp gibt es keine Telefonnummer; anders als Threema ist BitDM kostenlos, und App und Server sind beide quelloffen.</p>
+        <p class="en">For everyday use, yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use, but through the community Dart port libsignal_protocol_dart, not Signal's own library. BitDM is a pre-release and has not been independently audited. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Was kostet BitDM?</span><span class="en">How much does BitDM cost?</span></summary>
@@ -1809,8 +1809,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Wie sicher ist BitDM?</span><span class="en">How secure is BitDM?</span></summary>
-        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), Anhänge über AES-256-GCM, auch auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht; der Quellcode liegt offen, damit jeder nachsehen kann.</p>
-        <p class="en">Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check.</p>
+        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), umgesetzt mit die Dart-Portierung libsignal_protocol_dart aus der Gemeinschaft, nicht Signals eigene Bibliothek; Anhänge über AES-256-GCM, auch auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht; der Quellcode liegt offen, damit jeder nachsehen kann.</p>
+        <p class="en">Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), implemented with the community Dart port libsignal_protocol_dart, not Signal's own library; attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Was sieht der Server?</span><span class="en">What can the server see?</span></summary>
@@ -1849,8 +1849,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Für wen ist BitDM?</span><span class="en">Who is BitDM for?</span></summary>
-        <p class="de">Für alle, die privat schreiben wollen, ohne sich auszuweisen: Menschen in überwachten Situationen, Journalistinnen und Journalisten, Familien, Teams — und alle, die schlicht keine Telefonnummer weitergeben möchten. BitDM ist ein Messenger, keine Handelsplattform und kein Abo-Dienst.</p>
-        <p class="en">For anyone who wants to write privately without identifying themselves: people under surveillance, journalists, families, teams — and anyone who simply does not want to hand out a phone number. BitDM is a messenger, not a commerce platform and not a subscription service.</p>
+        <p class="de">Für alle, die privat schreiben wollen, ohne eine Telefonnummer herauszugeben: Familien, Freundeskreise, Teams. Hängt deine Sicherheit davon ab, dass die Verschlüsselung hält, etwa als Journalistin oder unter Überwachung, dann nimm bis zu einer unabhängigen Prüfung von BitDM Signal. BitDM ist ein Messenger, keine Handelsplattform und kein Abo-Dienst.</p>
+        <p class="en">For anyone who wants to write privately without handing out a phone number: families, friends, teams. If your safety depends on the encryption holding, for example as a journalist or under surveillance, use Signal until BitDM has had an independent audit. BitDM is a messenger, not a commerce platform and not a subscription service.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Hat BitDM etwas mit BiT DMS, BITE oder Bitmanagement zu tun?</span><span class="en">Is BitDM related to BiT DMS, BITE or Bitmanagement?</span></summary>
