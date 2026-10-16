@@ -1005,7 +1005,14 @@ class _StummerSocket:
 
     def __init__(self, user_id, priv, *, antworten=None, reisst_bei=None,
                  nachweis=False, bestaetigt=False, geraet=None,
-                 signiert_geraet=None):
+                 signiert_geraet=None, geraete_priv=None, bei_auth=None):
+        # Der Geraeteschluessel (GERAETEABMELDUNG.md §8.4). Ohne ihn fehlt
+        # `geraete_signatur` in der Antwort — so wie bei jedem Client von vor
+        # der Geraeteliste.
+        self._geraete_priv = geraete_priv
+        # Wird gerufen, sobald auth_result rausgeht: damit laesst sich eine
+        # Abmeldung GENAU zwischen Vorraum und Eintrag in `connections` legen.
+        self._bei_auth = bei_auth
         self.query_params = {"user_id": user_id}
         # OHNE `geraet` steht keine device_id in der Query, und signiert wird
         # nur das Nonce — das ist der Client von vor dem Mehrgeraete-Umbau,
@@ -1046,6 +1053,8 @@ class _StummerSocket:
                 self._antworten.append(
                     {"type": "empfangen", "ids": [obj["q"]]})
         self.gesendet.append(obj)
+        if obj.get("type") == "auth_result" and self._bei_auth is not None:
+            self._bei_auth()
         if obj.get("type") == "challenge":
             # Die Challenge wird gleich hier beantwortet: ohne gueltige
             # Signatur kaeme der Ablauf nie bis zur Nachzustellung.
@@ -1055,6 +1064,9 @@ class _StummerSocket:
             antwort = {"signature": b64(sign(self._priv, zu_signieren))}
             if self._nachweis:
                 antwort["empfangsnachweis"] = True
+            if self._geraete_priv is not None:
+                antwort["geraete_signatur"] = b64(sign(
+                    self._geraete_priv, b"BitDM-Geraet-Anmeldung-v1\n" + zu_signieren))
             self._antworten.insert(0, antwort)
 
     async def receive_json(self):
@@ -4510,3 +4522,466 @@ def test_ein_knapper_kyber_vorrat_loest_prekeys_low_aus(relay, monkeypatch):
     # ueber die Schwelle.
     monkeypatch.setattr(rs, "KYBER_OTK_MAX_GESAMT", rs._kyber_zeilen + 5)
     assert _prekeys_low(rs, knapp) == []
+
+
+# --------------------------------------------------------------------------- #
+#  Geraeteabmeldung  (docs/GERAETEABMELDUNG.md, 17.10.2026)
+# --------------------------------------------------------------------------- #
+#
+# Der Befund, der das ausgeloest hat: nach "Telefon verloren, mit den zwoelf
+# Woertern auf dem neuen wiederhergestellt" blieb das alte Geraet Teil der
+# Identitaet und bekam weiter jede Nachricht. Abmelden ging nicht — und eine
+# Loeschung nur hier haette nicht einmal ein Telefon in der Schublade
+# aufgehalten: die App meldet sich auf 4401 von selbst neu an.
+#
+# Jedes Geraet hat deshalb einen eigenen Geraeteschluessel, und die Adresse
+# fuehrt eine signierte Liste. Die Tests hier pruefen, dass ein abgemeldetes
+# Geraet auf KEINEM Weg zurueckkommt, und halten die eine Grenze fest, die es
+# per Konstruktion gibt (§4): mit den Woertern kann es zuruecksetzen — laut.
+
+LISTE_PRAEFIX_T = b"BitDM-Geraeteliste-v1\n"
+BEITRITT_PRAEFIX_T = b"BitDM-Beitritt-v1\n"
+ANMELDE_PRAEFIX_T = b"BitDM-Geraet-Anmeldung-v1\n"
+
+
+def _geraet():
+    """Ein Geraeteschluessel: zufaellig, NIE aus den Woertern."""
+    priv = os.urandom(32)
+    return {"priv": priv, "pub": priv_to_curve25519_pub(priv)}
+
+
+def _liste(user, epoche, geraete, unterzeichner, *, signer_ik=None,
+           signer_gs=None, zeit=1760700000):
+    """Baut und unterschreibt eine Fassung. geraete: {device_id: geraet}."""
+    import relay_server as rs
+    roh = rs.kanonisch({
+        "adresse": user["user_id"], "epoche": epoche,
+        "geraete": [[k, b64(g["pub"]), ""] for k, g in sorted(geraete.items())],
+        "unterzeichner": unterzeichner, "v": 1, "zeit": zeit})
+    nachricht = LISTE_PRAEFIX_T + roh.encode()
+    gs = signer_gs or geraete[unterzeichner]
+    return rs.GeraetelisteRequest(
+        liste=roh,
+        sig_identitaet=b64(sign(signer_ik or user["priv"], nachricht)),
+        sig_geraet=b64(sign(gs["priv"], nachricht)))
+
+
+def _setze(rs, anfrage):
+    return asyncio.run(rs.setze_geraeteliste(anfrage, _Anfrage()))
+
+
+def _status(fn):
+    """HTTP-Status einer Absage, oder 200."""
+    from fastapi import HTTPException
+    try:
+        fn()
+    except HTTPException as exc:
+        return exc.status_code
+    return 200
+
+
+def _melde_an_mit(rs, user, geraet, gs, **aenderungen):
+    """Registrierung ueber den echten Endpunkt, mit Geraeteschluessel (§8.4).
+
+    Geraet 1 schickt keine Kennung — wie die App (relay_client.dart).
+    """
+    kennung = None if geraet == 1 else geraet
+    bundle = _bundle_mit(user, kennung, **aenderungen)
+    nonce = rs.issue_nonce(user["user_id"], kennung)
+    inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
+    sig = sign(user["priv"], nonce + inhalt)
+    gsig = None if gs is None else b64(
+        sign(gs["priv"], ANMELDE_PRAEFIX_T + nonce + inhalt))
+    return rs.register(rs.RegisterRequest(
+        bundle=bundle, signature=b64(sig), geraete_signatur=gsig), _Anfrage())
+
+
+def _beitritt(user, geraet_id, gs, *, signer_ik=None, zeit=1760700000):
+    import relay_server as rs
+    roh = rs.kanonisch({
+        "adresse": user["user_id"], "device_id": geraet_id, "info": "",
+        "schluessel": b64(gs["pub"]), "v": 1, "zeit": zeit})
+    nachricht = BEITRITT_PRAEFIX_T + roh.encode()
+    return rs.BeitrittRequest(
+        anfrage=roh,
+        sig_identitaet=b64(sign(signer_ik or user["priv"], nachricht)),
+        sig_geraet=b64(sign(gs["priv"], nachricht)))
+
+
+def _bitte(rs, anfrage):
+    return asyncio.run(rs.beantrage_beitritt(anfrage, _Anfrage()))
+
+
+def _auth_ok(gesendet):
+    return any(m.get("type") == "auth_result" and m.get("ok") for m in gesendet)
+
+
+def _zeilen(rs, tabelle, user, geraet):
+    spalten = {"one_time_prekeys": ("user_id", "device_id"),
+               "queue": ("recipient", "recipient_device")}[tabelle]
+    return rs.db.execute(
+        f"SELECT COUNT(*) FROM {tabelle} WHERE {spalten[0]}=? AND {spalten[1]}=?",
+        (user["user_id"], geraet)).fetchone()[0]
+
+
+class _Leitung:
+    """Eine verbundene Leitung, die mitschreibt und sich schliessen laesst."""
+
+    def __init__(self):
+        self.empfangen = []
+        self.geschlossen = None
+
+    async def send_json(self, obj):
+        self.empfangen.append(obj)
+
+    async def close(self, code=None):
+        self.geschlossen = code
+
+
+def test_die_erste_liste_enthaelt_nur_das_anlegende_geraet(relay):
+    """Anlage geht nur mit sich allein.
+
+    Mehr Geraete gleich bei der Anlage gingen nur mit dem
+    Identitaetsschluessel — genau dem, den jedes Geraet hat. Weitere kommen
+    ueber den Beitritt, und den bestaetigt ein Mitglied.
+    """
+    rs = relay
+    henrik = make_user()
+    a, b = _geraet(), _geraet()
+    assert _status(lambda: _setze(rs, _liste(henrik, 1, {1: a, 7: b}, 1))) == 403
+    assert _status(lambda: _setze(rs, _liste(henrik, 2, {1: a}, 1))) == 409
+    assert _setze(rs, _liste(henrik, 1, {1: a}, 1)) == {"ok": True, "epoche": 1}
+    # Wer als zweiter anlegen will, verliert — und muss beitreten.
+    assert _status(lambda: _setze(rs, _liste(henrik, 1, {7: b}, 7))) == 409
+
+
+def test_mit_liste_reicht_der_identitaetsschluessel_nicht_mehr(relay):
+    """Der Kern der Abmeldung: den Identitaetsschluessel hat JEDES Geraet."""
+    rs = relay
+    henrik = make_user()
+    a = _geraet()
+    _setze(rs, _liste(henrik, 1, {1: a}, 1))
+
+    assert _status(lambda: _melde_an_mit(rs, henrik, 1, None)) == 403
+    assert _status(lambda: _melde_an_mit(rs, henrik, 1, _geraet())) == 403
+    assert _melde_an_mit(rs, henrik, 1, a)["ok"] is True
+    # Ein Geraet ausserhalb der Liste kommt auch mit einem eigenen, sauber
+    # unterschriebenen Geraeteschluessel nicht hinein.
+    assert _status(lambda: _melde_an_mit(rs, henrik, 7, _geraet())) == 403
+    assert _geraete(rs, henrik["user_id"]) == [1]
+
+
+def test_die_websocket_verlangt_den_geraeteschluessel(relay):
+    rs = relay
+    henrik = make_user()
+    a = _geraet()
+    _setze(rs, _liste(henrik, 1, {1: a}, 1))
+    _melde_an_mit(rs, henrik, 1, a)
+
+    ohne = _StummerSocket(henrik["user_id"], henrik["priv"])
+    asyncio.run(rs.ws_endpoint(ohne))
+    assert ohne.geschlossen == 4403
+
+    falsch = _StummerSocket(henrik["user_id"], henrik["priv"],
+                            geraete_priv=_geraet()["priv"])
+    asyncio.run(rs.ws_endpoint(falsch))
+    assert falsch.geschlossen == 4403
+
+    richtig = _StummerSocket(henrik["user_id"], henrik["priv"],
+                             geraete_priv=a["priv"])
+    asyncio.run(rs.ws_endpoint(richtig))
+    assert _auth_ok(richtig.gesendet)
+    assert rs.connections == {}
+
+
+def test_ohne_liste_bleibt_alles_wie_bisher(relay):
+    """Adressen ohne Liste (alte Apps) merken nichts — auch keine Pflicht
+    zum Geraeteschluessel."""
+    rs = relay
+    alt = make_user()
+    assert _melde_an(rs, alt)["ok"] is True
+    assert _auth_ok(_sitzung(rs, alt))
+    assert "geraeteliste" not in rs.get_prekey(alt["user_id"], _Anfrage())
+    assert _status(lambda: rs.hole_geraeteliste(alt["user_id"], _Anfrage())) == 404
+
+
+def test_abmelden_raeumt_das_geraet_ab_und_trennt_es(relay):
+    rs = relay
+    henrik, anna = make_user(), make_user()
+    handy, tablet = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: handy}, 1))
+    _bitte(rs, _beitritt(henrik, 7, tablet))
+    _setze(rs, _liste(henrik, 2, {1: handy, 7: tablet}, 1))
+    _melde_an_mit(rs, henrik, 1, handy)
+    _melde_an_mit(rs, henrik, 7, tablet)
+    _puffere(rs, henrik["user_id"], anna["user_id"], n=3, geraet=7)
+    l_handy, l_tablet = _Leitung(), _Leitung()
+    _verbinde(rs, henrik, l_handy, geraet=1)
+    _verbinde(rs, henrik, l_tablet, geraet=7)
+
+    assert _setze(rs, _liste(henrik, 3, {1: handy}, 1)) == {"ok": True, "epoche": 3}
+
+    assert _geraete(rs, henrik["user_id"]) == [1]
+    assert _zeilen(rs, "one_time_prekeys", henrik, 7) == 0
+    assert _zeilen(rs, "queue", henrik, 7) == 0, \
+        "die Post des abgemeldeten Geraets bleibt nicht liegen"
+    assert l_tablet.empfangen == [{"type": "abgemeldet", "epoche": 3}]
+    assert l_tablet.geschlossen == 4410
+    assert l_handy.empfangen == [{"type": "geraeteliste", "epoche": 3}]
+    assert l_handy.geschlossen is None
+
+
+def test_das_abgemeldete_geraet_kommt_auf_keinem_weg_zurueck(relay):
+    """DER Fall der Aufgabe: das alte Telefon versucht es wieder.
+
+    Es hat alles, was es vorher hatte — den Identitaetsschluessel (aus den
+    Woertern) und seinen Geraeteschluessel. Es kommt trotzdem nicht durch:
+    nicht ueber die WebSocket, nicht ueber /register unter alter oder neuer
+    Kennung, nicht mit einer selbst geschriebenen Liste, nicht ueber eine
+    Beitrittsanfrage. Der einzige Zug, der ihm bleibt, ist das Zuruecksetzen
+    — und das wirft das neue Geraet sichtbar hinaus.
+    """
+    rs = relay
+    henrik = make_user()
+    altes, neues = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: altes}, 1))
+    _melde_an_mit(rs, henrik, 1, altes)
+
+    # Das Ersatztelefon: Woerter eingegeben, kein anderes Geraet greifbar.
+    assert _setze(rs, _liste(henrik, 2, {23: neues}, 23)) == {"ok": True, "epoche": 2}
+    _melde_an_mit(rs, henrik, 23, neues)
+
+    # 1) Die eigene Wiederverbindung der App: 4410 VOR der Challenge — nicht
+    #    4401, sonst meldete sie sich von selbst neu an.
+    sock = _StummerSocket(henrik["user_id"], henrik["priv"],
+                          geraete_priv=altes["priv"])
+    asyncio.run(rs.ws_endpoint(sock))
+    assert sock.geschlossen == 4410
+    assert sock.gesendet == [{"type": "abgemeldet", "epoche": 2}]
+
+    # 2) /register unter der alten Kennung mit dem alten Geraeteschluessel.
+    assert _status(lambda: _melde_an_mit(rs, henrik, 1, altes)) == 403
+    # 3) unter einer neuen Kennung mit einem neuen Geraeteschluessel.
+    assert _status(lambda: _melde_an_mit(rs, henrik, 99, _geraet())) == 403
+    # 4) mit einer selbst geschriebenen Liste, die es wieder aufnimmt —
+    #    als Unterzeichner selbst, und als angebliches neues Geraet.
+    assert _status(lambda: _setze(
+        rs, _liste(henrik, 3, {1: altes, 23: neues}, 1))) == 403
+    assert _status(lambda: _setze(
+        rs, _liste(henrik, 3, {1: altes, 23: neues}, 23, signer_gs=altes))) == 403
+    # 5) Eine Beitrittsanfrage stellen kann es; zulassen muss sie ein Mitglied.
+    _bitte(rs, _beitritt(henrik, 1, altes))
+    assert _status(lambda: _melde_an_mit(rs, henrik, 1, altes)) == 403
+    assert _geraete(rs, henrik["user_id"]) == [23]
+
+    # DIE GRENZE (GERAETEABMELDUNG.md §4): mit den Woertern kann es
+    # zuruecksetzen. Still ist das nicht — das neue Geraet faellt heraus.
+    l_neu = _Leitung()
+    _verbinde(rs, henrik, l_neu, geraet=23)
+    assert _setze(rs, _liste(henrik, 3, {1: altes}, 1))["ok"] is True
+    assert l_neu.geschlossen == 4410
+    assert l_neu.empfangen == [{"type": "abgemeldet", "epoche": 3}]
+
+
+def test_beitritt_braucht_die_bestaetigung_eines_mitglieds(relay):
+    rs = relay
+    henrik = make_user()
+    handy, tablet = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: handy}, 1))
+    l_handy = _Leitung()
+    _verbinde(rs, henrik, l_handy, geraet=1)
+
+    assert _bitte(rs, _beitritt(henrik, 5, tablet)) == {"ok": True}
+    assert l_handy.empfangen == [{"type": "beitritt"}]
+    offen = rs.hole_beitritte(henrik["user_id"], _Anfrage())["beitritte"]
+    assert [json.loads(b["anfrage"])["device_id"] for b in offen] == [5]
+
+    # Vor der Bestaetigung: kein Zutritt, auch mit den Woertern nicht.
+    assert _status(lambda: _melde_an_mit(rs, henrik, 5, tablet)) == 403
+
+    _setze(rs, _liste(henrik, 2, {1: handy, 5: tablet}, 1))
+    assert _melde_an_mit(rs, henrik, 5, tablet)["ok"] is True
+    assert rs.hole_beitritte(henrik["user_id"], _Anfrage())["beitritte"] == [], \
+        "die erledigte Anfrage bleibt nicht liegen"
+    sock = _StummerSocket(henrik["user_id"], henrik["priv"], geraet=5,
+                          geraete_priv=tablet["priv"])
+    asyncio.run(rs.ws_endpoint(sock))
+    assert _auth_ok(sock.gesendet)
+
+
+def test_eine_beitrittsanfrage_braucht_die_woerter(relay):
+    rs = relay
+    henrik, mallory = make_user(), make_user()
+    _setze(rs, _liste(henrik, 1, {1: _geraet()}, 1))
+    fremd = _geraet()
+    assert _status(lambda: _bitte(
+        rs, _beitritt(henrik, 5, fremd, signer_ik=mallory["priv"]))) == 403
+    # Schon vergebene Kennung: das neue Geraet muss eine freie waehlen.
+    assert _status(lambda: _bitte(rs, _beitritt(henrik, 1, fremd))) == 409
+    # Ohne Liste gibt es niemanden, der bestaetigen koennte.
+    anna = make_user()
+    assert _status(lambda: _bitte(rs, _beitritt(anna, 5, fremd))) == 409
+    # Und eine Anfrage, deren Geraeteschluessel nicht unterschrieben hat.
+    a = _beitritt(henrik, 6, fremd)
+    a.sig_geraet = b64(sign(_geraet()["priv"],
+                            BEITRITT_PRAEFIX_T + a.anfrage.encode()))
+    assert _status(lambda: _bitte(rs, a)) == 403
+
+
+def test_hoechstens_drei_anfragen_und_nur_fuer_kurze_zeit(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _setze(rs, _liste(henrik, 1, {1: _geraet()}, 1))
+    for k in (2, 3, 4, 5):
+        _bitte(rs, _beitritt(henrik, k, _geraet()))
+    offen = rs.hole_beitritte(henrik["user_id"], _Anfrage())["beitritte"]
+    assert sorted(json.loads(b["anfrage"])["device_id"] for b in offen) == [3, 4, 5]
+
+    monkeypatch.setattr(rs, "BEITRITT_TTL", -1)
+    assert rs.hole_beitritte(henrik["user_id"], _Anfrage())["beitritte"] == []
+    assert rs.raeume_beitritte_auf() == 3
+
+
+def test_die_epoche_geht_genau_einen_schritt(relay):
+    """Kein Sprung nach vorn, kein Wiedereinspielen einer alten Fassung."""
+    rs = relay
+    henrik = make_user()
+    a, b = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: a}, 1))
+    assert _status(lambda: _setze(rs, _liste(henrik, 3, {1: a, 2: b}, 1))) == 409
+    _setze(rs, _liste(henrik, 2, {1: a, 2: b}, 1))
+    assert _status(lambda: _setze(rs, _liste(henrik, 2, {1: a}, 1))) == 409
+    assert _status(lambda: _setze(rs, _liste(henrik, 1, {1: a}, 1))) == 409
+
+
+def test_nur_der_identitaetsschluessel_der_adresse_unterschreibt(relay):
+    rs = relay
+    henrik, mallory = make_user(), make_user()
+    assert _status(lambda: _setze(rs, _liste(
+        henrik, 1, {1: _geraet()}, 1, signer_ik=mallory["priv"]))) == 403
+
+
+def test_dieselbe_kennung_mit_anderem_schluessel_ist_ein_anderes_geraet(relay):
+    """Wer seinen Eintrag gegen einen neuen Schluessel tauscht, ist kein
+    Mitglied mehr, sondern setzt zurueck — und darf dann niemanden mitnehmen."""
+    rs = relay
+    henrik = make_user()
+    a, b, getauscht = _geraet(), _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: a}, 1))
+    _setze(rs, _liste(henrik, 2, {1: a, 2: b}, 1))
+    assert _status(lambda: _setze(
+        rs, _liste(henrik, 3, {1: getauscht, 2: b}, 1))) == 403
+
+
+def test_ein_geraet_kann_sich_selbst_abmelden(relay):
+    """Vor dem Verkauf eines Telefons: es unterschreibt seine eigene
+    Abmeldung und steht danach nicht mehr in der Liste."""
+    rs = relay
+    henrik = make_user()
+    a, b = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: a}, 1))
+    _setze(rs, _liste(henrik, 2, {1: a, 2: b}, 1))
+    l_b = _Leitung()
+    _verbinde(rs, henrik, l_b, geraet=2)
+    assert _setze(rs, _liste(henrik, 3, {1: a}, 2, signer_gs=b))["ok"] is True
+    assert l_b.geschlossen == 4410
+    # Das letzte Geraet kann nicht gehen — eine leere Liste gibt es nicht.
+    assert _status(lambda: _setze(
+        rs, _liste(henrik, 4, {}, 1, signer_gs=a))) == 400
+
+
+def test_nicht_kanonische_listen_werden_abgewiesen(relay):
+    """Unterschrieben wird EINE Schreibweise. Alles andere hiesse: zwei
+    Parser koennten dieselbe Signatur verschieden lesen."""
+    rs = relay
+    henrik = make_user()
+    a = _geraet()
+    gut = _liste(henrik, 1, {1: a}, 1)
+    obj = json.loads(gut.liste)
+
+    def mit(roh):
+        nachricht = LISTE_PRAEFIX_T + roh.encode("utf-8")
+        return rs.GeraetelisteRequest(
+            liste=roh, sig_identitaet=b64(sign(henrik["priv"], nachricht)),
+            sig_geraet=b64(sign(a["priv"], nachricht)))
+
+    mit_umlaut = dict(obj, geraete=[[1, obj["geraete"][0][1], "ü"]])
+    falsche = {
+        "Leerraum": json.dumps(obj, sort_keys=True),
+        "doppelter Schluessel": gut.liste[:-1] + ',"v":1}',
+        "unsortiert": json.dumps(
+            {"v": 1, **{k: v for k, v in obj.items() if k != "v"}},
+            separators=(",", ":")),
+        "Umlaut roh": rs.kanonisch(mit_umlaut).replace("\\u00fc", "ü"),
+        "Kommazahl": gut.liste.replace('"epoche":1', '"epoche":1.0'),
+        "true statt 1": gut.liste.replace('"v":1', '"v":true'),
+        "Feld zu viel": rs.kanonisch(dict(obj, x=1)),
+    }
+    for name, roh in falsche.items():
+        assert _status(lambda: _setze(rs, mit(roh))) == 400, name
+    assert _setze(rs, mit(gut.liste))["ok"] is True
+
+
+def test_prekey_zeigt_nur_gelistete_geraete_und_traegt_die_liste(relay):
+    rs = relay
+    henrik = make_user()
+    a = _geraet()
+    _setze(rs, _liste(henrik, 1, {1: a}, 1))
+    _melde_an_mit(rs, henrik, 1, a)
+    # Eine Zeile ausserhalb der Liste — gibt es nur fuer einen Augenblick,
+    # hier von Hand angelegt.
+    _lege_an(rs, henrik, geraet=9)
+
+    voll = rs.get_prekey(henrik["user_id"], _Anfrage())
+    knapp = rs.get_prekey(henrik["user_id"], _Anfrage(), nur_geraete=True)
+    assert [g["device_id"] for g in voll["geraete"]] == [1]
+    assert [g["device_id"] for g in knapp["geraete"]] == [1]
+    erwartet = rs.hole_geraeteliste(henrik["user_id"], _Anfrage())
+    assert voll["geraeteliste"] == erwartet == knapp["geraeteliste"]
+    assert json.loads(erwartet["liste"])["epoche"] == 1
+
+
+def test_die_anlage_raeumt_geraete_von_vor_der_liste_ab(relay):
+    """Geraete, die sich vor der ersten Liste angemeldet hatten, stehen nicht
+    darin. Sie fallen heraus und muessen beitreten — einmal."""
+    rs = relay
+    henrik = make_user()
+    a = _geraet()
+    _melde_an(rs, henrik)
+    _melde_an(rs, henrik, geraet=7)
+    l7 = _Leitung()
+    _verbinde(rs, henrik, l7, geraet=7)
+    _setze(rs, _liste(henrik, 1, {1: a}, 1))
+    assert _geraete(rs, henrik["user_id"]) == [1]
+    assert l7.geschlossen == 4410
+
+
+def test_eine_abmeldung_waehrend_der_anmeldung_trennt_trotzdem(relay):
+    """Die Luecke zwischen Vorraum und `connections`.
+
+    Faellt die Abmeldung genau zwischen die Pruefung im Vorraum und den
+    Eintrag der Leitung, findet setze_geraeteliste die Leitung noch nicht.
+    Ohne die zweite Pruefung bliebe das abgemeldete Geraet verbunden und
+    bekaeme seine Post zugestellt.
+    """
+    rs = relay
+    henrik, anna = make_user(), make_user()
+    a, b = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: a}, 1))
+    _setze(rs, _liste(henrik, 2, {1: a, 2: b}, 1))
+    _melde_an_mit(rs, henrik, 2, b)
+    _puffere(rs, henrik["user_id"], anna["user_id"], n=2, geraet=2)
+
+    def abmelden_genau_jetzt():
+        neu = _liste(henrik, 3, {1: a}, 1)
+        with rs.db:
+            rs.db.execute("UPDATE geraetelisten SET epoche=3, liste=?"
+                          " WHERE user_id=?", (neu.liste, henrik["user_id"]))
+
+    sock = _StummerSocket(henrik["user_id"], henrik["priv"], geraet=2,
+                          geraete_priv=b["priv"], bei_auth=abmelden_genau_jetzt)
+    asyncio.run(rs.ws_endpoint(sock))
+    assert sock.geschlossen == 4410
+    assert {"type": "abgemeldet", "epoche": 3} in sock.gesendet
+    assert not any(m.get("type") == "message" for m in sock.gesendet)
+    assert rs.connections == {}

@@ -467,6 +467,52 @@ GERAETE_MAX = int(os.getenv("BITDM_GERAETE_MAX", 5))
 # "vergessen". Entscheidet der Betreiber, wie alle Aufbewahrungsfristen.
 GERAET_TTL = int(os.getenv("BITDM_GERAET_TTL", 30 * 24 * 3600))
 
+# --------------------------------------------------------------------------- #
+#  Geraeteliste  (docs/GERAETEABMELDUNG.md §8, seit 17.10.2026)
+# --------------------------------------------------------------------------- #
+#
+# WARUM ES SIE GIBT: alle Geraete einer Adresse teilen den Identitaets-
+# schluessel, er kommt aus den zwoelf Woertern. Ein Geraet nur hier zu
+# loeschen hielt deshalb nicht einmal ein Telefon in der Schublade auf — die
+# App meldete sich auf 4401 von selbst neu an. Jetzt fuehrt jede Adresse eine
+# Liste ihrer Geraete, jedes mit einem EIGENEN, zufaelligen Geraeteschluessel.
+# Nur wer darin steht und mit seinem Geraeteschluessel unterschreibt, kommt
+# durch /register und /ws. Aendern darf die Liste ein Geraet, das schon darin
+# steht; mit dem Identitaetsschluessel allein geht nur das ZURUECKSETZEN auf
+# ein einziges Geraet — und das ist laut, jedes andere Geraet faellt dabei
+# sichtbar heraus.
+#
+# Drei feste Praefixe trennen, wofuer eine Signatur gilt. Ohne sie waere eine
+# Unterschrift unter einer Liste womoeglich auch eine unter einer Anmeldung.
+LISTE_PRAEFIX = b"BitDM-Geraeteliste-v1\n"
+BEITRITT_PRAEFIX = b"BitDM-Beitritt-v1\n"
+ANMELDE_PRAEFIX = b"BitDM-Geraet-Anmeldung-v1\n"
+
+# Eine Liste mit 5 Geraeten ist rund 1,3 KB (je Eintrag 44 Zeichen Schluessel
+# und hoechstens GERAETE_INFO_MAX Info). 4096 laesst Luft und haelt jeden
+# Unsinn draussen, bevor json.loads ihn sieht.
+LISTE_MAX_ZEICHEN = 4096
+# Die verschluesselte Info je Geraet (Name, seit wann). Der Relay sieht davon
+# nur Rauschen; die Grenze ist nur Platte.
+GERAETE_INFO_MAX = 512
+# Epoche und Zeit bleiben unter 2^53, damit sie in JavaScript (Web-App) noch
+# genau sind.
+EPOCHE_MAX = 2**53
+
+# Wie lange eine Beitrittsanfrage wartet und wie viele je Adresse.
+#
+# Kurz und wenige, weil eine Anfrage nur einen Zweck hat: das Mitglied, das
+# gerade daneben liegt, bestaetigt sie. Wer die Woerter hat und Anfragen
+# flutet, verdraengt damit nur seine eigenen — und jede braucht ohnehin den
+# Identitaetsschluessel.
+BEITRITT_TTL = int(os.getenv("BITDM_BEITRITT_TTL", 600))
+BEITRITTE_JE_ADRESSE = 3
+
+# Schlusscode an ein Geraet, das nicht (mehr) in der Liste steht. NICHT 4401:
+# darauf meldet sich die App neu an, und genau das soll ein abgemeldetes
+# Geraet nicht tun.
+WS_ABGEMELDET = 4410
+
 
 # --------------------------------------------------------------------------- #
 #  Das Zwischenlager  (dateien.bitdm.net, siehe blob_server.py)
@@ -782,6 +828,36 @@ CREATE INDEX IF NOT EXISTS idx_queue_ts        ON queue(ts);
 --
 -- Die Zeilen werden nach 24 Stunden weggeraeumt (purge_expired). Ein
 -- Protokoll, das laenger lebt, als es gebraucht wird, ist ein Protokoll.
+-- Die signierte Geraeteliste je Adresse (GERAETEABMELDUNG.md §8).
+--
+-- `liste` ist Zeichen fuer Zeichen das, was der Client unterschrieben hat —
+-- nicht neu serialisiert. Nur so kann jeder Abrufer die Signaturen selbst
+-- nachpruefen, und genau das ist der Punkt: dieser Server soll eine Abmeldung
+-- weder faelschen noch zuruecknehmen koennen.
+--
+-- KEIN Fremdschluessel auf identities: die Liste gilt auch fuer Geraete, die
+-- gerade keine Zeile haben (GERAET_TTL hat sie weggeraeumt, oder sie melden
+-- sich nach einem Zuruecksetzen erst noch an).
+CREATE TABLE IF NOT EXISTS geraetelisten (
+    user_id        TEXT PRIMARY KEY,
+    epoche         INTEGER NOT NULL,
+    liste          TEXT NOT NULL,
+    sig_identitaet BLOB NOT NULL,
+    sig_geraet     BLOB NOT NULL,
+    geaendert      REAL NOT NULL
+);
+
+-- Offene Beitrittsanfragen, hoechstens BEITRITTE_JE_ADRESSE fuer BEITRITT_TTL.
+CREATE TABLE IF NOT EXISTS beitritte (
+    user_id        TEXT NOT NULL,
+    device_id      INTEGER NOT NULL,
+    anfrage        TEXT NOT NULL,
+    sig_identitaet BLOB NOT NULL,
+    sig_geraet     BLOB NOT NULL,
+    ts             REAL NOT NULL,
+    PRIMARY KEY (user_id, device_id)
+);
+
 CREATE TABLE IF NOT EXISTS blob_marken (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -1736,6 +1812,10 @@ class PreKeyBundle(BaseModel):
 class RegisterRequest(BaseModel):
     bundle: PreKeyBundle
     signature: str                        # base64, XEdDSA ueber nonce||sha256(bundle)
+    # Der Geraeteschluessel ueber ANMELDE_PRAEFIX || nonce || sha256(bundle).
+    # Nur verlangt, wenn die Adresse eine Geraeteliste hat (siehe register).
+    # NICHT in canonical_bytes: die Bytes alter Clients bleiben, wie sie sind.
+    geraete_signatur: str | None = Field(default=None, max_length=200)
 
 
 class ChallengeRequest(BaseModel):
@@ -1743,6 +1823,253 @@ class ChallengeRequest(BaseModel):
     # Muss zur device_id im spaeteren /register passen, sonst findet der
     # Besitznachweis sein Nonce nicht — siehe _nonces.
     device_id: int | None = geraete_feld()
+
+
+class GeraetelisteRequest(BaseModel):
+    # Die Liste als ZEICHENKETTE, genau die unterschriebenen Bytes. Als Objekt
+    # geschickt muesste dieser Server sie neu serialisieren, und jede
+    # Abweichung in der Schreibweise braeche die Signatur bei jedem Abrufer.
+    liste: str = Field(max_length=LISTE_MAX_ZEICHEN)
+    sig_identitaet: str = Field(max_length=200)
+    sig_geraet: str = Field(max_length=200)
+
+
+class BeitrittRequest(BaseModel):
+    anfrage: str = Field(max_length=2048)
+    sig_identitaet: str = Field(max_length=200)
+    sig_geraet: str = Field(max_length=200)
+
+
+# --------------------------------------------------------------------------- #
+#  Geraeteliste lesen und pruefen  (GERAETEABMELDUNG.md §8)
+# --------------------------------------------------------------------------- #
+
+class Geraeteliste(NamedTuple):
+    """Eine gepruefte Fassung. `geraete`: device_id -> Geraeteschluessel."""
+    roh: str
+    adresse: str
+    epoche: int
+    geraete: dict[int, bytes]
+    unterzeichner: int
+    sig_identitaet: bytes
+    sig_geraet: bytes
+
+
+class Beitritt(NamedTuple):
+    roh: str
+    adresse: str
+    device_id: int
+    schluessel: bytes
+    sig_identitaet: bytes
+    sig_geraet: bytes
+
+
+def _ganzzahl(wert, unten: int, oben: int) -> bool:
+    # bool ist in Python ein int — dieselbe Falle wie bei geraete_feld().
+    return (isinstance(wert, int) and not isinstance(wert, bool)
+            and unten <= wert <= oben)
+
+
+def _ohne_doppelte_schluessel(paare):
+    """object_pairs_hook fuer json.loads: ein Schluessel zweimal ist Absicht.
+
+    json.loads nimmt sonst stillschweigend den letzten. Signiert waere dann
+    eine Zeichenkette, die zwei Lesarten hat — und welche ein anderer Parser
+    nimmt, ist nicht festgelegt.
+    """
+    d = {}
+    for k, v in paare:
+        if k in d:
+            raise ValueError("Schluessel doppelt")
+        d[k] = v
+    return d
+
+
+def kanonisch(obj) -> str:
+    """Die eine Schreibweise, in der Listen und Anfragen unterschrieben werden."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+
+def _lies_kanonisch(roh: str, felder: set[str]) -> dict:
+    """JSON-Objekt mit genau diesen Feldern, in kanonischer Schreibweise. Sonst 400.
+
+    KANONISCH WIRD VERLANGT UND NICHT HERGESTELLT. Wer eine andere Schreibweise
+    unterschreibt, bekaeme sie hier sonst still umgeschrieben, und die
+    Signatur passte danach bei keinem Abrufer mehr. Nur ASCII, weil Python
+    Umlaute anders schreibt als Dart (\\u00fc gegen ü) — vorkommen duerfen sie
+    ohnehin nirgends.
+    """
+    if not roh.isascii():
+        raise HTTPException(400, "nicht kanonisch (nur ASCII)")
+    try:
+        obj = json.loads(roh, object_pairs_hook=_ohne_doppelte_schluessel)
+    except (ValueError, RecursionError) as exc:
+        raise HTTPException(400, "kein gueltiges JSON") from exc
+    if not isinstance(obj, dict) or set(obj) != felder:
+        raise HTTPException(400, "Felder passen nicht")
+    if kanonisch(obj) != roh:
+        raise HTTPException(400, "nicht kanonisch")
+    if not _ganzzahl(obj["v"], 1, 1):
+        raise HTTPException(400, "unbekannte Fassung")
+    return obj
+
+
+def _adresse_kanonisch(a) -> bool:
+    if not isinstance(a, str):
+        return False
+    try:
+        return encode_id(decode_id(a)) == a
+    except ValueError:
+        return False
+
+
+def _schluessel_32(wert, name: str) -> bytes:
+    try:
+        roh = b64d(wert) if isinstance(wert, str) else b""
+    except ValueError:
+        roh = b""
+    if len(roh) != 32:
+        raise HTTPException(400, f"{name} muss 32 Byte sein")
+    return roh
+
+
+def _signatur_64(wert: str, name: str) -> bytes:
+    try:
+        roh = b64d(wert)
+    except ValueError:
+        roh = b""
+    if len(roh) != SIGNATUR_LAENGE:
+        raise HTTPException(400, f"{name} muss 64 Byte sein")
+    return roh
+
+
+def lies_liste(roh: str, sig_identitaet: str, sig_geraet: str) -> Geraeteliste:
+    """Form der Liste pruefen und die Signatur des Identitaetsschluessels.
+
+    Die Signatur des GERAETESCHLUESSELS prueft erst setze_geraeteliste: gegen
+    welchen Schluessel, haengt an der gespeicherten Fassung (§8.3).
+    """
+    obj = _lies_kanonisch(
+        roh, {"adresse", "epoche", "geraete", "unterzeichner", "v", "zeit"})
+    if not _adresse_kanonisch(obj["adresse"]):
+        raise HTTPException(400, "adresse ungueltig")
+    if not _ganzzahl(obj["epoche"], 1, EPOCHE_MAX):
+        raise HTTPException(400, "epoche ungueltig")
+    if not _ganzzahl(obj["zeit"], 0, EPOCHE_MAX):
+        raise HTTPException(400, "zeit ungueltig")
+    eintraege = obj["geraete"]
+    if not isinstance(eintraege, list) or not 1 <= len(eintraege) <= GERAETE_MAX:
+        raise HTTPException(400, f"geraete: 1 bis {GERAETE_MAX} Eintraege")
+    geraete: dict[int, bytes] = {}
+    vorher = 0
+    for e in eintraege:
+        if not isinstance(e, list) or len(e) != 3:
+            raise HTTPException(400, "geraete: Eintrag ist [device_id, schluessel, info]")
+        kennung, schluessel, info = e
+        # Bis 127, weil libsignal keine groessere Geraetekennung annimmt
+        # (LIBSIGNAL_GERAET_MAX). Streng aufsteigend: eine Kennung zweimal
+        # waere zweimal dasselbe Geraet mit zwei Schluesseln.
+        if not _ganzzahl(kennung, 1, LIBSIGNAL_GERAET_MAX) or kennung <= vorher:
+            raise HTTPException(400, "geraete: device_id 1..127, streng aufsteigend")
+        vorher = kennung
+        geraete[kennung] = _schluessel_32(schluessel, "geraete: schluessel")
+        if not isinstance(info, str) or len(info) > GERAETE_INFO_MAX:
+            raise HTTPException(400, "geraete: info zu lang")
+        try:
+            b64d(info)
+        except ValueError as exc:
+            raise HTTPException(400, "geraete: info ist kein base64") from exc
+    # Zwei Eintraege mit demselben Schluessel waeren ein Geraet unter zwei
+    # Kennungen — es koennte sich dann aussuchen, als welches es auftritt.
+    if len(set(geraete.values())) != len(geraete):
+        raise HTTPException(400, "geraete: Geraeteschluessel doppelt")
+    # Der Unterzeichner steht in der neuen Liste — oder er meldet sich gerade
+    # selbst ab und stand in der alten. Ob das zutrifft, kann erst
+    # setze_geraeteliste mit der gespeicherten Fassung entscheiden.
+    if not _ganzzahl(obj["unterzeichner"], 1, LIBSIGNAL_GERAET_MAX):
+        raise HTTPException(400, "unterzeichner ungueltig")
+
+    sig_i = _signatur_64(sig_identitaet, "sig_identitaet")
+    sig_g = _signatur_64(sig_geraet, "sig_geraet")
+    if not verify_signature(decode_id(obj["adresse"]),
+                            LISTE_PRAEFIX + roh.encode("ascii"), sig_i):
+        raise HTTPException(403, "sig_identitaet passt nicht zur Adresse")
+    return Geraeteliste(roh, obj["adresse"], obj["epoche"], geraete,
+                        obj["unterzeichner"], sig_i, sig_g)
+
+
+def lies_beitritt(roh: str, sig_identitaet: str, sig_geraet: str) -> Beitritt:
+    """Eine Beitrittsanfrage: Form und BEIDE Signaturen. Sonst 400/403.
+
+    Der Identitaetsschluessel belegt die Woerter — ohne ihn koennte jeder
+    fremde Adressen mit Anfragen zuschuetten. Der Geraeteschluessel belegt,
+    dass der Anfragende den Schluessel hat, den er eingetragen haben will.
+    """
+    obj = _lies_kanonisch(
+        roh, {"adresse", "device_id", "info", "schluessel", "v", "zeit"})
+    if not _adresse_kanonisch(obj["adresse"]):
+        raise HTTPException(400, "adresse ungueltig")
+    if not _ganzzahl(obj["device_id"], 1, LIBSIGNAL_GERAET_MAX):
+        raise HTTPException(400, "device_id 1..127")
+    if not _ganzzahl(obj["zeit"], 0, EPOCHE_MAX):
+        raise HTTPException(400, "zeit ungueltig")
+    if not isinstance(obj["info"], str) or len(obj["info"]) > GERAETE_INFO_MAX:
+        raise HTTPException(400, "info zu lang")
+    try:
+        b64d(obj["info"])
+    except ValueError as exc:
+        raise HTTPException(400, "info ist kein base64") from exc
+    schluessel = _schluessel_32(obj["schluessel"], "schluessel")
+    sig_i = _signatur_64(sig_identitaet, "sig_identitaet")
+    sig_g = _signatur_64(sig_geraet, "sig_geraet")
+    nachricht = BEITRITT_PRAEFIX + roh.encode("ascii")
+    if not verify_signature(decode_id(obj["adresse"]), nachricht, sig_i):
+        raise HTTPException(403, "sig_identitaet passt nicht zur Adresse")
+    if not verify_signature(schluessel, nachricht, sig_g):
+        raise HTTPException(403, "sig_geraet passt nicht zum schluessel")
+    return Beitritt(roh, obj["adresse"], obj["device_id"], schluessel, sig_i, sig_g)
+
+
+def gespeicherte_liste(user_id: str) -> tuple[int, dict[int, bytes]] | None:
+    """(Epoche, device_id -> Geraeteschluessel) der gespeicherten Fassung.
+
+    Gelesen aus der gespeicherten Zeichenkette selbst — es gibt keine zweite
+    Tabelle, die mit ihr auseinanderlaufen koennte. Fuenf Eintraege zu parsen
+    kostet weniger als eine zweite Abfrage.
+    """
+    zeile = db.execute("SELECT epoche, liste FROM geraetelisten WHERE user_id=?",
+                       (user_id,)).fetchone()
+    if zeile is None:
+        return None
+    eintraege = json.loads(zeile[1])["geraete"]
+    return zeile[0], {k: b64d(s) for k, s, _ in eintraege}
+
+
+def geraeteliste_als_json(user_id: str) -> dict | None:
+    """Die gespeicherte Fassung so, wie sie jeder Abrufer bekommt."""
+    zeile = db.execute(
+        "SELECT liste, sig_identitaet, sig_geraet FROM geraetelisten"
+        " WHERE user_id=?", (user_id,)).fetchone()
+    if zeile is None:
+        return None
+    return {"liste": zeile[0], "sig_identitaet": b64e(zeile[1]),
+            "sig_geraet": b64e(zeile[2])}
+
+
+def geraete_signatur_ok(schluessel: bytes, nachricht: bytes,
+                        roh: object) -> bool:
+    """Die zweite Unterschrift bei der Anmeldung, mit dem Geraeteschluessel."""
+    try:
+        sig = b64d(roh) if isinstance(roh, str) else b""
+    except ValueError:
+        return False
+    return verify_signature(schluessel, ANMELDE_PRAEFIX + nachricht, sig)
+
+
+def raeume_beitritte_auf() -> int:
+    with schreibsperre, db:
+        return db.execute("DELETE FROM beitritte WHERE ts < ?",
+                          (time.time() - BEITRITT_TTL,)).rowcount
 
 
 # --------------------------------------------------------------------------- #
@@ -1772,6 +2099,10 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(3600)
             try:
                 purge_expired()
+                # Abgelaufene Beitrittsanfragen. beantrage_beitritt raeumt
+                # zwar bei jeder neuen Anfrage mit auf, aber eine Adresse, die
+                # nie wieder anfragt, behielte ihre sonst fuer immer.
+                raeume_beitritte_auf()
                 vergessen = raeume_vergessene_geraete()
                 if vergessen:
                     print(f"[i] {vergessen} vergessene Geraete entfernt")
@@ -2300,6 +2631,28 @@ def register(req: RegisterRequest, request: Request):
     geraet = 1 if bundle.device_id is None else bundle.device_id
 
     with schreibsperre:
+        # DIE GERAETELISTE (GERAETEABMELDUNG.md §8.4), und zwar INNERHALB der
+        # Sperre: setze_geraeteliste loescht unter derselben Sperre die Zeile
+        # eines abgemeldeten Geraets. Stuende die Pruefung davor, koennte eine
+        # Abmeldung zwischen Pruefen und Einfuegen fallen — und die
+        # Registrierung legte die Zeile des gerade abgemeldeten Geraets wieder
+        # an.
+        #
+        # Ohne Liste bleibt alles wie bisher; die App legt sie vor der ersten
+        # Anmeldung an.
+        liste = gespeicherte_liste(bundle.user_id)
+        if liste is not None:
+            schluessel = liste[1].get(geraet)
+            if schluessel is None:
+                raise HTTPException(403, "Geraet nicht in der Geraeteliste")
+            # Der Identitaetsschluessel allein reicht nicht mehr: den haben
+            # alle Geraete der Adresse, auch ein abgemeldetes. Ueber dieselben
+            # Bytes wie der Besitznachweis, also an dieses Nonce und dieses
+            # Buendel gebunden.
+            if not geraete_signatur_ok(schluessel, treffer + inhalt,
+                                       req.geraete_signatur):
+                raise HTTPException(403, "Geraeteschluessel fehlt oder passt nicht")
+
         # DAS DACH, und zwar nur fuer NEUE Adressen.
         #
         # Innerhalb der Sperre, sonst kaeme zwischen Zaehlen und Einfuegen ein
@@ -2521,15 +2874,29 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
             " kyber_prekey_sig FROM identities"
             " WHERE user_id=? ORDER BY device_id", (user_id,)
         ).fetchall()
+        # NUR GERAETE DER LISTE. Eine Zeile ausserhalb gibt es nur fuer einen
+        # Augenblick (setze_geraeteliste loescht sie unter derselben Sperre)
+        # — aber ein Buendel, das in diesem Augenblick hinausginge, liesse
+        # einen Absender an ein gerade abgemeldetes Geraet verschluesseln.
+        liste = gespeicherte_liste(user_id)
+        if liste is not None:
+            rows = [r for r in rows if r[0] in liste[1]]
         if not rows:
             raise HTTPException(404, "unbekannte Adresse")
+        # Die signierte Liste geht mit, damit jeder Abrufer selbst pruefen
+        # kann, welche Geraete die Adresse wirklich hat (§8.6, Stufe 2) —
+        # und zwar mit dem Abruf, den er ohnehin macht.
+        liste_json = geraeteliste_als_json(user_id)
 
         if nur_geraete:
-            return {
+            antwort = {
                 "user_id": user_id,
                 "geraete": [{"device_id": r[0], "registration_id": r[5]}
                             for r in rows],
             }
+            if liste_json is not None:
+                antwort["geraeteliste"] = liste_json
+            return antwort
 
         # One-Time-Prekey nur ausgeben, wenn das Limit dieser Adresse es zulaesst.
         # Bei Ueberschreitung kommt das Bundle OHNE — X3DH funktioniert auch dann,
@@ -2640,7 +3007,194 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
         if feld in erstes:
             antwort[feld] = erstes[feld]
     antwort["geraete"] = geraete
+    if liste_json is not None:
+        antwort["geraeteliste"] = liste_json
     return antwort
+
+
+# ---------------------------------------------------------------- Geraeteliste
+
+@app.get("/geraeteliste/{user_id}")
+def hole_geraeteliste(user_id: str, request: Request):
+    """Die signierte Geraeteliste einer Adresse — fuer jeden, ohne Anmeldung.
+
+    Oeffentlich wie /prekey: Kontakte brauchen sie, um nur an echte Geraete
+    zu verschluesseln. Was sie verraet, verraet /prekey?nur_geraete=1 schon
+    (wie viele Geraete, welche Kennungen); Namen stehen nur verschluesselt
+    darin.
+    """
+    if not herkunft_ok(request, "pk"):
+        raise HTTPException(429, "zu viele Anfragen")
+    antwort = geraeteliste_als_json(user_id)
+    if antwort is None:
+        raise HTTPException(404, "keine Geraeteliste")
+    return antwort
+
+
+async def _melde_an_geraete(user_id: str, geraete, rahmen: dict,
+                            schliessen: int | None = None) -> None:
+    """Schickt verbundenen Geraeten einen Rahmen, auf Wunsch mit Schluss.
+
+    Fehler werden geschluckt: eine Leitung, die gerade stirbt, darf die
+    Antwort an den Aufrufer nicht verhindern — die Aenderung ist ja schon
+    gespeichert, und wer sie verpasst, sieht sie beim naechsten Verbinden.
+    """
+    for geraet in geraete:
+        ws = connections.get(user_id, {}).get(geraet)
+        if ws is None:
+            continue
+        try:
+            await ws.send_json(rahmen)
+            if schliessen is not None:
+                await ws.close(code=schliessen)
+        except Exception:
+            pass
+
+
+@app.post("/geraeteliste")
+async def setze_geraeteliste(req: GeraetelisteRequest, request: Request):
+    """Eine neue Fassung der Geraeteliste (GERAETEABMELDUNG.md §8.3).
+
+    ASYNC, nicht im Threadpool wie /register: abgemeldete Geraete werden
+    sofort getrennt, und ihre Leitungen leben auf dem Event-Loop. Die Arbeit
+    unter der schreibsperre hat kein await (siehe dort); die beiden
+    Signaturpruefungen sind C-Code und kosten Mikrosekunden.
+    """
+    if not herkunft_ok(request, "reg", cost=5):
+        raise HTTPException(429, "zu viele Anfragen")
+    neu = lies_liste(req.liste, req.sig_identitaet, req.sig_geraet)
+    uid = neu.adresse
+    nachricht = LISTE_PRAEFIX + neu.roh.encode("ascii")
+
+    with schreibsperre:
+        alt = gespeicherte_liste(uid)
+        if alt is None:
+            # ANLAGE: nur Fassung 1, nur mit sich allein. Mehr Geraete gleich
+            # bei der Anlage ginge nur mit dem Identitaetsschluessel — genau
+            # dem, den jedes Geraet hat. Weitere kommen ueber den Beitritt.
+            if neu.epoche != 1:
+                raise HTTPException(409, "Epoche passt nicht (aktuell 0)")
+            if list(neu.geraete) != [neu.unterzeichner]:
+                raise HTTPException(403, "Die erste Liste enthaelt nur das "
+                                         "anlegende Geraet")
+            pruefschluessel = neu.geraete[neu.unterzeichner]
+        else:
+            alt_epoche, alt_geraete = alt
+            # GENAU +1. Zwei Geraete, die gleichzeitig aendern, bekommen so
+            # nicht beide recht: der zweite sieht 409, holt die neue Fassung
+            # und entscheidet neu. Ein Sprung nach vorn wuerde nichts
+            # schuetzen, nur die Epoche verbrauchen.
+            if neu.epoche != alt_epoche + 1:
+                raise HTTPException(409, f"Epoche passt nicht (aktuell {alt_epoche})")
+            bisher = alt_geraete.get(neu.unterzeichner)
+            if bisher is not None and neu.geraete.get(neu.unterzeichner, bisher) == bisher:
+                # Ein Mitglied aendert — auch, wenn es sich selbst abmeldet
+                # (dann fehlt es in der neuen Fassung). Gegen seinen Schluessel
+                # aus der ALTEN Fassung: der neue Eintrag ist ja gerade das,
+                # was es setzt.
+                pruefschluessel = bisher
+            else:
+                # ZURUECKSETZEN: wer nicht drinsteht, kommt nur allein hinein
+                # und wirft dabei alle anderen hinaus. Das kann jeder mit den
+                # Woertern — auch ein Dieb, der sie hat. Deshalb ist es laut:
+                # jedes andere Geraet faellt sichtbar heraus und erfaehrt es.
+                if list(neu.geraete) != [neu.unterzeichner]:
+                    raise HTTPException(403, "Nur ein Geraet der Liste darf "
+                                             "Geraete hinzufuegen")
+                pruefschluessel = neu.geraete[neu.unterzeichner]
+        if not verify_signature(pruefschluessel, nachricht, neu.sig_geraet):
+            raise HTTPException(403, "sig_geraet passt nicht")
+
+        # WER GEHT: jedes Geraet, das in der alten Fassung stand oder eine
+        # Zeile hat und in der neuen fehlt — oder dort mit einem ANDEREN
+        # Schluessel steht (dieselbe Kennung, anderes Geraet). Zeilen ohne
+        # Liste gibt es bei der Anlage: Geraete, die sich angemeldet hatten,
+        # bevor es Listen gab.
+        zeilen = {r[0] for r in db.execute(
+            "SELECT device_id FROM identities WHERE user_id=?", (uid,))}
+        bisherige = alt[1] if alt is not None else {}
+        weg = sorted(
+            g for g in zeilen | set(bisherige)
+            if g not in neu.geraete
+            or (g in bisherige and bisherige[g] != neu.geraete[g]))
+        queue_weg = kyber_weg = 0
+        with db:
+            db.execute(
+                "INSERT INTO geraetelisten (user_id, epoche, liste,"
+                " sig_identitaet, sig_geraet, geaendert) VALUES (?,?,?,?,?,?)"
+                " ON CONFLICT(user_id) DO UPDATE SET epoche=excluded.epoche,"
+                " liste=excluded.liste, sig_identitaet=excluded.sig_identitaet,"
+                " sig_geraet=excluded.sig_geraet, geaendert=excluded.geaendert",
+                (uid, neu.epoche, neu.roh, neu.sig_identitaet, neu.sig_geraet,
+                 time.time()))
+            for g in weg:
+                q, k = loesche_geraet(uid, g)
+                queue_weg += q
+                kyber_weg += k
+            # Erledigt: Anfragen fuer Kennungen, die jetzt in der Liste stehen.
+            db.executemany("DELETE FROM beitritte WHERE user_id=? AND device_id=?",
+                           [(uid, g) for g in neu.geraete])
+        kyber_zeilen_aendern(-kyber_weg)
+    queue_zeilen_aendern(-queue_weg)
+
+    # Erst NACH dem Speichern trennen: wer getrennt wird und sofort neu
+    # verbindet, soll schon die neue Fassung sehen.
+    await _melde_an_geraete(uid, weg, {"type": "abgemeldet", "epoche": neu.epoche},
+                            schliessen=WS_ABGEMELDET)
+    await _melde_an_geraete(uid, [g for g in neu.geraete if g not in weg],
+                            {"type": "geraeteliste", "epoche": neu.epoche})
+    return {"ok": True, "epoche": neu.epoche}
+
+
+@app.post("/geraeteliste/beitritt")
+async def beantrage_beitritt(req: BeitrittRequest, request: Request):
+    """Ein Geraet, das nicht in der Liste steht, bittet darum (§8.5).
+
+    Hier wird nichts entschieden. Die Anfrage liegt nur bereit, bis ein
+    Mitglied sie bestaetigt — indem es eine neue Fassung der Liste
+    veroeffentlicht — oder bis BEITRITT_TTL um ist.
+    """
+    if not herkunft_ok(request, "reg", cost=5):
+        raise HTTPException(429, "zu viele Anfragen")
+    a = lies_beitritt(req.anfrage, req.sig_identitaet, req.sig_geraet)
+    with schreibsperre:
+        liste = gespeicherte_liste(a.adresse)
+        if liste is None:
+            # Ohne Liste gibt es niemanden, der bestaetigen koennte; das Geraet
+            # legt sie selbst an.
+            raise HTTPException(409, "keine Geraeteliste")
+        if a.device_id in liste[1]:
+            raise HTTPException(409, "device_id ist schon vergeben")
+        jetzt = time.time()
+        with db:
+            db.execute("DELETE FROM beitritte WHERE ts < ?", (jetzt - BEITRITT_TTL,))
+            db.execute(
+                "INSERT OR REPLACE INTO beitritte (user_id, device_id, anfrage,"
+                " sig_identitaet, sig_geraet, ts) VALUES (?,?,?,?,?,?)",
+                (a.adresse, a.device_id, a.roh, a.sig_identitaet, a.sig_geraet,
+                 jetzt))
+            # Hoechstens BEITRITTE_JE_ADRESSE, die neuesten bleiben.
+            db.execute(
+                "DELETE FROM beitritte WHERE user_id=?1 AND rowid NOT IN ("
+                " SELECT rowid FROM beitritte WHERE user_id=?1"
+                " ORDER BY ts DESC, rowid DESC LIMIT ?2)",
+                (a.adresse, BEITRITTE_JE_ADRESSE))
+    await _melde_an_geraete(a.adresse, list(liste[1]), {"type": "beitritt"})
+    return {"ok": True}
+
+
+@app.get("/geraeteliste/{user_id}/beitritte")
+def hole_beitritte(user_id: str, request: Request):
+    """Offene Beitrittsanfragen. Oeffentlich: sie enthalten nichts Geheimes,
+    und jedes Mitglied prueft die Signaturen ohnehin selbst."""
+    if not herkunft_ok(request, "pk"):
+        raise HTTPException(429, "zu viele Anfragen")
+    zeilen = db.execute(
+        "SELECT anfrage, sig_identitaet, sig_geraet FROM beitritte"
+        " WHERE user_id=? AND ts >= ? ORDER BY ts",
+        (user_id, time.time() - BEITRITT_TTL)).fetchall()
+    return {"beitritte": [{"anfrage": a, "sig_identitaet": b64e(i),
+                           "sig_geraet": b64e(g)} for a, i, g in zeilen]}
 
 
 # ------------------------------------------------------------------ WebSocket
@@ -2863,6 +3417,17 @@ async def _vorraum(ws: WebSocket):
         # unauthentifiziert und ungebremst. -1 passt in die Bindung.
         device_id = -1
 
+    # DIE GERAETELISTE ZUERST, vor der Frage nach der Zeile. Ein abgemeldetes
+    # Geraet hat keine Zeile mehr und bekaeme sonst "erst /register aufrufen"
+    # mit 4401 — und genau darauf meldet sich die App von selbst neu an. 4410
+    # sagt ihr: nicht wieder anmelden, sondern die Liste ansehen.
+    liste = gespeicherte_liste(user_id)
+    if liste is not None and device_id not in liste[1]:
+        await ws.send_json({"type": "abgemeldet", "epoche": liste[0]})
+        await ws.close(code=WS_ABGEMELDET)
+        return None
+    geraeteschluessel = liste[1][device_id] if liste is not None else None
+
     row = db.execute(
         "SELECT identity_key FROM identities WHERE user_id=? AND device_id=?",
         (user_id, device_id),
@@ -2912,7 +3477,15 @@ async def _vorraum(ws: WebSocket):
         await ws.send_json({"type": "auth_result", "ok": False})
         await ws.close(code=4403)
         return None
-    return user_id, device_id, reply
+    # Mit Liste zusaetzlich der Geraeteschluessel ueber dieselben Bytes. Den
+    # Identitaetsschluessel hat auch ein abgemeldetes Geraet — nur dieser
+    # Schluessel unterscheidet die Geraete einer Adresse.
+    if geraeteschluessel is not None and not geraete_signatur_ok(
+            geraeteschluessel, erwartet, reply.get("geraete_signatur")):
+        await ws.send_json({"type": "auth_result", "ok": False})
+        await ws.close(code=4403)
+        return None
+    return user_id, device_id, reply, geraeteschluessel
 
 
 @app.websocket("/ws")
@@ -2935,7 +3508,7 @@ async def ws_endpoint(ws: WebSocket):
         _ws_im_vorraum -= 1
     if angemeldet is None:
         return
-    user_id, device_id, reply = angemeldet
+    user_id, device_id, reply, geraeteschluessel = angemeldet
 
     # Ob die Gegenseite den Empfangsnachweis beherrscht. Steht im SELBEN
     # Rahmen wie die Signatur, weil er ohnehin kommen muss und weil die
@@ -3007,6 +3580,22 @@ async def ws_endpoint(ws: WebSocket):
     connections.setdefault(user_id, {})[device_id] = ws
     nachweisfaehig.setdefault(user_id, {})[device_id] = nachweis
     try:
+        # NOCH EINMAL DIE LISTE, jetzt wo die Leitung in `connections` steht.
+        # Zwischen der Pruefung im Vorraum und hier lagen Wartepunkte (die
+        # Challenge, auth_result, die Verdraengung). Faellt eine Abmeldung
+        # genau dorthin, fand setze_geraeteliste diese Leitung noch nicht in
+        # `connections` — und das abgemeldete Geraet bliebe verbunden. Ab
+        # hier sieht jede spaetere Abmeldung die Leitung; was vorher kam,
+        # faengt diese Abfrage. Auch ein Geraet, das sich OHNE Liste anmeldete,
+        # waehrend ein anderes sie gerade anlegte: es hat keinen
+        # Geraeteschluessel vorgezeigt und muss neu anmelden.
+        jetzt_liste = gespeicherte_liste(user_id)
+        if (jetzt_liste is not None
+                and jetzt_liste[1].get(device_id) != geraeteschluessel):
+            await ws.send_json({"type": "abgemeldet", "epoche": jetzt_liste[0]})
+            await ws.close(code=WS_ABGEMELDET)
+            return
+
         # ---- wartende Nachrichten zustellen ----
         #
         # NUR die dieses Geraets. `recipient` allein trennt nicht mehr: beide
