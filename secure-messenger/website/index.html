@@ -963,8 +963,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         </a>
         <a class="held-andere" href="#download"><span class="de">Andere Geräte</span><span class="en">Other devices</span></a>
         <p class="held-meta">
-          <span class="de">Version 1.9.1, x64, braucht GTK 3 und libsecret. Ausprobiert hat es noch niemand.</span>
-          <span class="en">Version 1.9.1, x64, needs GTK 3 and libsecret. Nobody has tried it yet.</span>
+          <span class="de">Version 1.9.1, x64, braucht GTK 3, libsecret und einen entsperrten Schlüsselbund. Getestet bisher nur in einem Container.</span>
+          <span class="en">Version 1.9.1, x64, needs GTK 3, libsecret and an unlocked keyring. Only tested in a container so far.</span>
         </p>
       </div>
       <div class="held-dl" data-fuer="web">
@@ -1235,7 +1235,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <!-- LINUX. Gebaut auf einem Ubuntu-22.04-Runner von GitHub
            (.github/workflows/linux.yml, ausgeloest vom Versions-Tag), der das
            Paket an den Release haengt. Hier liegt es nicht, darum fuehrt der
-           Knopf zum Release. Gestartet hat dieses Paket noch niemand; der Text
+           Knopf zum Release. Am 17.10.2026 lief 1.9.1 in einem Debian-13-Container
+           (d1664f5, README "Linux"); auf echter Hardware noch nicht. Der Text
            sagt das. -->
       <article class="dl" data-plattform="linux">
         <div class="dl-kopf">
@@ -1253,11 +1254,13 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         </div>
         <p class="dl-text">
           <span class="de">GitHub baut das Paket aus diesem Quellcode. Auspacken,
-            <code>./bitdm</code> starten. Ausprobiert hat es noch niemand; selbst bauen
-            erklärt <code>docs/LINUX.md</code>.</span>
+            <code>./bitdm</code> starten. Ohne entsperrten Schlüsselbund bleibt das
+            Fenster leer. Getestet ist es bisher nur in einem Debian-Container;
+            selbst bauen erklärt <code>docs/LINUX.md</code>.</span>
           <span class="en">GitHub builds the package from this source. Unpack
-            it and run <code>./bitdm</code>. Nobody has tried it yet; to build it
-            yourself, see <code>docs/LINUX.md</code>.</span>
+            it and run <code>./bitdm</code>. Without an unlocked keyring the window
+            stays empty. So far it has only been tested in a Debian container; to
+            build it yourself, see <code>docs/LINUX.md</code>.</span>
         </p>
       </article>
 
@@ -1495,7 +1498,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
 
     <ul class="sees">
       <li class="no"><span class="what de">Inhalt der Nachricht</span><span class="what en">Message content</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
-      <li class="no"><span class="what de">Anzeigename deiner Kontakte</span><span class="what en">Your contacts' display names</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
+      <!-- BIS 17.10.2026 STAND HIER "Anzeigename deiner Kontakte". Die App
+           zeigt aber gar keine Namen ('noNames' in data.dart: "Namen gibt es
+           nicht, auch nicht lokal"); die Zeile versprach Schutz fuer etwas,
+           das es nicht gibt. Den Namen einer Gruppe gibt es: er reist im
+           Gruppenstand (Payload.gruppenStand, _verkuendeStand in
+           real_messenger_core.dart) ueber _sendeSteuerung durch den normalen,
+           verschluesselten Ausgang. -->
+      <li class="no"><span class="what de">Name einer Gruppe</span><span class="what en">A group's name</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
       <li class="yes"><span class="what de">Absender- und Empfängeradresse</span><span class="what en">Sender and recipient address</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
       <li class="yes"><span class="what de">Zeitpunkt und ungefähre Größe</span><span class="what en">Time and rough size</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
       <li class="no"><span class="what de">Die genaue Länge einer Nachricht</span><span class="what en">The exact length of a message</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
