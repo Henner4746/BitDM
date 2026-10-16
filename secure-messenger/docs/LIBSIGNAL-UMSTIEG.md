@@ -62,7 +62,7 @@ Versuch: `BitDM-audit-arbeit/werkzeuge/libsignal_spike/bin/spike.dart`, reines D
 - **Android, Release und F-Droid:** Die Bibliothek wird aus der Quelle gebaut, im F-Droid-Rezept selbst. Damit baut F-Droids Server sie genauso. Stand 16.10.2026 auf Zweig `feat/libsignal-quellbau`, Einzelheiten unten.
 - **Windows, Linux und Android-Bauten am eigenen Rechner:** Die Binärdateien lädt weiter der Build-Hook des Pakets. Er prüft sie gegen eine Prüfsummendatei aus demselben GitHub-Release, und das schützt nicht gegen ein ausgetauschtes Release (Befund unten). Für die Linux-Pakete aus `linux.yml` ist das noch offen.
 - **Web:** Das WASM-Modul legt der Build-Hook in `web/pkg/` an (in `.gitignore`, Prüfsummen in `deploy/webapp/README.md`). Die CSP bleibt `script-src 'self' 'wasm-unsafe-eval'`, ohne `'unsafe-eval'`; dafür sorgt `web/libsignal_ohne_eval.js` (siehe „Web-Fassung“ unten). Es geht nur der normale Web-Build, nicht `--wasm`.
-- **Größe:** Die APK wird um gut 4 MB größer, etwa 2,5 MB für arm64-v8a und 1,7 MB für armeabi-v7a. Gemessen ist das an den vorgebauten Bibliotheken upstream (6,30 und 4,54 MB, gestrippt 2,54 und 1,71 MB). In der APK liegen sie gestrippt und unkomprimiert. Die Werte des eigenen Baus schreibt der Workflow je ABI in die Zusammenfassung.
+- **Größe:** `liblibsignal_frb.so` belegt in der APK 2 525 056 Byte für arm64-v8a und 1 707 684 Byte für armeabi-v7a, zusammen gut 4,2 MB. Sie liegt dort gestrippt und unkomprimiert. Gemessen ist das am eigenen Bau (Windows, 16.10.2026, Tabelle unten). Die vorgebauten Bibliotheken upstream sind fast gleich groß (gestrippt 2,54 und 1,71 MB). Im F-Droid-Image schreibt der Workflow die Werte je ABI in die Zusammenfassung.
 
 #### Der Build-Hook von `libsignal` 8.0.0 (Befund vom 16.10.2026)
 
@@ -113,10 +113,21 @@ Upstream baut anders: rustc 1.99.0, NDK r26d, `--platform 24`, ohne Build-ID. Di
 
 #### Bitgleichheit: Stand
 
-- **Im F-Droid-Image: noch nicht gemessen.** Dafür muss der Zweig auf GitHub liegen. Dann den Workflow „Android (F-Droid-Bau)“ von Hand mit `gegenprobe` starten: Er baut zweimal und vergleicht selbst. Der Push braucht Henriks Ja.
-- **Vorab am Windows-Rechner** (nicht das F-Droid-Image, nur Rust-Teil): siehe Nachtrag unten, sobald gelaufen.
+- **Im F-Droid-Image: noch nicht gemessen, mit Absicht.** Gemessen wird mit dem Release von 2.0.0: Workflow „Android (F-Droid-Bau)“ von Hand mit `gegenprobe` starten, er baut zweimal und vergleicht selbst. Vorher geht es nicht, denn dafür muss der Zweig auf GitHub liegen. Ein Push würde die Audit-Behebung und die Befunde öffentlich machen, solange 1.9.1 noch ausgeliefert ist. Henrik hat am 16.10.2026 entschieden, bis zum Release zu warten.
+- **Vorab gemessen am 16.10.2026** (Rust 1.99.1, cargo-ndk 4.1.2, NDK r28c, protoc 3.21.12, dieselben Flags):
+
+| Messung | Ergebnis |
+|---|---|
+| Rust-Teil am Windows-Rechner, zweimal im selben Ordner | **bitgleich**, beide ABIs (arm64 `63bbf7b0…`, armv7 `66743ced…`), je Lauf knapp 1 Minute |
+| dasselbe in einem anderen Ordner | **bitgleich** mit den beiden ersten Läufen. Die Pfad-Umschreibung wirkt. |
+| `libsignal-quellbau.sh` selbst unter Linux (WSL Ubuntu 24.04, frisches HOME, F-Droid-ähnliche Ordner), zweimal | läuft durch, **bitgleich** (arm64 `199860c2…`, armv7 `c59c6a50…`). Der erste Lauf dauerte 77 s samt Rust und cargo-ndk, der zweite 37 s mit Hinweis „schon umgestellt“. Danach belegt `target/` 11 MB, `~/.cargo` 327 MB, `~/.rustup` 860 MB. |
+| Linux gegen Windows | verschieden, wie erwartet (andere Rechner-Toolchain). F-Droid vergleicht Linux mit Linux im selben Image. |
+| `flutter build apk --release` am Windows-Rechner mit umgestelltem Hook | Die APK enthält genau den Quellbau: gleiche Build-ID, kein Download-Cache des Hooks. Die Datei in der APK ist byte-gleich mit `llvm-strip --strip-unneeded` des Baus, so strippt Gradle. arm64 ist auf 16 KiB ausgerichtet. |
+| Größe dieser APK (beide ABIs) | 52 663 578 Byte (50,2 MB). Alle `.so` arm64-v8a 25 901 200 Byte, davon libsignal 2 525 056. Alle `.so` armeabi-v7a 22 839 632 Byte, davon libsignal 1 707 684. Zum Vergleich: Windows-Bau 1.9.x vom 14.10.2026, 49 030 050 Byte. |
+
+- Beim WSL-Lauf fiel ein Fehler im Skript auf: `rustc -vV | grep -q …` brach unter `pipefail` ab, obwohl die Fassung stimmte, vermutlich durch SIGPIPE, wenn grep zuerst fertig ist. Die Prüfungen sammeln die Ausgabe jetzt erst ein.
 - Bekannte Risiken für die Gleichheit sind Pfade und Werkzeugfassungen. Pfade schreibt das Skript um, und F-Droid baut ohnehin im selben Pfad (`/home/vagrant/build/com.bitdm.bitdm`). Die Werkzeuge sind oben gepinnt.
-- **Laufzeit:** F-Droid bricht einen Bau nach 2 Stunden ab (Standard `timeout`). Der Rust-Teil kommt zum bisherigen Bau dazu. Liegt der GitHub-Lauf deutlich über einer Stunde, im Rezept `timeout:` setzen.
+- **Laufzeit:** F-Droid bricht einen Bau nach 2 Stunden ab (Standard `timeout`). Der Rust-Teil braucht am Ryzen unter 2 Minuten, auf einem GitHub-Runner mit 4 Kernen einige Minuten mehr. Liegt der GitHub-Lauf trotzdem deutlich über einer Stunde, im Rezept `timeout:` setzen.
 
 ## Reihenfolge
 

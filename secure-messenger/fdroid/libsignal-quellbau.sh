@@ -62,10 +62,15 @@ PAKET=$PUB_CACHE/hosted/pub.dev/libsignal-$PAKET_FASSUNG
 HOOK=$PAKET/hook/build.dart
 
 # --- Stimmen die Pins mit dem Quellstand ueberein?
-grep -A7 '^  libsignal:$' pubspec.lock | grep -qx "    version: \"$PAKET_FASSUNG\"" ||
+# Ausgaben erst einsammeln, dann pruefen. `befehl | grep -q` scheitert unter
+# pipefail zufaellig: Ist grep fertig, bevor der Schreiber fertig ist, endet
+# der mit SIGPIPE. Am 16.10.2026 brach die rustc-Pruefung unten in WSL so ab,
+# obwohl rustc die richtige Fassung meldete.
+eintrag=$(grep -A7 '^  libsignal:$' pubspec.lock)
+grep -qx "    version: \"$PAKET_FASSUNG\"" <<< "$eintrag" ||
   fehler "pubspec.lock nennt nicht libsignal $PAKET_FASSUNG; Pins in diesem Skript nachziehen"
 [ -d "$PAKET/rust" ] || fehler "$PAKET/rust fehlt (vorher flutter pub get)"
-crate=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' "$PAKET/rust/Cargo.toml" | head -n1)
+crate=$(awk -F'"' '/^version *=/ { print $2; exit }' "$PAKET/rust/Cargo.toml")
 [ "$crate" = "$CRATE_FASSUNG" ] || fehler "rust/Cargo.toml hat $crate, erwartet $CRATE_FASSUNG"
 grep -qx "Pkg.Revision = $NDK_FASSUNG" "$ANDROID_NDK_HOME/source.properties" ||
   fehler "NDK in $ANDROID_NDK_HOME ist nicht $NDK_FASSUNG"
@@ -89,7 +94,9 @@ RUSTUP_VERSION=$RUSTUP_FASSUNG sh "$RUSTUP_SRCLIB/rustup-init.sh" -y --no-modify
   --profile minimal --default-toolchain "$RUST_FASSUNG"
 export PATH=$CARGO_HOME/bin:$PATH RUSTUP_TOOLCHAIN=$RUST_FASSUNG
 rustup target add "${ZIELE[@]}"
-rustc -vV | grep -qx "commit-hash: $RUST_COMMIT" || fehler "rustc ist nicht $RUST_FASSUNG ($RUST_COMMIT)"
+rustc_vv=$(rustc -vV)
+grep -qx "commit-hash: $RUST_COMMIT" <<< "$rustc_vv" ||
+  fehler "rustc ist nicht $RUST_FASSUNG ($RUST_COMMIT): $rustc_vv"
 cargo install --locked cargo-ndk --version "$CARGO_NDK_FASSUNG"
 
 # --- Bauen.
