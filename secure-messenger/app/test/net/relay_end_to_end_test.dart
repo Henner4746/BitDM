@@ -14,6 +14,12 @@
 //
 // Der Test wird uebersprungen, wenn Python oder die Abhaengigkeiten des Relays
 // fehlen — dann sagt er das aber laut, statt still durchzurutschen.
+//
+// SEIT 2.0.0 (offizielle libsignal, PQXDH) haengt hier eine zweite Frage
+// dran: nimmt der echte Relay die Kyber-Prekeys an, prueft er ihre
+// Signaturen gegen dieselben Bytes wie libsignal, und gibt er sie in der
+// richtigen Reihenfolge wieder aus — erst die Einmalschluessel, dann den
+// Last-Resort-Schluessel?
 
 import 'dart:async';
 import 'dart:convert';
@@ -22,23 +28,32 @@ import 'dart:typed_data';
 
 import 'package:bitdm/core/crypto/bip39.dart';
 import 'package:bitdm/core/crypto/key_derivation.dart';
+import 'package:bitdm/core/crypto/signal_errors.dart';
 import 'package:bitdm/core/net/envelope.dart';
 import 'package:bitdm/core/net/prekey_bundle_bridge.dart';
 import 'package:bitdm/core/net/relay_client.dart';
+import 'package:bitdm/core/net/relay_protocol.dart';
 import 'package:bitdm/core/store/encrypted_database.dart';
 import 'package:bitdm/core/store/signal_store.dart';
 import 'package:bitdm/core/store/signal_store_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal/libsignal.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import '../support/relay_process.dart';
+import '../support/signal_hilfe.dart';
 
 /// Ein vollstaendiger Client: Identitaet, verschluesselte Datenbank,
 /// Relay-Verbindung.
+///
+/// SEIT 2.0.0 MIT KYBER: ein signierter Last-Resort-Kyber-Prekey und ein
+/// Vorrat an Kyber-Einmalschluesseln, so wie `_fuelleVorratAuf` im Kern sie
+/// anlegt. Ohne sie baut die offizielle libsignal keine Sitzung (PQXDH ist
+/// Pflicht), und der Relay muss sie annehmen UND wieder ausgeben — genau das
+/// prueft dieser Test von beiden echten Seiten.
 class Teilnehmer {
   Teilnehmer._(this.name, this.db, this.repo, this.store, this.client,
-      this.preKeys, this.signedPreKey);
+      this.preKeys, this.signedPreKey, this.letzteRettung, this.kyberEinmal);
 
   final String name;
   final EncryptedDatabase db;
@@ -47,6 +62,8 @@ class Teilnehmer {
   final RelayClient client;
   final List<PreKeyRecord> preKeys;
   final SignedPreKeyRecord signedPreKey;
+  final KyberPreKeyRecord letzteRettung;
+  final List<KyberPreKeyRecord> kyberEinmal;
 
   final _posteingang = <String>[];
 
@@ -64,34 +81,51 @@ class Teilnehmer {
   StreamSubscription<RelayEvent>? _abo;
 
   String get address => store.identity.address;
-  SignalProtocolAddress get protocolAddress =>
-      SignalProtocolAddress(address, 1);
+
+  /// Nummer des Last-Resort-Kyber-Prekeys. Die Einmalschluessel zaehlen ab
+  /// [kyberEinmalAb], damit sich die beiden Arten in einer Antwort des Relays
+  /// auseinanderhalten lassen.
+  static const int letzteRettungId = 1;
+  static const int kyberEinmalAb = 100;
 
   static Future<Teilnehmer> neu(String name, Uri relayUri, String pfad,
-      {int otkAnzahl = 5}) async {
+      {int otkAnzahl = 5, int kyberAnzahl = 2}) async {
+    await signalBereit();
     final derived = await KeyDerivation.fromMnemonic(Bip39.generate());
     final db = EncryptedDatabase.open(pfad, derived.databaseKey);
     final repo = SignalStoreRepository(db);
     final store = repo.openStore(derived);
+    final paar = store.identity.keyPair;
 
-    final preKeys = generatePreKeys(1, otkAnzahl);
+    final preKeys = [for (var i = 1; i <= otkAnzahl; i++) neuerPreKey(i)];
     for (final pk in preKeys) {
-      await store.storePreKey(pk.id, pk);
+      await store.storePreKey(pk.id(), pk);
     }
-    final spk = generateSignedPreKey(store.identity.keyPair, 1);
-    await store.storeSignedPreKey(spk.id, spk);
+    final spk = neuerSpk(paar, 1);
+    await store.storeSignedPreKey(spk.id(), spk);
+    final letzte = neuerKyber(paar, letzteRettungId);
+    await store.storeLastResortKyberPreKey(letzte.id(), letzte);
+    final einmal = [
+      for (var i = 0; i < kyberAnzahl; i++) neuerKyber(paar, kyberEinmalAb + i),
+    ];
+    for (final k in einmal) {
+      await store.storeKyberPreKey(k.id(), k);
+    }
     repo.commit(store);
 
     final client =
         RelayClient(baseUri: relayUri, identity: store.identity);
 
-    return Teilnehmer._(name, db, repo, store, client, preKeys, spk);
+    return Teilnehmer._(
+        name, db, repo, store, client, preKeys, spk, letzte, einmal);
   }
 
   Future<int> anmelden() => client.register(PreKeyBundleBridge.toRelay(
         identity: store.identity,
         signedPreKey: signedPreKey,
+        lastResortKyber: letzteRettung,
         oneTimePreKeys: preKeys,
+        oneTimeKyberPreKeys: kyberEinmal,
       ));
 
   /// Verbindet und entschluesselt alles, was hereinkommt.
@@ -107,8 +141,8 @@ class Teilnehmer {
       rohEingang++;
       try {
         final umschlag = Envelope.fromBytes(e.ciphertext);
-        final klar = await umschlag.decrypt(
-            SessionCipher.fromStore(store, SignalProtocolAddress(e.from, 1)));
+        final klar =
+            await umschlag.decrypt(chiffreVon(store), adr(e.from, e.vonGeraet));
         repo.commit(store);
         _posteingang.add(utf8.decode(klar));
       } catch (fehler) {
@@ -146,14 +180,14 @@ class Teilnehmer {
 
   /// Baut bei Bedarf eine Sitzung auf und schickt die Nachricht.
   Future<void> schreibeAn(String zieladresse, String text) async {
-    final ziel = SignalProtocolAddress(zieladresse, 1);
+    final ziel = adr(zieladresse);
     if (!await store.containsSession(ziel)) {
       final antwort = await client.fetchBundle(zieladresse);
-      await SessionBuilder.fromSignalStore(store, ziel)
-          .processPreKeyBundle(PreKeyBundleBridge.fromRelay(antwort));
+      await bauerVon(store)
+          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(antwort));
     }
-    final ct = await SessionCipher.fromStore(store, ziel)
-        .encrypt(Uint8List.fromList(utf8.encode(text)));
+    final ct = await chiffreVon(store)
+        .encrypt(ziel, Uint8List.fromList(utf8.encode(text)));
     repo.commit(store);
     await client.send(zieladresse, Envelope.of(ct).toBytes());
   }
@@ -205,8 +239,10 @@ void main() {
 
   String pfad(String name) => '${tmp.path}/${name}_${n++}.db';
 
-  Future<Teilnehmer> teilnehmer(String name, {int otkAnzahl = 5}) =>
-      Teilnehmer.neu(name, relay!.uri, pfad(name), otkAnzahl: otkAnzahl);
+  Future<Teilnehmer> teilnehmer(String name,
+          {int otkAnzahl = 5, int kyberAnzahl = 2}) =>
+      Teilnehmer.neu(name, relay!.uri, pfad(name),
+          otkAnzahl: otkAnzahl, kyberAnzahl: kyberAnzahl);
 
   /// Wie viele Zeilen beim Relay fuer [empfaenger] noch offen sind.
   ///
@@ -225,7 +261,7 @@ void main() {
           'SELECT COUNT(*) AS n FROM queue WHERE recipient = ?', [empfaenger]);
       return zeilen.first['n'] as int;
     } finally {
-      db.dispose();
+      db.close();
     }
   }
 
@@ -277,6 +313,47 @@ void main() {
           ['Hallo Bob, das ist die erste.', 'zwei', 'drei']);
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    test('KYBER: ERST DIE EINMALSCHLUESSEL, DANN DER LAST-RESORT-SCHLUESSEL',
+        () async {
+      // Was der Relay mit den Kyber-Prekeys tut, entscheidet ueber die
+      // Einmal-Eigenschaft von PQXDH: ein Einmalschluessel darf genau EINMAL
+      // hinausgehen, und wenn keiner mehr da ist, muss der Last-Resort-
+      // Schluessel kommen — nicht "nichts", sonst waere Bob unerreichbar,
+      // sobald jemand seinen Vorrat leergefragt hat.
+      //
+      // JEDE ANTWORT MUSS LIBSIGNAL AUCH ANNEHMEN. Der Relay prueft die
+      // Kyber-Signaturen bei der Anmeldung selbst; stimmte seine Pruefung mit
+      // der von libsignal nicht ueberein (andere Bytes, ohne Typ-Byte), saehe
+      // man das erst hier — als Buendel, aus dem keine Sitzung wird.
+      final alice = await teilnehmer('alice');
+      final bob = await teilnehmer('bob', kyberAnzahl: 2);
+      addTearDown(alice.aufraeumen);
+      addTearDown(bob.aufraeumen);
+      await alice.anmelden();
+      await bob.anmelden();
+
+      final kyberIds = <int?>[];
+      for (var i = 0; i < 3; i++) {
+        final b = await alice.client.fetchBundle(bob.address);
+        kyberIds.add(b.kyberPreKeyId);
+        expect(() => PreKeyBundleBridge.fromRelay(b), returnsNormally,
+            reason: 'Abruf ${i + 1}: libsignal muss das Buendel annehmen');
+      }
+      expect(kyberIds.take(2).toSet(),
+          {Teilnehmer.kyberEinmalAb, Teilnehmer.kyberEinmalAb + 1},
+          reason: 'die beiden Einmalschluessel, jeder genau einmal');
+      expect(kyberIds.last, Teilnehmer.letzteRettungId,
+          reason: 'danach der Last-Resort-Schluessel — und nicht gar keiner');
+
+      // UND DER LAST-RESORT-SCHLUESSEL TRAEGT WIRKLICH EINE SITZUNG: der
+      // naechste Abruf ist wieder einer ohne Einmal-Kyber, und daraus wird
+      // eine Nachricht, die Bob lesen kann.
+      await alice.verbinden();
+      await bob.verbinden();
+      await alice.schreibeAn(bob.address, 'ueber den Last-Resort-Schluessel');
+      expect(await bob.warteAufPost(1), ['ueber den Last-Resort-Schluessel']);
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     test('eine Nachricht an jemanden, der offline ist, wartet auf ihn',
         () async {
       // Der Fall, fuer den es die Warteschlange gibt. Ohne ihn waere ein
@@ -311,23 +388,39 @@ void main() {
       await alice.verbinden();
 
       const klartext = 'GEHEIMER_TEXT_DER_NICHT_AUFTAUCHEN_DARF';
-      final ziel = SignalProtocolAddress(bob.address, 1);
+      final ziel = adr(bob.address);
       final antwort = await alice.client.fetchBundle(bob.address);
-      await SessionBuilder.fromSignalStore(alice.store, ziel)
-          .processPreKeyBundle(PreKeyBundleBridge.fromRelay(antwort));
-      final ct = await SessionCipher.fromStore(alice.store, ziel)
-          .encrypt(Uint8List.fromList(utf8.encode(klartext)));
+      await bauerVon(alice.store)
+          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(antwort));
+      final ct = await chiffreVon(alice.store)
+          .encrypt(ziel, Uint8List.fromList(utf8.encode(klartext)));
 
-      final aufDerLeitung = utf8.decode(ct.serialize(), allowMalformed: true);
+      final aufDerLeitung = utf8.decode(ct.ciphertext, allowMalformed: true);
       expect(aufDerLeitung.contains(klartext), isFalse);
       expect(aufDerLeitung.contains('GEHEIMER'), isFalse);
+
+      // UND ES IST PQXDH, NICHT X3DH. Die Erstnachricht traegt das
+      // Kyber-1024-Chiffrat (1568 Byte) — gemessen 1 758 Byte statt der rund
+      // 200 einer X3DH-Erstnachricht (docs/LIBSIGNAL-UMSTIEG.md). Kommt sie
+      // kleiner heraus, hat irgendwo zwischen Relay und Bruecke der
+      // Kyber-Schluessel gefehlt.
+      expect(ct.type, CiphertextMessageType.preKey);
+      expect(ct.ciphertext.length, greaterThan(1568),
+          reason: 'ohne Kyber-Chiffrat waere es keine PQXDH-Erstnachricht');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
     test('ein fremder Schluessel zu einer Adresse wird abgelehnt', () async {
-      // Der Angriff, gegen den isTrustedIdentity nachrechnet statt zu
-      // vertrauen: ein boesartiger Relay liefert im Bundle den Schluessel
-      // eines Dritten. Hier wird das nachgestellt, indem Mallorys Bundle unter
-      // Bobs Adresse verwendet wird.
+      // Der Angriff, gegen den BitDM nachrechnet statt zu vertrauen: ein
+      // boesartiger Relay liefert unter Bobs Adresse das Buendel eines
+      // Dritten. Hier nachgestellt mit Mallorys ECHTEM Buendel vom echten
+      // Relay — gueltige Signaturen, nur eben Mallorys Schluessel.
+      //
+      // SEIT 2.0.0 STEHT DER RIEGEL VOR LIBSIGNAL. Bis 1.9.x lehnte der
+      // Speicher das in `isTrustedIdentity` ab. Die Anbindung der offiziellen
+      // libsignal ruft `isTrustedIdentity` aber nie auf; geprueft wird jetzt
+      // in `PreKeyBundleBridge.fromRelay` (Schluessel ergibt die Adresse im
+      // Buendel) und in `_bauSitzungen` (Adresse im Buendel = angefragte
+      // Adresse). Beide werfen FremdeIdentitaet (signal_errors.dart).
       final alice = await teilnehmer('alice');
       final bob = await teilnehmer('bob');
       final mallory = await teilnehmer('mallory');
@@ -341,16 +434,42 @@ void main() {
       await alice.verbinden();
 
       final mallorysBundle = await alice.client.fetchBundle(mallory.address);
-      final unterBobsAdresse =
-          PreKeyBundleBridge.fromRelay(mallorysBundle);
 
-      expect(
-          () => SessionBuilder.fromSignalStore(
-                  alice.store, SignalProtocolAddress(bob.address, 1))
-              .processPreKeyBundle(unterBobsAdresse),
-          throwsA(isA<UntrustedIdentityException>()),
+      // DER RELAY LUEGT: Mallorys Buendel, aber mit Bobs Adresse darin.
+      final umetikettiert = RelayBundleResponse(
+        userId: bob.address,
+        identityKey: mallorysBundle.identityKey,
+        registrationId: mallorysBundle.registrationId,
+        signedPreKeyId: mallorysBundle.signedPreKeyId,
+        signedPreKey: mallorysBundle.signedPreKey,
+        signedPreKeySignature: mallorysBundle.signedPreKeySignature,
+        oneTimePreKey: mallorysBundle.oneTimePreKey,
+        kyberPreKeyId: mallorysBundle.kyberPreKeyId,
+        kyberPreKey: mallorysBundle.kyberPreKey,
+        kyberPreKeySignature: mallorysBundle.kyberPreKeySignature,
+      );
+      expect(() => PreKeyBundleBridge.fromRelay(umetikettiert),
+          throwsA(isA<FremdeIdentitaet>()),
           reason: 'ein fremder Schluessel unter Bobs Adresse muss auffallen — '
               'beim ALLERERSTEN Kontakt, ohne Sicherheitsnummernvergleich');
+
+      // DIE GEGENPROBE: Mallorys eigenes Buendel unter Mallorys Adresse ist
+      // in Ordnung. Ohne sie bliebe der Fall auch dann gruen, wenn
+      // `fromRelay` jedes Buendel ablehnte.
+      expect(() => PreKeyBundleBridge.fromRelay(mallorysBundle),
+          returnsNormally);
+
+      // UND UNTER LIBSIGNAL ALLEIN? Nimmt jemand Mallorys korrekt
+      // beschriftetes Buendel und baut damit eine Sitzung zu "Bob", scheitert
+      // das noch immer — aber nur, weil `BitdmSignalStore.saveIdentity` wirft,
+      // und das kommt aus Rust als PanicException zurueck. Die Sitzung liegt
+      // da schon im Speicher (Befund im Schlussbericht vom 16.10.2026); der
+      // Kern raeumt sie mit seinem Schnappschuss in `_bauSitzungen` wieder ab.
+      // Gemessen wird hier deshalb nur, DASS es scheitert.
+      await expectLater(
+          bauerVon(alice.store).processPreKeyBundle(
+              adr(bob.address), PreKeyBundleBridge.fromRelay(mallorysBundle)),
+          throwsA(anything));
     }, timeout: const Timeout(Duration(minutes: 2)));
 
     test('ohne Anmeldung laesst der Relay niemanden herein', () async {

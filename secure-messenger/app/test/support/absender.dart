@@ -5,6 +5,8 @@
 // auch test/net/fern_codewort_test.dart Umschlaege einer echten Gegenstelle
 // einwerfen muss — zwei Kopien derselben Gegenstelle liefen sonst
 // auseinander.
+//
+// Seit 2.0.0 ueber die offizielle libsignal (signal_hilfe.dart).
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -17,9 +19,9 @@ import 'package:bitdm/core/net/payload.dart';
 import 'package:bitdm/core/net/prekey_bundle_bridge.dart';
 import 'package:bitdm/core/net/relay_protocol.dart';
 import 'package:bitdm/core/store/signal_store.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import 'relay_attrappe.dart';
+import 'signal_hilfe.dart';
 
 /// Die Attrappe, die ausserdem mitschreibt, was bestaetigt wurde.
 class ZaehlRelay extends RelayAttrappe {
@@ -31,50 +33,40 @@ class ZaehlRelay extends RelayAttrappe {
 
 /// Eine Gegenstelle mit eigenem libsignal-Speicher.
 class Absender {
-  Absender._(this.store, this._spk, this._otk);
+  Absender._(this.store, this._geraetekarte);
 
   final BitdmSignalStore store;
-  final SignedPreKeyRecord _spk;
-  final PreKeyRecord _otk;
+  final Map<String, Object?> _geraetekarte;
 
   String get adresse => store.identity.address;
 
   static Future<Absender> neu() async {
+    await signalBereit();
     final keys = await KeyDerivation.fromMnemonic(Bip39.generate());
     final id = SignalIdentityBridge.fromDerived(keys,
         registrationId: SignalIdentityBridge.newRegistrationId());
     final store = BitdmSignalStore(identity: id);
-    final spk = generateSignedPreKey(id.keyPair, 1);
-    await store.storeSignedPreKey(spk.id, spk);
-    final otk = generatePreKeys(500, 1).first;
-    await store.storePreKey(otk.id, otk);
-    return Absender._(store, spk, otk);
+    final karte = await legePrekeysAb(store);
+    return Absender._(store, karte);
   }
 
   /// Wie der Relay das Buendel dieser Gegenstelle ausliefert.
   Map<String, Object?> karte() => {
         'user_id': adresse,
         'identity_key': base64.encode(store.identity.rawPublicKey),
-        'registration_id': store.identity.registrationId,
-        'signed_prekey_id': _spk.id,
-        'signed_prekey': base64.encode(_spk.getKeyPair().publicKey.serialize()),
-        'signed_prekey_sig': base64.encode(_spk.signature),
-        'one_time_prekey': {
-          'key_id': _otk.id,
-          'public_key': base64.encode(_otk.getKeyPair().publicKey.serialize()),
-        },
+        ..._geraetekarte,
       };
 
   /// Rohe Nutzlast-Bytes an Geraet 1 von [an] — auch solche, die
   /// [Payload.toBytes] nie erzeugen wuerde.
   Future<Uint8List> rohAn(
       String an, RelayBundleResponse buendel, Uint8List klar) async {
-    final ziel = SignalProtocolAddress(an, 1);
+    final ziel = adr(an);
     if (!await store.containsSession(ziel)) {
-      await SessionBuilder.fromSignalStore(store, ziel)
-          .processPreKeyBundle(PreKeyBundleBridge.fromRelay(buendel));
+      await bauerVon(store)
+          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(buendel));
     }
-    final ct = await SessionCipher.fromStore(store, ziel).encrypt(klar);
+    final ct = await chiffreVon(store).encrypt(ziel, klar);
     return Envelope.of(ct).toBytes();
   }
 

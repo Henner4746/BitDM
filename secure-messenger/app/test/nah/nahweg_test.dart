@@ -42,9 +42,10 @@ import 'package:bitdm/core/store/signal_store.dart';
 import 'package:bitdm/core/store/signal_store_repository.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal/libsignal.dart';
 
 import '../support/funk_attrappe.dart';
+import '../support/signal_hilfe.dart';
 
 class SpeicherImKopf implements SecretStore {
   Uint8List? _inhalt;
@@ -74,6 +75,15 @@ class SteuerbarerRelay implements RelayClient {
 
   bool verbunden = false;
   bool sendenWirft = false;
+
+  /// Haelt den NAECHSTEN Versand an, NACHDEM der Umschlag angekommen ist:
+  /// der Relay hat ihn, aber die Bestaetigung steht noch aus. Gilt einmal.
+  ///
+  /// Das ist das Fenster, in dem eine Nachricht noch auf "sending" steht,
+  /// obwohl sie draussen ist. Mit der offiziellen libsignal (seit 2.0.0) ist
+  /// es breiter geworden, und im Gesamtlauf vom 16.10.2026 fiel ein
+  /// Nachversand hinein.
+  Completer<void>? sendeTor;
 
   final gesendet = <({String an, Uint8List umschlag})>[];
   final bestaetigt = <int>[];
@@ -106,6 +116,9 @@ class SteuerbarerRelay implements RelayClient {
   Future<void> send(String to, Uint8List ciphertext) async {
     if (sendenWirft) throw const RelayException('die Leitung brach ab');
     gesendet.add((an: to, umschlag: ciphertext));
+    final tor = sendeTor;
+    sendeTor = null;
+    if (tor != null) await tor.future;
   }
 
   @override
@@ -182,33 +195,53 @@ class GebremsterFunk extends FunkAttrappe {
 /// Er ist KEINE zweite App: er hat keine Datenbank und keine Oberflaeche. Was
 /// er kann, ist genau das, was ein zweites Telefon von aussen betrachtet tut —
 /// ein Leuchtfeuer aussenden, ein Buendel anbieten, einen Umschlag bauen.
+///
+/// SEIT 2.0.0 MIT KYBER: ein Einmal- und ein Last-Resort-Kyber-Prekey, wie
+/// ihn `_fuelleVorratAuf` im Kern anlegt. Ohne Kyber baut die offizielle
+/// libsignal keine Sitzung (PQXDH ist Pflicht).
 class Gegenstelle {
-  Gegenstelle._(this.identitaet, this.store, this._preKeys, this._spk);
+  Gegenstelle._(this.identitaet, this.store, this._otk, this._spk,
+      this._kyberEinmal, this._kyberLetzte);
 
   final SignalIdentity identitaet;
   final BitdmSignalStore store;
-  final List<PreKeyRecord> _preKeys;
+  final PreKeyRecord _otk;
   final SignedPreKeyRecord _spk;
+  final KyberPreKeyRecord _kyberEinmal;
+  final KyberPreKeyRecord _kyberLetzte;
 
   String get adresse => identitaet.address;
   Uint8List get oeffentlich => identitaet.rawPublicKey;
 
   static Future<Gegenstelle> neu() async {
+    // HIER und nicht nur im Kern: nachtfunde_test baut Gegenstellen, bevor
+    // irgendein Kern die native Bibliothek geladen hat.
+    await signalBereit();
     final keys = await KeyDerivation.fromMnemonic(Bip39.generate());
     final id = SignalIdentityBridge.fromDerived(keys,
         registrationId: SignalIdentityBridge.newRegistrationId());
     final store = BitdmSignalStore(identity: id);
-    final pks = generatePreKeys(1, 3);
-    for (final pk in pks) {
-      await store.storePreKey(pk.id, pk);
-    }
-    final spk = generateSignedPreKey(id.keyPair, 1);
-    await store.storeSignedPreKey(spk.id, spk);
-    return Gegenstelle._(id, store, pks, spk);
+    final otk = neuerPreKey(1);
+    await store.storePreKey(1, otk);
+    final spk = neuerSpk(id.keyPair, 1);
+    await store.storeSignedPreKey(1, spk);
+    final letzte = neuerKyber(id.keyPair, 1);
+    await store.storeLastResortKyberPreKey(1, letzte);
+    final einmal = neuerKyber(id.keyPair, 2);
+    await store.storeKyberPreKey(2, einmal);
+    return Gegenstelle._(id, store, otk, spk, einmal, letzte);
   }
 
-  /// Was der Relay auf eine Buendelanfrage antworten wuerde.
-  RelayBundleResponse get antwort => antwortAus(identitaet, _spk, _preKeys[0]);
+  /// Was der Relay auf eine Buendelanfrage antworten wuerde — MIT
+  /// Einmalschluesseln, EC und Kyber.
+  RelayBundleResponse get antwort => RelayBundleResponse.fromJson(
+      karteAus(identitaet, _spk, kyber: _kyberEinmal, otk: _otk));
+
+  /// Was dieses Geraet UEBER FUNK antworten wuerde: ohne Einmalschluessel,
+  /// nur der signierte EC- und der Last-Resort-Kyber-Prekey — genau die Karte
+  /// aus `_schickeBuendelUeberFunk` (Audit PR-4).
+  Map<String, Object?> funkKarte() =>
+      karteAus(identitaet, _spk, kyber: _kyberLetzte);
 
   /// Das Leuchtfeuer, das dieses Geraet gerade aussendet, damit [wir] es
   /// finden.
@@ -218,8 +251,7 @@ class Gegenstelle {
   /// ein Test, der beide Seiten mit derselben Bibliothek rechnen liesse, waere
   /// gegen die eine Sorte Fehler blind, die hier wirklich weh tut.
   Future<Uint8List> leuchtfeuerFuer(Uint8List wir, DateTime zeit) async {
-    final paar = await X25519().newKeyPairFromSeed(
-        Uint8List.fromList(identitaet.keyPair.getPrivateKey().serialize()));
+    final paar = await X25519().newKeyPairFromSeed(identitaet.keyPair.privateKey);
     final geheim = await Leuchtfeuer.gemeinsamesGeheimnis(
         eigenerSchluessel: paar, fremderOeffentlicher: wir);
     return Leuchtfeuer.eigenesFuer(
@@ -229,32 +261,48 @@ class Gegenstelle {
   /// Baut einen Umschlag, wie ihn ein zweites Telefon ueber die Naehe schickte.
   Future<Uint8List> umschlagAn(
       String empfaenger, RelayBundleResponse seinBuendel, Payload p) async {
-    final ziel = SignalProtocolAddress(empfaenger, 1);
+    final ziel = adr(empfaenger);
     if (!await store.containsSession(ziel)) {
-      await SessionBuilder.fromSignalStore(store, ziel)
-          .processPreKeyBundle(PreKeyBundleBridge.fromRelay(seinBuendel));
+      await bauerVon(store)
+          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(seinBuendel));
     }
-    final ct = await SessionCipher.fromStore(store, ziel).encrypt(p.toBytes());
+    final ct = await chiffreVon(store).encrypt(ziel, p.toBytes());
     return Envelope.of(ct).toBytes();
   }
 }
 
-/// Ein Buendel in der Form, in der der Relay es ausliefert.
-RelayBundleResponse antwortAus(
-        SignalIdentity id, SignedPreKeyRecord spk, PreKeyRecord otk) =>
-    RelayBundleResponse(
-      userId: id.address,
-      identityKey: base64.encode(
-          SignalIdentityBridge.rawPublicKeyOf(id.keyPair.getPublicKey())),
-      registrationId: id.registrationId,
-      signedPreKeyId: spk.id,
-      signedPreKey: base64.encode(spk.getKeyPair().publicKey.serialize()),
-      signedPreKeySignature: base64.encode(spk.signature),
-      oneTimePreKey: RelayOneTimePreKey(
-        keyId: otk.id,
-        publicKey: base64.encode(otk.getKeyPair().publicKey.serialize()),
-      ),
-    );
+/// Ein Buendel in der Form, in der der Relay (oder der Funk) es ausliefert.
+///
+/// [otk] fehlt beim Funk-Buendel — dort gehen seit 2.0.0 keine
+/// Einmalschluessel mehr hinaus. [kyber] ist Pflicht: ohne ihn gibt es keine
+/// Sitzung.
+Map<String, Object?> karteAus(
+  SignalIdentity id,
+  SignedPreKeyRecord spk, {
+  required KyberPreKeyRecord kyber,
+  PreKeyRecord? otk,
+}) =>
+    {
+      'user_id': id.address,
+      'identity_key': base64.encode(id.rawPublicKey),
+      'registration_id': id.registrationId,
+      'signed_prekey_id': spk.id(),
+      'signed_prekey': base64.encode(spk.publicKey()),
+      'signed_prekey_sig': base64.encode(spk.signature()),
+      'one_time_prekey': otk == null
+          ? null
+          : {'key_id': otk.id(), 'public_key': base64.encode(otk.publicKey())},
+      'kyber_prekey_id': kyber.id(),
+      'kyber_prekey': base64.encode(kyber.getPublicKey().serialize()),
+      'kyber_prekey_sig': base64.encode(kyber.signature()),
+    };
+
+/// Dieselbe Karte ohne die Kyber-Felder — so sieht ein Buendel einer App vor
+/// 2.0.0 aus.
+Map<String, Object?> ohneKyber(Map<String, Object?> karte) => Map.of(karte)
+  ..remove('kyber_prekey_id')
+  ..remove('kyber_prekey')
+  ..remove('kyber_prekey_sig');
 
 void main() {
   late Directory ordner;
@@ -375,18 +423,7 @@ void main() {
   ///
   /// Es ist dasselbe Leuchtfeuer, das Anna ohnehin aussendet (siehe
   /// annaInReichweite). Genau deshalb verraet es nichts.
-  /// Die Karte, wie der Relay sie ausliefert. RelayBundleResponse kann sich
-  /// nur lesen, nicht schreiben — das braucht nur der Test.
-  Map<String, Object?> alsKarte(RelayBundleResponse a) => {
-        'user_id': a.userId,
-        'identity_key': a.identityKey,
-        'registration_id': a.registrationId,
-        'signed_prekey_id': a.signedPreKeyId,
-        'signed_prekey': a.signedPreKey,
-        'signed_prekey_sig': a.signedPreKeySignature,
-        'one_time_prekey': a.oneTimePreKey?.toJson(),
-      };
-
+  ///
   /// Baut ein Paket beliebigen Typs, wie _schickeRoh es baut.
   Future<Uint8List> mitKopf(int typ, Uint8List inhalt) async {
     final marke =
@@ -479,7 +516,16 @@ void main() {
       expect(funk.gesendet, isEmpty,
           reason: 'zwei Wege fuer dieselbe Nachricht waeren zwei '
               'Verschluesselungen desselben Textes');
-      final m = await letzte();
+      // DER STATUS KOMMT NACH DEM VERSAND, nicht mit ihm: erst geht der
+      // Umschlag hinaus, dann wird "gesendet" festgeschrieben. Mit der
+      // offiziellen libsignal (seit 2.0.0) dauert das einen Moment laenger,
+      // und ein sofortiges Nachsehen fand im Gesamtlauf vom 16.10.2026
+      // manchmal noch "wird gesendet".
+      var m = await letzte();
+      for (var i = 0; i < 300 && m.status != MessageStatus.sent; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        m = await letzte();
+      }
       expect(m.status, MessageStatus.sent);
       expect(m.ueberNaehe, isFalse);
     });
@@ -502,11 +548,59 @@ void main() {
       expect(funk.gesendet.single.geraet, 'AA:11');
       expect(relay!.gesendet, isEmpty);
 
-      final m = await letzte();
+      // DER STATUS KOMMT NACH DEM VERSAND, nicht mit ihm: erst geht der
+      // Umschlag hinaus, dann wird "gesendet" festgeschrieben. Mit der
+      // offiziellen libsignal (seit 2.0.0) dauert das einen Moment laenger,
+      // und ein sofortiges Nachsehen fand im Gesamtlauf vom 16.10.2026
+      // manchmal noch "wird gesendet".
+      var m = await letzte();
+      for (var i = 0; i < 300 && m.status != MessageStatus.sent; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        m = await letzte();
+      }
       expect(m.status, MessageStatus.sent);
       expect(m.ueberNaehe, isTrue,
           reason: 'ohne das Zeichen saehe eine Nachricht, die keinen Server '
               'gesehen hat, aus wie jede andere');
+    });
+
+    test('WAEHREND SIE NOCH HINAUSGEHT, schickt der Nachversand sie nicht '
+        'ein zweites Mal', () async {
+      // Gefunden im Gesamtlauf vom 16.10.2026: Der erste Versand laeuft
+      // unabgewartet, und die Nachricht steht bis zu seinem Ende auf
+      // "sending". Kommt in diesem Fenster jemand in Reichweite (oder steht
+      // die Verbindung wieder), liest der Nachversand dieselbe Nachricht aus
+      // der Liste und schickt sie noch einmal. Beim Empfaenger kaeme sie
+      // zweimal an, als zwei Verschluesselungen desselben Textes.
+      legeAnnaAn();
+      await funkAn();
+      await kern.connect();
+
+      final tor = relay!.sendeTor = Completer<void>();
+      await kern.sendMessage(anna.adresse, 'nur einmal');
+      await warteBis(() => relay!.gesendet.isNotEmpty);
+      expect(relay!.gesendet, hasLength(1));
+
+      // Anna taucht auf, solange der Relay noch nicht bestaetigt hat. Das
+      // stoesst den Nachversand an.
+      await annaInReichweite();
+      await kern.nachversandRuhtFuerTest;
+      expect(relay!.gesendet, hasLength(1),
+          reason: 'der Nachversand schickte eine Nachricht, deren erster '
+              'Versand noch lief');
+      expect(funk.gesendet, isEmpty);
+
+      tor.complete();
+      var m = await letzte();
+      for (var i = 0; i < 300 && m.status != MessageStatus.sent; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        m = await letzte();
+      }
+      expect(m.status, MessageStatus.sent);
+      // Der uebersprungene Anlauf wird nachgeholt, findet aber nichts mehr.
+      await kern.nachversandRuhtFuerTest;
+      expect(relay!.gesendet, hasLength(1));
+      expect(funk.gesendet, isEmpty);
     });
 
     test('REGEL 2: wirft der Relay, bleibt sie LIEGEN — kein Wechsel',
@@ -799,7 +893,16 @@ void main() {
       await warteBis(() => funk.gesendet.isNotEmpty);
 
       expect(funk.gesendet, hasLength(1));
-      final m = await letzte();
+      // DER STATUS KOMMT NACH DEM VERSAND, nicht mit ihm: erst geht der
+      // Umschlag hinaus, dann wird "gesendet" festgeschrieben. Mit der
+      // offiziellen libsignal (seit 2.0.0) dauert das einen Moment laenger,
+      // und ein sofortiges Nachsehen fand im Gesamtlauf vom 16.10.2026
+      // manchmal noch "wird gesendet".
+      var m = await letzte();
+      for (var i = 0; i < 300 && m.status != MessageStatus.sent; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        m = await letzte();
+      }
       expect(m.status, MessageStatus.sent);
       expect(m.ueberNaehe, isTrue);
     });
@@ -1132,78 +1235,170 @@ void main() {
           reason: 'die Nachricht muss liegenbleiben, bis das Buendel da ist');
     });
 
+    /// Fragt ueber Funk nach unserem Buendel und gibt die Antwort als Karte.
+    Future<Map<String, Object?>> frageNachBuendel() async {
+      funk.gesendet.clear();
+      funk.empfange(Eingegangen(
+          'AA:11', await mitKopf(Nahtyp.buendelAnfrage, Uint8List(0))));
+      await warteBis(() => funk.gesendet.isNotEmpty);
+      final p = letztesPaket()!;
+      expect(p.typ, Nahtyp.buendelAntwort);
+      return (jsonDecode(utf8.decode(p.inhalt)) as Map).cast<String, Object?>();
+    }
+
+    /// Eine Buendel-Antwort, die von Anna ueber Funk hereinkommt.
+    Future<void> annaAntwortet(Map<String, Object?> karte) async =>
+        funk.empfange(Eingegangen(
+            'AA:11',
+            await mitKopf(Nahtyp.buendelAntwort,
+                Uint8List.fromList(utf8.encode(jsonEncode(karte))))));
+
     test('EINE ANFRAGE WIRD MIT DEM EIGENEN BUENDEL BEANTWORTET', () async {
       legeAnnaAn();
       await funkAn();
       await annaInReichweite();
-      funk.gesendet.clear();
 
-      funk.empfange(Eingegangen(
-          'AA:11', await mitKopf(Nahtyp.buendelAnfrage, Uint8List(0))));
-      await warteBis(() => funk.gesendet.isNotEmpty);
-
-      final p = letztesPaket()!;
-      expect(p.typ, Nahtyp.buendelAntwort);
-      final j = (jsonDecode(utf8.decode(p.inhalt)) as Map).cast<String, Object?>();
+      final j = await frageNachBuendel();
       expect(j['user_id'], kern.myId,
           reason: 'wir schicken UNSER Buendel, nicht irgendeines');
       // Die Gegenseite muss damit wirklich eine Sitzung bauen koennen — das
       // ist der einzige Nachweis, der zaehlt. Ein wohlgeformtes JSON, das
-      // libsignal ablehnt, waere gruen und wertlos.
+      // libsignal ablehnt, waere gruen und wertlos. Seit 2.0.0 steckt darin
+      // auch: die Kyber-Felder sind da — sonst wuerfe `fromRelay`
+      // GegenstelleOhneKyberException.
       expect(() => PreKeyBundleBridge.fromRelay(RelayBundleResponse.fromJson(j)),
           returnsNormally);
     });
 
-    test('JEDE ANFRAGE VERBRAUCHT EINEN EINMALSCHLUESSEL', () async {
-      // Beim Relay bekommt jeder Abruf einen frischen. Ueber Funk muss
-      // dieselbe Regel gelten, sonst bauen zwei Gegenstellen ihre Sitzung auf
-      // demselben auf — und dann ist er fuer beide keine zusaetzliche
-      // Absicherung mehr, sondern nur noch Zierde.
+    test('KEINE ANFRAGE VERBRAUCHT EINEN EINMALSCHLUESSEL (Audit PR-4)',
+        () async {
+      // UMGEDREHT AM 16.10.2026. Bis dahin stand hier "JEDE ANFRAGE
+      // VERBRAUCHT EINEN EINMALSCHLUESSEL", mit der Begruendung, ueber Funk
+      // muesse dieselbe Regel gelten wie beim Relay.
+      //
+      // Genau das war der Fehler (Audit PR-4): der Einmalschluessel ging ueber
+      // Funk hinaus und wurde LOKAL verbraucht — beim Relay lag er aber weiter
+      // und wurde dort ein zweites Mal ausgegeben. Baute ein zweiter Kontakt
+      // seine Sitzung darauf, fand das Telefon den privaten Teil nicht mehr,
+      // und dessen Erstnachricht ging still verloren. Einmalschluessel gibt es
+      // deshalb nur noch an EINER Stelle: beim Relay.
+      //
+      // Ueber Funk gehen nur noch der signierte EC-Prekey und der
+      // Last-Resort-Kyber-Prekey hinaus — beides darf mehrfach benutzt
+      // werden. Gegen eine erneut eingespielte Erstnachricht schuetzt die
+      // Tripel-Liste des Kyber-Speichers (signal_store.dart).
       legeAnnaAn();
-      // Die Grenze gegen das Leerfragen steht dem hier im Weg — sie hat ihren
-      // eigenen Fall darunter.
+      // Die Grenze gegen das wiederholte Fragen steht dem hier im Weg — sie
+      // hat ihren eigenen Fall darunter.
       kern.buendelAbstand = Duration.zero;
       await funkAn();
       await annaInReichweite();
+      final vorher = await eigenerSpeicher(kern, woerter);
 
-      Future<int?> frageUndLiesSchluessel() async {
-        funk.gesendet.clear();
-        funk.empfange(Eingegangen(
-            'AA:11', await mitKopf(Nahtyp.buendelAnfrage, Uint8List(0))));
-        await warteBis(() => funk.gesendet.isNotEmpty);
-        final j = (jsonDecode(utf8.decode(letztesPaket()!.inhalt)) as Map)
-            .cast<String, Object?>();
-        final otk = j['one_time_prekey'];
-        return otk == null ? null : (otk as Map)['key_id'] as int;
+      final erste = await frageNachBuendel();
+      final zweite = await frageNachBuendel();
+
+      for (final j in [erste, zweite]) {
+        expect(j['one_time_prekey'], isNull,
+            reason: 'ein EC-Einmalschluessel ueber Funk ist PR-4: derselbe '
+                'liegt beim Relay und wird dort noch einmal ausgegeben');
+        expect(j.containsKey('one_time_kyber_prekeys'), isFalse);
+        expect(j['kyber_prekey_id'], vorher.letzteRettungId,
+            reason: 'ueber Funk geht der LAST-RESORT-Kyber-Prekey, kein '
+                'Kyber-Einmalschluessel');
       }
+      expect(zweite['signed_prekey_id'], erste['signed_prekey_id']);
+      expect(zweite['kyber_prekey_id'], erste['kyber_prekey_id'],
+          reason: 'zwei Antworten, dasselbe Buendel — es gibt nichts mehr, '
+              'was eine Anfrage verbrauchen koennte');
 
-      final erster = await frageUndLiesSchluessel();
-      final zweiter = await frageUndLiesSchluessel();
-      expect(erster, isNotNull, reason: 'ohne Einmalschluessel keine Aussage');
-      expect(zweiter, isNot(erster),
-          reason: 'derselbe Schluessel zweimal — er waere fuer beide wertlos');
+      // UND AUF DER PLATTE IST AUCH NICHTS WEG. Bis 1.9.x wurde hier je
+      // Anfrage ein Einmalschluessel geloescht und festgeschrieben.
+      final nachher = await eigenerSpeicher(kern, woerter);
+      expect(nachher.preKeyCount, vorher.preKeyCount,
+          reason: 'ein lokal verbrauchter EC-Einmalschluessel, der beim Relay '
+              'noch liegt, ist genau der Verlust aus PR-4');
+      expect(nachher.kyberEinmalCount, vorher.kyberEinmalCount);
+    });
+
+    test('DAS FUNK-BUENDEL OHNE EINMALSCHLUESSEL BAUT TROTZDEM EINE SITZUNG',
+        () async {
+      // DIE GEGENPROBE ZU PR-4. Ein Buendel ohne Einmalschluessel ist nur dann
+      // die richtige Antwort, wenn man damit auch wirklich ins Gespraech kommt
+      // — sonst haette die Behebung den Funkweg einfach abgeschaltet.
+      //
+      // DER GANZE WEG, nicht nur `fromRelay`: Anna baut aus der Funkkarte eine
+      // PQXDH-Sitzung, schickt ueber die Naehe eine Erstnachricht, und der
+      // Kern entschluesselt sie — allein mit dem signierten EC-Prekey und dem
+      // Last-Resort-Kyber-Prekey.
+      legeAnnaAn();
+      await funkAn();
+      await annaInReichweite();
+      final vorher = await eigenerSpeicher(kern, woerter);
+
+      final j = await frageNachBuendel();
+      expect(j['one_time_prekey'], isNull,
+          reason: 'ohne diese Voraussetzung prueft der Rest nicht den Fall '
+              '"ohne Einmalschluessel"');
+
+      final p = Payload.text('ueber-funk-1', 'mit dem Funk-Buendel', jetzt);
+      final umschlag =
+          await anna.umschlagAn(kern.myId, RelayBundleResponse.fromJson(j), p);
+      expect(Envelope.fromBytes(umschlag).startetSitzung, isTrue,
+          reason: 'die erste Nachricht muss die Sitzung eroeffnen (Typ 3)');
+
+      final eingang = <Message>[];
+      final abo = kern.incomingMessages.listen(eingang.add);
+      funk.empfange(Eingegangen('AA:11', await mitMarke(umschlag)));
+      await warteBis(() => eingang.isNotEmpty);
+      await abo.cancel();
+
+      expect(eingang.map((m) => m.text), ['mit dem Funk-Buendel'],
+          reason: 'der Kern muss eine Sitzung ohne Einmalschluessel annehmen — '
+              'sonst kaeme ohne Internet niemand mehr ins Gespraech');
+      expect((await letzte()).ueberNaehe, isTrue);
+      expect(relaysGebaut, 0, reason: 'und dabei war kein Server beteiligt');
+
+      // UND DABEI WURDE KEIN EINMALSCHLUESSEL ANGEFASST — der beim Relay
+      // gehoert weiter dem, der ihn dort abholt.
+      final nachher = await eigenerSpeicher(kern, woerter);
+      expect(nachher.preKeyCount, vorher.preKeyCount);
+      expect(nachher.kyberEinmalCount, vorher.kyberEinmalCount);
+      expect(nachher.letzteRettungId, vorher.letzteRettungId,
+          reason: 'der Last-Resort-Schluessel bleibt — er ist zum '
+              'Mehrfachgebrauch da');
     });
 
     test('EINE ANTWORT BAUT DIE SITZUNG UND HOLT DAS WARTENDE NACH', () async {
+      // "NUR IN DER NAEHE" IN EINEM SCHRITT. Hier stand bis 16.10.2026
+      // `setPreferences(nurNahbereich: true)` und danach `funkAn()` — das
+      // setzt den Schalter aber wieder auf AUS, und das Ausschalten verbindet
+      // den Kern mit dem Relay. Die Nachricht ging dann ueber den Server
+      // hinaus, `unversandt()` war leer, und der Test blieb gruen, ohne dass
+      // je ein Funk-Buendel eine Sitzung gebaut haette (er wartete nur seine
+      // zwei Sekunden auf einen Umschlag ab, der nie kam). Aufgefallen beim
+      // Fall "OHNE KYBER" darunter, der denselben Aufbau hatte.
       legeAnnaAn();
-      await kern.setPreferences(const AppPreferences(naheAn: true, nurNahbereich: true));
-      await funkAn();
+      await funkAn(nurNahbereich: true);
       await annaInReichweite();
 
       await kern.sendMessage(anna.adresse, 'wartet auf das Buendel');
       await warteBis(() => kern.ablageFuerTest.unversandt().isNotEmpty);
+      expect(kern.ablageFuerTest.unversandt(), isNotEmpty,
+          reason: 'ohne wartende Nachricht prueft der Rest nichts');
 
       funk.gesendet.clear();
-      funk.empfange(Eingegangen(
-          'AA:11',
-          await mitKopf(Nahtyp.buendelAntwort,
-              Uint8List.fromList(utf8.encode(jsonEncode(alsKarte(anna.antwort)))))));
+      // Die Karte, die Annas Telefon ueber Funk schickt: ohne Einmalschluessel.
+      await annaAntwortet(anna.funkKarte());
 
       // Jetzt muss ein UMSCHLAG rausgehen — die Nachricht, die wartete.
       await warteBis(() =>
           funk.gesendet.any((g) => g.umschlag[leuchtfeuerLaenge] == Nahtyp.umschlag));
       expect(kern.ablageFuerTest.unversandt(), isEmpty,
           reason: 'die Sitzung steht, es wartet nichts mehr');
+      expect(relaysGebaut, 0,
+          reason: 'die Nachricht muss UEBER FUNK hinaus, nicht ueber einen '
+              'Server, der hier gar nicht gefragt werden darf');
     });
 
     test('EIN BUENDEL MIT FREMDER ADRESSE WIRD ABGELEHNT', () async {
@@ -1216,10 +1411,7 @@ void main() {
 
       final fremd = await Gegenstelle.neu();
       funk.gesendet.clear();
-      funk.empfange(Eingegangen(
-          'AA:11',
-          await mitKopf(Nahtyp.buendelAntwort,
-              Uint8List.fromList(utf8.encode(jsonEncode(alsKarte(fremd.antwort)))))));
+      await annaAntwortet(fremd.funkKarte());
       await Future<void>.delayed(const Duration(milliseconds: 60));
 
       // UEBER DAS VERHALTEN GEPRUEFT, nicht ueber einen Testhaken: gaebe es
@@ -1238,11 +1430,61 @@ void main() {
               'Sitzung mit Anna begruenden');
     });
 
+    test('EIN FUNK-BUENDEL OHNE KYBER (alte App) BAUT KEINE SITZUNG', () async {
+      // Eine App vor 2.0.0 antwortet ohne Kyber-Felder. Die offizielle
+      // libsignal baut daraus keine Sitzung (PQXDH ist Pflicht), und einen
+      // Rueckweg auf X3DH gibt es bewusst nicht (docs/LIBSIGNAL-UMSTIEG.md:
+      // kein Downgrade). `fromRelay` wirft GegenstelleOhneKyberException,
+      // `_verarbeiteSonderpost` faengt sie.
+      //
+      // GEMESSEN WIRD ZWEIERLEI: es entsteht keine Sitzung (die Nachricht
+      // bleibt liegen), und der Funk lebt danach weiter — die Gegenprobe mit
+      // der richtigen Karte baut die Sitzung sehr wohl. Ohne die Gegenprobe
+      // bliebe der Test auch dann gruen, wenn der Wurf den ganzen Empfang
+      // lahmgelegt haette.
+      legeAnnaAn();
+      await funkAn(nurNahbereich: true);
+      await annaInReichweite();
+      await kern.sendMessage(anna.adresse, 'wartet auf ein brauchbares Buendel');
+      await warteBis(() => kern.ablageFuerTest.unversandt().isNotEmpty);
+
+      expect(
+          () => PreKeyBundleBridge.fromRelay(
+              RelayBundleResponse.fromJson(ohneKyber(anna.funkKarte()))),
+          throwsA(isA<GegenstelleOhneKyberException>()),
+          reason: 'die Voraussetzung: ohne Kyber gibt es kein Buendel');
+
+      funk.gesendet.clear();
+      await annaAntwortet(ohneKyber(anna.funkKarte()));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(
+          funk.gesendet
+              .any((g) => g.umschlag[leuchtfeuerLaenge] == Nahtyp.umschlag),
+          isFalse,
+          reason: 'ohne Kyber darf keine Sitzung entstehen — auch keine '
+              'schwaechere');
+      expect(kern.ablageFuerTest.unversandt(), isNotEmpty);
+
+      // DIE GEGENPROBE: dieselbe Gegenstelle mit Kyber kommt durch.
+      await annaAntwortet(anna.funkKarte());
+      await warteBis(() =>
+          funk.gesendet.any((g) => g.umschlag[leuchtfeuerLaenge] == Nahtyp.umschlag));
+      expect(kern.ablageFuerTest.unversandt(), isEmpty,
+          reason: 'nach dem gescheiterten Buendel muss der Funkweg weiter '
+              'tragen');
+      expect(relaysGebaut, 0);
+    });
+
     test('WER ZWEIMAL HINTEREINANDER FRAGT, BEKOMMT NUR EINMAL', () async {
-      // Jede Antwort verbraucht einen Einmalschluessel. Ohne Grenze koennte
-      // jedes Geraet in Reichweite den Vorrat leeren, einfach indem es fragt —
-      // danach bekaeme jeder neue Kontakt nur noch ein Buendel OHNE
-      // Einmalschluessel, und niemand saehe, warum.
+      // DIE BEGRUENDUNG HAT SICH SEIT 2.0.0 GEAENDERT, die Grenze nicht.
+      //
+      // Bis 1.9.x verbrauchte jede Antwort einen Einmalschluessel, und ohne
+      // Grenze liess sich der Vorrat leerfragen. Das gibt es nicht mehr (Fall
+      // "KEINE ANFRAGE VERBRAUCHT ..." darueber). Geblieben ist die Last: die
+      // Antwort traegt jetzt einen Kyber-1024-Schluessel und ist rund 2,5 KB
+      // gross, in Stuecken ueber eine Bluetooth-Verbindung. Ohne Grenze
+      // koennte jeder erkannte Kontakt in Reichweite das Telefon mit Fragen
+      // dauerhaft funken lassen — Akku und Sendezeit fuer nichts.
       legeAnnaAn();
       await funkAn();
       await annaInReichweite();
@@ -1258,21 +1500,29 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 80));
 
       expect(funk.gesendet.length, nachDerErsten,
-          reason: 'die zweite Anfrage wurde beantwortet — der Vorrat laesst '
-              'sich leerfragen');
+          reason: 'die zweite Anfrage wurde beantwortet — jeder in Reichweite '
+              'koennte das Telefon dauerhaft funken lassen');
     });
   });
 }
 
+/// Eine ZWEITE Ansicht auf die Datenbank des Kerns.
+///
+/// Der Kern gibt seinen Speicher nicht heraus und sollte es auch nicht.
+/// Gelesen wird nur — und zwar das, was FESTGESCHRIEBEN ist. Genau darauf
+/// kommt es bei PR-4 an: ein Einmalschluessel, der nur im Arbeitsspeicher
+/// fehlte, waere nach dem naechsten Start wieder da.
+Future<BitdmSignalStore> eigenerSpeicher(
+        RealMessengerCore kern, List<String> woerter) async =>
+    SignalStoreRepository(kern.datenbankFuerTest)
+        .openStore(await KeyDerivation.fromMnemonic(woerter));
+
 /// Das eigene Prekey-Buendel — das, was der Relay von uns ausliefern wuerde.
 ///
-/// Ueber eine ZWEITE Ansicht auf dieselbe Datenbank, weil der Kern seinen
-/// Speicher nicht herausgibt und auch nicht sollte. Gelesen wird nur.
+/// MIT EINMALSCHLUESSELN, EC und Kyber, wie beim Relay (signal_hilfe.dart
+/// `buendelAusSpeicher`). Den Kyber-Einmalschluessel verbraucht der Kern beim
+/// Entschluesseln (`markKyberPreKeyUsed`); weil hier jedes Mal frisch aus der
+/// Datenbank gelesen wird, kommt danach der naechste.
 Future<RelayBundleResponse> unserBuendel(
-    RealMessengerCore kern, List<String> woerter) async {
-  final keys = await KeyDerivation.fromMnemonic(woerter);
-  final store = SignalStoreRepository(kern.datenbankFuerTest).openStore(keys);
-  final spk = await store.loadSignedPreKey(store.state.signedPreKeys.keys.first);
-  final otk = await store.loadPreKey(store.state.preKeys.keys.first);
-  return antwortAus(store.identity, spk, otk);
-}
+        RealMessengerCore kern, List<String> woerter) async =>
+    buendelAusSpeicher(await eigenerSpeicher(kern, woerter));

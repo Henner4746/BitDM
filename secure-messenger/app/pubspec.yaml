@@ -24,7 +24,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # Grund zu nennen.
 #
 # Deshalb: Testbauten IMMER mit --split-per-abi, und diese Zahl nur nach oben.
-version: 1.9.1+21
+version: 2.0.0+22
 
 environment:
   sdk: ^3.12.2
@@ -89,7 +89,19 @@ dependencies:
   # kommen aus diesem Paket, der Rest liegt in lib/core/crypto/bip39.dart und
   # ist gegen die offiziellen Testvektoren geprueft.
   cryptography: 2.9.0
-  libsignal_protocol_dart: 0.8.2
+
+  # SIGNALS OFFIZIELLE libsignal (Rust), eingebunden ueber flutter_rust_bridge.
+  # Bis 1.9.x lief hier libsignal_protocol_dart, eine nie auditierte
+  # Nachbildung in reinem Dart. Das Audit vom 16.10.2026 fand dort zwei hohe
+  # Befunde in der Zustandsverwaltung (LS-1, LS-2), dazu fehlte PQXDH. Warum
+  # dieses Paket und keine Wahl fuer Nutzer: docs/LIBSIGNAL-UMSTIEG.md.
+  #
+  # Fest auf eine Fassung: die Anbindung hat einen einzigen Betreuer, und ihre
+  # Binaerdateien laedt ein Build-Hook (SHA-256 geprueft). Eine neue Fassung
+  # heisst: Anbindungscode (rust/src/api) durchsehen, Hashes pruefen, dann
+  # heben. Fuer veroeffentlichte Builds wird die Rust-Bibliothek aus der
+  # Quelle gebaut, nicht heruntergeladen.
+  libsignal: 8.0.0
 
   # @visibleForTesting im Kern. Kam bisher nur ueber andere Pakete mit —
   # `flutter analyze` meldete den Import als nicht angegeben. Gleiche
@@ -147,7 +159,7 @@ dependencies:
   # danebensteht. Auf dem Telefon waere das genauso gescheitert wie im Test —
   # aufgefallen ist es nur, weil der Test es zuerst versucht hat.
   #
-  # pointycastle kam ueber libsignal ohnehin schon mit und rechnet in reinem
+  # pointycastle kam frueher ueber die alte Signal-Bibliothek mit und rechnet in reinem
   # Dart, auf jeder Plattform gleich. Steht jetzt ausdruecklich hier, weil der
   # Code es direkt benutzt und nicht davon abhaengen darf, dass ein anderes
   # Paket es zufaellig mitbringt.
@@ -188,25 +200,6 @@ dependencies:
   # lib/core/anhang/stueck_krypto.dart: die Verschluesselung sitzt hinter einer
   # schmalen Schnittstelle und laesst sich austauschen, ohne dass der Rest des
   # Anhang-Wegs etwas merkt.
-
-# Die Signal-Bibliothek kommt NICHT von pub.dev, sondern aus einem eigenen,
-# gepatchten Stand in third_party/libsignal_protocol_dart/. Grundlage ist
-# genau die oben gepinnte 0.8.2 (Pruefsumme und Aenderungen in
-# third_party/libsignal_protocol_dart/BITDM-AENDERUNGEN.md). Die Korrekturen
-# betreffen die Zustandsverwaltung der Sitzungen und die Fehlerarten beim
-# Lesen kaputter Nachrichten; die Tests dazu stehen in
-# test/crypto/signal_bibliothek_test.dart.
-#
-# Lizenz: GPL-3.0 wie das Original, mit der AGPL-3.0 von BitDM vereinbar
-# (GPLv3 §13). Der Quelltext liegt vollstaendig im Repo, F-Droid baut ihn
-# also mit, statt ihn nachzuladen.
-#
-# Die Zeile unter dependencies bleibt stehen, damit sichtbar ist, auf welcher
-# Fassung der eigene Stand aufsetzt. Wer hier auf eine neuere Fassung gehen
-# will, muss die Korrekturen dorthin mitnehmen.
-dependency_overrides:
-  libsignal_protocol_dart:
-    path: third_party/libsignal_protocol_dart
 
 dev_dependencies:
   flutter_test:

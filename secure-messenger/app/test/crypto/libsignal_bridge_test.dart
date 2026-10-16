@@ -17,7 +17,9 @@ import 'package:bitdm/core/crypto/bip39.dart';
 import 'package:bitdm/core/crypto/key_derivation.dart';
 import 'package:bitdm/core/crypto/signal_identity.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal/libsignal.dart';
+
+import '../support/signal_hilfe.dart';
 
 const _phrase = [
   'abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'abandon',
@@ -25,6 +27,8 @@ const _phrase = [
 ];
 
 void main() {
+  setUpAll(signalBereit);
+
   group('Unsere Ableitung und libsignal kommen zum selben Ergebnis', () {
     test('gleicher oeffentlicher Schluessel, Byte fuer Byte', () async {
       final derived = await KeyDerivation.fromMnemonic(_phrase);
@@ -48,18 +52,17 @@ void main() {
       expect(identity.address, derived.address);
     });
 
-    test('libsignal clamped genauso wie wir', () async {
-      // Curve.generateKeyPairFromPrivate wendet &=248, &=127, |=64 an — genau
-      // unser _clampX25519. Weil wir bereits geclamped uebergeben, darf sich
-      // nichts mehr aendern.
+    test('libsignal behaelt unseren geklammerten Schluessel unveraendert',
+        () async {
+      // Wir uebergeben bereits geklammert (_clampX25519). Was libsignal als
+      // privaten Schluessel fuehrt, muss Byte fuer Byte derselbe sein — sonst
+      // waere offen, mit welchem Schluessel signiert wird.
       final derived = await KeyDerivation.fromMnemonic(_phrase);
       final identity = SignalIdentityBridge.fromDerived(
         derived,
         registrationId: 1,
       );
-      final privFromSignal =
-          (identity.keyPair.getPrivateKey() as DjbECPrivateKey).serialize();
-      expect(privFromSignal, derived.identityPrivateKey);
+      expect(identity.keyPair.privateKey, derived.identityPrivateKey);
     });
 
     test('gilt fuer beliebige Phrasen, nicht nur die eine', () async {
@@ -80,9 +83,9 @@ void main() {
       final identity =
           SignalIdentityBridge.fromDerived(derived, registrationId: 1);
 
-      final serialized = identity.keyPair.getPublicKey().serialize();
+      final serialized = identity.keyPair.publicKey;
       expect(serialized.length, 33,
-          reason: 'libsignal stellt Curve.djbType voran');
+          reason: 'libsignal stellt das Typ-Byte voran');
       expect(serialized.first, 0x05);
       expect(serialized.sublist(1), derived.identityPublicKey);
     });
@@ -98,7 +101,7 @@ void main() {
       // Der naheliegende Fehler: serialize() nehmen. Es sind 33 Bytes, unsere
       // Kodierung verlangt aber 32 — sie wirft. Wuerde jemand stattdessen die
       // ersten 32 Bytes abschneiden, entstuende klaglos eine falsche Adresse.
-      final serialized = identity.keyPair.getPublicKey().serialize();
+      final serialized = identity.keyPair.publicKey;
       expect(() => BitdmAddress.encode(serialized),
           throwsA(isA<InvalidAddressFormatException>()));
 
@@ -108,14 +111,17 @@ void main() {
           reason: 'genau dieser stille Fehler soll hier dokumentiert sein');
     });
 
-    test('generateKeyPairFromPrivate veraendert seine Eingabe', () {
-      // Deshalb uebergibt die Bruecke eine Kopie. Ohne das haette der Aufrufer
-      // danach womoeglich veraenderte Schluesselbytes in der Hand.
-      final ungeclampt = Uint8List.fromList(List<int>.filled(32, 0xFF));
-      final vorher = Uint8List.fromList(ungeclampt);
-      Curve.generateKeyPairFromPrivate(ungeclampt);
-      expect(ungeclampt, isNot(equals(vorher)),
-          reason: 'libsignal clamped an Ort und Stelle');
+    test('PrivateKey.deserialize kopiert — die Dart-Liste bleibt, wie sie ist',
+        () {
+      // Gemessen, nicht vermutet: flutter_rust_bridge kopiert die Bytes nach
+      // Rust, und genullt wird dort nur die Rust-Kopie ("The input bytes are
+      // securely zeroized" bezieht sich auf sie). Die Liste des Aufrufers
+      // bleibt unveraendert. Die Bruecke uebergibt trotzdem eine eigene Kopie,
+      // damit das bei einer kuenftigen Anbindung nicht anders ausgeht.
+      final eingabe = Uint8List.fromList(List<int>.generate(32, (i) => i + 1));
+      final vorher = Uint8List.fromList(eingabe);
+      PrivateKey.deserialize(bytes: eingabe);
+      expect(eingabe, vorher);
     });
 
     test('die Bruecke selbst laesst den Ausgangsschluessel unangetastet',
@@ -135,7 +141,7 @@ void main() {
       final identity =
           SignalIdentityBridge.fromDerived(derived, registrationId: 1);
 
-      final fremd = identity.keyPair.getPublicKey();
+      final fremd = identity.publicKey;
       expect(SignalIdentityBridge.addressOf(fremd), derived.address);
     });
 
@@ -146,16 +152,31 @@ void main() {
       final identity =
           SignalIdentityBridge.fromDerived(derived, registrationId: 1);
 
-      final bytes = identity.keyPair.getPublicKey().serialize();
-      final wieder = IdentityKey.fromBytes(bytes, 0);
+      final bytes = identity.keyPair.publicKey;
+      final wieder = PublicKey.deserialize(bytes: bytes);
       expect(SignalIdentityBridge.addressOf(wieder), derived.address);
+    });
+
+    test('publicKeyOfAddress ist die Umkehrung von addressOf', () async {
+      final derived = await KeyDerivation.fromMnemonic(_phrase);
+      final schluessel =
+          SignalIdentityBridge.publicKeyOfAddress(derived.address);
+      expect(SignalIdentityBridge.addressOf(schluessel), derived.address);
+    });
+
+    test('ein fremder Schluesseltyp wird nicht still zur Adresse', () {
+      // Ein Kyber-Schluessel hat Typ 0x08 und 1569 Bytes. rawPublicKeyOf muss
+      // werfen statt irgendetwas zu kodieren.
+      final kyber = KyberKeyPair.generate().getPublicKey().serialize();
+      expect(() => SignalIdentityBridge.rawPublicKeyOfSerialized(kyber),
+          throwsStateError);
     });
   });
 
   group('registrationId', () {
     test('ist NICHT aus dem Seed abgeleitet', () async {
-      // Bei einer Wiederherstellung soll bewusst eine neue entstehen, damit
-      // Gegenstellen die alten Sitzungen verwerfen.
+      // Bei einer Wiederherstellung soll bewusst eine neue entstehen; zwei
+      // Geraete derselben Adresse fuehren verschiedene.
       final a = SignalIdentityBridge.newRegistrationId();
       final b = SignalIdentityBridge.newRegistrationId();
       final c = SignalIdentityBridge.newRegistrationId();

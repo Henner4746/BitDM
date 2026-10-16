@@ -10,15 +10,22 @@
 // Typ-Byte 0x05, also 33 Bytes. Die Adresse und die Signaturpruefung des
 // Servers brauchen aber die ROHEN 32 Bytes. Deshalb gilt hier:
 //
-//   identity_key        -> roh, 32 Bytes   (der Server prueft die Laenge und
-//                                           rechnet die Adresse daraus nach)
-//   signed_prekey       -> serialisiert, 33 Bytes
-//   one_time_prekeys[]  -> serialisiert, 33 Bytes
+//   identity_key              -> roh, 32 Bytes   (der Server prueft die Laenge
+//                                                 und rechnet die Adresse nach)
+//   signed_prekey             -> serialisiert, 33 Bytes (Typ 0x05)
+//   one_time_prekeys[]        -> serialisiert, 33 Bytes (Typ 0x05)
+//   kyber_prekey              -> serialisiert, 1569 Bytes (Typ 0x08, Kyber-1024)
+//   one_time_kyber_prekeys[]  -> serialisiert, 1569 Bytes (Typ 0x08)
 //
-// Fuer den Server sind die letzten beiden undurchsichtige Bloecke; er reicht
-// sie nur durch. Der Client gibt sie in dieser Form weiter, weil
-// Curve.decodePoint sie so wieder einliest. Wer das vertauscht, bekommt keinen
-// Fehler, sondern einen Sitzungsaufbau, der spaeter still scheitert.
+// Fuer den Server sind die serialisierten Schluessel undurchsichtige Bloecke;
+// die Kyber-Signaturen prueft er aber (ueber die vollen 1569 Bytes mit
+// Typ-Byte, wie libsignal sie signiert). Wer roh und serialisiert vertauscht,
+// bekommt keinen Fehler, sondern einen Sitzungsaufbau, der still scheitert.
+//
+// KYBER SEIT 2.0.0 (offizielle libsignal, PQXDH). Die offizielle Bibliothek
+// baut keine Sitzung ohne Kyber-Prekey mehr; ein Geraet einer alten App ohne
+// diese Felder ist fuer eine neue App nicht erreichbar
+// (prekey_bundle_bridge.dart `GegenstelleOhneKyberException`).
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -40,6 +47,30 @@ class RelayOneTimePreKey {
         keyId: j['key_id']! as int,
         publicKey: j['public_key']! as String,
       );
+}
+
+/// Ein Kyber-Einmalschluessel auf der Leitung.
+///
+/// Anders als die EC-Einmalschluessel SIGNIERT: libsignal prueft die
+/// Signatur jedes Kyber-Prekeys beim Sitzungsaufbau, und der Relay prueft sie
+/// schon bei der Anmeldung.
+class RelayKyberPreKey {
+  final int keyId;
+
+  /// base64 der serialisierten 1569 Bytes.
+  final String publicKey;
+
+  /// base64 der 64-Byte-XEdDSA-Signatur ueber die 1569 Bytes.
+  final String signature;
+
+  const RelayKyberPreKey({
+    required this.keyId,
+    required this.publicKey,
+    required this.signature,
+  });
+
+  Map<String, Object?> toJson() =>
+      {'key_id': keyId, 'public_key': publicKey, 'signature': signature};
 }
 
 class RelayPreKeyBundle {
@@ -85,6 +116,23 @@ class RelayPreKeyBundle {
 
   final List<RelayOneTimePreKey> oneTimePreKeys;
 
+  /// Der LAST-RESORT-Kyber-Prekey: wird ausgegeben, wenn die
+  /// Kyber-Einmalschluessel aufgebraucht sind.
+  ///
+  /// NULL NUR IN TESTS UND BEI ALTEN APPS. Die App ab 2.0.0 setzt ihn immer
+  /// (prekey_bundle_bridge.dart). Null heisst: die Kyber-Felder fehlen im
+  /// Rumpf UND in den kanonischen Bytes — Zeichen fuer Zeichen die Bytes von
+  /// vor 2.0.0 (MEHRGERAETE.md §15, mit relay_server.py vereinbart).
+  final int? kyberPreKeyId;
+
+  /// base64 der serialisierten 1569 Bytes.
+  final String? kyberPreKey;
+
+  /// base64 der 64-Byte-XEdDSA-Signatur.
+  final String? kyberPreKeySignature;
+
+  final List<RelayKyberPreKey> oneTimeKyberPreKeys;
+
   const RelayPreKeyBundle({
     required this.userId,
     required this.identityKey,
@@ -92,7 +140,11 @@ class RelayPreKeyBundle {
     required this.signedPreKeyId,
     required this.signedPreKey,
     required this.signedPreKeySignature,
+    this.kyberPreKeyId,
+    this.kyberPreKey,
+    this.kyberPreKeySignature,
     this.oneTimePreKeys = const [],
+    this.oneTimeKyberPreKeys = const [],
     this.deviceId,
   });
 
@@ -105,6 +157,13 @@ class RelayPreKeyBundle {
         'signed_prekey': signedPreKey,
         'signed_prekey_sig': signedPreKeySignature,
         'one_time_prekeys': oneTimePreKeys.map((k) => k.toJson()).toList(),
+        if (kyberPreKey != null) ...{
+          'kyber_prekey_id': kyberPreKeyId,
+          'kyber_prekey': kyberPreKey,
+          'kyber_prekey_sig': kyberPreKeySignature,
+          'one_time_kyber_prekeys':
+              oneTimeKyberPreKeys.map((k) => k.toJson()).toList(),
+        },
       };
 
   /// Die Bytes, ueber die der Besitznachweis signiert wird.
@@ -128,6 +187,8 @@ class RelayPreKeyBundle {
   /// zweite Dart-Umsetzung derselben Annahme.
   Uint8List canonicalBytes() {
     final otk = [...oneTimePreKeys]..sort((a, b) => a.keyId.compareTo(b.keyId));
+    final kyberOtk = [...oneTimeKyberPreKeys]
+      ..sort((a, b) => a.keyId.compareTo(b.keyId));
     final payload = <String, Object?>{
       // 'd' KOMMT VOR 'i' — deshalb steht die Geraetekennung ganz vorne, und
       // deshalb nur dann, wenn es sie gibt: `json.dumps(..., sort_keys=True)`
@@ -143,6 +204,21 @@ class RelayPreKeyBundle {
       // schon beschreibt.
       if (deviceId != null) 'device_id': deviceId,
       'identity_key': identityKey,
+      // KYBER WIRD MITSIGNIERT (seit 2.0.0). Sonst koennte ein
+      // Weiterleitender die Kyber-Felder austauschen und den Einmalvorrat des
+      // Geraets mit Muell ueberschreiben — libsignal wuerde die falschen
+      // Signaturen zwar beim Sitzungsaufbau ablehnen, aber dann waere niemand
+      // mehr erreichbar. Reihenfolge: 'k' vor 'o', und 'kyber_prekey' vor
+      // 'kyber_prekey_id' vor 'kyber_prekey_sig' (kuerzerer Praefix zuerst),
+      // genau wie Pythons sort_keys. 'one_time_kyber_prekeys' vor
+      // 'one_time_prekeys' ('k' < 'p'). Mit relay_server.py vereinbart.
+      if (kyberPreKey != null) ...{
+        'kyber_prekey': kyberPreKey,
+        'kyber_prekey_id': kyberPreKeyId,
+        'kyber_prekey_sig': kyberPreKeySignature,
+        'one_time_kyber_prekeys':
+            kyberOtk.map((k) => [k.keyId, k.publicKey, k.signature]).toList(),
+      },
       'one_time_prekeys': otk.map((k) => [k.keyId, k.publicKey]).toList(),
       'registration_id': registrationId,
       'signed_prekey': signedPreKey,
@@ -180,6 +256,14 @@ class RelayBundleResponse {
   final String signedPreKeySignature;
   final RelayOneTimePreKey? oneTimePreKey;
 
+  /// Der Kyber-Prekey dieses Geraets: ein Einmalschluessel, wenn der Relay
+  /// noch einen hatte, sonst der Last-Resort-Schluessel. Null bei einem
+  /// Geraet mit alter App (ohne Kyber) — mit dem kann die offizielle
+  /// libsignal keine Sitzung aufbauen.
+  final int? kyberPreKeyId;
+  final String? kyberPreKey;
+  final String? kyberPreKeySignature;
+
   /// Welches Geraet dieser Adresse dieses Buendel gehoert.
   final int deviceId;
 
@@ -198,6 +282,9 @@ class RelayBundleResponse {
     required this.signedPreKey,
     required this.signedPreKeySignature,
     this.oneTimePreKey,
+    this.kyberPreKeyId,
+    this.kyberPreKey,
+    this.kyberPreKeySignature,
     this.deviceId = 1,
     this.geraete = const [],
   });
@@ -224,6 +311,9 @@ class RelayBundleResponse {
       oneTimePreKey: otk == null
           ? null
           : RelayOneTimePreKey.fromJson((otk as Map).cast<String, Object?>()),
+      kyberPreKeyId: j['kyber_prekey_id'] as int?,
+      kyberPreKey: j['kyber_prekey'] as String?,
+      kyberPreKeySignature: j['kyber_prekey_sig'] as String?,
       deviceId: j['device_id'] as int? ?? 1,
       geraete: rohGeraete is! List
           ? const []

@@ -27,7 +27,7 @@
 
 import 'dart:typed_data';
 
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal/libsignal.dart';
 
 class EnvelopeFormatException implements Exception {
   final String grund;
@@ -49,10 +49,11 @@ class Envelope {
 
   final int version;
 
-  /// Dieselben Zahlen wie [CiphertextMessage.whisperType] (2, laufende
-  /// Sitzung) und [CiphertextMessage.prekeyType] (3, Sitzungsaufbau).
-  /// Absichtlich keine eigene Nummerierung — eine Uebersetzungstabelle waere
-  /// eine weitere Stelle, an der sich ein Dreher verstecken kann.
+  /// Dieselben Zahlen wie libsignals [CiphertextMessageType]: 2 (`signal`,
+  /// laufende Sitzung) und 3 (`preKey`, Sitzungsaufbau). Absichtlich keine
+  /// eigene Nummerierung — eine Uebersetzungstabelle waere eine weitere
+  /// Stelle, an der sich ein Dreher verstecken kann. Die Nummern sind seit 1.x
+  /// dieselben; die offizielle libsignal (ab 2.0.0) benutzt sie genauso.
   final int messageType;
 
   final Uint8List ciphertext;
@@ -63,13 +64,23 @@ class Envelope {
     required this.ciphertext,
   });
 
-  factory Envelope.of(CiphertextMessage message) => Envelope(
-        version: currentVersion,
-        messageType: message.getType(),
-        ciphertext: message.serialize(),
-      );
+  factory Envelope.of(CiphertextMessage message) {
+    final art = message.type;
+    // Nur die beiden Arten einer Zweiersitzung. Sender-Key und Klartext
+    // erzeugt BitDM nie; kaeme hier eine an, waere das ein Programmfehler,
+    // der nicht still auf die Leitung gehen soll.
+    if (art != CiphertextMessageType.signal &&
+        art != CiphertextMessageType.preKey) {
+      throw EnvelopeFormatException('nicht versendbare Art ${art.value}');
+    }
+    return Envelope(
+      version: currentVersion,
+      messageType: art.value,
+      ciphertext: message.ciphertext,
+    );
+  }
 
-  bool get startetSitzung => messageType == CiphertextMessage.prekeyType;
+  bool get startetSitzung => messageType == CiphertextMessageType.preKey.value;
 
   Uint8List toBytes() {
     final b = Uint8List(headerLength + ciphertext.length)
@@ -94,8 +105,8 @@ class Envelope {
           'Umschlagsfassung $version ist dieser App unbekannt');
     }
     final art = roh[1];
-    if (art != CiphertextMessage.whisperType &&
-        art != CiphertextMessage.prekeyType) {
+    if (art != CiphertextMessageType.signal.value &&
+        art != CiphertextMessageType.preKey.value) {
       throw EnvelopeFormatException('unbekannte Nachrichtenart $art');
     }
     return Envelope(
@@ -105,17 +116,25 @@ class Envelope {
     );
   }
 
-  /// Entschluesselt den Inhalt mit der passenden Lesart.
+  /// Entschluesselt den Inhalt.
+  ///
+  /// [von] ist das GERAET der Gegenstelle (Adresse und Geraetenummer), nicht
+  /// nur die Adresse — die Sitzung gehoert zum Geraetepaar.
   ///
   /// Der Sitzungszustand aendert sich dabei — der Aufrufer MUSS danach
-  /// festschreiben, sonst ist der Ratchet nach einem Absturz aus dem Tritt.
-  Future<Uint8List> decrypt(SessionCipher cipher) async {
+  /// festschreiben, BEVOR er den Klartext verarbeitet, sonst ist der Ratchet
+  /// nach einem Absturz aus dem Tritt (Vertrag der Anbindung,
+  /// stores/session_store.dart).
+  Future<Uint8List> decrypt(SessionCipher cipher, ProtocolAddress von) async {
     // Uint8List.sublistView teilt sich den Speicher mit dem Original.
-    // libsignal parst hier weiter, deshalb eine eigenstaendige Kopie — sonst
-    // haengt das Ergebnis an einem Puffer, den der Aufrufer noch besitzt.
-    final bytes = Uint8List.fromList(ciphertext);
-    return startetSitzung
-        ? cipher.decrypt(PreKeySignalMessage(bytes))
-        : cipher.decryptFromSignal(SignalMessage.fromSerialized(bytes));
+    // Eine eigenstaendige Kopie, damit das Ergebnis nicht an einem Puffer
+    // haengt, den der Aufrufer noch besitzt.
+    return cipher.decrypt(
+      von,
+      CiphertextMessage(
+        type: CiphertextMessageType.fromValue(messageType),
+        ciphertext: Uint8List.fromList(ciphertext),
+      ),
+    );
   }
 }

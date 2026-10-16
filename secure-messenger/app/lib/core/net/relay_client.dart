@@ -23,7 +23,6 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../crypto/signal_identity.dart';
 import '../nah/wegwahl.dart' show Ausgangsfehler;
@@ -242,9 +241,11 @@ class RelayClient {
           'der Server hat eine unzulaessige Challenge geschickt');
     }
 
-    final signatur = Curve.calculateSignature(
-      identity.keyPair.getPrivateKey(),
-      bundle.registrationChallenge(Uint8List.fromList(nonce)),
+    // XEdDSA ueber den Identitaetsschluessel. Seit 2.0.0 aus der offiziellen
+    // libsignal; der Relay prueft sie unveraendert (am 16.10.2026 mit 40
+    // Signaturen beider Vorzeichen nachgewiesen, docs/LIBSIGNAL-UMSTIEG.md).
+    final signatur = identity.keyPair.sign(
+      message: bundle.registrationChallenge(Uint8List.fromList(nonce)),
     );
 
     final antwort = await _postJson('/register', {
@@ -436,9 +437,8 @@ class RelayClient {
         // Bei Geraet 1 steht sie NICHT in der Query, es werden also die
         // heutigen 32 Byte signiert. Siehe [geraeteKennung].
         final g = geraeteKennung;
-        final sig = Curve.calculateSignature(
-          identity.keyPair.getPrivateKey(),
-          g == null
+        final sig = identity.keyPair.sign(
+          message: g == null
               ? Uint8List.fromList(nonce)
               : Uint8List.fromList([
                   ...nonce,

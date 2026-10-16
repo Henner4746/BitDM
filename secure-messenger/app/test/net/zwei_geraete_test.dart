@@ -11,7 +11,7 @@
 // Client-Nachbau und ein Client-Test gegen einen Server-Nachbau koennen beide
 // gruen sein, waehrend nichts zusammenpasst.
 //
-// ═════════════════════════════════════════ WARUM GERADE DIESE SECHS FAELLE
+// ════════════════════════════════════════ WARUM GERADE DIESE SIEBEN FAELLE
 //
 // Es ist die Liste dessen, was still kaputtgehen kann. Jeder Fall hat einen
 // Fehlermodus ohne Fehlermeldung:
@@ -31,6 +31,21 @@
 //  6) Besitznachweis — die einzige Tuer. Faellt sie, haengt sich ein Fremder
 //     als weiteres Geraet an eine fremde Adresse und liest ab da alles mit,
 //     ohne dass irgendwo etwas auffaellt (Spezifikation §6).
+//  7) Alte App ohne Kyber (seit 2.0.0) — ein Geraet, mit dem keine Sitzung
+//     moeglich ist, darf die uebrigen Geraete derselben Adresse nicht
+//     mitreissen; und eine Adresse, die NUR die alte App hat, darf nichts
+//     umwerfen.
+//
+// ══════════════════════════════════════════════ STAND 16.10.2026 (libsignal)
+//
+// Seit dem Umstieg auf die offizielle libsignal sind Fall 2, 3, 4 und die
+// beiden Notizfaelle ROT, und zwar aus EINEM Grund: das Tablet bekommt von
+// `_neueGeraetId` eine Kennung bis 2^31, die offizielle libsignal nimmt in
+// `ProtocolAddress` aber nur 1..127. Das Tablet kann damit nichts ver- oder
+// entschluesseln, und Annas Versand an Bob bricht schon an der Kennung des
+// Tablets ab. Die Faelle sind richtig, der Kern muss nachziehen — siehe
+// mehrgeraete_riegel_test.dart, "DIE GERAETEKENNUNG PASST IN LIBSIGNALS
+// BEREICH" und "EIN GERAET MIT KENNUNG UEBER 127".
 //
 // ═══════════════════════════════════════════════════ MUTATIONSPROBE 30.07.2026
 //
@@ -71,13 +86,20 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:bitdm/core/crypto/address.dart';
+import 'package:bitdm/core/crypto/bip39.dart';
+import 'package:bitdm/core/crypto/key_derivation.dart';
+import 'package:bitdm/core/crypto/signal_identity.dart';
 import 'package:bitdm/core/messenger_core.dart';
+import 'package:bitdm/core/net/prekey_bundle_bridge.dart';
 import 'package:bitdm/core/net/relay_protocol.dart';
+import 'package:cryptography/dart.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal/libsignal.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 import '../support/nutzer.dart';
 import '../support/relay_process.dart';
+import '../support/signal_hilfe.dart';
 
 /// Die Obergrenze, mit der dieser Relay laeuft.
 ///
@@ -160,6 +182,113 @@ void main() {
     } finally {
       client.close();
     }
+  }
+
+  /// Was der Relay auf `/prekey/<adresse>` ausliefert — roh, ohne den Kern.
+  ///
+  /// ZIEHT EINEN EINMALSCHLUESSEL je Geraet, wie jeder echte Abruf.
+  Future<Map<String, Object?>> prekeyRoh(String adresse) async {
+    final client = HttpClient();
+    try {
+      final req =
+          await client.getUrl(relay!.uri.replace(path: '/prekey/$adresse'));
+      final resp = await req.close();
+      final text = await resp.transform(utf8.decoder).join();
+      expect(resp.statusCode, 200, reason: '/prekey antwortete: $text');
+      return (jsonDecode(text) as Map).cast<String, Object?>();
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Wie viele Umschlaege der Relay fuer dieses Geraet noch vorhaelt.
+  ///
+  /// Schreibend geoeffnet, weil die Datenbank in WAL laeuft (siehe
+  /// relay_end_to_end_test.dart `offeneZeilen`).
+  int zeilenFuer(String adresse, int geraet) {
+    final db = sqlite3.open('${relay!.datenverzeichnis.path}/relay.db');
+    try {
+      return db.select(
+          'SELECT COUNT(*) AS n FROM queue '
+          'WHERE recipient = ? AND recipient_device = ?',
+          [adresse, geraet]).first['n'] as int;
+    } finally {
+      db.close();
+    }
+  }
+
+  /// Meldet beim echten Relay ein Geraet an, wie es eine App VOR 2.0.0 tut:
+  /// OHNE Kyber, mit den kanonischen Bytes von damals.
+  ///
+  /// VON HAND UND NICHT UEBER RelayClient: `RelayPreKeyBundle` verlangt seit
+  /// 2.0.0 die Kyber-Felder und signiert sie mit. Eine alte App schickt sie
+  /// nicht, und ihre signierten Bytes sind Zeichen fuer Zeichen die von vor
+  /// der Umstellung — genau die baut diese Funktion nach (Schluessel
+  /// alphabetisch, wie Pythons `sort_keys`). Nimmt der Relay sie an, ist auch
+  /// gezeigt, dass er alte Apps bis zum Stichtag weiter anmeldet
+  /// (`kyber_pflicht()`).
+  Future<String> meldeAlteAppAn(List<String> woerter, {int? geraet}) async {
+    final id = SignalIdentityBridge.fromDerived(
+        await KeyDerivation.fromMnemonic(woerter),
+        registrationId: SignalIdentityBridge.newRegistrationId());
+    final spk = neuerSpk(id.keyPair, 1);
+    final otk = neuerPreKey(1);
+    final identitaet = base64.encode(id.rawPublicKey);
+    final spkB64 = base64.encode(spk.publicKey());
+    final sigB64 = base64.encode(spk.signature());
+    final otkB64 = base64.encode(otk.publicKey());
+    final kanonisch = utf8.encode(jsonEncode({
+      'device_id': ?geraet,
+      'identity_key': identitaet,
+      'one_time_prekeys': [
+        [1, otkB64],
+      ],
+      'registration_id': id.registrationId,
+      'signed_prekey': spkB64,
+      'signed_prekey_id': 1,
+      'signed_prekey_sig': sigB64,
+      'user_id': id.address,
+    }));
+
+    final client = HttpClient();
+    try {
+      Future<(int, String)> post(String pfad, Object rumpf) async {
+        final req = await client.postUrl(relay!.uri.replace(path: pfad));
+        req.headers.contentType = ContentType.json;
+        req.write(jsonEncode(rumpf));
+        final resp = await req.close();
+        return (resp.statusCode, await resp.transform(utf8.decoder).join());
+      }
+
+      final (_, chal) = await post('/register/challenge', {
+        'user_id': id.address,
+        'device_id': ?geraet,
+      });
+      final nonce = base64.decode((jsonDecode(chal) as Map)['nonce']! as String);
+      final hash = const DartSha256().hashSync(kanonisch).bytes;
+      final (status, text) = await post('/register', {
+        'bundle': {
+          'device_id': ?geraet,
+          'user_id': id.address,
+          'identity_key': identitaet,
+          'registration_id': id.registrationId,
+          'signed_prekey_id': 1,
+          'signed_prekey': spkB64,
+          'signed_prekey_sig': sigB64,
+          'one_time_prekeys': [
+            {'key_id': 1, 'public_key': otkB64},
+          ],
+        },
+        'signature': base64
+            .encode(id.keyPair.sign(message: [...nonce, ...hash])),
+      });
+      expect(status, 200,
+          reason: 'der Relay muss eine alte App bis zum Stichtag weiter '
+              'anmelden — Antwort: $text');
+    } finally {
+      client.close();
+    }
+    return id.address;
   }
 
   test('Relay laeuft — sonst sagen die folgenden Tests nichts aus', () {
@@ -523,9 +652,12 @@ void main() {
     /// oeffentlich — und damit auch den oeffentlichen Identitaetsschluessel,
     /// denn die Adresse IST dieser Schluessel. Was er nicht hat, ist der
     /// private Teil.
-    late ECKeyPair fremderSchluessel;
+    late PrivateKey fremderSchluessel;
 
-    setUp(() => fremderSchluessel = Curve.generateKeyPair());
+    setUp(() async {
+      await signalBereit();
+      fremderSchluessel = PrivateKey.generate();
+    });
 
     test('EIN FREMDER KANN SICH NICHT ALS WEITERES GERAET ANMELDEN', () async {
       // DIE GEFAEHRLICHSTE STELLE DES GANZEN VORHABENS. Gelingt das, bekommt
@@ -547,7 +679,11 @@ void main() {
         userId: adresse,
         identityKey: base64.encode(BitdmAddress.decode(adresse)),
         registrationId: 4242,
-        deviceId: 4711,
+        // UNTER 128: Mit Kyber nimmt der Relay seit 16.10.2026 nur noch
+        // Kennungen bis 127 an (libsignal), und haette die Anmeldung schon
+        // daran mit 400 abgewiesen — bevor der Besitznachweis drankommt, um
+        // den es hier geht.
+        deviceId: 47,
         signedPreKeyId: 1,
         // FORMGERECHT (0x05 + 32 Byte): seit 25.09.2026 weist der Relay
         // falsch geformte Schluessel schon mit 400 ab. Dieser Test soll aber
@@ -555,6 +691,15 @@ void main() {
         // an der Formpruefung vorbeikommen.
         signedPreKey: base64.encode(Uint8List(33)..[0] = 5),
         signedPreKeySignature: base64.encode(Uint8List(64)),
+        // SEIT 2.0.0 PFLICHT, und ebenfalls formgerecht: ein echter
+        // Kyber-1024-Schluessel (0x08 + 1568 Byte). Die Signatur darueber ist
+        // Muell — der Relay prueft sie erst NACH dem Besitznachweis
+        // (relay_server.py `register`, `pruefe_kyber_signaturen`), also haelt
+        // auch hier einzig die Signatur den Angreifer auf.
+        kyberPreKeyId: 1,
+        kyberPreKey:
+            base64.encode(KyberKeyPair.generate().getPublicKey().serialize()),
+        kyberPreKeySignature: base64.encode(Uint8List(64)),
       );
 
       final client = HttpClient();
@@ -568,16 +713,15 @@ void main() {
       }
 
       final chal = await post('/register/challenge',
-          {'user_id': adresse, 'device_id': 4711});
+          {'user_id': adresse, 'device_id': 47});
       final nonce = base64.decode(
           (jsonDecode(await chal.transform(utf8.decoder).join())
               as Map)['nonce']! as String);
 
       final antwort = await post('/register', {
         'bundle': bundle.toJson(),
-        'signature': base64.encode(Curve.calculateSignature(
-            fremderSchluessel.privateKey,
-            bundle.registrationChallenge(Uint8List.fromList(nonce)))),
+        'signature': base64.encode(fremderSchluessel.sign(
+            message: bundle.registrationChallenge(Uint8List.fromList(nonce)))),
       });
       await antwort.drain<void>();
 
@@ -619,9 +763,8 @@ void main() {
         if (m['type'] == 'challenge') {
           // Signiert mit dem FREMDEN Schluessel. Etwas anderes hat er nicht.
           ws.add(jsonEncode({
-            'signature': base64.encode(Curve.calculateSignature(
-                fremderSchluessel.privateKey,
-                Uint8List.fromList(base64.decode(m['nonce']! as String)))),
+            'signature': base64.encode(fremderSchluessel.sign(
+                message: base64.decode(m['nonce']! as String))),
           }));
         } else if (m['type'] == 'auth_result') {
           angenommen = m['ok'] == true;
@@ -644,6 +787,128 @@ void main() {
       expect(ws.closeCode, 4403,
           reason: 'und zwar mit dem Code fuer "Signatur ungueltig", damit man '
               'es im Betrieb von einem Netzfehler unterscheiden kann');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+  });
+
+  // ═════════════════════════════════════════════ Alte App ohne Kyber (2.0.0)
+  group('Ein Geraet mit alter App (ohne Kyber)', () {
+    // SEIT 2.0.0 baut die App nur noch PQXDH-Sitzungen (offizielle
+    // libsignal). Ein Geraet, das sich mit einer App vor 2.0.0 angemeldet
+    // hat, traegt beim Relay keine Kyber-Felder — mit ihm gibt es keine
+    // Sitzung, und einen Rueckweg auf X3DH gibt es bewusst nicht
+    // (docs/LIBSIGNAL-UMSTIEG.md). Bis zum Stichtag wird es solche Geraete
+    // geben: wer sein Tablet nicht gleich aktualisiert.
+    //
+    // HIER GEGEN DEN ECHTEN RELAY, weil die Frage auch eine des Servers ist:
+    // nimmt er die alte Anmeldung noch an, und laesst er bei ihr die
+    // Kyber-Felder wirklich weg? Die Attrappe in mehrgeraete_riegel_test.dart
+    // prueft dasselbe Verhalten des Kerns gegen einen Relay, der luegt.
+    //
+    // DIE KENNUNG DES ALTEN TABLETS IST 5, NICHT GEWUERFELT. Eine echte App
+    // vor 2.0.0 haette bis 2^31 gewuerfelt — und eine solche Kennung bricht
+    // derzeit schon an `ProtocolAddress` (libsignal nimmt nur 1..127), bevor
+    // die Kyber-Frage ueberhaupt kommt. Das ist ein eigener Befund
+    // (mehrgeraete_riegel_test "DIE GERAETEKENNUNG PASST IN LIBSIGNALS
+    // BEREICH"); dieser Fall prueft Kyber.
+
+    test('EIN ALTES TABLET HAELT DAS NEUE TELEFON NICHT AUF', () async {
+      final anna = nutzer('anna');
+      final handy = nutzer('bob-handy');
+      addTearDown(anna.aufraeumen);
+      addTearDown(handy.aufraeumen);
+
+      await anna.starten();
+      await anna.core.createIdentity();
+      await anna.core.connect();
+      await handy.starten();
+      final woerter = await handy.core.createIdentity();
+      final bob = handy.core.myId;
+      await handy.core.connect();
+
+      // DAS ALTE TABLET: dieselben zwoelf Woerter, App vor 2.0.0.
+      expect(await meldeAlteAppAn(woerter, geraet: 5), bob);
+      expect(await geraeteAmRelay(bob), [1, 5]);
+
+      // DIE VORAUSSETZUNG, beim Relay nachgesehen: das Telefon hat Kyber, das
+      // Tablet nicht — die Felder fehlen GANZ (relay_server.py `/prekey`).
+      final roh = await prekeyRoh(bob);
+      final geraete = [
+        for (final g in roh['geraete']! as List)
+          (g as Map).cast<String, Object?>(),
+      ];
+      expect(geraete.firstWhere((g) => g['device_id'] == 1)['kyber_prekey'],
+          isNotNull);
+      expect(
+          geraete.firstWhere((g) => g['device_id'] == 5).containsKey(
+              'kyber_prekey'),
+          isFalse);
+
+      // Annas erste Nachricht an Bob ist die Kontaktanfrage — und die holt
+      // das Buendel MIT dem alten Tablet darin.
+      await anna.core.addContact(bob, displayName: 'Bob');
+      expect(await Nutzer.warteBis(() => handy.kontaktEreignisse.isNotEmpty),
+          isTrue,
+          reason: 'Annas Anfrage kam beim neuen Telefon nicht an — das alte '
+              'Tablet hat den Versand an ALLE Geraete abgebrochen');
+      await handy.core.acceptRequest(anna.core.myId);
+      expect(
+          await Nutzer.warteBis(() => anna.kontaktEreignisse
+              .any((e) => e.type == ContactEventType.requestAccepted)),
+          isTrue);
+
+      final m = await anna.core
+          .sendMessage(bob, 'Das liest nur das neue Telefon.');
+      expect(
+          await Nutzer.warteBis(() =>
+              handy.eingang.any((x) => x.text == 'Das liest nur das neue Telefon.')),
+          isTrue);
+      expect(
+          await Nutzer.warteBis(() => anna.statusEreignisse.any(
+              (u) => u.messageId == m.id && u.status == MessageStatus.sent)),
+          isTrue,
+          reason: 'das uebersprungene Tablet zaehlt nicht als Fehlschlag — '
+              'sonst stuende jede Nachricht an Bob fuer immer auf "sending"');
+
+      expect(zeilenFuer(bob, 5), 0,
+          reason: 'fuer das Tablet ohne Kyber gibt es keine Sitzung und damit '
+              'auch keinen Umschlag');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('HAT DIE ADRESSE NUR DIE ALTE APP, GEHT NICHTS HINAUS — UND NICHTS '
+        'STUERZT AB', () async {
+      // IST-VERHALTEN, festgehalten: `_bauSitzungen` wirft
+      // GegenstelleOhneKyberException, `_versucheZuSenden` faengt sie im
+      // allgemeinen `catch (_)`. Die Anfrage bleibt liegen, die Verbindung
+      // bleibt stehen — und die Oberflaeche erfaehrt nicht, dass die
+      // Gegenstelle aktualisieren muss (Befund im Schlussbericht vom
+      // 16.10.2026).
+      final anna = nutzer('anna');
+      addTearDown(anna.aufraeumen);
+      await anna.starten();
+      await anna.core.createIdentity();
+      await anna.core.connect();
+
+      final alt = await meldeAlteAppAn(Bip39.generate());
+
+      // DIE VORAUSSETZUNG: ohne Kyber gibt es kein Buendel fuer libsignal.
+      final roh = await prekeyRoh(alt);
+      expect(roh.containsKey('kyber_prekey'), isFalse);
+      expect(
+          () => PreKeyBundleBridge.fromRelay(RelayBundleResponse.fromJson(roh)),
+          throwsA(isA<GegenstelleOhneKyberException>()
+              .having((e) => e.adresse, 'adresse', alt)));
+
+      await anna.core.addContact(alt);
+      // Ein Umschlag waere gegen 127.0.0.1 laengst durch.
+      await Future<void>.delayed(const Duration(seconds: 2));
+
+      expect(zeilenFuer(alt, 1), 0,
+          reason: 'ohne Kyber gibt es keine Sitzung — auch keine schwaechere');
+      expect(anna.core.connectionState, ConnectionState.online,
+          reason: 'eine Gegenstelle mit alter App darf die eigene Verbindung '
+              'nicht umwerfen');
+      expect((await anna.core.getContacts()).single.state,
+          ContactState.outgoingPending);
     }, timeout: const Timeout(Duration(minutes: 3)));
   });
 }

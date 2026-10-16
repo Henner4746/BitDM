@@ -26,14 +26,41 @@ import 'package:bitdm/core/crypto/key_derivation.dart';
 import 'package:bitdm/core/messenger_core.dart';
 import 'package:bitdm/core/nah/leuchtfeuer.dart';
 import 'package:bitdm/core/nah/nahbereich.dart';
+import 'package:bitdm/core/net/prekey_bundle_bridge.dart';
 import 'package:bitdm/core/net/relay_client.dart';
+import 'package:bitdm/core/net/relay_protocol.dart';
 import 'package:bitdm/core/real_messenger_core.dart';
 import 'package:bitdm/core/store/signal_store.dart';
 import 'package:bitdm/core/store/signal_store_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal/libsignal.dart';
 
 import '../support/relay_attrappe.dart';
+import '../support/signal_hilfe.dart';
+
+/// Dieselbe Karte, wie sie eine App VOR 2.0.0 beim Relay hinterlaesst: ohne
+/// die Kyber-Felder — flach und in jedem Eintrag von `geraete`.
+///
+/// Der echte relay_server.py laesst die vier Felder bei einem solchen Geraet
+/// GANZ weg (nicht als null, siehe `/prekey`), genau das bildet das hier nach.
+Map<String, Object?> alsAlteApp(Map<String, Object?> karte) {
+  const kyberFelder = [
+    'kyber_prekey_id',
+    'kyber_prekey',
+    'kyber_prekey_sig',
+    'kyber_einmal',
+  ];
+  final neu = Map.of(karte)..removeWhere((k, _) => kyberFelder.contains(k));
+  final geraete = neu['geraete'];
+  if (geraete is List) {
+    neu['geraete'] = [
+      for (final g in geraete)
+        Map.of((g as Map).cast<String, Object?>())
+          ..removeWhere((k, _) => kyberFelder.contains(k)),
+    ];
+  }
+  return neu;
+}
 
 class NahAttrappe implements Nahbereich {
   final _eingang = StreamController<NahUmschlag>.broadcast();
@@ -182,51 +209,70 @@ void main() {
       // derselbe.
       //
       // MUTATION: `_istEigenesBuendel` -> `async => false`
+      //
+      // DIESER KERN IST GERAET 1 — seit 16.10.2026, vorher war er "weder 1
+      // noch 2" (eine gewuerfelte Kennung). Die offizielle libsignal nimmt in
+      // `ProtocolAddress` nur Kennungen 1..127 an, `_ermittleGeraetId`
+      // wuerfelt aber bis 2^31; ein Kern mit gewuerfelter Kennung baut deshalb
+      // derzeit GAR KEINE Sitzung, und dieser Fall waere aus dem falschen Grund
+      // gruen (keine Phantomsitzung, weil gar keine). Der Befund hat seinen
+      // eigenen Fall darunter ("DIE GERAETEKENNUNG PASST IN LIBSIGNALS
+      // BEREICH"). Hier geht es um den Riegel: erst als Geraet 1 angemeldet,
+      // dann meldet der Relay die weiteren Geraete.
+      lage.liste = null;
+      await kern.connect();
+      expect(kern.geraetId, 1);
+      await kern.disconnect();
+
       final ich = await eigenerSpeicher();
-      final meinSpk =
-          await ich.loadSignedPreKey(ich.state.signedPreKeys.keys.first);
-      final meinOtk = await ich.loadPreKey(ich.state.preKeys.keys.first);
+      final meinSpk = (await ich.loadSignedPreKey(
+          ich.state.signedPreKeys.keys.reduce((a, b) => a > b ? a : b)))!;
+      final meinOtk = (await ich.loadPreKey(ich.state.preKeys.keys.first))!;
+      final meinKyber = (await ich.loadKyberPreKey(ich.letzteRettungId!))!;
 
       // ZWEI ECHTE ANDERE GERAETE derselben Adresse: dieselbe Identitaet aus
-      // denselben zwoelf Woertern, aber je ein EIGENER signierter Prekey. So
-      // sieht ein zweites Telefon wirklich aus — jede Installation wuerfelt
-      // ihren eigenen (libsignal `key_helper.dart`).
+      // denselben zwoelf Woertern, aber je ein EIGENER signierter Prekey (und
+      // eigener Kyber-Prekey). So sieht ein zweites Telefon wirklich aus —
+      // jede Installation wuerfelt ihren eigenen (`_fuelleVorratAuf`).
       //
       // SIE MUESSEN MIT IM SPIEL SEIN, sonst prueft dieser Test nichts: waere
       // `_bauSitzungen` insgesamt kaputt, entstuende auch keine Phantomsitzung
       // und die Zusicherung unten bliebe gruen. Die legitimen Geraete sind die
       // Gegenprobe.
-      //
-      // Dieses Geraet ist uebrigens WEDER 1 NOCH 2: die Liste unten ist
-      // nichtleer, also wuerfelt `_ermittleGeraetId` eine Kennung ab 2 (§1).
-      // Beide anderen sind damit fremde Geraete.
-      final erstSpk = generateSignedPreKey(ich.identity.keyPair, 76);
-      final zweitSpk = generateSignedPreKey(ich.identity.keyPair, 77);
+      final zweitSpk = neuerSpk(ich.identity.keyPair, 76);
+      final drittSpk = neuerSpk(ich.identity.keyPair, 77);
+      final zweitKyber = neuerKyber(ich.identity.keyPair, 76);
+      final drittKyber = neuerKyber(ich.identity.keyPair, 77);
 
-      Map<String, Object?> geraet(int id, SignedPreKeyRecord spk) => {
+      Map<String, Object?> geraet(
+              int id, SignedPreKeyRecord spk, KyberPreKeyRecord kyber) =>
+          {
             'device_id': id,
             'registration_id': ich.identity.registrationId,
-            'signed_prekey_id': spk.id,
-            'signed_prekey':
-                base64.encode(spk.getKeyPair().publicKey.serialize()),
-            'signed_prekey_sig': base64.encode(spk.signature),
+            'signed_prekey_id': spk.id(),
+            'signed_prekey': base64.encode(spk.publicKey()),
+            'signed_prekey_sig': base64.encode(spk.signature()),
             'one_time_prekey': {
-              'key_id': meinOtk.id,
-              'public_key':
-                  base64.encode(meinOtk.getKeyPair().publicKey.serialize()),
+              'key_id': meinOtk.id(),
+              'public_key': base64.encode(meinOtk.publicKey()),
             },
+            'kyber_prekey_id': kyber.id(),
+            'kyber_prekey': base64.encode(kyber.getPublicKey().serialize()),
+            'kyber_prekey_sig': base64.encode(kyber.signature()),
           };
 
-      lage.liste = [1, 2, 7];
+      lage.liste = [1, 2, 3, 7];
       lage.buendel = (wen) => {
             'user_id': kern.myId,
             'identity_key': base64.encode(ich.identity.rawPublicKey),
-            ...geraet(1, meinSpk),
+            ...geraet(1, meinSpk, meinKyber),
             'geraete': [
-              geraet(1, erstSpk),
-              geraet(2, zweitSpk),
+              // Unsere echte Zeile — die faellt schon an der Kennung heraus.
+              geraet(1, meinSpk, meinKyber),
+              geraet(2, zweitSpk, zweitKyber),
+              geraet(3, drittSpk, drittKyber),
               // DAS PHANTOM: eigene Bytes unter fremder Nummer.
-              geraet(7, meinSpk),
+              geraet(7, meinSpk, meinKyber),
             ],
           };
 
@@ -235,7 +281,7 @@ void main() {
       // sein Ergebnis, nicht auf eine Uhr.
       await warteBis(() => sitzungen().length >= 2);
 
-      expect(sitzungen(), containsAll(['${kern.myId}:1', '${kern.myId}:2']),
+      expect(sitzungen(), containsAll(['${kern.myId}:2', '${kern.myId}:3']),
           reason: 'die ECHTEN anderen Geraete muessen eine Sitzung bekommen — '
               'ohne diese Haelfte saegte der Test seinen eigenen Ast ab');
       expect(sitzungen(), isNot(contains('${kern.myId}:7')),
@@ -304,6 +350,41 @@ void main() {
           reason: 'die Adresse hat schon ein Geraet 1 — dieses hier ist das '
               'zweite und braucht eine eigene Kennung (§1)');
       expect(int.parse(gebrannt!), greaterThanOrEqualTo(2));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('DIE GERAETEKENNUNG PASST IN LIBSIGNALS BEREICH (1..127)', () async {
+      // BEFUND VOM 16.10.2026, beim Umstieg auf die offizielle libsignal.
+      //
+      // `ProtocolAddress` der offiziellen libsignal (0.105) nimmt nur
+      // Geraetekennungen 1..127 und wirft sonst: "Invalid device ID: …
+      // (must be 1-127)". `_neueGeraetId` wuerfelt aber aus 2..2^31−1 — im
+      // Bereich landet es mit 126 zu 2^31. Ein Zweitgeraet kann damit WEDER
+      // verschluesseln NOCH entschluesseln: `_eigeneAdresse` wirft bei jedem
+      // `_chiffre` und jedem `_sitzungsBauer`. Die Dart-Nachbildung kannte
+      // diese Grenze nicht, deshalb fiel es bis 1.9.x nie auf.
+      //
+      // ZWEI MESSUNGEN: die Zahl und ihre Wirkung. Die Zahl allein waere eine
+      // Behauptung ueber libsignal; dass ein Zweitgeraet wirklich schreiben
+      // kann, ist das, worauf es ankommt.
+      final bob = await Fremder.mitGeraeten([1]);
+      lage.liste = [1];
+      lage.buendel = (wen) => wen == bob.adresse ? bob.karte() : const {};
+      await kern.connect();
+
+      final gebrannt = int.parse(kern.datenbankFuerTest.meta('device_id')!);
+      expect(gebrannt, inInclusiveRange(2, 127),
+          reason: 'libsignal nimmt nur 1..127 — mit der Kennung $gebrannt kann '
+              'dieses Zweitgeraet nichts ver- oder entschluesseln '
+              '(real_messenger_core `_neueGeraetId`)');
+
+      kern.ablageFuerTest.speichereKontakt(Contact(
+          id: bob.adresse,
+          addedAt: DateTime.now().toUtc(),
+          state: ContactState.active));
+      await kern.sendMessage(bob.adresse, 'vom Zweitgeraet');
+      await warteBis(() => lage.gesendet.any((g) => g.an == bob.adresse));
+      expect(lage.gesendet.where((g) => g.an == bob.adresse), isNotEmpty,
+          reason: 'ein Zweitgeraet muss schreiben koennen');
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
 
@@ -431,6 +512,232 @@ void main() {
           reason: 'ein uebersprungenes Geraet muss sichtbar bleiben: nur was '
               'auf `sending` steht, holt `unversandt()` wieder — sonst bekommt '
               'es die Nachricht NIE (§10)');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+  });
+
+  // ══════════════════════════════════════════════════════════════════ 4b
+  group('Geraete einer alten App (ohne Kyber)', () {
+    // SEIT 2.0.0 baut die App nur noch PQXDH-Sitzungen. Ein Geraet, dessen
+    // Buendel beim Relay keine Kyber-Felder traegt, laeuft mit einer App vor
+    // 2.0.0 — mit ihm gibt es keine Sitzung, und einen Rueckweg auf X3DH gibt
+    // es bewusst nicht (docs/LIBSIGNAL-UMSTIEG.md: kein Downgrade).
+    //
+    // WIE DER KERN DAMIT UMGEHT (`_bauSitzungen`, Stand 16.10.2026): ein
+    // solches Geraet wird UEBERSPRUNGEN; die anderen Geraete derselben
+    // Adresse bekommen ihre Sitzung trotzdem. Nur wenn KEIN Geraet Kyber hat,
+    // wirft `_bauSitzungen` die GegenstelleOhneKyberException weiter.
+    //
+    // Die beiden Faelle hier nageln genau das fest — und dazu, was danach mit
+    // der Ausnahme passiert.
+
+    test('EIN GERAET OHNE KYBER WIRD UEBERSPRUNGEN — DIE ANDEREN BEKOMMEN SIE',
+        () async {
+      // Bob hat ein neues Telefon (Geraet 1, mit Kyber) und ein altes Tablet
+      // (Geraet 2, App vor 2.0.0). Bis zur Behebung in `_bauSitzungen` warf
+      // das Tablet die Ausnahme mitten in der Schleife: Bob bekam GAR NICHTS,
+      // auch nicht auf dem Telefon, das laengst aktualisiert war.
+      final bob = await Fremder.mitGeraeten([1, 2]);
+      final karte = bob.karte()
+        ..['geraete'] = [
+          bob.geraetekarte(1),
+          alsAlteApp(bob.geraetekarte(2)),
+        ];
+      lage.buendel = (wen) => karte;
+      lage.liste = null;
+      await kern.connect();
+
+      // DIE VORAUSSETZUNG: das Tablet ist wirklich eines ohne Kyber.
+      expect(
+          () => PreKeyBundleBridge.fromRelay(
+              RelayBundleResponse.fromJson(karte).alleGeraete[1],
+              deviceId: 2),
+          throwsA(isA<GegenstelleOhneKyberException>()
+              .having((e) => e.adresse, 'adresse', bob.adresse)
+              .having((e) => e.geraet, 'geraet', 2)));
+
+      kern.ablageFuerTest.speichereKontakt(Contact(
+          id: bob.adresse,
+          addedAt: DateTime.now().toUtc(),
+          state: ContactState.active));
+      final m = await kern.sendMessage(bob.adresse, 'an das neue Telefon');
+      await warteBis(() => lage.gesendet.isNotEmpty);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      // ALS MENGE: der Nachversand aus `connect()` kann dieselbe Nachricht
+      // ein zweites Mal an Geraet 1 schicken (er laeuft unawaited hinter dem
+      // Verbinden her). Gefragt ist hier, WELCHE Geraete etwas bekommen.
+      expect(lage.gesendet.map((g) => g.geraet).toSet(), {1},
+          reason: 'das Telefon mit neuer App bekommt die Nachricht, das '
+              'Tablet ohne Kyber nicht — und es haelt das Telefon nicht auf');
+      expect(sitzungen(), contains('${bob.adresse}:1'));
+      expect(sitzungen(), isNot(contains('${bob.adresse}:2')),
+          reason: 'ohne Kyber darf keine Sitzung entstehen, auch keine '
+              'schwaechere');
+      // IST-VERHALTEN: das uebersprungene Geraet zaehlt NICHT als
+      // Fehlschlag. Die Nachricht steht auf "gesendet", obwohl das Tablet sie
+      // nie bekommt — anders als ein Geraet, dessen Zustellung scheitert
+      // (Fall "SCHLAEGT EIN GERAET FEHL" darueber). Das ist gewollt: sonst
+      // bliebe JEDE Nachricht an Bob fuer immer auf "sending", bis er das
+      // Tablet aktualisiert.
+      expect(kern.ablageFuerTest.unversandt().map((u) => u.id),
+          isNot(contains(m.id)));
+      // Und die Geraeteliste gilt als geprueft: das Tablet wird erst nach dem
+      // Fenster (`geraeteFenster`) wieder angefragt — wer dann aktualisiert
+      // hat, bekommt ab da seine Sitzung.
+      expect(kern.ablageFuerTest.geraeteGeprueft(bob.adresse), greaterThan(0));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('EIN GERAET MIT KENNUNG UEBER 127 (aus 1.9.x) HAELT DIE ANDEREN NICHT '
+        'AUF', () async {
+      // DER ZWEITE BEFUND ZUR GERAETEKENNUNG, von der anderen Seite.
+      //
+      // Jedes Zweitgeraet, das sich unter 1.9.x angemeldet hat, traegt eine
+      // gewuerfelte Kennung bis 2^31 (`_neueGeraetId`). Die offizielle
+      // libsignal nimmt in `ProtocolAddress` nur 1..127. In `_bauSitzungen`
+      // steht `ProtocolAddress(name: an, deviceId: b.deviceId)` VOR jeder
+      // Pruefung und ohne Fang: die LibSignalException (invalidArgument)
+      // bricht die Schleife ab, und Bob bekommt GAR NICHTS — auch nicht auf
+      // Geraet 1, das laengst aktualisiert ist. Dasselbe Muster wie beim
+      // Geraet ohne Kyber darueber, nur ohne die Behebung.
+      //
+      // Hier mit Kyber auf beiden Geraeten, damit der Fall wirklich nur die
+      // Kennung misst. ROT, bis lib/ das behebt (Schlussbericht 16.10.2026).
+      final bob = await Fremder.mitGeraeten([1, 70935140]);
+      lage.buendel = (wen) => bob.karte();
+      lage.liste = null;
+      await kern.connect();
+
+      kern.ablageFuerTest.speichereKontakt(Contact(
+          id: bob.adresse,
+          addedAt: DateTime.now().toUtc(),
+          state: ContactState.active));
+      await kern.sendMessage(bob.adresse, 'an Bobs Telefon');
+      await warteBis(() => lage.gesendet.isNotEmpty);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(lage.gesendet.map((g) => g.geraet).toSet(), contains(1),
+          reason: 'ein Geraet mit einer Kennung, die libsignal nicht nimmt, '
+              'darf den Versand an Bobs uebrige Geraete nicht verhindern');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('HAT KEIN GERAET KYBER, BLEIBT DIE NACHRICHT LIEGEN — UND ZWAR STILL',
+        () async {
+      // Die Adresse hat nur Geraete mit alter App. Hier kommt
+      // GegenstelleOhneKyberException aus `_bauSitzungen` heraus, durch
+      // `_sendePayload` hindurch — und landet in `_versucheZuSenden` im
+      // allgemeinen `catch (_)`. DAS IST DAS IST-VERHALTEN, festgehalten:
+      //
+      //  - `sendMessage` wirft nicht; die Nachricht bleibt auf "sending".
+      //  - Es entsteht keine Sitzung, und nichts geht an den Relay.
+      //  - Die Geraeteliste gilt NICHT als geprueft.
+      //  - Jeder Nachversand (jedes Verbinden) holt das Buendel erneut — und
+      //    zieht damit beim Relay jedes Mal einen EC-Einmalschluessel des
+      //    alten Geraets.
+      //  - Die Oberflaeche erfaehrt davon NICHTS. Die Ausnahme sagt "die
+      //    Gegenstelle muss aktualisieren" (prekey_bundle_bridge.dart), aber
+      //    kein Weg reicht das nach oben durch. Befund, siehe Schlussbericht
+      //    vom 16.10.2026.
+      final alt = await Fremder.mitGeraeten([1, 2]);
+      final karte = alsAlteApp(alt.karte());
+      lage.buendel = (wen) => karte;
+      lage.liste = null;
+      await kern.connect();
+
+      // DIE VORAUSSETZUNG: dieses Buendel IST eines ohne Kyber.
+      expect(
+          () => PreKeyBundleBridge.fromRelay(RelayBundleResponse.fromJson(karte)),
+          throwsA(isA<GegenstelleOhneKyberException>()
+              .having((e) => e.adresse, 'adresse', alt.adresse)));
+
+      kern.ablageFuerTest.speichereKontakt(Contact(
+          id: alt.adresse,
+          addedAt: DateTime.now().toUtc(),
+          state: ContactState.active));
+      final m = await kern.sendMessage(alt.adresse, 'kommt nicht an');
+      await warteBis(() => lage.buendelAbrufe > 0);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(lage.buendelAbrufe, greaterThan(0),
+          reason: 'ohne Buendelabruf misst der Fall nicht die alte App');
+      expect(lage.gesendet, isEmpty,
+          reason: 'mit keinem Geraet gibt es eine Sitzung, also nichts zu '
+              'verschluesseln');
+      expect(sitzungen().where((s) => s.startsWith(alt.adresse)), isEmpty);
+      expect(kern.ablageFuerTest.unversandt().map((u) => u.id), contains(m.id),
+          reason: 'liegengeblieben, nicht verloren — sobald die Gegenstelle '
+              'aktualisiert, geht sie beim naechsten Nachversand hinaus');
+      expect(kern.ablageFuerTest.geraeteGeprueft(alt.adresse), 0);
+
+      // UND BEIM NAECHSTEN VERBINDEN DASSELBE NOCH EINMAL.
+      final abrufe = lage.buendelAbrufe;
+      await kern.disconnect();
+      await kern.connect();
+      await warteBis(() => lage.buendelAbrufe > abrufe);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(lage.buendelAbrufe, greaterThan(abrufe),
+          reason: 'IST-VERHALTEN: der Nachversand fragt bei jedem Verbinden '
+              'erneut nach dem Buendel');
+      expect(lage.gesendet, isEmpty);
+      expect(kern.ablageFuerTest.unversandt().map((u) => u.id), contains(m.id));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+  });
+
+  // ══════════════════════════════════════════════════════════════════ 4c
+  group('Ein untergeschobener Schluessel (die Adresse IST der Schluessel)', () {
+    test('EIN FREMDES BUENDEL UNTER BOBS ADRESSE GIBT KEINE SITZUNG — AUCH '
+        'NICHT BEIM NAECHSTEN VERSUCH', () async {
+      // DIE ZUSAGE, AUF DER BITDM STEHT (signal_store.dart
+      // `isTrustedIdentity`): ein Relay, der unter Bobs Adresse einen
+      // fremden Schluessel ausliefert, faellt beim ALLERERSTEN Kontakt auf,
+      // ohne Sicherheitsnummernvergleich — die Adresse wird aus dem Schluessel
+      // gebildet.
+      //
+      // BEFUND VOM 16.10.2026: die Anbindung der offiziellen libsignal ruft
+      // `isTrustedIdentity` gar nicht. Sie prueft Vertrauen ueber
+      // `getIdentity` (beim ersten Kontakt null, also "vertraut") und ruft
+      // danach `saveIdentity` — und erst DAS wirft bei BitDM
+      // (AddressKeyMismatchException). Ein Wurf im Rueckruf wird in Rust zur
+      // PanicException, und die Sitzung mit Mallorys Schluesseln liegt da
+      // schon im Speicher. Ohne Gegenmittel scheiterte nur der erste Versand;
+      // der NACHVERSAND faende eine Sitzung zu "Bob" und verschluesselte an
+      // Mallory (gegen libsignal direkt gemessen: Mallory liest den Text).
+      //
+      // BEHOBEN IM KERN: `PreKeyBundleBridge.fromRelay` prueft, dass der
+      // Schluessel die Adresse im Buendel ergibt, `_bauSitzungen`, dass das
+      // die angefragte Adresse ist (beides FremdeIdentitaet), und ein
+      // Schnappschuss raeumt jeden halben Aufbau wieder ab. Dieser Fall
+      // nagelt die WIRKUNG fest — ueber zwei Versuche: der erste misst den
+      // Aufbau, der zweite das, was davon uebrig bleibt.
+      final bob = await Fremder.mitGeraeten([1]);
+      final mallory = await Fremder.mitGeraeten([1]);
+      // DER RELAY LUEGT: unter Bobs Adresse liefert er Mallorys Buendel aus,
+      // samt Mallorys Identitaetsschluessel.
+      lage.buendel = (wen) => {...mallory.karte(), 'user_id': bob.adresse};
+      lage.liste = null;
+      await kern.connect();
+
+      kern.ablageFuerTest.speichereKontakt(Contact(
+          id: bob.adresse,
+          addedAt: DateTime.now().toUtc(),
+          state: ContactState.active));
+      final m = await kern.sendMessage(bob.adresse, 'nur fuer Bob');
+      await warteBis(() => lage.buendelAbrufe > 0);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(lage.buendelAbrufe, greaterThan(0),
+          reason: 'ohne Buendelabruf misst der Fall nichts');
+      expect(lage.gesendet.where((g) => g.an == bob.adresse), isEmpty,
+          reason: 'der erste Versuch darf nichts hinausschicken');
+
+      // DER NACHVERSAND beim naechsten Verbinden.
+      await kern.disconnect();
+      await kern.connect();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+
+      expect(lage.gesendet.where((g) => g.an == bob.adresse), isEmpty,
+          reason: 'was hier hinausgeht, ist mit MALLORYS Schluesseln '
+              'verschluesselt — der Relay liest Bobs Post mit');
+      expect(kern.ablageFuerTest.unversandt().map((u) => u.id), contains(m.id),
+          reason: 'die Nachricht bleibt liegen, bis ein echtes Buendel kommt');
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
 

@@ -23,7 +23,9 @@ import 'package:bitdm/core/crypto/signal_identity.dart';
 import 'package:bitdm/core/net/relay_client.dart';
 import 'package:bitdm/core/net/relay_protocol.dart';
 import 'package:bitdm/core/secret_store.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:bitdm/core/store/signal_store.dart';
+
+import 'signal_hilfe.dart';
 
 class SpeicherImKopf implements SecretStore {
   Uint8List? _i;
@@ -59,6 +61,9 @@ class Relaylage {
 
   /// Wenn gesetzt, wirft die Anmeldung.
   Object? anmeldeFehler;
+
+  /// Jedes Buendel, das angemeldet wurde, in der Reihenfolge.
+  final anmeldungen = <RelayPreKeyBundle>[];
 
   /// An welche Geraete das Senden fehlschlaegt. Der Fanout-Fall.
   Set<int> sendeFehlerFuerGeraet = {};
@@ -107,6 +112,7 @@ class RelayAttrappe implements RelayClient {
   Future<int> register(RelayPreKeyBundle b) async {
     final f = lage.anmeldeFehler;
     if (f != null) throw f;
+    lage.anmeldungen.add(b);
     return 100;
   }
 
@@ -175,51 +181,45 @@ class RelayAttrappe implements RelayClient {
 /// zwei Geraete mit denselben Bytes waeren genau der Fall, den der
 /// Reflexionsriegel (§12.1) abweist. Hier soll der Normalfall herauskommen.
 class Fremder {
-  Fremder._(this.identitaet, this._spk, this._otk);
+  Fremder._(this.identitaet, this._karten);
 
   final SignalIdentity identitaet;
-  final Map<int, SignedPreKeyRecord> _spk;
-  final Map<int, PreKeyRecord> _otk;
+
+  /// Je Geraet die Karte, die der Relay dafuer ausliefert (mit Kyber).
+  final Map<int, Map<String, Object?>> _karten;
 
   String get adresse => identitaet.address;
 
   static Future<Fremder> mitGeraeten(List<int> geraete) async {
+    await signalBereit();
     final keys = await KeyDerivation.fromMnemonic(Bip39.generate());
     final id = SignalIdentityBridge.fromDerived(keys,
         registrationId: SignalIdentityBridge.newRegistrationId());
-    final spk = <int, SignedPreKeyRecord>{};
-    final otk = <int, PreKeyRecord>{};
+    // Je Geraet ein eigener Speicher: eigene signierte und Kyber-Prekeys,
+    // damit der Reflexionsriegel (§12.1) den Normalfall sieht.
+    final karten = <int, Map<String, Object?>>{};
     var n = 0;
     for (final g in geraete) {
       n++;
-      spk[g] = generateSignedPreKey(id.keyPair, n);
-      otk[g] = generatePreKeys(n * 1000, 1).first;
+      final store = BitdmSignalStore(identity: id);
+      karten[g] = await legePrekeysAb(store,
+          spkId: n, kyberId: n * 10, preKeyId: n * 1000);
     }
-    return Fremder._(id, spk, otk);
+    return Fremder._(id, karten);
   }
 
   Map<String, Object?> geraetekarte(int g) => {
         'device_id': g,
-        'registration_id': identitaet.registrationId,
-        'signed_prekey_id': _spk[g]!.id,
-        'signed_prekey':
-            base64.encode(_spk[g]!.getKeyPair().publicKey.serialize()),
-        'signed_prekey_sig': base64.encode(_spk[g]!.signature),
-        'one_time_prekey': {
-          'key_id': _otk[g]!.id,
-          'public_key':
-              base64.encode(_otk[g]!.getKeyPair().publicKey.serialize()),
-        },
+        ..._karten[g]!,
       };
 
   /// Die Antwort des Relays auf `/prekey/<adresse>` — flache Felder plus
   /// `geraete`, genau wie Spezifikation §3.3 sie beschreibt.
   Map<String, Object?> karte() {
-    final ids = _spk.keys.toList()..sort();
+    final ids = _karten.keys.toList()..sort();
     return {
       'user_id': adresse,
-      'identity_key': base64.encode(SignalIdentityBridge.rawPublicKeyOf(
-          identitaet.keyPair.getPublicKey())),
+      'identity_key': base64.encode(identitaet.rawPublicKey),
       ...geraetekarte(ids.first),
       'geraete': [for (final g in ids) geraetekarte(g)],
     };

@@ -8,8 +8,9 @@
 // ZWEI ECHTE GERAETE OHNE ZWEITE DATENBANK: das "Zweitgeraet" hier ist ein
 // eigener libsignal-Speicher mit DERSELBEN aus den zwoelf Woertern
 // abgeleiteten Identitaet und einem EIGENEN signierten Prekey — genau das, was
-// ein zweites Telefon ist. Es baut eine echte X3DH-Sitzung zu uns auf und
-// verschluesselt echte Umschlaege. Nachgebaut ist nur der Transport.
+// ein zweites Telefon ist. Es baut eine echte Sitzung zu uns auf (seit 2.0.0
+// PQXDH ueber Signals offizielle libsignal, also mit Kyber) und verschluesselt
+// echte Umschlaege. Nachgebaut ist nur der Transport.
 //
 // WARUM KEIN ECHTER RELAY: alle vier Faelle brauchen einen Umschlag, den der
 // Relay so nie erzeugt — einen Spiegel, der SCHON DA WAR, bevor die Regel
@@ -26,6 +27,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:bitdm/core/anhang/rezept.dart';
+import 'package:bitdm/core/crypto/address.dart';
 import 'package:bitdm/core/crypto/key_derivation.dart';
 import 'package:bitdm/core/crypto/signal_identity.dart';
 import 'package:bitdm/core/messenger_core.dart';
@@ -38,70 +40,95 @@ import 'package:bitdm/core/real_messenger_core.dart';
 import 'package:bitdm/core/store/signal_store.dart';
 import 'package:bitdm/core/store/signal_store_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../support/relay_attrappe.dart';
+import '../support/signal_hilfe.dart';
 
 /// Ein zweites Telefon derselben Person.
 ///
 /// DIESELBE IDENTITAET AUS DENSELBEN ZWOELF WOERTERN, aber ein EIGENER
-/// signierter Prekey und eine eigene registration_id — genau der Unterschied,
-/// an dem der Reflexionsriegel (§12.1) ein echtes Zweitgeraet von einem
-/// erfundenen unterscheidet.
+/// signierter Prekey, eigene Kyber-Prekeys und eine eigene registration_id —
+/// genau der Unterschied, an dem der Reflexionsriegel (§12.1) ein echtes
+/// Zweitgeraet von einem erfundenen unterscheidet.
 class Zweitgeraet {
-  Zweitgeraet._(this.kennung, this.store, this._spk, this._otk);
+  Zweitgeraet._(this.kennung, this.store, this._geraetekarte);
 
   final int kennung;
   final BitdmSignalStore store;
-  final SignedPreKeyRecord _spk;
-  final PreKeyRecord _otk;
+  final Map<String, Object?> _geraetekarte;
 
   static Future<Zweitgeraet> aus(List<String> woerter, int kennung) async {
+    await signalBereit();
     final keys = await KeyDerivation.fromMnemonic(woerter);
     final id = SignalIdentityBridge.fromDerived(keys,
         registrationId: SignalIdentityBridge.newRegistrationId());
     final store = BitdmSignalStore(identity: id);
-    final spk = generateSignedPreKey(id.keyPair, 4711);
-    await store.storeSignedPreKey(spk.id, spk);
-    final otk = generatePreKeys(9000, 1).first;
-    await store.storePreKey(otk.id, otk);
-    return Zweitgeraet._(kennung, store, spk, otk);
+    // Nummern weit weg von denen des Kerns (der zaehlt ab 1): sonst saehe
+    // eine Verwechslung der beiden Speicher im Test zufaellig richtig aus.
+    final karte = await legePrekeysAb(store,
+        spkId: 4711, kyberId: 4711, preKeyId: 9000);
+    return Zweitgeraet._(kennung, store, karte);
   }
 
-  /// Die Geraetezeile, wie der Relay sie unter der eigenen Adresse fuehrt.
-  Map<String, Object?> karte() => {
-        'device_id': kennung,
-        'registration_id': store.identity.registrationId,
-        'signed_prekey_id': _spk.id,
-        'signed_prekey': base64.encode(_spk.getKeyPair().publicKey.serialize()),
-        'signed_prekey_sig': base64.encode(_spk.signature),
-        'one_time_prekey': {
-          'key_id': _otk.id,
-          'public_key':
-              base64.encode(_otk.getKeyPair().publicKey.serialize()),
-        },
-      };
+  /// Die Geraetezeile, wie der Relay sie unter der eigenen Adresse fuehrt —
+  /// seit 2.0.0 mit Kyber.
+  Map<String, Object?> karte() => {'device_id': kennung, ..._geraetekarte};
 
   /// Ein Spiegel, verschluesselt an Geraet 1 derselben Adresse.
   ///
-  /// ECHTE X3DH UND ECHTE VERSCHLUESSELUNG. Ein Test, der den Umschlag
+  /// ECHTE PQXDH UND ECHTE VERSCHLUESSELUNG. Ein Test, der den Umschlag
   /// nachbaute, wuerde am `_nimmSpiegel` vorbeimessen: dorthin kommt nur, was
   /// libsignal wirklich aufbekommen hat.
+  ///
+  /// ALS GERAET [kennung]: die offizielle libsignal will bei jedem Ver- und
+  /// Entschluesseln die EIGENE Adresse, und die ist hier "eigeneAdresse:2",
+  /// nicht ":1" — das Zweitgeraet ist ein anderes Geraet derselben Adresse.
   Future<Uint8List> spiegelAn(
     String eigeneAdresse,
     RelayBundleResponse geraet1,
     String chat,
     Payload innen,
   ) async {
-    final ziel = SignalProtocolAddress(eigeneAdresse, 1);
+    final ziel = adr(eigeneAdresse);
     if (!await store.containsSession(ziel)) {
-      await SessionBuilder.fromSignalStore(store, ziel)
-          .processPreKeyBundle(PreKeyBundleBridge.fromRelay(geraet1));
+      await bauerVon(store, geraet: kennung)
+          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(geraet1));
     }
-    final ct = await SessionCipher.fromStore(store, ziel)
-        .encrypt(Payload.spiegel(chat, innen).toBytes());
+    final ct = await chiffreVon(store, geraet: kennung)
+        .encrypt(ziel, Payload.spiegel(chat, innen).toBytes());
     return Envelope.of(ct).toBytes();
   }
+}
+
+/// Die Geraetezeile eines Speichers, wie der Relay sie ausliefert.
+///
+/// Der neueste signierte Prekey, der kleinste EC-Einmalschluessel und — wie
+/// beim Relay — ein Kyber-Einmalschluessel, solange einer da ist, sonst der
+/// Last-Resort-Schluessel.
+Future<Map<String, Object?>> geraetekarteAus(BitdmSignalStore store) async {
+  int kleinste(Iterable<int> ids) => ids.reduce((a, b) => a < b ? a : b);
+  final spk = (await store.loadSignedPreKey(
+      store.state.signedPreKeys.keys.reduce((a, b) => a > b ? a : b)))!;
+  final otk = (await store.loadPreKey(kleinste(store.state.preKeys.keys)))!;
+  final kyberEinmal = store.state.kyberPreKeys.entries
+      .where((e) => !e.value.letzteRettung)
+      .map((e) => e.key);
+  final kyber = (await store.loadKyberPreKey(kyberEinmal.isEmpty
+      ? store.letzteRettungId!
+      : kleinste(kyberEinmal)))!;
+  return {
+    'registration_id': store.identity.registrationId,
+    'signed_prekey_id': spk.id(),
+    'signed_prekey': base64.encode(spk.publicKey()),
+    'signed_prekey_sig': base64.encode(spk.signature()),
+    'one_time_prekey': {
+      'key_id': otk.id(),
+      'public_key': base64.encode(otk.publicKey()),
+    },
+    'kyber_prekey_id': kyber.id(),
+    'kyber_prekey': base64.encode(kyber.getPublicKey().serialize()),
+    'kyber_prekey_sig': base64.encode(kyber.signature()),
+  };
 }
 
 /// Eine gueltige Anleitung, ohne dass irgendetwas im Lager liegt.
@@ -169,48 +196,48 @@ void main() {
   ///
   /// Ueber eine ZWEITE Ansicht auf dieselbe Datenbank, weil der Kern seinen
   /// Speicher nicht herausgibt und auch nicht sollte. Gelesen wird nur.
-  Future<RelayBundleResponse> eigenesBuendel() async {
-    final store = SignalStoreRepository(kern.datenbankFuerTest)
-        .openStore(await KeyDerivation.fromMnemonic(woerter));
-    final spk =
-        await store.loadSignedPreKey(store.state.signedPreKeys.keys.first);
-    final otk = await store.loadPreKey(store.state.preKeys.keys.first);
-    return RelayBundleResponse(
-      userId: store.identity.address,
-      identityKey: base64.encode(store.identity.rawPublicKey),
-      registrationId: store.identity.registrationId,
-      signedPreKeyId: spk.id,
-      signedPreKey: base64.encode(spk.getKeyPair().publicKey.serialize()),
-      signedPreKeySignature: base64.encode(spk.signature),
-      oneTimePreKey: RelayOneTimePreKey(
-        keyId: otk.id,
-        publicKey: base64.encode(otk.getKeyPair().publicKey.serialize()),
-      ),
-    );
+  Future<Map<String, Object?>> eigeneGeraetekarte() async =>
+      geraetekarteAus(SignalStoreRepository(kern.datenbankFuerTest)
+          .openStore(await KeyDerivation.fromMnemonic(woerter)));
+
+  Future<RelayBundleResponse> eigenesBuendel() async =>
+      RelayBundleResponse.fromJson({
+        'user_id': kern.myId,
+        'identity_key': base64.encode(BitdmAddress.decode(kern.myId)),
+        ...await eigeneGeraetekarte(),
+      });
+
+  /// Meldet den Kern als GERAET 1 an und trennt wieder — das Handy, das es
+  /// gab, bevor das Tablet dazukam (so auch zwei_geraete_test.dart).
+  ///
+  /// WARUM NICHT GLEICH MIT ZWEI GERAETEN AM RELAY: dann wuerfelt
+  /// `_ermittleGeraetId` dem Kern eine Kennung bis 2^31, und die offizielle
+  /// libsignal nimmt in `ProtocolAddress` nur 1..127 an ("Invalid device ID:
+  /// … (must be 1-127)"). Ein Kern, der als Zweitgeraet startet, kann damit
+  /// derzeit gar nichts ver- oder entschluesseln — ein eigener Befund, den
+  /// mehrgeraete_riegel_test.dart ("DIE GERAETEKENNUNG PASST IN LIBSIGNALS
+  /// BEREICH") festhaelt. Die Faelle HIER pruefen den Spiegel, nicht die
+  /// Kennung; also ist der Kern das erste Geraet, und das Zweitgeraet traegt
+  /// die feste Kennung 2.
+  Future<void> alsGeraet1Angemeldet() async {
+    lage.liste = null;
+    await kern.connect();
+    expect(kern.geraetId, 1,
+        reason: 'ohne Geraet 1 misst der Fall die Kennung statt des Spiegels');
+    await kern.disconnect();
   }
 
   /// Die eigene Adresse mit Geraet 1 und einem echten Zweitgeraet.
   Future<Zweitgeraet> mitZweitgeraet() async {
-    final eigen = await eigenesBuendel();
+    final eigen = await eigeneGeraetekarte();
     final zweit = await Zweitgeraet.aus(woerter, 2);
     lage.liste = [1, 2];
     final eigeneKarte = {
-      'user_id': eigen.userId,
-      'identity_key': eigen.identityKey,
-      'registration_id': eigen.registrationId,
-      'signed_prekey_id': eigen.signedPreKeyId,
-      'signed_prekey': eigen.signedPreKey,
-      'signed_prekey_sig': eigen.signedPreKeySignature,
-      'one_time_prekey': eigen.oneTimePreKey?.toJson(),
+      'user_id': kern.myId,
+      'identity_key': base64.encode(BitdmAddress.decode(kern.myId)),
+      ...eigen,
       'geraete': [
-        {
-          'device_id': 1,
-          'registration_id': eigen.registrationId,
-          'signed_prekey_id': eigen.signedPreKeyId,
-          'signed_prekey': eigen.signedPreKey,
-          'signed_prekey_sig': eigen.signedPreKeySignature,
-          'one_time_prekey': eigen.oneTimePreKey?.toJson(),
-        },
+        {'device_id': 1, ...eigen},
         zweit.karte(),
       ],
     };
@@ -242,6 +269,7 @@ void main() {
       // MUTATION: in `_spiegelfaehig` `PayloadKind.contactDecline` von der
       //           false- in die true-Liste geschoben
       final bob = await Fremder.mitGeraeten([1]);
+      await alsGeraet1Angemeldet();
       await mitZweitgeraet();
       final vorher = lage.buendel!;
       lage.buendel = (wen) => wen == bob.adresse ? bob.karte() : vorher(wen);
@@ -439,6 +467,9 @@ void main() {
       //           `unawaited(_frischeEigeneGeraeteAuf());
       //            _stosseNachversandAn();`
       final bob = await Fremder.mitGeraeten([1]);
+      // Erst als Geraet 1 angemeldet, dann getrennt: das Tablet kommt dazu,
+      // waehrend das Handy keine Verbindung hat.
+      await alsGeraet1Angemeldet();
       await mitZweitgeraet();
       final vorher = lage.buendel!;
       lage.buendel = (wen) => wen == bob.adresse ? bob.karte() : vorher(wen);

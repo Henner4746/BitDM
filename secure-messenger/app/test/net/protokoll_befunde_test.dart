@@ -23,6 +23,7 @@ import 'package:bitdm/core/real_messenger_core.dart';
 import 'package:bitdm/core/store/signal_store_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/signal_hilfe.dart';
 import '../support/absender.dart';
 import '../support/relay_attrappe.dart';
 
@@ -78,31 +79,17 @@ void main() {
 
   /// Das eigene Buendel des Kerns, frisch aus der Datei — nach jedem
   /// verbrauchten Einmalschluessel ein anderes.
-  Future<RelayBundleResponse> buendel() async {
+  Future<RelayBundleResponse> buendel({int nr = 0}) async {
     final store = SignalStoreRepository(kern.datenbankFuerTest)
         .openStore(await KeyDerivation.fromMnemonic(woerter));
-    final spk =
-        await store.loadSignedPreKey(store.state.signedPreKeys.keys.first);
-    final otk = await store.loadPreKey(store.state.preKeys.keys.first);
-    return RelayBundleResponse(
-      userId: store.identity.address,
-      identityKey: base64.encode(store.identity.rawPublicKey),
-      registrationId: store.identity.registrationId,
-      signedPreKeyId: spk.id,
-      signedPreKey: base64.encode(spk.getKeyPair().publicKey.serialize()),
-      signedPreKeySignature: base64.encode(spk.signature),
-      oneTimePreKey: RelayOneTimePreKey(
-        keyId: otk.id,
-        publicKey: base64.encode(otk.getKeyPair().publicKey.serialize()),
-      ),
-    );
+    return buendelAusSpeicher(store, nr: nr);
   }
 
   final buendelJe = <String, RelayBundleResponse>{};
 
   /// Schickt [p] von [a] an den Kern, wie der Relay es zustellen wuerde.
   Future<void> wirfEin(Absender a, Payload p, {int? q}) async {
-    final b = buendelJe[a.adresse] ??= await buendel();
+    final b = buendelJe[a.adresse] ??= await buendel(nr: buendelJe.length);
     relay.herein(RelayMessage(
         from: a.adresse,
         ciphertext: await a.an(kern.myId, b, p),
@@ -251,7 +238,7 @@ void main() {
       () async {
     final a = await Absender.neu();
     kontakt(a);
-    final b = buendelJe[a.adresse] ??= await buendel();
+    final b = buendelJe[a.adresse] ??= await buendel(nr: buendelJe.length);
     // Erst alle verschluesseln, dann in einem Zug einwerfen.
     final umschlaege = [
       for (var i = 0; i < 6; i++)

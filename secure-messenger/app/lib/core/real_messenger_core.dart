@@ -24,7 +24,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cryptography/dart.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal/libsignal.dart';
 import 'package:meta/meta.dart';
 
 import 'anhang/anhang_empfang.dart';
@@ -135,6 +135,44 @@ class RealMessengerCore implements MessengerCore {
   static const int preKeyVorrat = 100;
   static const int preKeyUntergrenze = 20;
 
+  /// Kyber-Einmalschluessel (PQXDH, seit 2.0.0).
+  ///
+  /// Kleiner als der EC-Vorrat: ein Kyber-Record wiegt auf dem Geraet rund
+  /// 4,8 KB, beim Relay 1,6 KB je Schluessel (EC: 33 Byte). Ist der Vorrat
+  /// leer, gibt der Relay den Last-Resort-Schluessel aus — die Sitzung hat
+  /// dann trotzdem PQXDH, nur ohne Einmal-Kyber; gegen ein erneutes
+  /// Einspielen schuetzt dann die Tripel-Liste (signal_store.dart).
+  static const int kyberVorrat = 40;
+  static const int kyberUntergrenze = 5;
+
+  /// Wie viele Einmalschluessel hoechstens lokal liegen bleiben.
+  ///
+  /// SEIT 2.0.0 WIRD NUR NOCH NEUES HOCHGELADEN ([_meldeAn]): ein
+  /// Einmalschluessel, den der Relay schon einmal hatte, geht nie wieder hin —
+  /// er koennte dort schon ausgegeben sein, und dann bauten zwei Gegenstellen
+  /// ihre Sitzung auf demselben. Lokal muss er aber bleiben, solange eine
+  /// Erstnachricht dagegen unterwegs sein kann. Ohne Grenze wuchse der Bestand
+  /// mit jedem Nachschub; die aeltesten gehen zuerst (kleinste Nummer).
+  static const int preKeyHoechstzahl = 400;
+  static const int kyberHoechstzahl = 100;
+
+  /// Wie oft der signierte EC-Prekey und der Last-Resort-Kyber-Prekey
+  /// erneuert werden.
+  ///
+  /// Bis 1.9.x wurde der signierte Prekey NIE erneuert (Audit 16.10.2026,
+  /// LS-4): eine Erstnachricht ohne Einmalschluessel blieb damit fuer immer
+  /// angreifbar, sobald das Geraet spaeter in falsche Haende geraet. Signal
+  /// erneuert in derselben Groessenordnung.
+  static const Duration schluesselErneuerung = Duration(days: 7);
+
+  /// Wie lange ein ersetzter Schluessel noch liegen bleibt.
+  ///
+  /// Eine Erstnachricht kann gegen den alten Schluessel unterwegs sein — der
+  /// Relay haelt Umschlaege bis zu 14 Tage. 30 Tage nach der Ersetzung sind
+  /// also reichlich. Erst danach wird er geloescht, und erst damit ist die
+  /// Vorwaertssicherheit fuer die Erstnachrichten dagegen hergestellt.
+  static const Duration schluesselAufbewahrung = Duration(days: 30);
+
   /// Wie lange die Geraeteliste eines Kontakts ohne Nachfrage gilt.
   ///
   /// GESETZT, NICHT GEMESSEN — Spezifikation §12.2 sagt das ausdruecklich, und
@@ -171,6 +209,16 @@ class RealMessengerCore implements MessengerCore {
   /// stiller Ressourcenschaden.
   static const int geraeteMax = 5;
 
+  /// Die groesste Geraetekennung, die libsignal annimmt.
+  ///
+  /// `ProtocolAddress` der offiziellen libsignal (0.105) wirft bei allem
+  /// ausserhalb von 1..127 ("Invalid device ID ... (must be 1-127)"). Bis 1.9.x
+  /// vergab BitDM fuer Zweitgeraete Zufallszahlen bis 2^31 — mit der
+  /// offiziellen Bibliothek koennte so ein Geraet weder senden noch empfangen
+  /// (Befund vom 16.10.2026). Bestehende Zweitgeraete ziehen beim ersten
+  /// Verbinden mit 2.0.0 auf eine neue Kennung um ([_ermittleGeraetId]).
+  static const int geraeteKennungMax = 127;
+
   /// Der Fehlergrund des Relays, wenn ein Zielgeraet nicht (mehr) existiert.
   ///
   /// Als Konstante, weil daran eine Entscheidung haengt (Sitzung wegwerfen)
@@ -192,6 +240,12 @@ class RealMessengerCore implements MessengerCore {
   /// Wegwahl noch nicht am Nachrichtenweg haengt.
   @visibleForTesting
   ChatRepository get ablageFuerTest => _chats!;
+
+  /// Der Signal-Speicher im Arbeitsspeicher — dort laege eine eingeschleuste
+  /// Sitzung, BEVOR sie festgeschrieben wird. Ein Test, der nur die Datei
+  /// ansieht, saehe sie erst nach dem naechsten Festschreiben.
+  @visibleForTesting
+  BitdmSignalStore get signalStoreFuerTest => _store!;
 
   SignalStoreRepository? _signalRepo;
   ChatRepository? _chats;
@@ -241,6 +295,13 @@ class RealMessengerCore implements MessengerCore {
   /// faengt an, wenn der erste durch ist, und findet dann nur noch, was
   /// wirklich liegengeblieben ist.
   Future<void> _nachversandLauf = Future<void>.value();
+
+  /// Was gerade hinausgeht: eigene Nachrichten (`n:`) und Eintraege des
+  /// Ausgangs (`a:`). Siehe [_einAnlaufZurZeit].
+  final _imVersand = <String>{};
+
+  /// Was der Nachversand uebersprungen hat, weil es gerade hinausging.
+  final _uebersprungen = <String>{};
 
   /// Die Kennung DIESES Geraets an dieser Adresse. Null = noch nicht ermittelt.
   ///
@@ -547,13 +608,16 @@ class RealMessengerCore implements MessengerCore {
     await sqliteVorbereiten();
     final db = EncryptedDatabase.open(databasePath, keys.databaseKey);
     _ruheSchluessel = Uint8List.fromList(keys.attachmentKey);
+    // DIE NATIVE SIGNAL-BIBLIOTHEK LADEN, bevor irgendein Schluessel
+    // angefasst wird (offizielle libsignal seit 2.0.0, ueber Rust). Einmal je
+    // Isolate genuegt; ein zweiter Aufruf tut nichts. Im Browser laedt das
+    // das WASM-Modul aus web/pkg/.
+    await LibSignal.init();
     final signalRepo = SignalStoreRepository(db);
-    // EINMAL JE DATENBANK, VOR DEM ERSTEN LADEN: Doppelkopien aus dem
-    // Sitzungsarchiv entfernen, die die alte Fassung der Signal-Bibliothek
-    // hinterlassen hat. Siehe [SignalStoreRepository.bereinigeArchivDoppel] —
-    // sie machen einen wiederholten alten Umschlag spaeter wieder
-    // entschluesselbar. Ohne Eintraege kostet der Aufruf eine Abfrage.
-    signalRepo.bereinigeArchivDoppel();
+    // Sitzungen aus der Zeit der Dart-Nachbildung (bis 1.9.x) gibt es hier
+    // nicht mehr: Schema-Stufe 15 hat sie beim Oeffnen verworfen
+    // (encrypted_database.dart `_schemaV15`). Damit entfaellt auch die
+    // Bereinigung ihrer Archiv-Doppelkopien.
     final store = signalRepo.openStore(keys);
 
     _db = db;
@@ -574,8 +638,16 @@ class RealMessengerCore implements MessengerCore {
     // Verbinden ermittelt ([_ermittleGeraetId]) — dort und nicht hier, weil
     // dafuer der Relay gefragt werden muss.
     final gemerkt = int.tryParse(db.meta('device_id') ?? '');
-    if (gemerkt != null) {
+    if (gemerkt != null && gemerkt >= 1 && gemerkt <= geraeteKennungMax) {
       _geraetId = gemerkt;
+    } else if (gemerkt != null) {
+      // EIN ZWEITGERAET AUS 1.9.x MIT KENNUNG UEBER 127. Die offizielle
+      // libsignal nimmt sie nicht; beim naechsten Verbinden wird neu ermittelt
+      // und angemeldet. Die alte Zeile beim Relay verfaellt mit der Zeit
+      // (relay_server.py raeumt lange nicht gesehene Geraete ab); neue Apps
+      // ueberspringen sie ohnehin ([_bauSitzungen]).
+      _geraetId = null;
+      _geraetUmzug = true;
     } else if (db.meta('relay_angemeldet_bei') != null) {
       _setzeGeraetId(1);
     }
@@ -595,7 +667,7 @@ class RealMessengerCore implements MessengerCore {
     // 14.10.2026, B2).
     _chats!.raeumeHaengendeAnhaengeAuf();
 
-    _fuelleVorratAuf();
+    await _fuelleVorratAuf();
 
     // ALTE KLARTEXTANHAENGE VERSCHLUESSELN (Installationen von vor dem
     // 25.09.2026). Im Hintergrund: bei Gigabytes an Anhaengen dauert das, und
@@ -611,32 +683,191 @@ class RealMessengerCore implements MessengerCore {
     await _richteNaheEin();
   }
 
-  /// Legt fehlende Prekeys an. Tut nichts, wenn genug da sind.
-  bool _fuelleVorratAuf() {
+  /// Legt fehlende Prekeys an, erneuert faellige und raeumt alte ab.
+  ///
+  /// Gibt zurueck, ob sich etwas geaendert hat — dann muss das Buendel beim
+  /// Relay neu angemeldet werden ([_buendelStand]).
+  ///
+  /// [frisch]: einen neuen Satz Einmalschluessel erzeugen, egal wie viele
+  /// lokal liegen — so auf `prekeys_low`. Der lokale Bestand sagt nichts
+  /// darueber, wie viele der Relay noch hat: er zaehlt auch die, die der Relay
+  /// schon ausgegeben hat und deren Erstnachricht noch nicht kam.
+  Future<bool> _fuelleVorratAuf({bool frisch = false}) async {
     final store = _store!;
+    final jetzt = DateTime.now().toUtc();
+    final jetztMs = BigInt.from(jetzt.millisecondsSinceEpoch);
+    final paar = store.identity.keyPair;
     var veraendert = false;
 
-    if (store.state.signedPreKeys.isEmpty) {
-      final spk = generateSignedPreKey(store.identity.keyPair, 1);
-      store.storeSignedPreKey(spk.id, spk);
+    bool faellig(BigInt erzeugt) =>
+        jetztMs - erzeugt >= BigInt.from(schluesselErneuerung.inMilliseconds);
+    bool abgelaufen(BigInt erzeugt) =>
+        jetztMs - erzeugt >=
+        BigInt.from(
+            (schluesselErneuerung + schluesselAufbewahrung).inMilliseconds);
+
+    // ── Signierter EC-Prekey: erneuern, alte nach der Aufbewahrung loeschen.
+    final spkIds = store.state.signedPreKeys.keys.toList()..sort();
+    final spkNeuester =
+        spkIds.isEmpty ? null : await store.loadSignedPreKey(spkIds.last);
+    if (spkNeuester == null || faellig(spkNeuester.timestamp())) {
+      final id = _naechsteId('spk_id_hoch', spkIds);
+      final privat = PrivateKey.generate();
+      final oeffentlich = privat.getPublicKey();
+      await store.storeSignedPreKey(
+        id,
+        SignedPreKeyRecord(
+          id: id,
+          timestamp: jetztMs,
+          publicKey: oeffentlich,
+          privateKey: privat,
+          signature: paar.sign(message: oeffentlich.serialize()),
+        ),
+      );
+      veraendert = true;
+    }
+    final spkAktuell = _aktuellerSpkId(store);
+    for (final id in spkIds) {
+      if (id == spkAktuell) continue;
+      final r = await store.loadSignedPreKey(id);
+      if (r != null && abgelaufen(r.timestamp())) {
+        await store.removeSignedPreKey(id);
+        veraendert = true;
+      }
+    }
+
+    // ── Last-Resort-Kyber-Prekey: dieselbe Regel.
+    final kyberIds = store.state.kyberPreKeys.keys.toList();
+    final krId = store.letzteRettungId;
+    final krNeuester = krId == null ? null : await store.loadKyberPreKey(krId);
+    if (krNeuester == null || faellig(krNeuester.timestamp())) {
+      final id = _naechsteId('kyber_id_hoch', kyberIds);
+      await store.storeLastResortKyberPreKey(id, _neuerKyber(id, jetztMs));
+      kyberIds.add(id);
+      veraendert = true;
+    }
+    final krAktuell = store.letzteRettungId;
+    for (final e in store.state.kyberPreKeys.entries.toList()) {
+      if (!e.value.letzteRettung || e.key == krAktuell) continue;
+      final r = await store.loadKyberPreKey(e.key);
+      if (r != null && abgelaufen(r.timestamp())) {
+        await store.removeKyberPreKey(e.key);
+        veraendert = true;
+      }
+    }
+
+    // ── EC-Einmalschluessel.
+    if (frisch || store.preKeyCount < preKeyUntergrenze) {
+      // Bei den Nummern dort weitermachen, wo sie aufgehoert haben — ueber
+      // eine Hochwassermarke, nicht ueber die groesste VORHANDENE Nummer.
+      // Wuerde eine verbrauchte Nummer neu vergeben, bekaeme eine Gegenstelle
+      // mit einem alten Bundle einen Schluessel, der inzwischen einem anderen
+      // gehoert.
+      var id = _naechsteId('prekey_id_hoch', store.state.preKeys.keys);
+      for (var i = 0; i < preKeyVorrat; i++, id++) {
+        final privat = PrivateKey.generate();
+        await store.storePreKey(
+          id,
+          PreKeyRecord(
+              id: id, publicKey: privat.getPublicKey(), privateKey: privat),
+        );
+      }
+      _merkeHochwasser('prekey_id_hoch', id - 1);
       veraendert = true;
     }
 
-    if (store.preKeyCount < preKeyUntergrenze) {
-      // Bei den Nummern dort weitermachen, wo sie aufgehoert haben. Wuerde
-      // wieder bei 1 begonnen, kaeme eine Nummer doppelt vor — und eine
-      // Gegenstelle mit einem alten Bundle bekaeme einen Schluessel, der
-      // inzwischen einem anderen gehoert.
-      final hoechste = store.state.preKeys.keys.fold<int>(0, max);
-      for (final pk in generatePreKeys(hoechste + 1, preKeyVorrat)) {
-        store.storePreKey(pk.id, pk);
+    // ── Kyber-Einmalschluessel.
+    if (frisch || store.kyberEinmalCount < kyberUntergrenze) {
+      var id = _naechsteId('kyber_id_hoch', kyberIds);
+      for (var i = 0; i < kyberVorrat; i++, id++) {
+        await store.storeKyberPreKey(id, _neuerKyber(id, jetztMs));
       }
       veraendert = true;
     }
 
-    if (veraendert) _signalRepo!.commit(store);
+    // ── Altbestand begrenzen, die aeltesten zuerst (siehe preKeyHoechstzahl).
+    final ecIds = store.state.preKeys.keys.toList()..sort();
+    for (final id in ecIds.take(max(0, ecIds.length - preKeyHoechstzahl))) {
+      await store.removePreKey(id);
+      veraendert = true;
+    }
+    final kyEinmal = _kyberEinmalIds(store);
+    for (final id in kyEinmal.take(max(0, kyEinmal.length - kyberHoechstzahl))) {
+      await store.removeKyberPreKey(id);
+      veraendert = true;
+    }
+
+    if (veraendert) {
+      _merkeHochwasser('spk_id_hoch', _aktuellerSpkId(store) ?? 0);
+      _merkeHochwasser(
+          'kyber_id_hoch', store.state.kyberPreKeys.keys.fold<int>(0, max));
+      _signalRepo!.commit(store);
+    }
     return veraendert;
   }
+
+  /// Ein frischer, mit der Identitaet signierter Kyber-Prekey.
+  KyberPreKeyRecord _neuerKyber(int id, BigInt zeit) {
+    final kp = KyberKeyPair.generate();
+    return KyberPreKeyRecord.create(
+      id: id,
+      timestamp: zeit,
+      keyPair: kp,
+      // Signiert werden die vollen 1569 Bytes MIT Typ-Byte — so prueft
+      // libsignal beim Sitzungsaufbau, und so prueft der Relay bei der
+      // Anmeldung.
+      signature:
+          _store!.identity.keyPair.sign(message: kp.getPublicKey().serialize()),
+    );
+  }
+
+  /// Die naechste freie Nummer: ueber der Hochwassermarke UND ueber allem,
+  /// was noch da ist. Beides, weil die Marke nach einem Absturz zwischen
+  /// Speicher-Commit und Marke hinterherhinken kann.
+  int _naechsteId(String marke, Iterable<int> vorhanden) {
+    final hoch = int.tryParse(_db?.meta(marke) ?? '') ?? 0;
+    return max(hoch, vorhanden.fold<int>(0, max)) + 1;
+  }
+
+  void _merkeHochwasser(String marke, int wert) {
+    final db = _db;
+    if (db == null) return;
+    final alt = int.tryParse(db.meta(marke) ?? '') ?? 0;
+    if (wert <= alt) return;
+    db.transaction((raw) => raw.execute(
+        'INSERT INTO meta (key, value) VALUES (?, ?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        [marke, '$wert']));
+  }
+
+  /// Der aktuelle (neueste) signierte EC-Prekey.
+  static int? _aktuellerSpkId(BitdmSignalStore store) {
+    final ids = store.state.signedPreKeys.keys;
+    return ids.isEmpty ? null : ids.reduce(max);
+  }
+
+  /// Was beim Relay angemeldet sein muss — als ein Vermerk.
+  ///
+  /// Bis 1.9.x stand in `relay_prekey_count` nur die Zahl der Einmalschluessel.
+  /// Seit es Erneuerung und Kyber gibt, muss die App sich auch dann neu
+  /// anmelden, wenn ein signierter Schluessel gewechselt hat — sonst gibt der
+  /// Relay einen Schluessel aus, der hier nach der Aufbewahrung geloescht
+  /// wird, und jede Erstnachricht dagegen geht still verloren.
+  ///
+  /// Seit dem Nachschub nur noch neuer Schluessel ([_meldeAn]) zaehlt NICHT
+  /// mehr der Bestand, sondern die hoechste Nummer: ein Verbrauch aendert am
+  /// Relay nichts, was eine Neuanmeldung richten koennte (dafuer meldet er
+  /// `prekeys_low`); neue Schluessel und erneuerte signierte dagegen schon.
+  static String _buendelStand(BitdmSignalStore store) =>
+      'v3/${_aktuellerSpkId(store)}/${store.letzteRettungId}/'
+      '${store.state.preKeys.keys.fold<int>(0, max)}/'
+      '${_kyberEinmalIds(store).fold<int>(0, max)}';
+
+  /// Die Kyber-EINMAL-Schluessel, aufsteigend.
+  static List<int> _kyberEinmalIds(BitdmSignalStore store) => [
+        for (final e in store.state.kyberPreKeys.entries)
+          if (!e.value.letzteRettung) e.key,
+      ]..sort();
 
   // ══════════════════════════════════════════════════════════════ Verbindung
 
@@ -822,8 +1053,7 @@ class RealMessengerCore implements MessengerCore {
     // dem naechsten Update jede bestehende Installation noch einmal an — und
     // jede Gegenstelle mit einem schon geholten Buendel liefe ins Leere.
     final wo = db.meta('relay_angemeldet_bei');
-    if (gemeldet != null &&
-        int.tryParse(gemeldet) == store.preKeyCount &&
+    if (gemeldet == _buendelStand(store) &&
         (wo == null || wo == relayUri.toString())) {
       return;
     }
@@ -837,6 +1067,31 @@ class RealMessengerCore implements MessengerCore {
   /// ("nur in der Naehe"), fragt den Relay nie und ist damit dauerhaft
   /// Geraet 1 — richtig so, denn ohne Relay gibt es auch kein zweites.
   int get geraetId => _geraetId ?? 1;
+
+  /// Dieses Geraet als libsignal-Adresse.
+  ///
+  /// Die offizielle libsignal will die eigene Adresse bei jedem Ver- und
+  /// Entschluesseln; die Dart-Nachbildung kannte sie nicht.
+  ProtocolAddress get _eigeneAdresse =>
+      ProtocolAddress(name: myId, deviceId: geraetId);
+
+  /// Ver- und Entschluesseln ueber den einen Speicher, der alle fuenf
+  /// Rollen spielt (signal_store.dart).
+  SessionCipher _chiffre(BitdmSignalStore store) => SessionCipher(
+        localAddress: _eigeneAdresse,
+        sessionStore: store,
+        identityKeyStore: store,
+        preKeyStore: store,
+        signedPreKeyStore: store,
+        kyberPreKeyStore: store,
+      );
+
+  /// Sitzungsaufbau aus einem Prekey-Buendel (PQXDH).
+  SessionBuilder _sitzungsBauer(BitdmSignalStore store) => SessionBuilder(
+        localAddress: _eigeneAdresse,
+        sessionStore: store,
+        identityKeyStore: store,
+      );
 
   void _setzeGeraetId(int n) {
     _geraetId = n;
@@ -882,6 +1137,9 @@ class RealMessengerCore implements MessengerCore {
   /// Vertagen ist heilbar, Brennen nicht.
   Future<void> _ermittleGeraetId(RelayClient relay) async {
     if (_geraetId != null) return;
+    // Ein Umzug (Kennung ueber 127, siehe [_oeffne]) ist nie Geraet 1: das
+    // Hauptgeraet hatte schon immer die 1.
+    final umzug = _geraetUmzug;
     List<int>? liste;
     try {
       liste = await relay.geraeteliste(myId);
@@ -892,10 +1150,27 @@ class RealMessengerCore implements MessengerCore {
       liste = null;
     }
     _merkeGeraeteZahl(liste);
-    _setzeGeraetId(liste == null || liste.isEmpty ? 1 : _neueGeraetId());
+    _setzeGeraetId(liste == null || (liste.isEmpty && !umzug)
+        ? 1
+        : _neueGeraetId(liste));
+    if (umzug) {
+      _geraetUmzug = false;
+      // Unter der neuen Kennung gibt es noch keine Anmeldung.
+      _vergissAnmeldung();
+    }
   }
 
-  /// Eine Zufallskennung aus 2 .. 2^31−1.
+  /// Ein Zweitgeraet aus 1.9.x, dessen Kennung ueber 127 lag, zieht beim
+  /// naechsten Verbinden um.
+  bool _geraetUmzug = false;
+
+  /// Eine freie Zufallskennung aus 2 .. [geraeteKennungMax].
+  ///
+  /// [belegt]: die Kennungen, die der Relay fuer diese Adresse schon fuehrt —
+  /// die werden nicht noch einmal vergeben. Bei hoechstens [geraeteMax]
+  /// Geraeten sind immer ueber 120 frei.
+  ///
+  /// (Bis 1.9.x: aus 2 .. 2^31−1, siehe [geraeteKennungMax].)
   ///
   /// `Random.secure()` und nicht der gewoehnliche Zufall: die Kennung landet
   /// oeffentlich beim Relay, und eine vorhersagbare liesse einen Fremden
@@ -905,7 +1180,13 @@ class RealMessengerCore implements MessengerCore {
   /// sind vier Kennungen zufaellig, Geburtstagsschranke
   /// `py -c "d=5;print((d-1)*(d-2)/2/2**31)"` -> 2.79e-09, also eins in rund
   /// 358 Millionen.
-  int _neueGeraetId() => 2 + _zufall.nextInt(0x7FFFFFFF - 1);
+  int _neueGeraetId([List<int>? belegt]) {
+    final frei = [
+      for (var i = 2; i <= geraeteKennungMax; i++)
+        if (!(belegt ?? const <int>[]).contains(i)) i,
+    ];
+    return frei[_zufall.nextInt(frei.length)];
+  }
 
   void _merkeGeraeteZahl(List<int>? liste) {
     if (liste != null) _geraeteZahl = liste.length;
@@ -915,21 +1196,56 @@ class RealMessengerCore implements MessengerCore {
   /// [RelayUnbekannt]).
   void _vergissAnmeldung() {
     _db?.transaction((raw) => raw.execute(
-        "DELETE FROM meta WHERE key IN ('relay_prekey_count', 'relay_angemeldet_bei')"));
+        "DELETE FROM meta WHERE key IN ('relay_prekey_count', "
+        "'relay_angemeldet_bei', 'prekey_gemeldet_bis', 'kyber_gemeldet_bis')"));
   }
 
   Future<void> _meldeAn(RelayClient relay) async {
     final store = _store!;
-    final spk = await store.loadSignedPreKey(store.state.signedPreKeys.keys.first);
-    final otk = <PreKeyRecord>[];
-    for (final id in store.state.preKeys.keys) {
-      otk.add(await store.loadPreKey(id));
+    final db = _db!;
+    // NUR SCHLUESSEL HOCHLADEN, DIE DER RELAY NOCH NIE HATTE.
+    //
+    // Die Anmeldung ERSETZT den Vorrat beim Relay. Bis 2.0.0 gingen dabei alle
+    // lokalen Einmalschluessel hin — auch solche, die der Relay schon an eine
+    // Gegenstelle ausgegeben hatte, deren Erstnachricht nur noch nicht da
+    // war. Der Relay gab sie dann ein zweites Mal aus, und die Erstnachricht
+    // des Zweiten scheiterte am verbrauchten Schluessel (dieselbe Klasse wie
+    // Audit PR-4). Jetzt merkt sich die App, bis zu welcher Nummer sie
+    // gemeldet hat. Den VOLLEN Bestand bekommt nur ein Relay, der uns nicht
+    // kennt (erste Anmeldung, anderer Relay, `RelayUnbekannt`) — dort gab es
+    // nichts auszugeben.
+    final ecBis = int.tryParse(db.meta('prekey_gemeldet_bis') ?? '');
+    final kyBis = int.tryParse(db.meta('kyber_gemeldet_bis') ?? '');
+    final voll = ecBis == null || kyBis == null;
+    List<int> neueEc() => [
+          for (final id in store.state.preKeys.keys)
+            if (voll || id > ecBis) id,
+        ];
+    List<int> neueKy() => [
+          for (final id in _kyberEinmalIds(store))
+            if (voll || id > kyBis) id,
+        ];
+    // Keine neuen Einmalschluessel, aber eine Anmeldung (etwa nach einer
+    // Erneuerung des signierten Prekeys): sie leerte den Vorrat beim Relay.
+    // Also zuerst einen frischen Satz anlegen.
+    if (!voll && neueEc().isEmpty && neueKy().isEmpty) {
+      await _fuelleVorratAuf(frisch: true);
     }
+    final spk = (await store.loadSignedPreKey(_aktuellerSpkId(store)!))!;
+    final lastResort = (await store.loadKyberPreKey(store.letzteRettungId!))!;
+    final otk = <PreKeyRecord>[
+      for (final id in neueEc()) (await store.loadPreKey(id))!,
+    ];
+    final kyberOtk = <KyberPreKeyRecord>[
+      for (final id in neueKy()) (await store.loadKyberPreKey(id))!,
+    ];
     await relay.register(
       PreKeyBundleBridge.toRelay(
         identity: store.identity,
         signedPreKey: spk,
+        lastResortKyber: lastResort,
         oneTimePreKeys: otk,
+        oneTimeKyberPreKeys: kyberOtk,
         // GERAET 1 SCHICKT NICHTS MIT. Damit sind die signierten Bytes Zeichen
         // fuer Zeichen die von vor der Umstellung — siehe RelayClient
         // `geraeteKennung`.
@@ -941,8 +1257,12 @@ class RealMessengerCore implements MessengerCore {
           'INSERT INTO meta (key, value) VALUES (?,?) '
           'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
           [k, v]);
-      setze('relay_prekey_count', '${store.preKeyCount}');
+      setze('relay_prekey_count', _buendelStand(store));
       setze('relay_angemeldet_bei', relayUri.toString());
+      setze('prekey_gemeldet_bis',
+          '${store.state.preKeys.keys.fold<int>(ecBis ?? 0, max)}');
+      setze('kyber_gemeldet_bis',
+          '${_kyberEinmalIds(store).fold<int>(kyBis ?? 0, max)}');
     });
   }
 
@@ -1047,7 +1367,13 @@ class RealMessengerCore implements MessengerCore {
   Future<void> _fuelleNachUndMelde() async {
     final relay = _relay;
     if (relay == null) return;
-    _fuelleVorratAuf();
+    // FRISCH, nicht "falls lokal zu wenige": der Relay hat gesagt, dass SEIN
+    // Vorrat knapp ist, und der lokale Bestand weiss davon nichts (siehe
+    // [_fuelleVorratAuf] `frisch`). Bis zum Gesamtlauf vom 16.10.2026 hiess es
+    // hier "falls lokal zu wenige" — der Relay meldete unter 20 Kyber-Schluesseln
+    // knapp, die App fuellte erst unter 5 nach, und meldete sich bei jedem
+    // Verbinden ergebnislos neu an, bis die Anmeldebremse griff.
+    await _fuelleVorratAuf(frisch: true);
     try {
       await _meldeAn(relay);
     } catch (_) {
@@ -1245,11 +1571,12 @@ class RealMessengerCore implements MessengerCore {
           if (k.state != ContactState.incomingPending &&
               k.zeigtAnwesenheit &&
               k.id != myId)
-            NahKontakt(
-              adresse: k.id,
-              identitaet: BitdmAddress.decode(k.id),
-              geheimnis: _nahGeheimnis(k.id),
-            ),
+            if (_nahGeheimnis(k.id) case final geheimnis?)
+              NahKontakt(
+                adresse: k.id,
+                identitaet: BitdmAddress.decode(k.id),
+                geheimnis: geheimnis,
+              ),
       ];
 
   /// Das gemeinsame Geheimnis mit einem Kontakt, aus seiner ADRESSE.
@@ -1262,18 +1589,30 @@ class RealMessengerCore implements MessengerCore {
   /// Gerechnet wird ueber libsignal und nicht ueber das cryptography-Paket, weil
   /// der eigene private Schluessel in libsignals Form vorliegt. Dass beide Wege
   /// dieselben 32 Byte liefern, ist gemessen — test/nah/schluesselbruecke_test.
-  Uint8List _nahGeheimnis(String adresse) =>
-      _nahGeheimnisse.putIfAbsent(adresse, () {
-        // DAS TYPBYTE IST PFLICHT. `BitdmAddress.decode` liefert 32 nackte
-        // Bytes, `Curve.decodePoint` verlangt 33 mit vorangestelltem DJB_TYPE.
-        // Ohne es die bekannte 33-gegen-32-Falle aus signal_identity.dart.
-        final mitTyp = Uint8List(33)
-          ..[0] = 5
-          ..setRange(1, 33, BitdmAddress.decode(adresse));
-        return Uint8List.fromList(Curve.calculateAgreement(
-            Curve.decodePoint(mitTyp, 0),
-            _store!.identity.keyPair.getPrivateKey()));
-      });
+  ///
+  /// NULL, WENN DIE ADRESSE KEINEN BRAUCHBAREN SCHLUESSEL TRAEGT. Die
+  /// offizielle libsignal (seit 2.0.0) lehnt Schluessel niedriger Ordnung ab,
+  /// statt ein Null-Geheimnis zu liefern — das ist richtig so, darf aber nicht
+  /// die ganze Liste der Nahkontakte umwerfen. Ein solcher Kontakt nimmt
+  /// einfach nicht am Nahbereich teil.
+  Uint8List? _nahGeheimnis(String adresse) {
+    final bekannt = _nahGeheimnisse[adresse];
+    if (bekannt != null) return bekannt;
+    try {
+      // DAS TYPBYTE IST PFLICHT: `BitdmAddress.decode` liefert 32 nackte
+      // Bytes, libsignal will 33 mit vorangestelltem 0x05 — das macht
+      // publicKeyOfAddress. Ohne es die bekannte 33-gegen-32-Falle aus
+      // signal_identity.dart.
+      final eigen =
+          PrivateKey.deserialize(bytes: _store!.identity.keyPair.privateKey);
+      final g = Uint8List.fromList(eigen.agree(
+          publicKey: SignalIdentityBridge.publicKeyOfAddress(adresse)));
+      _nahGeheimnisse[adresse] = g;
+      return g;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// NUR FUER TESTS: wartet, bis das Auf- und Abbauen durch ist.
   ///
@@ -1282,6 +1621,10 @@ class RealMessengerCore implements MessengerCore {
   /// trotzdem einen Punkt, an dem er weiss, dass es fertig ist.
   @visibleForTesting
   Future<void> get nahRuhtFuerTest => _nahLauf;
+
+  /// NUR FUER TESTS: wartet, bis der laufende Nachversand durch ist.
+  @visibleForTesting
+  Future<void> get nachversandRuhtFuerTest => _nachversandLauf;
 
   /// NUR FUER TESTS: der Nahbereich, so wie der Kern ihn benutzt.
   @visibleForTesting
@@ -1375,12 +1718,16 @@ class RealMessengerCore implements MessengerCore {
 
   /// Wie oft dieselbe Gegenstelle ein Buendel bekommen darf.
   ///
-  /// EIN EINMALSCHLUESSEL JE ANFRAGE, und der ist danach weg — das ist
-  /// richtig so, aber es macht die Anfrage zu etwas, das Arbeit und Vorrat
-  /// kostet. Ohne Grenze koennte jedes Geraet in Reichweite den Vorrat leeren,
-  /// einfach indem es fragt. Danach bekaeme jeder neue Kontakt nur noch ein
-  /// Buendel OHNE Einmalschluessel: eine Sitzung geht dann zwar noch, aber die
-  /// zusaetzliche Absicherung fehlt — und niemand saehe, warum.
+  /// SEIT 2.0.0 KOSTET EINE ANFRAGE KEINEN EINMALSCHLUESSEL MEHR: ueber Funk
+  /// gehen nur der signierte EC- und der Last-Resort-Kyber-Prekey hinaus
+  /// (Audit PR-4). Bis 1.9.x war es einer je Anfrage, und ohne Grenze haette
+  /// jedes Geraet in Reichweite den Vorrat leeren koennen.
+  ///
+  /// DIE GRENZE BLEIBT TROTZDEM. Jede Antwort ist ein Funkpaket von rund
+  /// 2,5 KB (der Kyber-Schluessel allein hat 1569 Byte), und jede wird mit
+  /// einem eigenen Sonderrahmen ueber BLE geschickt. Ohne Grenze koennte ein
+  /// erkannter Kontakt in Reichweite dieses Telefon dauernd senden lassen —
+  /// Akku und Funkzeit, die echten Nachrichten fehlen.
   ///
   /// Eine Minute ist reichlich fuer den echten Fall (man fragt einmal und baut
   /// die Sitzung auf) und eng genug, dass Leerfragen nichts bringt.
@@ -1409,23 +1756,25 @@ class RealMessengerCore implements MessengerCore {
     }
     _buendelZuletzt[an] = jetzt;
 
-    final spk = await store.loadSignedPreKey(store.state.signedPreKeys.keys.first);
-    // GENAU EINEN EINMALSCHLUESSEL, UND ER IST DANACH VERBRAUCHT.
+    final spk = (await store.loadSignedPreKey(_aktuellerSpkId(store)!))!;
+    final lastResort = (await store.loadKyberPreKey(store.letzteRettungId!))!;
+    // KEINE EINMALSCHLUESSEL UEBER FUNK (seit 2.0.0, Audit PR-4).
     //
-    // Beim Relay bekommt jeder Abruf einen frischen; ueber Funk muss dieselbe
-    // Regel gelten, sonst bauen zwei Gegenstellen ihre Sitzung auf demselben
-    // auf — und dann ist er fuer beide keine zusaetzliche Absicherung mehr.
-    final ids = store.state.preKeys.keys.toList()..sort();
-    final einer = ids.isEmpty ? null : await store.loadPreKey(ids.first);
-
+    // Bis 1.9.x ging hier ein EC-Einmalschluessel hinaus und wurde lokal
+    // verbraucht — beim Relay lag er aber weiter und wurde dort noch einmal
+    // ausgegeben. Die Erstnachricht des zweiten Empfaengers ging dann still
+    // verloren. Jetzt gehen nur der signierte EC-Prekey und der
+    // Last-Resort-Kyber-Prekey hinaus; beides darf mehrfach benutzt werden.
+    // Gegen ein erneutes Einspielen einer Erstnachricht schuetzt die
+    // Tripel-Liste des Kyber-Speichers (signal_store.dart).
     final b = PreKeyBundleBridge.toRelay(
       identity: store.identity,
       signedPreKey: spk,
-      oneTimePreKeys: einer == null ? const [] : [einer],
+      lastResortKyber: lastResort,
+      oneTimePreKeys: const [],
     );
     // Die Form von RelayBundleResponse, nicht die von RelayPreKeyBundle: die
-    // Gegenseite liest es mit `RelayBundleResponse.fromJson`, und dort heisst
-    // es EIN Schluessel statt einer Liste.
+    // Gegenseite liest es mit `RelayBundleResponse.fromJson`.
     final karte = <String, Object?>{
       'user_id': b.userId,
       'identity_key': b.identityKey,
@@ -1433,16 +1782,13 @@ class RealMessengerCore implements MessengerCore {
       'signed_prekey_id': b.signedPreKeyId,
       'signed_prekey': b.signedPreKey,
       'signed_prekey_sig': b.signedPreKeySignature,
-      'one_time_prekey':
-          b.oneTimePreKeys.isEmpty ? null : b.oneTimePreKeys.first.toJson(),
+      'one_time_prekey': null,
+      'kyber_prekey_id': b.kyberPreKeyId,
+      'kyber_prekey': b.kyberPreKey,
+      'kyber_prekey_sig': b.kyberPreKeySignature,
     };
     await nah.schickeSonder(an, Nahtyp.buendelAntwort,
         Uint8List.fromList(utf8.encode(jsonEncode(karte))));
-
-    if (einer != null) {
-      await store.removePreKey(einer.id);
-      _fuelleVorratAuf();
-    }
   }
 
   /// Baut aus einem ueber Funk gekommenen Buendel eine Sitzung.
@@ -1456,7 +1802,7 @@ class RealMessengerCore implements MessengerCore {
   /// wirklich zwei Geraete nebeneinander betreibt.
   Future<void> _nimmBuendelUeberFunk(String von, Uint8List roh) async {
     final store = _store!;
-    final ziel = SignalProtocolAddress(von, 1);
+    final ziel = ProtocolAddress(name: von, deviceId: 1);
     if (await store.containsSession(ziel)) return;
 
     final j = (jsonDecode(utf8.decode(roh)) as Map).cast<String, Object?>();
@@ -1467,8 +1813,14 @@ class RealMessengerCore implements MessengerCore {
     if (antwort.userId != von) {
       throw StateError('Buendel von $von gehoert zu ${antwort.userId}');
     }
-    await SessionBuilder.fromSignalStore(store, ziel)
-        .processPreKeyBundle(PreKeyBundleBridge.fromRelay(antwort));
+    final vorher = store.schnappschuss();
+    try {
+      await _sitzungsBauer(store)
+          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(antwort));
+    } catch (_) {
+      store.stelleWiederHer(vorher);
+      rethrow;
+    }
     // Und sofort nachholen, was darauf gewartet hat.
     _stosseNachversandAn();
   }
@@ -1545,14 +1897,46 @@ class RealMessengerCore implements MessengerCore {
     final Payload payload;
     try {
       final huelle = Envelope.fromBytes(umschlag);
+      // VOR LIBSIGNAL: passt der Schluessel einer Erstnachricht zum Absender?
+      //
+      // Die Anbindung prueft das nicht (signal_errors.dart `FremdeIdentitaet`).
+      // Ohne diese Zeile ginge der Fall ueber unser `saveIdentity`, das wirft —
+      // aus einem Rueckruf heraus, also als Panic im Rust-Faden. Auf dem
+      // Telefon kommt die als Ausnahme zurueck; im Browser kehrt laut Paket
+      // ein asynchroner Aufruf nach einer Panic NIE zurueck, und die
+      // Eingangskette dieses Absenders stuende still. Ausserdem machte
+      // libsignal aus einem gekippten Bit `untrustedIdentity`, und daraus
+      // wuerde eine Kontaktanfrage — vom Relay erzeugt, fuer einen bekannten
+      // Kontakt.
+      if (huelle.startetSitzung) {
+        final erst = PreKeySignalMessage.deserialize(data: huelle.ciphertext);
+        final absender = SignalIdentityBridge.addressOf(
+            PublicKey.deserialize(bytes: erst.identityKey()));
+        if (absender != BitdmAddress.normalize(von)) {
+          throw FremdeIdentitaet(von);
+        }
+      }
       // DIE SITZUNG DES GERAETEPAARS, nicht "die Sitzung mit dieser Adresse".
       // Gegen die falsche zu probieren waere kein Fehlversuch, den man
       // wiederholen koennte: `_behandleEingangsfehler` schreibt den
       // Ratchet-Fortschritt auch beim Fehlschlag fest, und danach ist genau
       // diese Nachricht dauerhaft unentschluesselbar.
+      final wiederholungenVorher = store.kyberWiederholungen;
+      final vorher = huelle.startetSitzung ? store.schnappschuss() : null;
       final klar = await huelle.decrypt(
-        SessionCipher.fromStore(store, SignalProtocolAddress(von, vonGeraet)),
+        _chiffre(store),
+        ProtocolAddress(name: von, deviceId: vonGeraet),
       );
+      // ERNEUT EINGESPIELTE ERSTNACHRICHT gegen den Last-Resort-Kyber-Prekey
+      // (signal_store.dart, Abschnitt KyberPreKeyStore). libsignal hat den
+      // Klartext schon erzeugt, bevor der Speicher die Wiederholung bemerken
+      // kann; deshalb hier verwerfen, wie ein Duplikat.
+      if (store.kyberWiederholungen != wiederholungenVorher) {
+        // Was libsignal dabei angelegt hat, darf nicht festgeschrieben werden
+        // — siehe BitdmSignalStore.schnappschuss.
+        if (vorher != null) store.stelleWiederHer(vorher);
+        throw const ErneutEingespielt();
+      }
       payload = Payload.fromBytes(klar);
     } catch (fehler) {
       _behandleEingangsfehler(fehler, von);
@@ -1570,8 +1954,10 @@ class RealMessengerCore implements MessengerCore {
     //
     // `von == myId` GENUEGT, UND ES IST GERECHNET STATT BEHAUPTET. Diese Bytes
     // sind nur entschluesselbar, wenn sie ueber eine Sitzung mit unserem
-    // EIGENEN Identitaetsschluessel liefen, und `isTrustedIdentity` rechnet
-    // die Adresse aus dem Schluessel nach (signal_store `_keyMatchesAddress`).
+    // EIGENEN Identitaetsschluessel liefen. Eine Erstnachricht wird oben vor
+    // libsignal gegen die Absenderadresse geprueft (`FremdeIdentitaet`), und
+    // jedes Buendel in `PreKeyBundleBridge.fromRelay` — `isTrustedIdentity`
+    // ruft die offizielle Anbindung nie auf.
     // Ein Fremder kann `from` beliebig behaupten — entschluesselbar macht er
     // es damit nicht. Die Behauptung IN der Nutzlast wird nie gefragt.
     //
@@ -2258,7 +2644,7 @@ class RealMessengerCore implements MessengerCore {
       final alle = g.mitglieder.where((m) => m != myId).toSet();
       if (alle.difference(haben).isEmpty) {
         chats.setzeStatus(gid, myId, ref, MessageStatus.delivered);
-        _status.add(MessageStatusUpdate(
+        _meldeStatus(MessageStatusUpdate(
             messageId: ref, chatId: gid, status: MessageStatus.delivered, at: DateTime.now().toUtc()));
       }
     }
@@ -2582,7 +2968,7 @@ class RealMessengerCore implements MessengerCore {
         chats.setzeGeheim(ref, false);
         _verlaufWechsel.add(von);
       }
-      _status.add(MessageStatusUpdate(
+      _meldeStatus(MessageStatusUpdate(
           messageId: ref,
           chatId: von,
           status: status,
@@ -2719,6 +3105,18 @@ class RealMessengerCore implements MessengerCore {
 
   @override
   Stream<ContactEvent> get contactEvents => _contacts.stream;
+
+  /// Meldet eine Statusaenderung — sofern der Kern noch offen ist.
+  ///
+  /// Ein Sendeversuch kann den Kern ueberdauern (Schliessen waehrend der
+  /// Verschluesselung oder der Wegwahl). Dann ist der Strom zu, und `add`
+  /// warf "Cannot add new events after calling close". Mit der offiziellen
+  /// libsignal (Rust, ueber FFI) dauert das Verschluesseln laenger, und der
+  /// Fall trat im Gesamtlauf vom 16.10.2026 sichtbar auf.
+  void _meldeStatus(MessageStatusUpdate u) {
+    if (_status.isClosed) return;
+    _status.add(u);
+  }
 
   /// Wie [_fordereKontakt], nimmt aber auch eine Gruppe. Fuer alle
   /// Nachrichten-Methoden, die in Einzel- und Gruppenchats gleich gehen.
@@ -3325,9 +3723,15 @@ class RealMessengerCore implements MessengerCore {
         Payload.tippt(_neueId(), tippt, DateTime.now().toUtc()).toBytes();
     try {
       for (final g in ziele) {
-        final ct = await SessionCipher.fromStore(
-                store, SignalProtocolAddress(contactId, g))
-            .encrypt(klar);
+        final ct = await _chiffre(store)
+            .encrypt(ProtocolAddress(name: contactId, deviceId: g), klar);
+        // ERST FESTSCHREIBEN, DANN SENDEN. Der Ratchet ist mit dem
+        // Verschluesseln weitergerueckt. Ginge der Chiffretext hinaus und die
+        // App stuerzte vor dem Festschreiben ab, verschluesselte die naechste
+        // Nachricht mit demselben Nachrichtenschluessel noch einmal
+        // (Vertrag der Anbindung, stores/session_store.dart). Bis 1.9.x stand
+        // das Festschreiben erst nach dem Senden.
+        _signalRepo!.commit(store);
         try {
           // Dieselbe Weiche wie in _RelayAusgang: Geraet 1 ohne `to_device`.
           await relay.sendeFluechtig(
@@ -3421,7 +3825,10 @@ class RealMessengerCore implements MessengerCore {
     await _versucheAusgang(seq, an, p);
   }
 
-  Future<void> _versucheAusgang(int seq, String an, Payload p) async {
+  Future<void> _versucheAusgang(int seq, String an, Payload p) =>
+      _einAnlaufZurZeit('a:$seq', () => _versucheAusgangJetzt(seq, an, p));
+
+  Future<void> _versucheAusgangJetzt(int seq, String an, Payload p) async {
     try {
       final bescheid = _istGruppe(an)
           ? await _sendeAnGruppe(an, p)
@@ -4002,6 +4409,49 @@ class RealMessengerCore implements MessengerCore {
       {String? eigeneNachricht,
       bool schonBeimRelay = false,
       bool schonInDerNaehe = false,
+      bool vorlaeufig = false}) {
+    Future<void> versuch() => _versucheZuSendenJetzt(an, p,
+        eigeneNachricht: eigeneNachricht,
+        schonBeimRelay: schonBeimRelay,
+        schonInDerNaehe: schonInDerNaehe,
+        vorlaeufig: vorlaeufig);
+    return eigeneNachricht == null
+        ? versuch()
+        : _einAnlaufZurZeit('n:$an:$eigeneNachricht', versuch);
+  }
+
+  /// EIN SENDEVERSUCH JE NACHRICHT ZUR ZEIT.
+  ///
+  /// Der erste Versand laeuft unabgewartet (`sendMessage`), und bis zu seinem
+  /// Ende steht die Nachricht auf "sending". Kam in diesem Fenster jemand in
+  /// Reichweite oder stand die Verbindung wieder, las der Nachversand dieselbe
+  /// Nachricht aus der Liste und schickte sie ein zweites Mal: zwei
+  /// Verschluesselungen desselben Textes. Gegen sich selbst war der
+  /// Nachversand schon geschuetzt ([_nachversandLauf]), gegen den ersten
+  /// Versand nicht. Mit der offiziellen libsignal (seit 2.0.0) ist das Fenster
+  /// breiter geworden; gefunden im Gesamtlauf vom 16.10.2026.
+  ///
+  /// Wer uebersprungen wird, geht nicht verloren: endet der laufende Versuch,
+  /// stoesst er den Nachversand noch einmal an. Ging die Nachricht hinaus,
+  /// findet der nichts mehr; blieb sie liegen, holt er sie.
+  Future<void> _einAnlaufZurZeit(
+      String schluessel, Future<void> Function() versuch) async {
+    if (!_imVersand.add(schluessel)) {
+      _uebersprungen.add(schluessel);
+      return;
+    }
+    try {
+      await versuch();
+    } finally {
+      _imVersand.remove(schluessel);
+      if (_uebersprungen.remove(schluessel)) _stosseNachversandAn();
+    }
+  }
+
+  Future<void> _versucheZuSendenJetzt(String an, Payload p,
+      {String? eigeneNachricht,
+      bool schonBeimRelay = false,
+      bool schonInDerNaehe = false,
       bool vorlaeufig = false}) async {
     // NOTIZEN: es gibt keinen Empfaenger. "Gesendet" heisst hier "gespeichert",
     // und hinaus geht nur ein Spiegel an die eigenen anderen Geraete. Ohne
@@ -4012,7 +4462,7 @@ class RealMessengerCore implements MessengerCore {
       final store = _store;
       if (eigeneNachricht != null) {
         _chats?.setzeStatus(an, myId, eigeneNachricht, MessageStatus.sent);
-        _status.add(MessageStatusUpdate(
+        _meldeStatus(MessageStatusUpdate(
             messageId: eigeneNachricht,
             chatId: an,
             status: MessageStatus.sent,
@@ -4064,7 +4514,7 @@ class RealMessengerCore implements MessengerCore {
         // DEN STAND AUS DER ABLAGE MELDEN, nicht blind "gesendet": die
         // Ablage geht nur vorwaerts, und bei einem Nachtrag kann die
         // Quittung laengst da sein.
-        _status.add(MessageStatusUpdate(
+        _meldeStatus(MessageStatusUpdate(
             messageId: eigeneNachricht,
             chatId: an,
             status: _chats?.nachricht(an, myId, eigeneNachricht)?.status ??
@@ -4077,7 +4527,7 @@ class RealMessengerCore implements MessengerCore {
       // Nachversand fasst sie nicht mehr an.
       if (eigeneNachricht != null) {
         _chats?.setzeStatus(an, myId, eigeneNachricht, MessageStatus.failed);
-        _status.add(MessageStatusUpdate(
+        _meldeStatus(MessageStatusUpdate(
             messageId: eigeneNachricht,
             chatId: an,
             status: MessageStatus.failed,
@@ -4098,7 +4548,7 @@ class RealMessengerCore implements MessengerCore {
   /// hat.
   void _bleibtLiegen(String an, String? eigeneNachricht) {
     if (eigeneNachricht == null) return;
-    _status.add(MessageStatusUpdate(
+    _meldeStatus(MessageStatusUpdate(
         messageId: eigeneNachricht,
         chatId: an,
         status: MessageStatus.sending,
@@ -4227,8 +4677,15 @@ class RealMessengerCore implements MessengerCore {
 
     try {
       for (final g in ziele) {
-        final ziel = SignalProtocolAddress(an, g);
-        final ct = await SessionCipher.fromStore(store, ziel).encrypt(klartext);
+        final ziel = ProtocolAddress(name: an, deviceId: g);
+        final ct = await _chiffre(store).encrypt(ziel, klartext);
+        // ERST FESTSCHREIBEN, DANN SENDEN. Der Ratchet ist mit dem
+        // Verschluesseln weitergerueckt. Ginge der Chiffretext hinaus und die
+        // App stuerzte vor dem Festschreiben ab, verschluesselte die naechste
+        // Nachricht mit demselben Nachrichtenschluessel noch einmal
+        // (Vertrag der Anbindung, stores/session_store.dart). Bis 1.9.x stand
+        // das Festschreiben erst nach dem Senden.
+        _signalRepo!.commit(store);
         final bescheid =
             await Wegwahl(
               relay: _RelayAusgang(_relay, g),
@@ -4443,10 +4900,16 @@ class RealMessengerCore implements MessengerCore {
   /// Baut fuer jedes Geraet der Antwort eine Sitzung und gibt ihre Kennungen.
   ///
   /// Eine schon bestehende Sitzung wird NICHT ersetzt: ein neuer Aufbau
-  /// archiviert den alten Zustand (libsignal 0.8.2
-  /// `session_builder.dart:139`), aber die Sendekette begaenne von vorn, und
+  /// archiviert den alten Zustand, aber die Sendekette begaenne von vorn, und
   /// die Gegenstelle muesste den Wechsel erst mitbekommen. Fuer ein Geraet,
   /// mit dem wir schon reden, waere das Arbeit gegen den laufenden Betrieb.
+  ///
+  /// GERAETE OHNE KYBER (App vor 2.0.0) WERDEN UEBERSPRUNGEN, nicht zum
+  /// Abbruch fuer alle. Die offizielle libsignal baut mit ihnen keine Sitzung
+  /// auf; ein einzelnes altes Zweitgeraet darf aber nicht dazu fuehren, dass
+  /// das aktuelle Hauptgeraet nichts mehr bekommt. Hat KEIN Geraet Kyber,
+  /// fliegt [GegenstelleOhneKyberException] — dann muss die Gegenstelle
+  /// aktualisieren, und das soll die Oberflaeche sagen koennen.
   ///
   /// MEHR ALS EINE ZAHL WIRD BEI DER EIGENEN ADRESSE GEPRUEFT — siehe
   /// [_istEigenesBuendel]. Ein feindlicher Relay kann sonst ein Geraet
@@ -4456,7 +4919,31 @@ class RealMessengerCore implements MessengerCore {
     String an,
     RelayBundleResponse antwort,
   ) async {
+    // DAS BUENDEL MUSS FUER DIE ANGEFRAGTE ADRESSE SEIN. Zusammen mit der
+    // Pruefung in `PreKeyBundleBridge.fromRelay` (Schluessel ergibt userId)
+    // schliesst das die Kette: angefragt == userId == Schluessel.
+    if (BitdmAddress.normalize(antwort.userId) != BitdmAddress.normalize(an)) {
+      throw FremdeIdentitaet(an);
+    }
+    // ALLES ODER NICHTS: scheitert ein Aufbau, darf keine halb angelegte
+    // Sitzung im Speicher bleiben und beim naechsten Festschreiben in die
+    // Datei wandern.
+    final vorher = store.schnappschuss();
+    try {
+      return await _bauSitzungenOhneRiegel(store, an, antwort);
+    } catch (_) {
+      store.stelleWiederHer(vorher);
+      rethrow;
+    }
+  }
+
+  Future<List<int>> _bauSitzungenOhneRiegel(
+    BitdmSignalStore store,
+    String an,
+    RelayBundleResponse antwort,
+  ) async {
     final ziele = <int>[];
+    GegenstelleOhneKyberException? veraltet;
     // GEDECKELT, siehe [geraeteMax]. `alleGeraete` kommt vom Relay und ist
     // damit fremde Eingabe wie jede andere.
     final alle = antwort.alleGeraete;
@@ -4465,15 +4952,25 @@ class RealMessengerCore implements MessengerCore {
         : (alle.toList()..sort((x, y) => x.deviceId.compareTo(y.deviceId)))
             .take(geraeteMax)) {
       if (an == myId && b.deviceId == geraetId) continue;
+      // KENNUNG AUSSERHALB 1..127: ein Geraet mit einer App vor 2.0.0.
+      // libsignal nimmt die Kennung nicht; ueberspringen wie ein Geraet ohne
+      // Kyber, statt den Versand an alle anderen umzuwerfen.
+      if (b.deviceId < 1 || b.deviceId > geraeteKennungMax) continue;
       if (an == myId && await _istEigenesBuendel(store, b)) continue;
-      final ziel = SignalProtocolAddress(an, b.deviceId);
+      final ziel = ProtocolAddress(name: an, deviceId: b.deviceId);
       if (!await store.containsSession(ziel)) {
-        await SessionBuilder.fromSignalStore(store, ziel).processPreKeyBundle(
-          PreKeyBundleBridge.fromRelay(b, deviceId: b.deviceId),
-        );
+        final PreKeyBundle buendel;
+        try {
+          buendel = PreKeyBundleBridge.fromRelay(b, deviceId: b.deviceId);
+        } on GegenstelleOhneKyberException catch (e) {
+          veraltet ??= e;
+          continue;
+        }
+        await _sitzungsBauer(store).processPreKeyBundle(ziel, buendel);
       }
       ziele.add(b.deviceId);
     }
+    if (ziele.isEmpty && veraltet != null) throw veraltet;
     ziele.sort();
     return ziele;
   }
@@ -4486,9 +4983,9 @@ class RealMessengerCore implements MessengerCore {
   /// ZAHL: `b.deviceId != geraetId`. Ein feindlicher Relay behauptet also
   /// einfach ein Geraet 7 und legt dort UNSER EIGENES signiertes Prekey-Paar
   /// hinein, kopiert aus unserer echten Zeile. Alles Weitere haelt: die
-  /// Signatur des Prekeys ist echt (wir haben sie selbst erzeugt), und
-  /// `isTrustedIdentity` rechnet die Adresse aus dem Schluessel nach — bei der
-  /// EIGENEN Adresse passt der eigene Schluessel per Konstruktion.
+  /// Signatur des Prekeys ist echt (wir haben sie selbst erzeugt), und die
+  /// Pruefung "Schluessel ergibt Adresse" (`PreKeyBundleBridge.fromRelay`)
+  /// haelt bei der EIGENEN Adresse per Konstruktion.
   ///
   /// Danach steht eine Sitzung mit uns selbst. Sie ist der Einstieg: sie macht
   /// [_bekannteGeraete] fuer die eigene Adresse nichtleer, damit spiegelt jede
@@ -4502,15 +4999,14 @@ class RealMessengerCore implements MessengerCore {
   /// und dessen privaten Teil hat er nicht. Uebrig bleibt genau unser eigener
   /// signierter Prekey — und den erkennen wir hier an seinen rohen Bytes.
   /// Legitim ist das nie: jede Installation wuerfelt ihren eigenen
-  /// (libsignal `key_helper.dart` `generateSignedPreKey` -> `generateKeyPair`).
+  /// (`PrivateKey.generate()` in [_fuelleVorratAuf]).
   Future<bool> _istEigenesBuendel(
       BitdmSignalStore store, RelayBundleResponse b) async {
     // ALLE EIGENEN, nicht nur der mit passender Nummer: die Nummer kommt vom
     // Relay und ist damit frei waehlbar, die Bytes sind es nicht.
     for (final id in store.state.signedPreKeys.keys) {
       final eigen = await store.loadSignedPreKey(id);
-      if (base64.encode(eigen.getKeyPair().publicKey.serialize()) ==
-          b.signedPreKey) {
+      if (eigen != null && base64.encode(eigen.publicKey()) == b.signedPreKey) {
         return true;
       }
     }
@@ -4713,7 +5209,7 @@ class RealMessengerCore implements MessengerCore {
         // Ein Anhang ohne Anleitung laesst sich nicht wiederholen. Ihn
         // liegenzulassen hiesse, es bei jedem Verbinden erneut zu versuchen.
         chats.setzeStatus(m.chatId, myId, m.id, MessageStatus.failed);
-        _status.add(MessageStatusUpdate(
+        _meldeStatus(MessageStatusUpdate(
             messageId: m.id,
             chatId: m.chatId,
             status: MessageStatus.failed,
@@ -4757,19 +5253,18 @@ class RealMessengerCore implements MessengerCore {
     final store = _store!;
     // DIE 1 BLEIBT, UND SIE IST HIER KEINE GERAETEANGABE. `getIdentity` liest
     // `_state.identities[address.getName()]` (signal_store.dart) — die
-    // Geraetenummer wird verworfen, dasselbe gilt fuer `isTrustedIdentity` und
-    // `saveIdentity`. Identitaeten liegen je ADRESSE, Sitzungen je
+    // Geraetenummer wird verworfen, dasselbe gilt fuer `saveIdentity`. Identitaeten liegen je ADRESSE, Sitzungen je
     // GERAETEPAAR, und genau diese Aufteilung ist fuer Mehrgeraete die
     // richtige: die Pruefnummer haengt am Identitaetsschluessel und aendert
     // sich nicht, wenn die Gegenstelle ein zweites Telefon dazustellt.
-    final fremd = await store.getIdentity(SignalProtocolAddress(contactId, 1));
+    final fremd =
+        await store.getIdentity(ProtocolAddress(name: contactId, deviceId: 1));
     if (fremd == null) {
       throw UnknownContactException(
           '$contactId (noch keine Sitzung — erst eine Nachricht austauschen)');
     }
 
-    final eigen = SignalIdentityBridge.rawPublicKeyOf(
-        store.identity.keyPair.getPublicKey());
+    final eigen = store.identity.rawPublicKey;
     final andere = SignalIdentityBridge.rawPublicKeyOf(fremd);
 
     final a = _fingerabdruck(eigen, myId);

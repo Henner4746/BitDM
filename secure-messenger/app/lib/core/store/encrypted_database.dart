@@ -79,7 +79,7 @@ class EncryptedDatabase {
   CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 14;
+  static const int schemaVersion = 15;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -280,6 +280,8 @@ class EncryptedDatabase {
             _schemaV13(db);
           case 14:
             _schemaV14(db);
+          case 15:
+            _schemaV15(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -572,6 +574,46 @@ class EncryptedDatabase {
   static void _schemaV14(CommonDatabase db) {
     _spalteDazu(db, 'messages', 'frist', 'INTEGER');
     _spalteDazu(db, 'gruppen', 'verlassen', 'INTEGER NOT NULL DEFAULT 0');
+  }
+
+  /// SIGNALS OFFIZIELLE libsignal statt der Dart-Nachbildung (2.0.0).
+  ///
+  /// ZWEI NEUE TABELLEN fuer PQXDH: die Kyber-Prekeys samt ihrer Art (die
+  /// steht nicht im Record, signal_store.dart `KyberEintrag`) und die Liste der
+  /// Last-Resort-Nutzungen, an der eine erneut eingespielte Erstnachricht
+  /// auffaellt.
+  ///
+  /// UND DIE ALTEN SITZUNGEN UND PREKEYS VERSCHWINDEN. Ihr Format stammt aus
+  /// libsignal_protocol_dart und ist fuer die offizielle Bibliothek nicht
+  /// lesbar; eine Sitzung ohne PQXDH kann sie ohnehin nicht fortsetzen. Ein
+  /// Umrechnen gaebe es nicht ohne die alte Bibliothek, und die soll gerade
+  /// raus. Mit jedem Kontakt entsteht beim naechsten Senden eine neue
+  /// Sitzung; Chats, Kontakte und Anhaenge bleiben, ebenso die Identitaeten
+  /// der Kontakte (beide Bibliotheken speichern sie als 0x05 + 32 Byte).
+  ///
+  /// `relay_prekey_count` wird geloescht, damit die App sich beim naechsten
+  /// Verbinden mit den neuen Prekeys (EC und Kyber) neu anmeldet. Alles in
+  /// DERSELBEN Transaktion wie das Schema: bricht es ab, steht die Datenbank
+  /// vollstaendig auf Stufe 14 und die alte Fassung koennte weiterlaufen.
+  static void _schemaV15(CommonDatabase db) {
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS kyber_pre_keys (
+        id             INTEGER PRIMARY KEY NOT NULL,
+        record         BLOB NOT NULL,
+        letzte_rettung INTEGER NOT NULL
+      )
+    ''');
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS kyber_benutzt (
+        tripel TEXT PRIMARY KEY NOT NULL
+      )
+    ''');
+    db.execute('DELETE FROM sessions');
+    db.execute('DELETE FROM pre_keys');
+    db.execute('DELETE FROM signed_pre_keys');
+    db.execute("DELETE FROM meta WHERE key IN "
+        "('relay_prekey_count', 'signal_archiv_bereinigt_v1')");
+    _metaSchreiben(db, 'signal_bibliothek', 'libsignal-offiziell');
   }
 
   /// GRUPPENHAKEN: welches Mitglied eine eigene Gruppennachricht schon hat.

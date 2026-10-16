@@ -63,6 +63,20 @@ void main() {
             .map((e) =>
                 RelayOneTimePreKey.fromJson((e as Map).cast<String, Object?>()))
             .toList(),
+        // KYBER (seit 2.0.0, MEHRGERAETE.md §15): nur wenn der Fall es traegt.
+        // Fehlt `kyber_prekey`, muessen die Bytes die von vor 2.0.0 sein.
+        kyberPreKeyId: b['kyber_prekey_id'] as int?,
+        kyberPreKey: b['kyber_prekey'] as String?,
+        kyberPreKeySignature: b['kyber_prekey_sig'] as String?,
+        oneTimeKyberPreKeys: ((b['one_time_kyber_prekeys'] ?? []) as List)
+            .map((e) {
+          final k = (e as Map).cast<String, Object?>();
+          return RelayKyberPreKey(
+            keyId: k['key_id']! as int,
+            publicKey: k['public_key']! as String,
+            signature: k['signature']! as String,
+          );
+        }).toList(),
       );
 
       test(name, () {

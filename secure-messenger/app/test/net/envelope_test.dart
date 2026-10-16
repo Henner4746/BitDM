@@ -8,7 +8,7 @@ import 'dart:typed_data';
 
 import 'package:bitdm/core/net/envelope.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
+import 'package:libsignal/libsignal.dart';
 
 Uint8List bytes(List<int> l) => Uint8List.fromList(l);
 
@@ -16,7 +16,7 @@ void main() {
   test('Hin und Zurueck', () {
     final u = Envelope(
       version: Envelope.currentVersion,
-      messageType: CiphertextMessage.whisperType,
+      messageType: CiphertextMessageType.signal.value,
       ciphertext: bytes([1, 2, 3, 4]),
     );
     final zurueck = Envelope.fromBytes(u.toBytes());
@@ -28,7 +28,7 @@ void main() {
   test('der Kopf kostet genau zwei Bytes', () {
     final u = Envelope(
       version: Envelope.currentVersion,
-      messageType: CiphertextMessage.prekeyType,
+      messageType: CiphertextMessageType.preKey.value,
       ciphertext: bytes(List.filled(100, 9)),
     );
     expect(u.toBytes(), hasLength(102));
@@ -39,15 +39,15 @@ void main() {
     // Dreher verstecken kann.
     final u = Envelope(
       version: 1,
-      messageType: CiphertextMessage.prekeyType,
+      messageType: CiphertextMessageType.preKey.value,
       ciphertext: bytes([1]),
     );
-    expect(u.toBytes()[1], CiphertextMessage.prekeyType);
+    expect(u.toBytes()[1], CiphertextMessageType.preKey.value);
     expect(u.startetSitzung, isTrue);
 
     final v = Envelope(
       version: 1,
-      messageType: CiphertextMessage.whisperType,
+      messageType: CiphertextMessageType.signal.value,
       ciphertext: bytes([1]),
     );
     expect(v.startetSitzung, isFalse);
@@ -62,7 +62,7 @@ void main() {
     test('nur der Kopf, ohne Inhalt', () {
       expect(
           () => Envelope.fromBytes(
-              bytes([Envelope.currentVersion, CiphertextMessage.whisperType])),
+              bytes([Envelope.currentVersion, CiphertextMessageType.signal.value])),
           throwsA(isA<EnvelopeFormatException>()));
     });
 
@@ -72,7 +72,7 @@ void main() {
       // abgelehnt.
       expect(
           () => Envelope.fromBytes(
-              bytes([99, CiphertextMessage.whisperType, 1, 2])),
+              bytes([99, CiphertextMessageType.signal.value, 1, 2])),
           throwsA(isA<EnvelopeFormatException>()));
     });
 
@@ -91,7 +91,7 @@ void main() {
       // Ein Umschlag, der ihn ankuendigt, kommt nicht von einem BitDM-Client.
       expect(
           () => Envelope.fromBytes(bytes(
-              [Envelope.currentVersion, CiphertextMessage.senderKeyType, 1])),
+              [Envelope.currentVersion, CiphertextMessageType.senderKey.value, 1])),
           throwsA(isA<EnvelopeFormatException>()));
     });
   });
@@ -103,7 +103,7 @@ void main() {
     // libsignal auf einem Puffer arbeiten zu lassen, den der Aufrufer noch in
     // der Hand hat.
     final roh = bytes(
-        [Envelope.currentVersion, CiphertextMessage.whisperType, 10, 20, 30]);
+        [Envelope.currentVersion, CiphertextMessageType.signal.value, 10, 20, 30]);
     final u = Envelope.fromBytes(roh);
     expect(u.ciphertext, [10, 20, 30]);
 
