@@ -1552,6 +1552,17 @@ class OneTimeKyberPreKey(BaseModel):
 
 GERAET_MAX_KENNUNG = 2**31 - 1
 
+# Die groesste Geraetekennung, die Signals offizielle libsignal (0.105) annimmt.
+#
+# `ProtocolAddress` wirft dort bei allem ausserhalb von 1..127. Apps vor 2.0.0
+# (Dart-Nachbildung) vergaben fuer Zweitgeraete Zufallszahlen bis 2^31; die
+# bleiben bis zum Stichtag erlaubt, damit sie sich weiter anmelden koennen. Wer
+# aber MIT Kyber kommt, ist eine App ab 2.0.0 — und deren Kennung muss in
+# libsignal passen, sonst kann keine Gegenstelle eine Sitzung zu diesem Geraet
+# aufbauen. Eine solche Anmeldung waere ein Fehler der App und soll beim
+# Anmelden auffallen (Befund vom 16.10.2026).
+LIBSIGNAL_GERAET_MAX = 127
+
 
 def geraetekennung_moeglich(wert) -> bool:
     """Kann es ein Geraet mit dieser Kennung ueberhaupt geben?
@@ -2123,6 +2134,9 @@ def kyber_aus_buendel(bundle: PreKeyBundle) -> KyberTeil | None:
     if any(f is None for f in last_resort):
         raise HTTPException(400, "kyber_prekey, kyber_prekey_id und "
                                  "kyber_prekey_sig gehoeren zusammen")
+    if bundle.device_id is not None and bundle.device_id > LIBSIGNAL_GERAET_MAX:
+        raise HTTPException(400, f"device_id muss mit Kyber hoechstens "
+                                 f"{LIBSIGNAL_GERAET_MAX} sein (libsignal)")
 
     try:
         schluessel = b64d(bundle.kyber_prekey)

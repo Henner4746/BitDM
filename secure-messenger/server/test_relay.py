@@ -4165,6 +4165,28 @@ def test_jedes_geraet_hat_seinen_eigenen_kyber_satz(relay):
     assert rs._kyber_zeilen == 2
 
 
+def test_mit_kyber_ist_die_geraetekennung_hoechstens_127(relay):
+    """Signals offizielle libsignal nimmt Geraetekennungen nur von 1 bis 127.
+
+    Eine App ab 2.0.0 (erkennbar an Kyber) mit groesserer Kennung koennte
+    niemand erreichen — keine Gegenstelle baut eine Sitzung zu ihr. Das soll
+    beim Anmelden auffallen. Eine alte App OHNE Kyber darf ihre grosse
+    Kennung bis zum Stichtag behalten.
+    """
+    rs = relay
+    henrik = make_user()
+    _melde_an(rs, henrik, geraet=1)
+    assert _melde_an(rs, henrik, geraet=127,
+                     **_kyber(henrik, n=1, kennung=40, erste=400))
+    with pytest.raises(rs.HTTPException) as fehler:
+        _melde_an(rs, henrik, geraet=128,
+                  **_kyber(henrik, n=1, kennung=50, erste=500))
+    assert fehler.value.status_code == 400, fehler.value.detail
+    assert "127" in fehler.value.detail
+    # Ohne Kyber (alte App) bleibt die grosse Kennung erlaubt.
+    assert _melde_an(rs, henrik, geraet=2**31 - 1)
+
+
 # ------------------------------------------------ Der Stichtag
 
 def test_der_stichtag_lehnt_anmeldungen_ohne_kyber_ab(relay, monkeypatch):
