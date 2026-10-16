@@ -65,6 +65,39 @@ def kanonisch(bundle):
     return PreKeyBundle(**bundle).canonical_bytes()
 
 
+def relay_kennt_kyber():
+    """Ob der AUFGESPIELTE Relay Kyber-Prekeys kennt (seit 16.10.2026).
+
+    Gefragt wird der Quellbaum, aus dem auch kanonisch() die Bytes holt —
+    so passen Buendel und Signatur in jedem Fall zusammen, vor und nach dem
+    Aufspielen des Kyber-Relays.
+    """
+    sys.path.insert(0, QUELLE)
+    from relay_server import PreKeyBundle
+    return "kyber_prekey" in PreKeyBundle.model_fields
+
+
+def kyber_teil(priv):
+    """Ein Last-Resort-Kyber-Prekey fuer die Wegwerf-Identitaet.
+
+    NOETIG, sobald der Relay BITDM_KYBER_PFLICHT=1 hat: dann weist er jede
+    Anmeldung ohne Kyber ab, und dieser Durchstich kaeme nie bis zum Lager.
+
+    ZUFALLSBYTES STATT EINES ECHTEN ML-KEM-SCHLUESSELS, und das ist hier
+    richtig: der Relay prueft nur Laenge (1569), Typbyte (0x08) und die
+    Signatur des Identitaetsschluessels ueber die vollen 1569 Byte. Kapseln
+    wird gegen diesen Schluessel nie jemand — die Identitaet lebt nur fuer
+    diesen Lauf und wird am Ende geloescht.
+    """
+    schluessel = bytes([0x08]) + secrets.token_bytes(1568)
+    return {
+        "kyber_prekey_id": 1,
+        "kyber_prekey": b64(schluessel),
+        "kyber_prekey_sig": b64(sign(priv, schluessel)),
+        "one_time_kyber_prekeys": [],
+    }
+
+
 async def main():
     priv = secrets.token_bytes(32)
     pub = priv_to_curve25519_pub(priv)
@@ -85,6 +118,8 @@ async def main():
             for i in range(1, 4)
         ],
     }
+    if relay_kennt_kyber():
+        bundle.update(kyber_teil(priv))
 
     fehler = 0
 
@@ -127,6 +162,14 @@ def _raeume_auf(user_id, pruefe):
     with c:
         c.execute("DELETE FROM identities WHERE user_id=?", (user_id,))
         c.execute("DELETE FROM one_time_prekeys WHERE user_id=?", (user_id,))
+        # Von Hand, wie die Zeile darueber: auf dieser Verbindung ist
+        # PRAGMA foreign_keys aus, die Kaskade greift hier also nicht. Nur
+        # wenn es die Tabelle gibt — vor dem Kyber-Relay (16.10.2026) fehlt
+        # sie, und das Aufraeumen soll an ihr nicht scheitern.
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                     " AND name='one_time_kyber_prekeys'").fetchone():
+            c.execute("DELETE FROM one_time_kyber_prekeys WHERE user_id=?",
+                      (user_id,))
     uebrig = c.execute(
         "SELECT COUNT(*) FROM identities WHERE user_id=?", (user_id,)).fetchone()[0]
     pruefe("Wegwerf-Identitaet wieder entfernt", uebrig == 0)

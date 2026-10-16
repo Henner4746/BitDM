@@ -715,6 +715,13 @@ def relay(tmp_path, monkeypatch):
     monkeypatch.setattr(rs, "connections", {})
     monkeypatch.setattr(rs, "nachweisfaehig", {})
     monkeypatch.setattr(rs, "_queue_zeilen", 0)
+    # Der Kyber-Stand gehoert zur frischen Datenbank wie der der Warteschlange
+    # — sonst erbte ein Test das Dach (KYBER_OTK_MAX_GESAMT) des vorigen.
+    monkeypatch.setattr(rs, "_kyber_zeilen", 0)
+    # Der Stichtag-Schalter wird bei jeder Anmeldung aus der Umgebung gelesen
+    # (kyber_pflicht). Steht er auf dem Rechner, auf dem die Tests laufen,
+    # zufaellig auf 1, fielen alle Anmeldungen ohne Kyber durch.
+    monkeypatch.delenv("BITDM_KYBER_PFLICHT", raising=False)
     try:
         yield rs
     finally:
@@ -3654,3 +3661,830 @@ def test_neueste_fassung_geht_im_auth_result_mit(relay, monkeypatch):
     asyncio.run(rs.ws_endpoint(mit))
     ergebnis = [m for m in mit.gesendet if m.get("type") == "auth_result"]
     assert ergebnis[0]["neueste"] == "1.9.0"
+
+
+# --------------------------------------------------------------------------- #
+#  Kyber-Prekeys  (PQXDH, 16.10.2026 — LIBSIGNAL-UMSTIEG.md, MEHRGERAETE.md §15)
+# --------------------------------------------------------------------------- #
+#
+# Die offizielle libsignal baut ein Buendel nur MIT signiertem Kyber-Prekey.
+# Der Relay prueft davon Laenge, Typbyte und Signatur — echte
+# ML-KEM-Schluessel braucht es dafuer nicht. Die Tests nehmen deshalb 0x08 und
+# 1568 Zufallsbytes und signieren die vollen 1569 Byte mit sign() von oben,
+# genau wie libsignal den serialisierten Schluessel signiert.
+
+
+def _kyber_schluessel() -> bytes:
+    return bytes([0x08]) + os.urandom(1568)
+
+
+def _kyber_einmal(priv, kennung, schluessel=None, signiert=None):
+    """Ein Kyber-Einmalschluessel im Rumpfformat.
+
+    [signiert] erlaubt es, absichtlich andere Bytes zu unterschreiben als die
+    geschickten — etwa die 1568 Byte OHNE Typbyte.
+    """
+    schluessel = _kyber_schluessel() if schluessel is None else schluessel
+    unterschrieben = schluessel if signiert is None else signiert
+    return {"key_id": kennung, "public_key": b64(schluessel),
+            "signature": b64(sign(priv, unterschrieben))}
+
+
+def _kyber(user, n=3, kennung=900_000, erste=1):
+    """Der ganze Kyber-Teil eines Buendels: Last-Resort plus n Einmalschluessel.
+
+    Als dict, das _melde_an / _bundle_mit direkt ins Buendel legen.
+    """
+    priv = user["priv"]
+    letzter = _kyber_schluessel()
+    return {
+        "kyber_prekey_id": kennung,
+        "kyber_prekey": b64(letzter),
+        "kyber_prekey_sig": b64(sign(priv, letzter)),
+        "one_time_kyber_prekeys": [_kyber_einmal(priv, erste + i) for i in range(n)],
+    }
+
+
+def _kyber_je_geraet(rs, user_id):
+    """{Geraet: [key_id, ...]} des Kyber-Einmalvorrats, sortiert."""
+    stand: dict = {}
+    for geraet, kid in rs.db.execute(
+            "SELECT device_id, key_id FROM one_time_kyber_prekeys WHERE user_id=?"
+            " ORDER BY device_id, key_id", (user_id,)):
+        stand.setdefault(geraet, []).append(kid)
+    return stand
+
+
+def _kyber_stand(rs, user_id):
+    """Alles, was der Relay zu dieser Adresse an Kyber haelt, Byte fuer Byte."""
+    return (
+        rs.db.execute(
+            "SELECT device_id, kyber_prekey_id, kyber_prekey, kyber_prekey_sig"
+            " FROM identities WHERE user_id=? ORDER BY device_id",
+            (user_id,)).fetchall(),
+        rs.db.execute(
+            "SELECT device_id, key_id, public_key, signature"
+            " FROM one_time_kyber_prekeys WHERE user_id=?"
+            " ORDER BY device_id, key_id", (user_id,)).fetchall(),
+    )
+
+
+# ------------------------------------------------ Die signierten Bytes
+
+# DAS SOLL FUER BEIDE SEITEN. Derselbe String steht im Dart-Test der App
+# (relay_protocol_test.dart); weicht eine Seite ab, scheitert jede Anmeldung
+# mit "Besitznachweis fehlgeschlagen", einer Meldung, die auf alles deutet,
+# nur nicht auf die Reihenfolge von JSON-Schluesseln. Bewusst als
+# ausgeschriebener String und nicht aus canonical_bytes() abgeleitet — ein
+# Soll, das der Code selbst ausrechnet, waere immer erfuellt.
+KYBER_KANONISCH_MIT_GERAET = (
+    '{"device_id":2,"identity_key":"SWRLZXk=","kyber_prekey":"Kk==",'
+    '"kyber_prekey_id":7,"kyber_prekey_sig":"S3NpZw==",'
+    '"one_time_kyber_prekeys":[[1,"Ef==","Gh=="],[2,"Ab==","Cd=="]],'
+    '"one_time_prekeys":[[5,"T1RL"]],"registration_id":1234,'
+    '"signed_prekey":"U1BL","signed_prekey_id":1,"signed_prekey_sig":"U2ln",'
+    '"user_id":"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"}')
+
+KYBER_KANONISCH_LEERER_VORRAT = (
+    '{"identity_key":"SWRLZXk=","kyber_prekey":"Kk==","kyber_prekey_id":0,'
+    '"kyber_prekey_sig":"S3NpZw==","one_time_kyber_prekeys":[],'
+    '"one_time_prekeys":[],"registration_id":1234,"signed_prekey":"U1BL",'
+    '"signed_prekey_id":1,"signed_prekey_sig":"U2ln",'
+    '"user_id":"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"}')
+
+# Dasselbe Buendel wie oben, nur ohne Kyber — so sahen die Bytes vor dem
+# 16.10.2026 aus, und so muessen sie fuer eine App ohne Kyber bleiben.
+KANONISCH_OHNE_KYBER = (
+    '{"device_id":2,"identity_key":"SWRLZXk=","one_time_prekeys":[[5,"T1RL"]],'
+    '"registration_id":1234,"signed_prekey":"U1BL","signed_prekey_id":1,'
+    '"signed_prekey_sig":"U2ln",'
+    '"user_id":"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"}')
+
+
+def test_die_kanonischen_bytes_mit_kyber_stehen_fest():
+    """Die Regel (MEHRGERAETE.md §15.2), an festen Werten.
+
+    NUR WENN kyber_prekey gesetzt ist, kommen vier Schluessel dazu; der
+    Einmalvorrat als [key_id, public_key, signature], aufsteigend nach key_id
+    — hier VERKEHRT herum uebergeben, weil genau das eine App falsch machen
+    wuerde, die in Eingabereihenfolge schreibt. Ein leerer Vorrat steht als
+    [] da und fehlt nicht. Die Kennung 0 wird ausgeschrieben, sie ist ein
+    gueltiger Wert und keine Vorgabe.
+    """
+    basis = dict(user_id="k" * 56, identity_key="SWRLZXk=", registration_id=1234,
+                 signed_prekey_id=1, signed_prekey="U1BL", signed_prekey_sig="U2ln")
+
+    mit = PreKeyBundle(
+        **basis, device_id=2,
+        one_time_prekeys=[{"key_id": 5, "public_key": "T1RL"}],
+        kyber_prekey_id=7, kyber_prekey="Kk==", kyber_prekey_sig="S3NpZw==",
+        one_time_kyber_prekeys=[
+            {"key_id": 2, "public_key": "Ab==", "signature": "Cd=="},
+            {"key_id": 1, "public_key": "Ef==", "signature": "Gh=="},
+        ])
+    assert mit.canonical_bytes().decode() == KYBER_KANONISCH_MIT_GERAET
+
+    leer = PreKeyBundle(**basis, kyber_prekey_id=0, kyber_prekey="Kk==",
+                        kyber_prekey_sig="S3NpZw==")
+    assert leer.canonical_bytes().decode() == KYBER_KANONISCH_LEERER_VORRAT
+
+    # Ohne kyber_prekey: Zeichen fuer Zeichen die alten Bytes. Sonst bekaeme
+    # jede installierte App ab dem Aufspielen des Relays 403.
+    ohne = PreKeyBundle(**basis, device_id=2,
+                        one_time_prekeys=[{"key_id": 5, "public_key": "T1RL"}])
+    assert ohne.canonical_bytes().decode() == KANONISCH_OHNE_KYBER
+
+
+def test_die_kyber_felder_sind_mitsigniert(relay):
+    """Ein Weiterleitender kann den Kyber-Teil nicht austauschen.
+
+    Jeder einzelne Kyber-Schluessel ist zwar signiert — aber /prekey gibt
+    signierte Schluessel desselben Opfers an jeden heraus. Ohne Bindung an die
+    Anmeldung liessen sie sich einsetzen (alte, laengst verbrauchte), der
+    Vorrat leeren oder der ganze Kyber-Teil streichen. Jede dieser Aenderungen
+    muss am Besitznachweis scheitern.
+    """
+    rs = relay
+    henrik = make_user()
+    echt = _bundle_mit(henrik, **_kyber(henrik, n=2))
+    nonce = rs.issue_nonce(henrik["user_id"])
+    sig = b64(sign(henrik["priv"],
+                   nonce + hashlib.sha256(echt.canonical_bytes()).digest()))
+
+    roh = echt.model_dump()
+    fremd_signiert = _kyber(henrik, n=1, kennung=5, erste=50)
+    for aenderung in (
+        # gueltig signierte Einmalschluessel desselben Geraets, nur andere
+        {"one_time_kyber_prekeys": fremd_signiert["one_time_kyber_prekeys"]},
+        {"one_time_kyber_prekeys": []},
+        # ein anderer, ebenfalls gueltig signierter Last-Resort-Schluessel
+        {k: fremd_signiert[k] for k in
+         ("kyber_prekey_id", "kyber_prekey", "kyber_prekey_sig")},
+        # der ganze Kyber-Teil gestrichen
+        {"kyber_prekey_id": None, "kyber_prekey": None, "kyber_prekey_sig": None,
+         "one_time_kyber_prekeys": []},
+    ):
+        gefaelscht = rs.PreKeyBundle(**{**roh, **aenderung})
+        with pytest.raises(rs.HTTPException) as fehler:
+            rs.register(rs.RegisterRequest(bundle=gefaelscht, signature=sig),
+                        _Anfrage())
+        assert fehler.value.status_code == 403, aenderung.keys()
+
+    # Die Gegenprobe: das echte Buendel geht mit derselben Signatur durch.
+    # Die Fehlversuche haben das Nonce nicht verbraucht (verbrauche_nonce
+    # laeuft erst nach einer gueltigen Signatur).
+    r = rs.register(rs.RegisterRequest(bundle=echt, signature=sig), _Anfrage())
+    assert r == {"ok": True, "one_time_prekeys": 5, "one_time_kyber_prekeys": 2}
+
+
+# ------------------------------------------------ Anmeldung
+
+def test_eine_volle_anmeldung_mit_kyber_wird_gespeichert(relay):
+    """Der Normalfall der neuen App, mit dem vollen Einmalvorrat.
+
+    KYBER_OTK_MAX_JE_BUENDEL Einmalschluessel und der Last-Resort-Schluessel:
+    51 Signaturen, alle geprueft, alle gespeichert, Byte fuer Byte.
+    """
+    rs = relay
+    henrik = make_user(n_otk=3)
+    teil = _kyber(henrik, n=rs.KYBER_OTK_MAX_JE_BUENDEL, kennung=77)
+
+    r = _melde_an(rs, henrik, **teil)
+
+    assert r == {"ok": True, "one_time_prekeys": 3,
+                 "one_time_kyber_prekeys": rs.KYBER_OTK_MAX_JE_BUENDEL}
+    letzter, einmal = _kyber_stand(rs, henrik["user_id"])
+    assert letzter == [(1, 77, base64.b64decode(teil["kyber_prekey"]),
+                        base64.b64decode(teil["kyber_prekey_sig"]))]
+    assert einmal == sorted(
+        (1, k["key_id"], base64.b64decode(k["public_key"]),
+         base64.b64decode(k["signature"]))
+        for k in teil["one_time_kyber_prekeys"])
+    assert rs._kyber_zeilen == rs.KYBER_OTK_MAX_JE_BUENDEL
+
+
+def _setze_letzten(user, teil, schluessel):
+    """Einen anderen Last-Resort-Schluessel einsetzen, korrekt signiert."""
+    teil["kyber_prekey"] = b64(schluessel)
+    teil["kyber_prekey_sig"] = b64(sign(user["priv"], schluessel))
+
+
+def _einmal_ohne_typbyte_signiert(priv, kennung):
+    schluessel = _kyber_schluessel()
+    return _kyber_einmal(priv, kennung, schluessel, signiert=schluessel[1:])
+
+
+def _letzter_ohne_typbyte_signiert(user, teil):
+    schluessel = base64.b64decode(teil["kyber_prekey"])
+    teil["kyber_prekey_sig"] = b64(sign(user["priv"], schluessel[1:]))
+
+
+# Jeder Fall bekommt (Nutzer, Kyber-Teil) und verdirbt den Teil an genau
+# einer Stelle. Die Signaturen der FORM-Faelle (Laenge, Typbyte) sind gueltig
+# — abgewiesen werden muss also wirklich die Form, nicht die Signatur.
+KAPUTTE_KYBER = {
+    "Last-Resort 1568 Byte samt Typbyte":
+        lambda u, t: _setze_letzten(u, t, b"\x08" + os.urandom(1567)),
+    "Last-Resort 1570 Byte":
+        lambda u, t: _setze_letzten(u, t, b"\x08" + os.urandom(1569)),
+    "Last-Resort mit Typbyte 0x05":
+        lambda u, t: _setze_letzten(u, t, b"\x05" + os.urandom(1568)),
+    "Last-Resort nackt, 1568 Byte ohne Typbyte":
+        lambda u, t: _setze_letzten(u, t, os.urandom(1568)),
+    "Last-Resort-Signatur 63 Byte":
+        lambda u, t: t.update(kyber_prekey_sig=b64(os.urandom(63))),
+    "Last-Resort-Signatur eines fremden Schluessels":
+        lambda u, t: t.update(kyber_prekey_sig=b64(
+            sign(os.urandom(32), base64.b64decode(t["kyber_prekey"])))),
+    "Last-Resort-Signatur ueber die Bytes ohne Typbyte":
+        _letzter_ohne_typbyte_signiert,
+    "Einmal 1568 Byte samt Typbyte":
+        lambda u, t: t["one_time_kyber_prekeys"].append(
+            _kyber_einmal(u["priv"], 99, b"\x08" + os.urandom(1567))),
+    "Einmal mit Typbyte 0x05":
+        lambda u, t: t["one_time_kyber_prekeys"].append(
+            _kyber_einmal(u["priv"], 99, b"\x05" + os.urandom(1568))),
+    "Einmal-Signatur 65 Byte":
+        lambda u, t: t["one_time_kyber_prekeys"].append(
+            {**_kyber_einmal(u["priv"], 99), "signature": b64(os.urandom(65))}),
+    "Einmal-Signatur eines fremden Schluessels":
+        lambda u, t: t["one_time_kyber_prekeys"].append(
+            _kyber_einmal(os.urandom(32), 99)),
+    "Einmal-Signatur ueber die Bytes ohne Typbyte":
+        lambda u, t: t["one_time_kyber_prekeys"].append(
+            _einmal_ohne_typbyte_signiert(u["priv"], 99)),
+    "kyber_prekey ohne Signatur":
+        lambda u, t: t.pop("kyber_prekey_sig"),
+    "kyber_prekey ohne Kennung":
+        lambda u, t: t.pop("kyber_prekey_id"),
+    "Einmalschluessel ohne Last-Resort":
+        lambda u, t: [t.pop(k) for k in
+                      ("kyber_prekey_id", "kyber_prekey", "kyber_prekey_sig")],
+    "key_id doppelt":
+        lambda u, t: t["one_time_kyber_prekeys"].append(_kyber_einmal(
+            u["priv"], t["one_time_kyber_prekeys"][0]["key_id"])),
+    "Last-Resort-Kennung auch unter den Einmalschluesseln":
+        lambda u, t: t["one_time_kyber_prekeys"].append(
+            _kyber_einmal(u["priv"], t["kyber_prekey_id"])),
+    "kaputtes base64":
+        lambda u, t: t.update(kyber_prekey="!!!kein base64!!!"),
+}
+
+
+@pytest.mark.parametrize("fall", list(KAPUTTE_KYBER))
+def test_kaputte_kyber_felder_werden_abgewiesen(relay, fall):
+    """400 — IMMER, auch ohne BITDM_KYBER_PFLICHT (die Vorrichtung loescht sie).
+
+    "Optional" heisst "darf fehlen", nicht "darf kaputt sein". Und eine
+    abgewiesene Erneuerung darf vom gespeicherten Satz nichts anfassen:
+    sonst stuende das Geraet nach einem einzigen kaputten Versuch ohne Kyber
+    oder mit halbem Vorrat da.
+
+    Die Signatur UEBER DIE BYTES OHNE TYPBYTE ist der Fehler, den eine App am
+    ehesten macht (die 1568 Schluesselbytes sind "der Schluessel"). libsignal
+    prueft gegen die serialisierte Form und wirft beim Absender
+    `invalidSignature` — der Relay soll so einen Schluessel gar nicht erst
+    ausgeben.
+    """
+    rs = relay
+    henrik = make_user()
+    _melde_an(rs, henrik, **_kyber(henrik, n=2, kennung=5, erste=100))
+    vorher = _kyber_stand(rs, henrik["user_id"])
+
+    teil = _kyber(henrik)
+    KAPUTTE_KYBER[fall](henrik, teil)
+    with pytest.raises(rs.HTTPException) as fehler:
+        _melde_an(rs, henrik, **teil)
+
+    assert fehler.value.status_code == 400, fehler.value.detail
+    # Jeder Fall muss in der PRUEFUNG auffallen und nicht erst als
+    # IntegrityError an der Datenbank — dort kaeme er erst nach bis zu 51
+    # Signaturpruefungen an, und die Meldung sagte dem Client nichts.
+    assert fehler.value.detail != "Bundle konnte nicht gespeichert werden"
+    assert _kyber_stand(rs, henrik["user_id"]) == vorher, \
+        "eine abgewiesene Anmeldung hat den gespeicherten Kyber-Satz veraendert"
+    assert rs._kyber_zeilen == 2
+
+
+def test_eine_anmeldung_ohne_kyber_raeumt_den_alten_satz_weg(relay):
+    """Meldet sich ein Geraet ohne Kyber an (alte App, etwa zurueckgespielt),
+    passen die gespeicherten Kyber-Schluessel nicht mehr zu dem, was dort
+    laeuft. Stehen gelassen, baute jede neue App damit eine Sitzung, die das
+    Geraet nicht entschluesseln kann."""
+    rs = relay
+    henrik = make_user(n_otk=2)
+    _melde_an(rs, henrik, **_kyber(henrik, n=4))
+    assert rs._kyber_zeilen == 4
+
+    r = _melde_an(rs, henrik)
+
+    assert r == {"ok": True, "one_time_prekeys": 2}, \
+        "ohne Kyber muss die Antwort die alte bleiben"
+    assert _kyber_stand(rs, henrik["user_id"]) == ([(1, None, None, None)], [])
+    assert rs._kyber_zeilen == 0
+    antwort = rs.get_prekey(henrik["user_id"], _Anfrage())
+    assert not [k for k in antwort if k.startswith("kyber")]
+
+
+def test_zu_viele_kyber_einmalschluessel_und_falsche_kennungen_scheitern_am_modell():
+    """Der Deckel und der Wertebereich wirken VOR jeder Dekodierung (422).
+
+    Die Kennungen sind vereinbart als 0 <= id <= 2^31-1, und zwar als echtes
+    int: `true` waere in lax mode die 1, "7" die 7.
+    """
+    import pydantic
+    import relay_server as rs_mod
+
+    basis = dict(user_id="x" * 56, identity_key=b64(os.urandom(32)),
+                 registration_id=1, signed_prekey_id=1,
+                 signed_prekey=b64(os.urandom(33)),
+                 signed_prekey_sig=b64(os.urandom(64)),
+                 kyber_prekey_id=1, kyber_prekey="Kk==",
+                 kyber_prekey_sig="S3NpZw==")
+    einmal = [{"key_id": i, "public_key": "Kk==", "signature": "Cd=="}
+              for i in range(rs_mod.KYBER_OTK_MAX_JE_BUENDEL + 1)]
+    with pytest.raises(pydantic.ValidationError):
+        PreKeyBundle(**basis, one_time_kyber_prekeys=einmal)
+    # Gegenprobe: genau die Grenze geht noch durch.
+    PreKeyBundle(**basis, one_time_kyber_prekeys=einmal[:-1])
+
+    for falsch in (-1, 2**31, True, "7", 1.0):
+        with pytest.raises(pydantic.ValidationError):
+            PreKeyBundle(**{**basis, "kyber_prekey_id": falsch})
+        with pytest.raises(pydantic.ValidationError):
+            PreKeyBundle(**basis, one_time_kyber_prekeys=[
+                {"key_id": falsch, "public_key": "Kk==", "signature": "Cd=="}])
+    for richtig in (0, 2**31 - 1):
+        PreKeyBundle(**{**basis, "kyber_prekey_id": richtig})
+
+
+def test_ein_volles_buendel_passt_durch_nginx():
+    """Der Deckel muss unter dem liegen, was nginx durchlaesst — sonst zieht
+    nginx die Grenze, mit 413 und ohne Text, den die App zeigen koennte.
+
+    Schlechtester Fall: OTK_MAX_JE_BUENDEL EC- und KYBER_OTK_MAX_JE_BUENDEL
+    Kyber-Einmalschluessel, alle Kennungen zehnstellig, ohne Leerzeichen wie
+    Darts jsonEncode. Gelesen wird die Grenze aus BEIDEN vHosts, nicht
+    abgeschrieben — wer sie dort senkt, sieht es hier.
+    """
+    import relay_server as rs_mod
+    deploy = Path(__file__).resolve().parent.parent / "deploy"
+    grenzen = []
+    for datei in (deploy / "install-relay.sh", deploy / "onion" / "relay-onion.nginx"):
+        text = datei.read_text(encoding="utf-8")
+        grenzen += [int(k) * 1024 for k in
+                    re.findall(r"client_max_body_size\s+(\d+)k;", text)]
+    assert grenzen, "client_max_body_size nicht gefunden"
+
+    gross = 2**31 - 1
+    ec = b64(b"\x05" + os.urandom(32))
+    kyber = b64(_kyber_schluessel())
+    sig = b64(os.urandom(64))
+    bundle = {
+        "user_id": "a" * 56, "identity_key": b64(os.urandom(32)),
+        "device_id": gross, "registration_id": gross,
+        "signed_prekey_id": gross, "signed_prekey": ec, "signed_prekey_sig": sig,
+        "one_time_prekeys": [{"key_id": gross - i, "public_key": ec}
+                             for i in range(rs_mod.OTK_MAX_JE_BUENDEL)],
+        "kyber_prekey_id": gross, "kyber_prekey": kyber, "kyber_prekey_sig": sig,
+        "one_time_kyber_prekeys": [
+            {"key_id": gross - 1 - i, "public_key": kyber, "signature": sig}
+            for i in range(rs_mod.KYBER_OTK_MAX_JE_BUENDEL)],
+    }
+    rumpf = json.dumps({"bundle": bundle, "signature": sig}, separators=(",", ":"))
+    # Gemessen 130 849 Byte. Die Haelfte von 256 KiB (plus ein wenig) laesst
+    # Luft fuer kuenftige Felder; wer den Deckel hebt, soll hier anhalten und
+    # nachrechnen, statt bis kurz vor die nginx-Grenze zu gehen.
+    assert len(rumpf) <= min(grenzen) // 2 + 4096, (len(rumpf), min(grenzen))
+
+
+# ------------------------------------------------ /prekey
+
+def test_ein_kyber_einmalschluessel_geht_genau_einmal_raus(relay):
+    """Atomar entnommen wie der EC-Einmalschluessel, danach der Last-Resort.
+
+    Und `nur_geraete` zieht auch hier nichts — der Aufruf kommt oft.
+    """
+    rs = relay
+    henrik = make_user(n_otk=5)
+    teil = _kyber(henrik, n=2, kennung=4242, erste=1)
+    _melde_an(rs, henrik, **teil)
+
+    rs.get_prekey(henrik["user_id"], _Anfrage(), nur_geraete=True)
+    assert rs._kyber_zeilen == 2
+
+    gesehen = []
+    for _ in range(4):
+        antwort = rs.get_prekey(henrik["user_id"], _Anfrage())
+        geraet = antwort["geraete"][0]
+        # Flach = geraete[0], derselbe Schluessel und kein zweiter gezogener.
+        for feld in ("kyber_prekey_id", "kyber_prekey", "kyber_prekey_sig",
+                     "kyber_einmal"):
+            assert antwort[feld] == geraet[feld]
+        gesehen.append((geraet["kyber_prekey_id"], geraet["kyber_prekey"],
+                        geraet["kyber_prekey_sig"], geraet["kyber_einmal"]))
+
+    einmal = {(k["key_id"], k["public_key"], k["signature"], True)
+              for k in teil["one_time_kyber_prekeys"]}
+    assert set(gesehen[:2]) == einmal, "jeder Einmalschluessel genau einmal"
+    letzter = (4242, teil["kyber_prekey"], teil["kyber_prekey_sig"], False)
+    assert gesehen[2] == gesehen[3] == letzter, \
+        "danach der Last-Resort-Schluessel, so oft wie gefragt"
+    assert _kyber_je_geraet(rs, henrik["user_id"]) == {}
+    assert rs._kyber_zeilen == 0
+
+
+def test_die_bremse_gibt_den_last_resort_und_laesst_den_vorrat_stehen(
+        relay, monkeypatch):
+    """otk_limit_ok gilt fuer beide Vorraete zusammen, ein Token je Anfrage.
+
+    Greift die Bremse, kommt der Last-Resort-Schluessel — PQXDH laeuft
+    weiter — und der Kyber-Vorrat bleibt unangetastet. Sonst waere die Bremse
+    fuer den Kyber-Teil keine.
+    """
+    rs = relay
+    monkeypatch.setattr(rs, "OTK_CAPACITY", 1)
+    henrik = make_user(n_otk=3)
+    _melde_an(rs, henrik, **_kyber(henrik, n=3, kennung=4242))
+
+    erste = rs.get_prekey(henrik["user_id"], _Anfrage())
+    zweite = rs.get_prekey(henrik["user_id"], _Anfrage())
+
+    assert erste["kyber_einmal"] is True
+    assert erste["one_time_prekey"] is not None
+    assert zweite["kyber_einmal"] is False
+    assert zweite["kyber_prekey_id"] == 4242
+    assert zweite["one_time_prekey"] is None, \
+        "die Bremse gilt fuer beide Vorraete, nicht nur fuer den EC-Vorrat"
+    assert _kyber_je_geraet(rs, henrik["user_id"]) == {1: [2, 3]}, \
+        "die Bremse hat trotzdem einen Kyber-Einmalschluessel verbraucht"
+    assert rs._kyber_zeilen == 2
+
+
+def test_jedes_geraet_hat_seinen_eigenen_kyber_satz(relay):
+    """Mehrgeraete: Last-Resort und Vorrat haengen am GERAET, nicht an der
+    Adresse — wie signed_prekey und der EC-Vorrat.
+
+    Geraet 1 ist eine alte App ohne Kyber. Bei ihm fehlen die Felder ganz,
+    und weil es geraete[0] ist, auch flach. Die Erneuerung eines Geraets
+    ersetzt nur SEINEN Vorrat.
+    """
+    rs = relay
+    henrik = make_user(n_otk=2)
+    _melde_an(rs, henrik, geraet=1)
+    zwei = _kyber(henrik, n=2, kennung=20, erste=200)
+    drei = _kyber(henrik, n=2, kennung=30, erste=300)
+    _melde_an(rs, henrik, geraet=2, **zwei)
+    _melde_an(rs, henrik, geraet=3, **drei)
+
+    antwort = rs.get_prekey(henrik["user_id"], _Anfrage())
+    g1, g2, g3 = antwort["geraete"]
+
+    assert not [k for k in g1 if k.startswith("kyber")]
+    assert not [k for k in antwort if k.startswith("kyber")], \
+        "flach = geraete[0], und das hat kein Kyber"
+    for eintrag, satz in ((g2, zwei), (g3, drei)):
+        assert eintrag["kyber_einmal"] is True
+        eigene = {(k["key_id"], k["public_key"], k["signature"])
+                  for k in satz["one_time_kyber_prekeys"]}
+        assert (eintrag["kyber_prekey_id"], eintrag["kyber_prekey"],
+                eintrag["kyber_prekey_sig"]) in eigene, \
+            "ein Geraet hat einen Schluessel eines anderen ausgegeben"
+
+    neu = _kyber(henrik, n=1, kennung=21, erste=210)
+    assert _melde_an(rs, henrik, geraet=2, **neu)["one_time_kyber_prekeys"] == 1
+
+    vorrat = _kyber_je_geraet(rs, henrik["user_id"])
+    assert vorrat[2] == [210]
+    assert len(vorrat[3]) == 1 and vorrat[3][0] in (300, 301), \
+        "die Erneuerung von Geraet 2 hat den Vorrat von Geraet 3 angefasst"
+    letzte = dict(rs.db.execute(
+        "SELECT device_id, kyber_prekey_id FROM identities WHERE user_id=?",
+        (henrik["user_id"],)).fetchall())
+    assert letzte == {1: None, 2: 21, 3: 30}
+    assert rs._kyber_zeilen == 2
+
+
+# ------------------------------------------------ Der Stichtag
+
+def test_der_stichtag_lehnt_anmeldungen_ohne_kyber_ab(relay, monkeypatch):
+    """BITDM_KYBER_PFLICHT=1: ohne Kyber 400, mit Kyber wie immer.
+
+    Gesetzt wird die ECHTE Umgebungsvariable, nicht eine Modulkonstante —
+    deshalb liest kyber_pflicht() sie bei jedem Aufruf. Und schon
+    angemeldete alte Geraete bleiben abrufbar: der Stichtag sperrt das
+    Anmelden, nicht das Erreichen.
+    """
+    rs = relay
+    alt, neu, frueher = make_user(), make_user(), make_user()
+    _melde_an(rs, frueher)
+
+    monkeypatch.setenv("BITDM_KYBER_PFLICHT", "1")
+    with pytest.raises(rs.HTTPException) as fehler:
+        _melde_an(rs, alt)
+    assert fehler.value.status_code == 400
+    assert "Kyber" in fehler.value.detail
+    assert _geraete(rs, alt["user_id"]) == []
+    assert _melde_an(rs, neu, **_kyber(neu))["ok"] is True
+    assert rs.get_prekey(frueher["user_id"], _Anfrage())["signed_prekey_id"] == 1
+
+    # Nur genau "1" schaltet ein — im Zweifel bleibt der Uebergang offen.
+    for wert in ("true", "ja", " 1", "1 ", "0", ""):
+        monkeypatch.setenv("BITDM_KYBER_PFLICHT", wert)
+        assert rs.kyber_pflicht() is False, repr(wert)
+
+    monkeypatch.delenv("BITDM_KYBER_PFLICHT")
+    assert _melde_an(rs, alt) == {"ok": True, "one_time_prekeys": 5}
+
+
+# ------------------------------------------------ Datenbank
+
+# Das Schema, wie es seit dem Mehrgeraete-Umbau (30.07.2026) bis vor Kyber
+# LAEUFT — woertlich, aus derselben Ueberlegung wie ALTES_SCHEMA oben: eine
+# Kopie von relay_server.SCHEMA wanderte mit und pruefte den Fall nicht mehr.
+SCHEMA_VOR_KYBER = """
+CREATE TABLE identities (
+    user_id           TEXT NOT NULL,
+    device_id         INTEGER NOT NULL DEFAULT 1,
+    identity_key      BLOB NOT NULL,
+    registration_id   INTEGER NOT NULL DEFAULT 0,
+    signed_prekey_id  INTEGER NOT NULL,
+    signed_prekey     BLOB NOT NULL,
+    signed_prekey_sig BLOB NOT NULL,
+    updated_at        REAL NOT NULL,
+    push_endpoint     TEXT,
+    last_seen         REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, device_id)
+);
+CREATE TABLE one_time_prekeys (
+    user_id    TEXT NOT NULL,
+    device_id  INTEGER NOT NULL DEFAULT 1,
+    key_id     INTEGER NOT NULL,
+    public_key BLOB NOT NULL,
+    PRIMARY KEY (user_id, device_id, key_id),
+    FOREIGN KEY (user_id, device_id)
+        REFERENCES identities(user_id, device_id) ON DELETE CASCADE
+);
+CREATE TABLE queue (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient        TEXT NOT NULL,
+    recipient_device INTEGER NOT NULL DEFAULT 1,
+    sender           TEXT NOT NULL,
+    sender_device    INTEGER NOT NULL DEFAULT 1,
+    ciphertext       BLOB NOT NULL,
+    ts               REAL NOT NULL
+);
+CREATE INDEX idx_queue_ts ON queue(ts);
+CREATE INDEX idx_queue_paar ON queue(recipient, recipient_device, sender);
+CREATE INDEX idx_queue_absender ON queue(sender);
+CREATE TABLE blob_marken (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    groesse INTEGER NOT NULL,
+    ts      REAL NOT NULL
+);
+CREATE INDEX idx_blob_marken ON blob_marken(user_id, ts);
+CREATE INDEX idx_blob_marken_ts ON blob_marken(ts);
+"""
+
+
+def _datenbank_vor_kyber(pfad, user, n_otk=4):
+    alt = sqlite3.connect(pfad)
+    alt.executescript(SCHEMA_VOR_KYBER)
+    pub = base64.b64decode(user["bundle"]["identity_key"])
+    jetzt = time.time()
+    with alt:
+        alt.execute(
+            "INSERT INTO identities (user_id, device_id, identity_key,"
+            " registration_id, signed_prekey_id, signed_prekey,"
+            " signed_prekey_sig, updated_at, push_endpoint, last_seen)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (user["user_id"], 1, pub, 4711, 9, b"spk", b"sig", jetzt,
+             "https://push.bitdm.net/upAlt", jetzt))
+        alt.executemany(
+            "INSERT INTO one_time_prekeys (user_id, device_id, key_id, public_key)"
+            " VALUES (?,?,?,?)",
+            [(user["user_id"], 1, i, bytes([i]) * 33) for i in range(n_otk)])
+    alt.close()
+
+
+def _kyber_fremdschluessel(conn):
+    return {(r[2], r[3], r[4], r[6]) for r in
+            conn.execute("PRAGMA foreign_key_list(one_time_kyber_prekeys)")}
+
+
+def test_eine_datenbank_ohne_kyber_spalten_wird_erweitert(relay, tmp_path, monkeypatch):
+    """Der Fall, der beim Aufspielen auf relay.bitdm.net eintritt.
+
+    Die laufende Datenbank hat weder die drei Spalten noch die Tabelle. Nach
+    dem Start hat sie beides, jede bestehende Registrierung steht
+    unveraendert da (ohne Kyber), ein zweiter Start ruehrt nichts an — und
+    auf der erweiterten Datenbank laeuft eine Anmeldung mit Kyber durch.
+    """
+    rs = relay
+    pfad = tmp_path / "vor_kyber.db"
+    henrik = make_user()
+    _datenbank_vor_kyber(pfad, henrik)
+
+    conn = rs.init_db(pfad)
+    try:
+        spalten = {r[1] for r in conn.execute("PRAGMA table_info(identities)")}
+        assert {"kyber_prekey_id", "kyber_prekey", "kyber_prekey_sig"} <= spalten
+        assert conn.execute(
+            "SELECT device_id, registration_id, signed_prekey_id, signed_prekey,"
+            " push_endpoint, kyber_prekey_id, kyber_prekey, kyber_prekey_sig"
+            " FROM identities").fetchall() == [
+                (1, 4711, 9, b"spk", "https://push.bitdm.net/upAlt",
+                 None, None, None)], "die bestehende Registrierung hat sich veraendert"
+        assert conn.execute(
+            "SELECT COUNT(*) FROM one_time_prekeys").fetchone()[0] == 4
+        assert _kyber_fremdschluessel(conn) == {
+            ("identities", "user_id", "user_id", "CASCADE"),
+            ("identities", "device_id", "device_id", "CASCADE")}
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+        # Ein zweiter Start ist ein Nichts.
+        conn.close()
+        conn = rs.init_db(pfad)
+        assert rs.ergaenze_kyber_spalten(conn) is False
+
+        # Und die erweiterte Datenbank traegt den neuen Weg.
+        monkeypatch.setattr(rs, "db", conn)
+        assert rs.kyber_zeilen_neu_zaehlen() == 0
+        vorher = rs.get_prekey(henrik["user_id"], _Anfrage())
+        assert not [k for k in vorher if k.startswith("kyber")]
+        assert _melde_an(rs, henrik, **_kyber(henrik, n=2, kennung=8))[
+            "one_time_kyber_prekeys"] == 2
+        nachher = rs.get_prekey(henrik["user_id"], _Anfrage())
+        assert nachher["kyber_einmal"] is True
+    finally:
+        conn.close()
+
+
+def test_kyber_kommt_auch_auf_die_aelteste_datenbank(tmp_path):
+    """Eine Datenbank von VOR dem Mehrgeraete-Umbau, in einem Schritt hoch.
+
+    Die Falle: SCHEMA legt one_time_kyber_prekeys an, BEVOR
+    wandere_auf_geraete `identities` neu baut — der Fremdschluessel zeigt in
+    diesem Moment auf eine Tabelle ohne device_id. Und die Wanderung baut
+    `identities` aus einer festen Spaltenliste; kaemen die Kyber-Spalten vor
+    ihr dazu, fielen sie beim Neubau weg. Am Ende muss beides stimmen, und
+    die Kaskade muss greifen.
+    """
+    import relay_server as rs
+    pfad = tmp_path / "alt.db"
+    user = make_user()
+    _alte_datenbank(pfad, user)
+
+    conn = rs.init_db(pfad)
+    try:
+        spalten = {r[1] for r in conn.execute("PRAGMA table_info(identities)")}
+        assert {"device_id", "kyber_prekey_id", "kyber_prekey",
+                "kyber_prekey_sig"} <= spalten
+        assert _kyber_fremdschluessel(conn) == {
+            ("identities", "user_id", "user_id", "CASCADE"),
+            ("identities", "device_id", "device_id", "CASCADE")}
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+        # Ohne `with conn:` und mit rollback danach — die Probe darf nichts
+        # hinterlassen (dieselbe Art wie test_bestehende_datenbank_wird_geraet_eins).
+        conn.execute(
+            "INSERT INTO one_time_kyber_prekeys (user_id, device_id, key_id,"
+            " public_key, signature) VALUES (?,?,?,?,?)",
+            (user["user_id"], 1, 1, _kyber_schluessel(), os.urandom(64)))
+        conn.execute("DELETE FROM identities WHERE user_id=?", (user["user_id"],))
+        assert conn.execute(
+            "SELECT COUNT(*) FROM one_time_kyber_prekeys").fetchone()[0] == 0, \
+            "die Kaskade auf die Kyber-Einmalschluessel greift nach der Wanderung nicht"
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def test_ein_vergessenes_geraet_nimmt_seine_kyber_zeilen_mit(relay, monkeypatch):
+    """Der janitor raeumt die Kyber-Zeilen AUSDRUECKLICH weg — auch mit
+    abgeschalteter Kaskade, und der Stand fuer das Dach folgt.
+
+    PRAGMA foreign_keys gilt je Verbindung. Wer mit einem eigenen
+    sqlite3-Aufruf aufraeumt, hat es aus; 1,7 KB je verwaister Zeile waeren
+    Platte, die nie wieder frei wird.
+    """
+    rs = relay
+    monkeypatch.setattr(rs, "GERAET_TTL", 30 * 24 * 3600)
+    henrik = make_user()
+    _melde_an(rs, henrik, geraet=1, **_kyber(henrik, n=3, erste=10))
+    _melde_an(rs, henrik, geraet=2, **_kyber(henrik, n=4, erste=20))
+    assert rs._kyber_zeilen == 7
+
+    lange_her = time.time() - 40 * 24 * 3600
+    with rs.db:
+        rs.db.execute("UPDATE identities SET last_seen=?, updated_at=?"
+                      " WHERE user_id=? AND device_id=2",
+                      (lange_her, lange_her, henrik["user_id"]))
+    rs.db.execute("PRAGMA foreign_keys=OFF")
+    try:
+        assert rs.raeume_vergessene_geraete() == 1
+    finally:
+        rs.db.execute("PRAGMA foreign_keys=ON")
+
+    assert _geraete(rs, henrik["user_id"]) == [1]
+    assert _kyber_je_geraet(rs, henrik["user_id"]) == {1: [10, 11, 12]}
+    assert rs._kyber_zeilen == 3
+
+
+def test_ein_verdraengtes_totes_geraet_nimmt_seine_kyber_zeilen_mit(
+        relay, monkeypatch):
+    """Der zweite Weg, auf dem ein Geraet verschwindet: es macht am
+    Geraetedeckel einem neuen Platz (register)."""
+    rs = relay
+    monkeypatch.setattr(rs, "GERAETE_MAX", 1)
+    henrik = make_user()
+    _melde_an(rs, henrik, geraet=1, **_kyber(henrik, n=3, erste=10))
+
+    lange_her = time.time() - 40 * 24 * 3600
+    with rs.db:
+        rs.db.execute("UPDATE identities SET last_seen=?, updated_at=?"
+                      " WHERE user_id=?", (lange_her, lange_her, henrik["user_id"]))
+    assert _melde_an(rs, henrik, geraet=2, **_kyber(henrik, n=2, erste=20))["ok"]
+
+    assert _geraete(rs, henrik["user_id"]) == [2]
+    assert _kyber_je_geraet(rs, henrik["user_id"]) == {2: [20, 21]}
+    assert rs._kyber_zeilen == 2
+
+
+# ------------------------------------------------ Das Dach
+
+def test_das_dach_ueber_den_kyber_vorrat_kuerzt_statt_abzuweisen(relay, monkeypatch):
+    """KYBER_OTK_MAX_GESAMT, an einem Dach von 5 Zeilen.
+
+    Am Dach geht die Anmeldung durch, nur der Vorrat wird gekuerzt — die
+    kleinsten Kennungen bleiben, und die Antwort sagt, wie viele. Der eigene
+    alte Vorrat zaehlt bei einer Erneuerung nicht gegen einen, und wer Platz
+    freigibt, macht ihn fuer andere frei.
+    """
+    rs = relay
+    monkeypatch.setattr(rs, "KYBER_OTK_MAX_GESAMT", 5)
+    alice, bob = make_user(), make_user()
+
+    assert _melde_an(rs, alice, **_kyber(alice, n=3))["one_time_kyber_prekeys"] == 3
+    r = _melde_an(rs, bob, **_kyber(bob, n=4, kennung=99, erste=1))
+    assert r["ok"] is True
+    assert r["one_time_kyber_prekeys"] == 2, "am Dach wird gekuerzt, nicht abgewiesen"
+    assert _kyber_je_geraet(rs, bob["user_id"]) == {1: [1, 2]}
+    assert rs._kyber_zeilen == 5
+
+    # Bob erneuert: sein alter Vorrat ist weg und zaehlt nicht gegen ihn.
+    assert _melde_an(rs, bob, **_kyber(bob, n=4, kennung=99, erste=10))[
+        "one_time_kyber_prekeys"] == 2
+    assert rs._kyber_zeilen == 5
+
+    # Alice meldet sich ohne Kyber an und gibt ihre drei Zeilen frei.
+    _melde_an(rs, alice)
+    assert rs._kyber_zeilen == 2
+    assert _melde_an(rs, bob, **_kyber(bob, n=4, kennung=99, erste=20))[
+        "one_time_kyber_prekeys"] == 4
+    assert rs._kyber_zeilen == 4 == rs.db.execute(
+        "SELECT COUNT(*) FROM one_time_kyber_prekeys").fetchone()[0]
+
+
+# ------------------------------------------------ prekeys_low
+
+def _prekeys_low(rs, user, geraet=1):
+    return [m for m in _sitzung(rs, user, geraet=geraet)
+            if m.get("type") == "prekeys_low"]
+
+
+def test_ein_knapper_kyber_vorrat_loest_prekeys_low_aus(relay, monkeypatch):
+    """Dieselbe Nachricht, ein Feld mehr — und nur fuer Geraete mit Kyber.
+
+    `remaining` bleibt der EC-Vorrat. Eine alte App bekommt die Nachricht nie
+    wegen Kyber (sonst meldete sie sich bei jeder Verbindung neu an, ohne dass
+    sich etwas aenderte), und am Dach kommt sie aus demselben Grund nicht:
+    nachzuliefern brachte dort nichts.
+    """
+    rs = relay
+    knapp = make_user(n_otk=25)
+    _melde_an(rs, knapp, geraet=1, **_kyber(knapp, n=3))
+    assert _prekeys_low(rs, knapp) == [
+        {"type": "prekeys_low", "remaining": 25, "kyber_remaining": 3}]
+
+    satt = make_user(n_otk=25)
+    _melde_an(rs, satt, geraet=1, **_kyber(satt, n=25))
+    assert _prekeys_low(rs, satt) == []
+
+    alt_satt = make_user(n_otk=25)
+    _melde_an(rs, alt_satt, geraet=1)
+    assert _prekeys_low(rs, alt_satt) == [], \
+        "eine alte App ohne Kyber darf nicht wegen Kyber nachliefern muessen"
+
+    alt_knapp = make_user(n_otk=3)
+    _melde_an(rs, alt_knapp, geraet=1)
+    assert _prekeys_low(rs, alt_knapp) == [
+        {"type": "prekeys_low", "remaining": 3}], \
+        "fuer eine alte App bleibt die Nachricht Zeichen fuer Zeichen die alte"
+
+    # Am Dach: fuer `knapp` waeren nur noch 8 Plaetze frei (seine 3 plus 5),
+    # weniger als OTK_LOW_WATERMARK — die Nachlieferung braechte ihn nicht
+    # ueber die Schwelle.
+    monkeypatch.setattr(rs, "KYBER_OTK_MAX_GESAMT", rs._kyber_zeilen + 5)
+    assert _prekeys_low(rs, knapp) == []

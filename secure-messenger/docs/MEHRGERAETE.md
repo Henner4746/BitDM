@@ -8,6 +8,11 @@ Zwei Leute koennen hieraus unabhaengig bauen: §1–§3 ist der Vertrag zwischen
 ihnen (Kennung, Nachweisbytes, Drahtformat), §4–§7 ist Clientarbeit mit
 Serverstuetze, §8 ist die Umstellung, §11 sagt, wer wann was fertig hat.
 
+**Nachtrag 16.10.2026:** §15 erweitert den Vertrag um die Kyber-Prekeys
+(PQXDH) fuer den Umstieg auf die offizielle libsignal
+(`LIBSIGNAL-UMSTIEG.md`). Alles dort ist additiv; ohne Kyber gilt §1–§3
+unveraendert.
+
 In dieser Sitzung wurde **nichts gebaut und nichts getestet** (zwei parallele
 Arbeiten am selben Verzeichnis). Alle Zahlen sind gelesen oder gerechnet; der
 Messbefehl steht jeweils dabei, gesammelt in §14.
@@ -152,6 +157,9 @@ Registrierung landete unter fremder Geraetenummer und loeschte dort die
 Einmalschluessel des echten Geraets — dieselbe Luecke, die
 `relay_server.py:526-533` fuer `registration_id` schon beschreibt.
 
+**Kyber (seit 16.10.2026):** Traegt das Buendel `kyber_prekey`, kommen vier
+weitere Schluessel in die kanonischen Bytes — Regel und Soll-Strings in §15.2.
+
 ### 2.2 `/ws`
 
 Query: `?user_id=<56>&device_id=<n>`. Signiert wird
@@ -218,6 +226,8 @@ Zusaetzliche Pruefung: `device_id` muss `int`, `1 <= x <= 2^31-1` und kein
 `bool` sein (Python: `isinstance(x, bool)` ist `int`! — dieselbe Falle wie bei
 `:1131-1132` und der Blob-Groesse), sonst 400.
 
+Kyber-Felder im Bundle und `one_time_kyber_prekeys` in der Antwort: §15.1.
+
 ### 3.3 `GET /prekey/{addr}`
 
 | | Antwort |
@@ -244,6 +254,8 @@ Zusaetzliche Pruefung: `device_id` muss `int`, `1 <= x <= 2^31-1` und kein
   ist tragbar, weil das Ergebnis eines geleerten Vorrats laut Entwurf kein
   Fehler ist, sondern X3DH ohne Einmalschluessel.
 * 404 „unbekannte Adresse" unveraendert, wenn die Adresse **kein** Geraet hat.
+* Kyber-Felder je Geraet und flach (`kyber_prekey_id`, `kyber_prekey`,
+  `kyber_prekey_sig`, `kyber_einmal`): §15.3.
 
 ### 3.4 `/ws` Rahmen
 
@@ -253,7 +265,7 @@ Zusaetzliche Pruefung: `device_id` muss `int`, `1 <= x <= 2^31-1` und kein
 | Server → Client | `{"type":"message","from":…,"ciphertext":…,"ts":…,"q":…}` | `+ "from_device": 4711` |
 | Client → Server | `{"type":"empfangen","ids":[…]}` | unveraendert |
 | Server → Client | `{"type":"ack","id":…,"to":…}` | unveraendert, **eins je Rahmen** |
-| Server → Client | `{"type":"prekeys_low","remaining":n}` | unveraendert, zaehlt jetzt je Geraet |
+| Server → Client | `{"type":"prekeys_low","remaining":n}` | unveraendert, zaehlt jetzt je Geraet; seit 16.10.2026 `+ "kyber_remaining": k` fuer Geraete mit Kyber (§15.4) |
 | Server → Client | `{"type":"push_ok"…}`, `blob_marke_ok`, `error` | unveraendert |
 
 * `from_device` ist die **wichtigste Erweiterung des ganzen Vorhabens**, und
@@ -291,6 +303,9 @@ queue             + recipient_device INTEGER NOT NULL DEFAULT 1
                   + sender_device    INTEGER NOT NULL DEFAULT 1
                   INDEX (recipient, recipient_device)
 blob_marken       UNVERAENDERT, ausdruecklich (§6)
+-- seit 16.10.2026 (§15.5):
+identities        + kyber_prekey_id INTEGER, kyber_prekey BLOB, kyber_prekey_sig BLOB  (nullable)
+one_time_kyber_prekeys  wie one_time_prekeys, + signature BLOB NOT NULL
 ```
 
 **`sender_device` gehoert dazu und fehlte in der Erkundung** (§13.3): eine
@@ -1076,3 +1091,170 @@ Gelesen (nicht gegriffen): `relay_server.py` 55-205, 285-415, 470-600,
 `encrypted_database.dart` 228-405; `main.dart` 2298-2360; `data.dart` 107/389;
 `test/support/relay_process.dart`, `test/support/nutzer.dart`;
 libsignal 0.8.2 `session_builder.dart`, `ratcheting_session.dart` 32-90.
+
+---
+
+## 15. Kyber-Prekeys (PQXDH) — Nachtrag vom 16.10.2026
+
+Anlass: Umstieg auf Signals offizielle libsignal (`LIBSIGNAL-UMSTIEG.md`).
+Deren `PreKeyBundle` verlangt in jedem Buendel einen signierten Kyber-Prekey;
+ohne ist kein Sitzungsaufbau moeglich. Der Relay speichert je **Geraet** einen
+Last-Resort-Kyber-Schluessel und einen Vorrat an Kyber-Einmalschluesseln und
+gibt sie bei `/prekey` aus. Er prueft Laenge, Typbyte und Signatur — nicht, ob
+der Block ein gueltiger ML-KEM-Schluessel ist.
+
+**Uebergang:** Alle Kyber-Felder sind optional, solange der Relay ohne
+`BITDM_KYBER_PFLICHT=1` laeuft. Mit `1` (genau dieser Wert, sonst aus) lehnt
+`/register` eine Anmeldung ohne `kyber_prekey` mit 400 ab. Bereits
+angemeldete Geraete ohne Kyber bleiben abrufbar. **Fehlerhafte** Kyber-Felder
+werden immer abgelehnt, auch ohne Pflicht.
+
+### 15.1 `POST /register`
+
+Zusaetzliche Felder im Bundle (neben `signed_prekey_*` und `one_time_prekeys`):
+
+| Feld | Typ | Regel |
+|---|---|---|
+| `kyber_prekey_id` | int | `0 <= x <= 2^31-1`, kein `bool` (sonst 422). Der **Last-Resort**-Schluessel. |
+| `kyber_prekey` | base64 | dekodiert **genau 1569 Byte**, erstes Byte **0x08** (sonst 400) |
+| `kyber_prekey_sig` | base64 | 64 Byte, XEdDSA des Identitaetsschluessels ueber die **vollen 1569 Byte inklusive 0x08** (sonst 400) |
+| `one_time_kyber_prekeys` | Liste | `{key_id, public_key, signature}`, dieselben drei Regeln je Eintrag; hoechstens **50** (sonst 422); `key_id` ohne Doppel und **nicht** gleich `kyber_prekey_id` (sonst 400) |
+
+* Die drei `kyber_prekey*` stehen **alle oder keiner** da (sonst 400).
+  Einmalschluessel ohne Last-Resort-Schluessel: 400.
+* Die Form (Laengen, Typbyte, Kennungen) wird **vor** dem Besitznachweis
+  geprueft, die Signaturen **danach** — 51 Pruefungen kosten rund 5 ms und
+  sollen nur fuer den Inhaber des Schluessels anfallen.
+* Eine Anmeldung **ersetzt** den Kyber-Teil des Geraets vollstaendig, wie
+  beim EC-Vorrat. Eine Anmeldung **ohne** Kyber setzt die drei Spalten auf
+  NULL und leert den Kyber-Vorrat des Geraets (sonst gaebe der Relay
+  Schluessel aus, die nicht mehr zu der App auf dem Geraet passen).
+* Antwort: `{"ok":true,"one_time_prekeys":n,"one_time_kyber_prekeys":k}` —
+  `one_time_kyber_prekeys` **nur**, wenn die Anmeldung Kyber trug (auch bei
+  0). Ohne Kyber bleibt die Antwort die alte. Fehlt das Feld trotz Kyber,
+  kennt der Relay Kyber nicht.
+* `k` kann kleiner sein als geschickt: am Dach ueber die ganze Tabelle
+  (§15.5) wird der Vorrat gekuerzt (die kleinsten Kennungen bleiben), nicht
+  abgewiesen.
+
+### 15.2 Kanonische Bytes
+
+**Nur wenn `kyber_prekey` gesetzt ist**, kommen vier Schluessel in das
+kanonische JSON:
+
+* `kyber_prekey` (String wie im Rumpf), `kyber_prekey_id` (int),
+  `kyber_prekey_sig` (String),
+* `one_time_kyber_prekeys` als Liste von Tripeln `[key_id, public_key,
+  signature]`, nach `key_id` aufsteigend. **Die Liste steht auch leer da
+  (`[]`).**
+
+Ohne `kyber_prekey` sind die Bytes Zeichen fuer Zeichen die bisherigen.
+Reihenfolge nach `sort_keys`:
+
+`device_id, identity_key, kyber_prekey, kyber_prekey_id, kyber_prekey_sig,
+one_time_kyber_prekeys, one_time_prekeys, registration_id, signed_prekey,
+signed_prekey_id, signed_prekey_sig, user_id`
+
+**Warum mitsigniert**, obwohl jeder Kyber-Schluessel seine eigene Signatur
+traegt: `/prekey` gibt signierte Kyber-Schluessel an jeden heraus. Ohne
+Bindung an die Anmeldung koennte ein Weiterleitender alte, laengst
+verbrauchte Schluessel einsetzen, den Vorrat leeren oder den Kyber-Teil
+streichen.
+
+Soll-Strings (identisch in `server/test_relay.py` und im Dart-Test):
+
+```
+{"device_id":2,"identity_key":"SWRLZXk=","kyber_prekey":"Kk==","kyber_prekey_id":7,"kyber_prekey_sig":"S3NpZw==","one_time_kyber_prekeys":[[1,"Ef==","Gh=="],[2,"Ab==","Cd=="]],"one_time_prekeys":[[5,"T1RL"]],"registration_id":1234,"signed_prekey":"U1BL","signed_prekey_id":1,"signed_prekey_sig":"U2ln","user_id":"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"}
+```
+(Eingabe: Einmalvorrat in der Reihenfolge `key_id` 2, dann 1.)
+
+```
+{"identity_key":"SWRLZXk=","kyber_prekey":"Kk==","kyber_prekey_id":0,"kyber_prekey_sig":"S3NpZw==","one_time_kyber_prekeys":[],"one_time_prekeys":[],"registration_id":1234,"signed_prekey":"U1BL","signed_prekey_id":1,"signed_prekey_sig":"U2ln","user_id":"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"}
+```
+
+`server/tools/write_canonical_fixtures.py` erzeugt beide samt einem dritten
+Fall mit echten Laengen fuer `app/test/net/canonical_fixtures.json` — erst
+laufen lassen, wenn die App die Regel umgesetzt hat.
+
+### 15.3 `GET /prekey/{addr}`
+
+Je Geraet **mit** Kyber stehen im Eintrag von `geraete[]`:
+
+| Feld | Bedeutung |
+|---|---|
+| `kyber_prekey_id`, `kyber_prekey`, `kyber_prekey_sig` | ein Kyber-Einmalschluessel, wenn einer da ist und die Bremse es zulaesst, sonst der Last-Resort-Schluessel |
+| `kyber_einmal` | `true`, wenn ein Einmalschluessel ausgegeben wurde |
+
+* Flach dieselben vier Felder als **Kopie von `geraete[0]`** (kein zweiter
+  gezogener Schluessel).
+* Geraet **ohne** Kyber (alte App): alle vier Felder **fehlen** (nicht `null`).
+* Entnahme atomar mit `DELETE … RETURNING`, im selben Ablauf wie der
+  EC-Einmalschluessel.
+* **Eine Bremse fuer beide Vorraete:** `otk_limit_ok` wird weiter einmal je
+  Anfrage gebucht. Greift sie, kommen alle Geraete ohne EC-Einmalschluessel
+  und mit dem Kyber-Last-Resort-Schluessel; der Kyber-Vorrat bleibt
+  unangetastet. Drain-Tempo: 6 je Minute und Adresse, 50 Kyber-Einmalschluessel
+  sind nach rund 7 Minuten weg — danach laeuft PQXDH mit dem Last-Resort.
+* `?nur_geraete=1` unveraendert, keine Kyber-Felder, nichts wird gezogen.
+
+### 15.4 `prekeys_low`
+
+Dieselbe Nachricht, kein neuer Typ — die App meldet darauf ohnehin das ganze
+Buendel neu an, und `/register` ersetzt beide Vorraete auf einmal.
+
+* `remaining` bleibt der EC-Vorrat.
+* `kyber_remaining` steht nur bei Geraeten **mit** Kyber.
+* Ausgeloest, wenn `remaining < 20` **oder** (Geraet hat Kyber **und**
+  `kyber_remaining < 20` **und** unter dem Dach aus §15.5 waere fuer dieses
+  Geraet Platz fuer mindestens 20). Eine alte App bekommt die Nachricht also
+  nie wegen Kyber, und am Dach kommt keine, deren Befolgung nichts aendern
+  wuerde.
+
+### 15.5 Datenmodell, Grenzen, Platz
+
+```sql
+identities  + kyber_prekey_id INTEGER, kyber_prekey BLOB, kyber_prekey_sig BLOB  -- NULL = ohne Kyber
+CREATE TABLE one_time_kyber_prekeys (
+    user_id TEXT NOT NULL, device_id INTEGER NOT NULL DEFAULT 1,
+    key_id INTEGER NOT NULL, public_key BLOB NOT NULL, signature BLOB NOT NULL,
+    PRIMARY KEY (user_id, device_id, key_id),
+    FOREIGN KEY (user_id, device_id) REFERENCES identities(user_id, device_id) ON DELETE CASCADE);
+```
+
+* Bestehende Datenbanken bekommen die Spalten per `ALTER` in
+  `ergaenze_kyber_spalten()` — **nach** `wandere_auf_geraete()`, sonst fielen
+  sie bei einer Datenbank von vor Mehrgeraete beim Neubau von `identities`
+  wieder weg. Bestandszeilen stehen danach ohne Kyber da.
+* Geraet loeschen (janitor, Verdraengung am Geraetedeckel) loescht die
+  Kyber-Zeilen **ausdruecklich**, nicht nur ueber die Kaskade.
+* Deckel je Buendel: **50** Kyber-Einmalschluessel (`BITDM_KYBER_OTK_MAX`).
+  Ein Buendel mit 200 EC- und 50 Kyber-Einmalschluesseln ist 127,8 KiB, die
+  Haelfte von nginx' `client_max_body_size 256k`.
+* **Dach ueber die ganze Tabelle:** 500 000 Zeilen
+  (`BITDM_KYBER_OTK_MAX_TOTAL`), rund 1,0 GiB.
+
+Platz, gemessen mit SQLite 3.50.4 und 4-KiB-Seiten:
+
+| je | Byte |
+|---|---|
+| `identities`-Zeile ohne / mit Kyber | 367 / 2126 |
+| EC-Einmalschluessel | 192 |
+| Kyber-Einmalschluessel | 2141 |
+
+Ein voller Relay (50 000 Adressen x 5 Geraete = 250 000 Geraete):
+
+| Posten | GiB |
+|---|---|
+| Warteschlange (200 000 x 64 KiB) | 12,2 |
+| EC-Einmalschluessel (250 000 x 200) | 8,9 |
+| `identities` mit Kyber | 0,5 |
+| Kyber-Einmalschluessel **ohne** Dach (250 000 x 50) | 24,9 |
+| Kyber-Einmalschluessel **mit** Dach (500 000) | 1,0 |
+
+Ohne Dach 46,6 GiB — mehr, als auf dem Haupt-VPS frei ist. Mit Dach 22,6 GiB.
+
+```
+py -c "print(250000*50*2141/1024**3)"    -> 24.92...
+py -c "print(500000*2141/1024**3)"       -> 0.997...
+py -c "print(250000*200*192/1024**3)"    -> 8.94...
+```

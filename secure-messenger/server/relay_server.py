@@ -42,6 +42,15 @@ S7  AUDIT vom 25.09.2026. Speicherdach und Aufraeumen fuer Nonces und Eimer,
     Traceback, Marken nur noch je Stueck (33 MiB) plus Tagesmenge des ganzen
     Relays, Tarnverkehr bekommt ein ack. Das Protokoll fuer die Apps 1.6 bis
     1.8 ist unveraendert; neu sind nur Antworten, die sie schon kennen.
+S8  KYBER-PREKEYS (16.10.2026, docs/LIBSIGNAL-UMSTIEG.md, MEHRGERAETE.md §15).
+    Die App steigt auf Signals offizielle libsignal um, und die verlangt in
+    JEDEM Prekey-Buendel einen signierten Kyber-Prekey (PQXDH). Der Relay
+    speichert je Geraet einen Last-Resort-Kyber-Schluessel und einen Vorrat an
+    Kyber-Einmalschluesseln und gibt sie bei /prekey aus. Alle Felder sind
+    optional, bis der Betreiber BITDM_KYBER_PFLICHT=1 setzt — eine Anmeldung
+    ohne Kyber sieht Byte fuer Byte aus wie vorher. Was es auf der Platte
+    kostet und warum es dafuer ein eigenes Dach gibt, steht bei
+    KYBER_OTK_MAX_GESAMT.
 
 Ausserdem: Adressformat auf 56 Zeichen umgestellt (3-Byte-Pruefsumme statt 2),
 damit Base32 glatt aufgeht und kein Padding abgeschnitten werden muss.
@@ -62,6 +71,7 @@ import sqlite3
 import threading
 import time
 import urllib.parse
+from typing import NamedTuple
 
 import httpx
 from contextlib import asynccontextmanager
@@ -287,8 +297,136 @@ LIVE_REFILL_PER_SEC = float(os.getenv("BITDM_LIVE_REFILL", 20.0))
 # keinen ehrlichen Betrieb. Sie gilt NUR fuer neue Adressen: wer schon
 # registriert ist, kann sein Bundle immer erneuern, sonst waere ein volles
 # Relay fuer seine eigenen Nutzer unbenutzbar.
+#
+# NACHGEMESSEN AM 16.10.2026: die "350 MiB" rechnen ein Geraet je Adresse und
+# nur die nackten Schluesselbytes. Mit GERAETE_MAX und dem, was SQLite je
+# Zeile wirklich belegt (192 Byte je EC-Einmalschluessel samt Index), sind es
+# im schlechtesten Fall rund 8,9 GiB — die ganze Rechnung fuer einen vollen
+# Relay steht bei KYBER_OTK_MAX_GESAMT.
 OTK_MAX_JE_BUENDEL = int(os.getenv("BITDM_OTK_MAX", 200))
 IDENTITAETEN_MAX = int(os.getenv("BITDM_IDENTITIES_MAX", 50_000))
+
+
+# --------------------------------------------------------------------------- #
+#  Kyber-Prekeys  (PQXDH, seit 16.10.2026 — docs/LIBSIGNAL-UMSTIEG.md)
+# --------------------------------------------------------------------------- #
+#
+# Die offizielle libsignal (0.105, Dart-Paket `libsignal` 8.0.0) baut eine
+# Sitzung nur noch mit PQXDH auf: `PreKeyBundle` verlangt zwingend einen
+# Kyber-Prekey mit Kennung und Signatur, ein Buendel ohne ist dort gar nicht
+# baubar (Machbarkeitsversuch vom 16.10.2026, LIBSIGNAL-UMSTIEG.md). Der Relay
+# sieht davon nur Bloecke, die er speichert und weiterreicht — er prueft
+# Laenge, Typbyte und Signatur, mehr nicht. Ob der Block ein gueltiger
+# ML-KEM-Schluessel ist, merkt erst der Absender beim Kapseln; ein kaputter
+# Block schadet also nur dem, der ihn hochgeladen hat.
+#
+# Ein Kyber-1024-Schluessel ist 1568 Byte lang, libsignal setzt beim
+# Serialisieren das Typbyte 0x08 davor, genau wie 0x05 vor einen
+# Curve25519-Schluessel. Signiert werden die vollen 1569 Byte MIT Typbyte
+# (so legt libsignal den Kyber-Prekey an: die Signatur geht ueber
+# `public_key.serialize()`), also genau so, wie der signierte EC-Prekey seine
+# 33 Byte mit 0x05 signiert. Eine Signatur ueber die nackten 1568 Byte waere
+# fuer den Absender wertlos — libsignal prueft beim Sitzungsaufbau gegen die
+# serialisierte Form und wirft `invalidSignature`. Deshalb weist der Relay sie
+# gleich ab, statt ein Buendel auszugeben, mit dem niemand etwas anfangen kann.
+KYBER_SCHLUESSEL_LAENGE = 1569
+KYBER_TYPBYTE = 0x08
+
+# Kennungen der Kyber-Prekeys: 0 <= id <= 2^31-1, so ist es mit der App
+# vereinbart. libsignal selbst nimmt u32; die halbe Spanne laesst jeder
+# Sprache auf beiden Seiten ein vorzeichenbehaftetes int32 und haelt
+# OverflowError beim Binden an SQLite fern (siehe register()).
+KYBER_KENNUNG_MAX = 2**31 - 1
+
+# Wie viele Kyber-EINMALschluessel ein Buendel tragen darf.
+#
+# 50 und nicht OTK_MAX_JE_BUENDEL (200), aus drei Gruenden, alle gemessen am
+# 16.10.2026:
+#
+# RUMPF. Ein Einmalschluessel ist im JSON 2233 Byte lang (2092 Zeichen
+# base64 fuer 1569 Byte, 88 fuer die Signatur, dazu Kennung und Klammern).
+# Ein Buendel mit 200 EC- und 50 Kyber-Einmalschluesseln, alle Kennungen am
+# oberen Rand, ist 130 849 Byte = 127,8 KiB — die Haelfte dessen, was nginx
+# durchlaesst (client_max_body_size 256k, install-relay.sh und
+# onion/relay-onion.nginx). Mehr als rund 108 gingen dort gar nicht mehr
+# durch; 200 hiesse, dass nginx und nicht dieser Deckel die Grenze zieht.
+#
+# PLATTE. 2141 Byte je Zeile samt Primaerschluessel-Index (bei 4-KiB-Seiten
+# passen nur zwei Zeilen auf eine Seite), also rund 105 KiB je Geraet. Ein
+# EC-Einmalschluessel kostet 192 Byte; 50 Kyber-Schluessel sind damit fast
+# dreimal so viel wie 200 EC-Schluessel.
+#
+# CPU. Jede Signatur wird geprueft, 98 Mikrosekunden je Stueck: 51 Pruefungen
+# (50 + Last-Resort) sind 5,0 ms je Anmeldung — in derselben Groessenordnung
+# wie der Besitznachweis im schlechtesten Fall (128 offene Nonces x 90 us =
+# 11,5 ms). Bei 200 waeren es 20 ms, gerechnet im Threadpool, aber unter der
+# Ratenbremse "reg" fuer jeden, der eine eigene Identitaet hat.
+#
+# Was die App braucht: sie fuellt nach, wenn der Vorrat unter
+# OTK_LOW_WATERMARK (20) faellt. Mit 50 bleiben 30 neue Kontakte zwischen
+# zwei Nachlieferungen — fuer einen Messenger zwischen Bekannten reichlich.
+KYBER_OTK_MAX_JE_BUENDEL = int(os.getenv("BITDM_KYBER_OTK_MAX", 50))
+
+# EIN DACH UEBER DIE GANZE TABELLE one_time_kyber_prekeys.
+#
+# WARUM ES DAS BRAUCHT — die Rechnung fuer einen vollen Relay, gemessen mit
+# SQLite 3.50.4 und 4-KiB-Seiten (Messskript: Zeilen einfuegen, page_count x
+# page_size vorher und nachher):
+#
+#   identities, je Geraet ohne Kyber            367 Byte
+#   identities, je Geraet mit Last-Resort-Kyber 2126 Byte
+#   one_time_prekeys, je Zeile                  192 Byte
+#   one_time_kyber_prekeys, je Zeile           2141 Byte
+#
+# Ein voller Relay sind IDENTITAETEN_MAX x GERAETE_MAX = 50 000 x 5 =
+# 250 000 Geraete. Das kostet im schlechtesten Fall
+#
+#   Warteschlange (QUEUE_MAX_TOTAL x 64 KiB)            12,2 GiB
+#   EC-Einmalschluessel  250 000 x 200 x 192 Byte        8,9 GiB
+#   identities mit Kyber 250 000 x 2126 Byte              0,5 GiB
+#   Kyber-Einmal OHNE Dach 250 000 x 50 x 2141 Byte      24,9 GiB
+#
+# (`py -c "print(250000*50*2141/1024**3)"` -> 24.92...). Zusammen 46,6 GiB —
+# mehr, als auf dem Haupt-VPS ueberhaupt frei ist (rund 36 GB). Die Kyber-
+# Einmalschluessel allein waeren der groesste Posten, groesser als die ganze
+# Warteschlange, und anders als die heilen sie nicht von selbst: purge_expired
+# ruehrt sie nicht an. IDENTITAETEN_MAX haelt also die ANZAHL, aber nicht mehr
+# den PLATZ — dafuer ist es nicht gebaut, eine Adresse kostet nichts als ein
+# Schluesselpaar.
+#
+# MIT DACH: 500 000 Zeilen x 2141 Byte = 1,0 GiB
+# (`py -c "print(500000*2141/1024**3)"` -> 0.997). Ein voller Relay braucht
+# damit 12,2 + 8,9 + 0,5 + 1,0 = 22,6 GiB. Ehrlich passen darunter 10 000
+# Geraete mit vollem Vorrat — bei heute 31 Konten trifft die Zahl nur die
+# Flut. Wie QUEUE_MAX_TOTAL gehoert sie an die Platte des Relays angepasst.
+#
+# AM DACH WIRD NICHT ABGEWIESEN, sondern gekuerzt: eine Anmeldung geht durch,
+# Last-Resort-Schluessel und EC-Teil werden gespeichert, vom Kyber-Vorrat nur
+# so viel, wie noch Platz ist (register(), Antwortfeld
+# one_time_kyber_prekeys). Ein Geraet ohne Kyber-Einmalschluessel ist
+# weiterhin erreichbar — /prekey gibt dann den Last-Resort-Schluessel aus,
+# PQXDH laeuft, nur ohne die Einmal-Eigenschaft. Das ist dieselbe Abwaegung
+# wie beim geleerten EC-Vorrat: schwaecher, aber kein Ausfall. Eine Absage
+# dagegen traefe genau die ehrlichen Nutzer, die nach einer Flut kommen, und
+# liesse sie gar nicht mehr nachliefern — auch ihren signierten Prekey nicht.
+KYBER_OTK_MAX_GESAMT = int(os.getenv("BITDM_KYBER_OTK_MAX_TOTAL", 500_000))
+
+
+def kyber_pflicht() -> bool:
+    """Ob /register eine Anmeldung OHNE Kyber-Prekey abweist (Stichtag).
+
+    BEI JEDEM AUFRUF GELESEN und nicht einmal beim Import, aus demselben Grund
+    wie blob_geheimnis(): der Schalter ist eine Betriebsentscheidung, kein
+    Tuning-Wert, und der Test prueft so den ECHTEN Variablennamen — ein
+    Tippfehler im Namen fiele bei einer Modulkonstante, die der Test von
+    aussen setzt, nie auf. Kostet ein Nachschlagen im Umgebungsblock je
+    Anmeldung.
+
+    Nur genau "1" schaltet ein. "true", "ja" oder ein Leerzeichen zu viel
+    lassen den Uebergang offen — eine Fehlbedienung soll im Zweifel alte Apps
+    weiter anmelden, statt sie auszusperren.
+    """
+    return os.getenv("BITDM_KYBER_PFLICHT", "") == "1"
 
 
 # --------------------------------------------------------------------------- #
@@ -568,6 +706,15 @@ CREATE TABLE IF NOT EXISTS identities (
     -- GERAET_TTL. Bleibt 0, bis sich das Geraet zum ersten Mal verbindet —
     -- siehe LEBENSZEICHEN, das genau deshalb nicht nackt darauf schaut.
     last_seen         REAL NOT NULL DEFAULT 0,
+    -- Der LAST-RESORT-Kyber-Prekey dieses Geraets (PQXDH, siehe
+    -- KYBER_SCHLUESSEL_LAENGE). Alle drei NULL heisst: das Geraet hat sich
+    -- ohne Kyber angemeldet (App vor 2.0), /prekey laesst die Felder dann
+    -- weg. Immer alle drei oder keines — register() laesst nichts anderes
+    -- herein. Bestehende Datenbanken bekommen die Spalten in
+    -- ergaenze_kyber_spalten().
+    kyber_prekey_id   INTEGER,
+    kyber_prekey      BLOB,
+    kyber_prekey_sig  BLOB,
     PRIMARY KEY (user_id, device_id)
 );
 
@@ -576,6 +723,36 @@ CREATE TABLE IF NOT EXISTS one_time_prekeys (
     device_id  INTEGER NOT NULL DEFAULT 1,
     key_id     INTEGER NOT NULL,
     public_key BLOB NOT NULL,
+    PRIMARY KEY (user_id, device_id, key_id),
+    FOREIGN KEY (user_id, device_id)
+        REFERENCES identities(user_id, device_id) ON DELETE CASCADE
+);
+
+-- Kyber-EINMALschluessel, gebaut wie one_time_prekeys: derselbe
+-- Primaerschluessel (er ist zugleich der einzige Index, den /prekey und das
+-- Zaehlen je Geraet brauchen), dieselbe Kaskade beim Loeschen des Geraets.
+-- Zusaetzlich die Signatur, weil libsignal fuer JEDEN Kyber-Prekey eine
+-- verlangt, auch fuer einen Einmalschluessel — anders als beim EC-Vorrat.
+--
+-- BEWUSST EINE rowid-TABELLE und nicht WITHOUT ROWID: eine Zeile ist rund
+-- 1,7 KB, und SQLite empfiehlt WITHOUT ROWID nur fuer Zeilen unter einem
+-- Zwanzigstel der Seite. Ausserdem zieht /prekey per rowid (DELETE ...
+-- WHERE rowid = (SELECT rowid ... LIMIT 1) RETURNING), genau wie beim
+-- EC-Vorrat — zwei Fassungen derselben Entnahme waeren zwei Gelegenheiten,
+-- eine davon falsch zu machen.
+--
+-- Auf einer Datenbank von vor dem Mehrgeraete-Umbau wird die Tabelle hier
+-- angelegt, BEVOR wandere_auf_geraete() `identities` neu baut. Das geht gut:
+-- der Fremdschluessel nennt die Tabelle beim Namen, die Wanderung schaltet
+-- foreign_keys vorher ab, und nach dem Umbenennen zeigt er auf die neue
+-- `identities` mit (user_id, device_id). Geprueft in
+-- test_kyber_kommt_auch_auf_die_aelteste_datenbank.
+CREATE TABLE IF NOT EXISTS one_time_kyber_prekeys (
+    user_id    TEXT NOT NULL,
+    device_id  INTEGER NOT NULL DEFAULT 1,
+    key_id     INTEGER NOT NULL,
+    public_key BLOB NOT NULL,
+    signature  BLOB NOT NULL,
     PRIMARY KEY (user_id, device_id, key_id),
     FOREIGN KEY (user_id, device_id)
         REFERENCES identities(user_id, device_id) ON DELETE CASCADE
@@ -728,7 +905,53 @@ def init_db(path: Path) -> sqlite3.Connection:
 
     conn.commit()
     wandere_auf_geraete(conn)
+    # NACH der Wanderung und nicht bei den ALTERs oben: wandere_auf_geraete
+    # baut `identities` aus einer festen Spaltenliste neu. Kaemen die
+    # Kyber-Spalten vorher dazu, fielen sie beim Neubau einer Datenbank von
+    # vor dem Mehrgeraete-Umbau wieder weg, und der erste /register liefe in
+    # "no such column".
+    ergaenze_kyber_spalten(conn)
     return conn
+
+
+def ergaenze_kyber_spalten(conn: sqlite3.Connection) -> bool:
+    """Die drei Last-Resort-Spalten in eine bestehende `identities` holen.
+
+    Per ALTER und nicht per Neuanlage wie bei wandere_auf_geraete: der
+    Primaerschluessel bleibt, wie er ist, und eine nullbare Spalte ohne
+    Vorgabe kostet SQLite beim ALTER nur einen Eintrag im Schema — keine
+    Zeile wird angefasst, auch bei 250 000 Geraeten nicht. Jede bestehende
+    Zeile hat danach NULL in allen drei Spalten, und das heisst "Geraet ohne
+    Kyber": /prekey gibt fuer sie keine Kyber-Felder aus, bis das Geraet sich
+    mit einer neuen App erneut anmeldet. Niemand verliert seine Registrierung.
+
+    Die Tabelle one_time_kyber_prekeys braucht hier nichts: CREATE TABLE IF
+    NOT EXISTS in SCHEMA legt sie bei jedem Start an, wenn sie fehlt.
+
+    In EINER Transaktion: faellt der Start zwischen der ersten und der dritten
+    Spalte um, bleibt keine halbe Erweiterung zurueck. Das BEGIN steht von
+    Hand da, weil Pythons sqlite3 vor DDL keine Transaktion oeffnet — ohne es
+    committete jedes ALTER fuer sich (dieselbe Falle, die wandere_auf_geraete
+    mit BEGIN im Skript umgeht). Rueckgabe: ob etwas zu tun war.
+    """
+    vorhanden = {row[1] for row in conn.execute("PRAGMA table_info(identities)")}
+    typen = {"kyber_prekey_id": "INTEGER", "kyber_prekey": "BLOB",
+             "kyber_prekey_sig": "BLOB"}
+    fehlend = [s for s in typen if s not in vorhanden]
+    if not fehlend:
+        return False
+    conn.commit()
+    conn.execute("BEGIN")
+    try:
+        for spalte in fehlend:
+            conn.execute(f"ALTER TABLE identities ADD COLUMN {spalte} {typen[spalte]}")
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    print("[i] Datenbank um Kyber-Prekeys erweitert — bestehende Geraete "
+          "stehen ohne Kyber da, bis sie sich neu anmelden")
+    return True
 
 
 def wandere_auf_geraete(conn: sqlite3.Connection) -> bool:
@@ -849,21 +1072,38 @@ def wandere_auf_geraete(conn: sqlite3.Connection) -> bool:
     return True
 
 
-def loesche_geraet(uid: str, geraet: int) -> int:
-    """Eine Geraetezeile samt ihrer Post entfernen. Rueckgabe: geloeschte Zeilen.
+def loesche_geraet(uid: str, geraet: int) -> tuple[int, int]:
+    """Eine Geraetezeile samt ihrer Post entfernen.
 
-    Die Einmalschluessel nimmt die Kaskade. Die Warteschlange NICHT — sie
+    Rueckgabe: (geloeschte Warteschlangenzeilen, geloeschte Kyber-
+    Einmalschluessel) — beide Zahlen fuehren einen mitgezaehlten Stand
+    (_queue_zeilen, _kyber_zeilen), und der Aufrufer schreibt sie erst NACH
+    dem Commit fort.
+
+    Die EC-Einmalschluessel nimmt die Kaskade. Die Warteschlange NICHT — sie
     zeigt auf keine Geraetezeile und wuerde sonst als Post an ein Geraet
     liegenbleiben, das es nicht mehr gibt, bis QUEUE_TTL_SECONDS sie holt.
+
+    DIE KYBER-EINMALSCHLUESSEL WERDEN AUSDRUECKLICH GELOESCHT, obwohl die
+    Kaskade sie auch naehme. Zwei Gruende: erstens braucht KYBER_OTK_MAX_GESAMT
+    die Zahl, und die liefert nur ein eigenes DELETE (rowcount zaehlt keine
+    Kaskadenzeilen). Zweitens haengt die Kaskade an `PRAGMA foreign_keys=ON`,
+    und das gilt je VERBINDUNG — wer mit einem eigenen sqlite3-Aufruf an die
+    Datenbank geht, hat es aus (durchstich_zwischenlager.py raeumt deshalb
+    ebenfalls von Hand). Bei 1,7 KB je Zeile ist eine Waise kein
+    Schoenheitsfehler, sondern Platte, die nie wieder frei wird.
 
     Ruft NUR auf, wer die schreibsperre schon haelt.
     """
     cur = db.execute("DELETE FROM queue WHERE recipient=? AND recipient_device=?",
                      (uid, geraet))
     weg = cur.rowcount
+    kyber_weg = db.execute(
+        "DELETE FROM one_time_kyber_prekeys WHERE user_id=? AND device_id=?",
+        (uid, geraet)).rowcount
     db.execute("DELETE FROM identities WHERE user_id=? AND device_id=?",
                (uid, geraet))
-    return weg
+    return weg, kyber_weg
 
 
 def raeume_vergessene_geraete() -> int:
@@ -877,13 +1117,21 @@ def raeume_vergessene_geraete() -> int:
     """
     cutoff = time.time() - GERAET_TTL
     entfernte_zeilen = 0
-    with schreibsperre, db:
-        tot = db.execute(
-            f"SELECT user_id, device_id FROM identities WHERE {LEBENSZEICHEN} < ?",
-            (cutoff,),
-        ).fetchall()
-        for uid, geraet in tot:
-            entfernte_zeilen += loesche_geraet(uid, geraet)
+    entfernte_kyber = 0
+    with schreibsperre:
+        with db:
+            tot = db.execute(
+                f"SELECT user_id, device_id FROM identities WHERE {LEBENSZEICHEN} < ?",
+                (cutoff,),
+            ).fetchall()
+            for uid, geraet in tot:
+                q, k = loesche_geraet(uid, geraet)
+                entfernte_zeilen += q
+                entfernte_kyber += k
+        # Nach dem Commit, aber noch unter der Sperre: register() liest den
+        # Kyber-Stand unter derselben Sperre und soll keinen sehen, der der
+        # Tabelle vorauslaeuft.
+        kyber_zeilen_aendern(-entfernte_kyber)
     queue_zeilen_aendern(-entfernte_zeilen)
     return len(tot)
 
@@ -1281,6 +1529,27 @@ class OneTimePreKey(BaseModel):
     public_key: str                       # base64
 
 
+def kyber_kennung_feld(**vorgabe):
+    """Das Feld fuer eine Kyber-Kennung: int, 0 .. KYBER_KENNUNG_MAX, kein bool.
+
+    strict=True aus demselben Grund wie bei geraete_feld(): `true` waere in
+    lax mode die Kennung 1. Anders als bei key_id der EC-Einmalschluessel
+    steht hier eine Obergrenze — das Feld ist neu, es gibt keine installierte
+    App, deren Werte daran scheitern koennten, und ohne Grenze kaeme ab 2**63
+    OverflowError beim Binden (siehe register()). Ein Wert ausserhalb gibt
+    422 vom Modell, wie jede andere Typverletzung im Rumpf.
+    """
+    return Field(strict=True, ge=0, le=KYBER_KENNUNG_MAX, **vorgabe)
+
+
+class OneTimeKyberPreKey(BaseModel):
+    """Ein Kyber-Einmalschluessel. Anders als OneTimePreKey MIT Signatur —
+    libsignal verlangt fuer jeden Kyber-Prekey im Buendel eine."""
+    key_id: int = kyber_kennung_feld()
+    public_key: str                       # base64, 1569 Byte (0x08 + 1568)
+    signature: str                        # base64, 64 Byte XEdDSA
+
+
 GERAET_MAX_KENNUNG = 2**31 - 1
 
 
@@ -1348,6 +1617,26 @@ class PreKeyBundle(BaseModel):
     one_time_prekeys: list[OneTimePreKey] = Field(
         default_factory=list, max_length=OTK_MAX_JE_BUENDEL)
 
+    # ── Kyber (PQXDH), seit 16.10.2026 ────────────────────────────────────
+    #
+    # ALLE VIER OPTIONAL, und das ist wie bei device_id der ganze
+    # Rueckwaertspfad: eine App ohne Kyber schickt nichts davon, und ihre
+    # kanonischen Bytes bleiben Zeichen fuer Zeichen die alten. Ob der Relay
+    # eine solche Anmeldung noch annimmt, entscheidet kyber_pflicht().
+    #
+    # Der Last-Resort-Schluessel: Kennung, 1569 Byte (0x08 + 1568), Signatur
+    # des Identitaetsschluessels ueber genau diese 1569 Byte. Er bleibt, bis
+    # das Geraet ihn mit einer neuen Anmeldung ersetzt, und geht an jeden
+    # Abrufer, wenn kein Einmalschluessel (mehr) da ist.
+    kyber_prekey_id: int | None = kyber_kennung_feld(default=None)
+    kyber_prekey: str | None = None       # base64
+    kyber_prekey_sig: str | None = None   # base64
+    # Der Einmalvorrat. max_length wirkt wie bei one_time_prekeys VOR jeder
+    # Dekodierung und Signaturpruefung (422). Warum 50, steht bei
+    # KYBER_OTK_MAX_JE_BUENDEL.
+    one_time_kyber_prekeys: list[OneTimeKyberPreKey] = Field(
+        default_factory=list, max_length=KYBER_OTK_MAX_JE_BUENDEL)
+
     def canonical_bytes(self) -> bytes:
         """Deterministische Serialisierung fuer die Signatur.
 
@@ -1373,6 +1662,33 @@ class PreKeyBundle(BaseModel):
         Umbau. Das ist die ganze Rueckwaertsvertraeglichkeit von /register —
         geprueft von app/test/net/canonical_fixtures.json, dessen bestehende
         Faelle unveraendert bleiben MUESSEN.
+
+        DIE KYBER-FELDER GEHOEREN EBENFALLS HINEIN (16.10.2026, mit der App
+        so vereinbart, MEHRGERAETE.md §15). Zwar traegt jeder Kyber-Schluessel
+        seine eigene Signatur — aber die belegt nur, dass er IRGENDWANN von
+        dieser Identitaet kam, nicht, dass er zu DIESER Anmeldung gehoert.
+        Jedes /prekey gibt signierte Kyber-Schluessel an jeden heraus. Stuenden
+        die Felder nur im Rumpf, koennte ein Weiterleitender sie gegen alte,
+        laengst verbrauchte Schluessel desselben Geraets tauschen (deren
+        private Haelften die App geloescht hat — jede neue Sitzung mit dem
+        Opfer scheiterte dann still), den Einmalvorrat mit Wiederholungen
+        fuellen oder die Kyber-Felder ganz streichen, was das Geraet bis zur
+        naechsten Anmeldung fuer jede neue App unerreichbar machte.
+
+        Die Regel, Zeichen fuer Zeichen so in der App nachgebaut: NUR WENN
+        `kyber_prekey` gesetzt ist, kommen vier Schluessel dazu —
+        `kyber_prekey`, `kyber_prekey_id`, `kyber_prekey_sig` und
+        `one_time_kyber_prekeys` als Liste von Tripeln [key_id, public_key,
+        signature], nach key_id aufsteigend. Die Liste steht auch leer da
+        (`[]`); "fehlt" heisst nur "kein kyber_prekey". So ist es EINE Frage,
+        an der die Form haengt, und nicht vier. Ein Buendel mit Einmal- aber
+        ohne Last-Resort-Schluessel weist register() ab, bevor diese Bytes
+        ueberhaupt gebraucht werden.
+
+        Die Strings gehen so hinein, wie sie im Rumpf stehen — nicht neu
+        kodiert, genau wie bei den EC-Feldern: die App signiert, was sie
+        schickt, und jede Aenderung unterwegs, auch eine andere Schreibweise
+        derselben Bytes, bricht den Besitznachweis.
         """
         payload = {}
         if self.device_id is not None:
@@ -1392,6 +1708,17 @@ class PreKeyBundle(BaseModel):
                 key=lambda x: x[0],
             ),
         })
+        if self.kyber_prekey is not None:
+            payload.update({
+                "kyber_prekey": self.kyber_prekey,
+                "kyber_prekey_id": self.kyber_prekey_id,
+                "kyber_prekey_sig": self.kyber_prekey_sig,
+                "one_time_kyber_prekeys": sorted(
+                    ([k.key_id, k.public_key, k.signature]
+                     for k in self.one_time_kyber_prekeys),
+                    key=lambda x: x[0],
+                ),
+            })
         return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
 
 
@@ -1426,6 +1753,8 @@ async def lifespan(app: FastAPI):
     # Ohne diese Zeile stuende der Zaehler nach einem Neustart auf 0 und
     # QUEUE_MAX_TOTAL waere wirkungslos, bis die erste Stunde um ist.
     queue_zeilen_neu_zaehlen()
+    # Dasselbe fuer KYBER_OTK_MAX_GESAMT.
+    kyber_zeilen_neu_zaehlen()
 
     async def janitor():
         while True:
@@ -1436,6 +1765,7 @@ async def lifespan(app: FastAPI):
                 if vergessen:
                     print(f"[i] {vergessen} vergessene Geraete entfernt")
                 queue_zeilen_neu_zaehlen()
+                kyber_zeilen_neu_zaehlen()
             except sqlite3.Error as exc:
                 print(f"[!] Aufraeumen fehlgeschlagen: {exc}")
 
@@ -1515,6 +1845,41 @@ def queue_zeilen_neu_zaehlen() -> int:
 def queue_zeilen_aendern(delta: int) -> None:
     global _queue_zeilen
     _queue_zeilen = max(0, _queue_zeilen + delta)
+
+
+# Wie viele Zeilen in `one_time_kyber_prekeys` stehen — mitgezaehlt fuer
+# KYBER_OTK_MAX_GESAMT, aus demselben Grund wie _queue_zeilen.
+#
+# GEMESSEN am 16.10.2026: `SELECT COUNT(*)` ueber 100 000 Kyber-Zeilen
+# braucht 8,5 ms, am Dach (500 000) also rund 40 ms. /register haelt dabei
+# die schreibsperre, und die teilt sich die WebSocket-Seite auf dem
+# Event-Loop — jede Anmeldung haelte alle Verbindungen 40 ms an. Gezaehlt wird
+# deshalb nur beim Start und stuendlich im janitor; dazwischen schreiben die
+# drei Stellen, die die Tabelle veraendern, den Stand fort: register(),
+# get_prekey() und loesche_geraet() ueber seine Aufrufer.
+#
+# ANDERS ALS _queue_zeilen wird dieser Stand nur UNTER der schreibsperre und
+# erst NACH dem Commit geaendert. register() entscheidet daran, wie viele
+# Schluessel es noch annimmt; ein Stand, der der Tabelle vorauslaeuft oder
+# nachhinkt, liesse das Dach durchlaessig werden oder zu frueh zugehen.
+# Laeuft er trotzdem einmal daneben (eine Hand an der Datenbank, siehe
+# durchstich_zwischenlager.py), heilt es der naechste janitor-Lauf.
+_kyber_zeilen = 0
+
+
+def kyber_zeilen_neu_zaehlen() -> int:
+    """Setzt den Kyber-Stand gegen die Tabelle zurueck (Start, janitor)."""
+    global _kyber_zeilen
+    with schreibsperre:
+        _kyber_zeilen = db.execute(
+            "SELECT COUNT(*) FROM one_time_kyber_prekeys").fetchone()[0]
+    return _kyber_zeilen
+
+
+def kyber_zeilen_aendern(delta: int) -> None:
+    """Ruft NUR auf, wer die schreibsperre haelt — nach dem Commit."""
+    global _kyber_zeilen
+    _kyber_zeilen = max(0, _kyber_zeilen + delta)
 
 
 # Der Absender mit den meisten Zeilen in der ganzen Tabelle, zwischengemerkt:
@@ -1711,6 +2076,122 @@ def oeffentlicher_schluessel_ok(roh: bytes) -> bool:
 SIGNATUR_LAENGE = 64
 
 
+class KyberTeil(NamedTuple):
+    """Der dekodierte Kyber-Teil eines Buendels, fertig zum Speichern."""
+    kennung: int
+    schluessel: bytes                     # 1569 Byte, beginnt mit 0x08
+    signatur: bytes                       # 64 Byte
+    einmal: list[tuple[int, bytes, bytes]]  # (key_id, Schluessel, Signatur)
+
+
+def kyber_schluessel_ok(roh: bytes) -> bool:
+    """1569 Byte mit Typbyte 0x08 — die serialisierte Form aus libsignal.
+
+    ANDERS ALS oeffentlicher_schluessel_ok() OHNE eine rohe Ersatzform. Dort
+    sind 32 rohe Bytes erlaubt, weil alte Tests und eigene Clients sie
+    schicken; fuer Kyber gibt es keinen solchen Bestand, und libsignal liest
+    einen Kyber-Schluessel nur mit Typbyte wieder ein. Ein Block ohne waere
+    fuer jeden Abrufer unbrauchbar und belegte trotzdem 2 KB Platte.
+    """
+    return len(roh) == KYBER_SCHLUESSEL_LAENGE and roh[0] == KYBER_TYPBYTE
+
+
+def kyber_aus_buendel(bundle: PreKeyBundle) -> KyberTeil | None:
+    """Prueft die FORM des Kyber-Teils und dekodiert ihn. None: kein Kyber.
+
+    Alles hier ist billig (Laengen, Typbyte, Kennungen) und laeuft deshalb wie
+    die EC-Laengen VOR dem Nonce und dem Besitznachweis: ein kaputtes Buendel
+    kostet weder einen Nonce-Platz noch eine einzige XEdDSA-Pruefung. Die
+    Signaturen prueft pruefe_kyber_signaturen() erst danach.
+
+    Wirft HTTPException(400) bei allem, was nicht passt — und zwar IMMER, auch
+    solange kyber_pflicht() aus ist. Optional heisst "darf fehlen", nicht
+    "darf kaputt sein": ein halber Kyber-Teil, still verworfen, liesse das
+    Geraet ohne Kyber dastehen, und die App merkte es erst daran, dass
+    niemand mit neuer App ihr mehr schreiben kann.
+    """
+    last_resort = (bundle.kyber_prekey_id, bundle.kyber_prekey,
+                   bundle.kyber_prekey_sig)
+    if all(f is None for f in last_resort):
+        if bundle.one_time_kyber_prekeys:
+            # Einmalschluessel ohne Last-Resort: libsignal kann daraus kein
+            # Buendel bauen, sobald der Vorrat leer ist — und
+            # canonical_bytes() nimmt den Vorrat nur MIT kyber_prekey auf,
+            # er stuende also ungeschuetzt im Rumpf.
+            raise HTTPException(400, "one_time_kyber_prekeys ohne kyber_prekey")
+        return None
+    if any(f is None for f in last_resort):
+        raise HTTPException(400, "kyber_prekey, kyber_prekey_id und "
+                                 "kyber_prekey_sig gehoeren zusammen")
+
+    try:
+        schluessel = b64d(bundle.kyber_prekey)
+        signatur = b64d(bundle.kyber_prekey_sig)
+        einmal = [(k.key_id, b64d(k.public_key), b64d(k.signature))
+                  for k in bundle.one_time_kyber_prekeys]
+    except ValueError as exc:
+        raise HTTPException(400, "Bundle enthaelt ungueltiges base64") from exc
+
+    if not kyber_schluessel_ok(schluessel):
+        raise HTTPException(400, "kyber_prekey muss 1569 Byte (0x08 + 1568) sein")
+    if len(signatur) != SIGNATUR_LAENGE:
+        raise HTTPException(400, "kyber_prekey_sig muss 64 Byte sein")
+    if not all(kyber_schluessel_ok(s) for _, s, _ in einmal):
+        raise HTTPException(400, "one_time_kyber_prekeys: Schluessel muss "
+                                 "1569 Byte (0x08 + 1568) sein")
+    if not all(len(sig) == SIGNATUR_LAENGE for _, _, sig in einmal):
+        raise HTTPException(400, "one_time_kyber_prekeys: Signatur muss 64 Byte sein")
+
+    # DOPPELTE KENNUNGEN VOR DEN SIGNATUREN. Beim EC-Vorrat faengt das erst
+    # der Primaerschluessel beim INSERT (IntegrityError -> 400); hier kaeme
+    # der Fehler damit erst nach 51 Signaturpruefungen.
+    kennungen = [kid for kid, _, _ in einmal]
+    if len(set(kennungen)) != len(kennungen):
+        raise HTTPException(400, "one_time_kyber_prekeys: key_id doppelt")
+    # Und der Last-Resort-Schluessel darf keine Kennung mit einem
+    # Einmalschluessel teilen. In libsignal liegen beide Sorten im SELBEN
+    # Kyber-Speicher unter ihrer Kennung; teilen sie sich eine, verbraucht die
+    # App mit dem Einmalschluessel auch den Last-Resort-Schluessel, und jede
+    # spaetere Sitzung ueber den Last-Resort scheitert beim Empfaenger mit
+    # "unbekannter Kyber-Prekey". Das ist ein Fehler der App, und er soll beim
+    # Anmelden auffallen, nicht Wochen spaeter beim Kontakt.
+    if bundle.kyber_prekey_id in kennungen:
+        raise HTTPException(400, "kyber_prekey_id steht auch unter den "
+                                 "one_time_kyber_prekeys")
+    return KyberTeil(bundle.kyber_prekey_id, schluessel, signatur, einmal)
+
+
+def pruefe_kyber_signaturen(identity_key: bytes, kyber: KyberTeil) -> None:
+    """Jede Kyber-Signatur gegen den Identitaetsschluessel. 400 beim ersten Fehler.
+
+    Mit derselben verify_signature wie der Besitznachweis — also mit beiden
+    Vorzeichenbits, die libsignal in Signaturen legt (siehe dort). Signiert
+    sind die vollen 1569 Byte MIT Typbyte, siehe KYBER_SCHLUESSEL_LAENGE.
+
+    ERST NACH DEM BESITZNACHWEIS gerufen. Bis zu 51 Pruefungen kosten 5 ms
+    (KYBER_OTK_MAX_JE_BUENDEL); die soll nur bezahlen muessen, wer den
+    privaten Identitaetsschluessel hat. Ein Fremder mit einem Buendel unter
+    fremder Adresse scheitert vorher mit 403 und hat dem Relay nicht mehr
+    Arbeit gemacht als ohne Kyber.
+
+    WARUM DER RELAY UEBERHAUPT PRUEFT, obwohl die App des Absenders es beim
+    Sitzungsaufbau ohnehin tut: ein Schluessel mit falscher Signatur ist fuer
+    JEDEN Abrufer wertlos (`invalidSignature` in libsignal). Gespeichert
+    belegte er Platz, und ausgegeben verbrauchte er beim Abrufer einen
+    Versuch und beim Opfer einen Einmalschluessel — fuer nichts. Den
+    signierten EC-Prekey prueft der Relay dagegen bis heute nur auf seine
+    Laenge; die Testhelfer schicken dort Zufallsbytes, und eine
+    nachtraegliche Pruefung gehoert in einen eigenen Schritt.
+    """
+    if not verify_signature(identity_key, kyber.schluessel, kyber.signatur):
+        raise HTTPException(400, "kyber_prekey_sig passt nicht zum identity_key")
+    for kid, schluessel, signatur in kyber.einmal:
+        if not verify_signature(identity_key, schluessel, signatur):
+            raise HTTPException(
+                400, f"one_time_kyber_prekeys: Signatur von key_id {kid} "
+                     f"passt nicht zum identity_key")
+
+
 @app.post("/register")
 def register(req: RegisterRequest, request: Request):
     """Schritt 2: Bundle hochladen, signiert mit dem Identitaetsschluessel.
@@ -1751,6 +2232,17 @@ def register(req: RegisterRequest, request: Request):
         raise HTTPException(400, "one_time_prekeys: Schluessel muss 33 Byte "
                                  "(0x05 + 32) sein")
 
+    # Der Kyber-Teil, ebenfalls nur seine Form — die Signaturen erst nach dem
+    # Besitznachweis (pruefe_kyber_signaturen). None heisst: keiner da.
+    kyber = kyber_aus_buendel(bundle)
+    if kyber is None and kyber_pflicht():
+        # 400 und nicht 426 "Upgrade Required": die Apps bis 1.9 werten nur
+        # aus, ob die Anmeldung durchging, und zeigen den Text. Den
+        # Update-Hinweis bekommen sie ohnehin schon ueber auth_result
+        # (NEUESTE_FASSUNG) — vorausgesetzt, sie waren schon angemeldet.
+        raise HTTPException(400, "Dieser Relay verlangt Kyber-Prekeys (PQXDH) "
+                                 "— bitte BitDM aktualisieren")
+
     try:
         signature = b64d(req.signature)
     except Exception as exc:
@@ -1779,6 +2271,12 @@ def register(req: RegisterRequest, request: Request):
         # derselben Signatur das Nonce genommen (oder es ist gerade
         # abgelaufen). Genau einmal heisst genau einmal.
         raise HTTPException(401, "kein gueltiges Nonce — erst /register/challenge")
+
+    # Jetzt, mit nachgewiesenem Besitz, die Kyber-Signaturen. Scheitert eine,
+    # ist das Nonce schon verbraucht; der Client holt fuer den naechsten
+    # Versuch ein neues, wie nach jeder anderen Absage auch.
+    if kyber is not None:
+        pruefe_kyber_signaturen(identity_key, kyber)
 
     # Die Sperre liegt eine Ebene ueber `with db:` und bleibt bis hinter den
     # COUNT offen. Sonst zaehlte die Antwort einen Stand, den inzwischen ein
@@ -1842,26 +2340,42 @@ def register(req: RegisterRequest, request: Request):
                 raise HTTPException(
                     507, f"Diese Adresse hat schon {GERAETE_MAX} Geraete")
             with db:
-                weg = loesche_geraet(bundle.user_id, totes[0])
+                weg, kyber_weg = loesche_geraet(bundle.user_id, totes[0])
+            kyber_zeilen_aendern(-kyber_weg)
             queue_zeilen_aendern(-weg)
 
+        # Der Last-Resort-Teil fuer die Zeile in `identities`. Ohne Kyber
+        # werden die drei Spalten auf NULL GESETZT und nicht stehen gelassen:
+        # meldet sich ein Geraet ohne Kyber an (alte App, etwa nach einem
+        # Zurueckspielen), passen die alten Kyber-Schluessel nicht mehr zu dem,
+        # was auf dem Geraet laeuft. /prekey gaebe sonst ein Buendel aus, mit
+        # dem neue Apps eine PQXDH-Sitzung bauen, die das Geraet gar nicht
+        # entschluesseln kann. Ohne Felder bauen sie keine — und sehen, warum.
+        kyber_spalten = ((kyber.kennung, kyber.schluessel, kyber.signatur)
+                         if kyber is not None else (None, None, None))
+        kyber_neu = sorted(kyber.einmal) if kyber is not None else []
+        kyber_alt = 0
         try:
             with db:
                 db.execute(
                     "INSERT INTO identities (user_id, device_id, identity_key,"
                     " registration_id, signed_prekey_id, signed_prekey,"
-                    " signed_prekey_sig, updated_at)"
-                    " VALUES (?,?,?,?,?,?,?,?)"
+                    " signed_prekey_sig, updated_at, kyber_prekey_id,"
+                    " kyber_prekey, kyber_prekey_sig)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)"
                     " ON CONFLICT(user_id, device_id) DO UPDATE SET"
                     " identity_key=excluded.identity_key,"
                     " registration_id=excluded.registration_id,"
                     " signed_prekey_id=excluded.signed_prekey_id,"
                     " signed_prekey=excluded.signed_prekey,"
                     " signed_prekey_sig=excluded.signed_prekey_sig,"
-                    " updated_at=excluded.updated_at",
+                    " updated_at=excluded.updated_at,"
+                    " kyber_prekey_id=excluded.kyber_prekey_id,"
+                    " kyber_prekey=excluded.kyber_prekey,"
+                    " kyber_prekey_sig=excluded.kyber_prekey_sig",
                     (bundle.user_id, geraet, identity_key, bundle.registration_id,
                      bundle.signed_prekey_id, signed_prekey,
-                     signed_prekey_sig, time.time()),
+                     signed_prekey_sig, time.time(), *kyber_spalten),
                 )
                 # NUR die Einmalschluessel DIESES Geraets. Ohne das
                 # `AND device_id=?` raeumte jede Nachlieferung eines Geraets den
@@ -1876,6 +2390,29 @@ def register(req: RegisterRequest, request: Request):
                     " public_key) VALUES (?,?,?,?)",
                     [(bundle.user_id, geraet, key_id, roh)
                      for key_id, roh in otk_roh],
+                )
+                # Der Kyber-Einmalvorrat wird genauso VOLLSTAENDIG ersetzt,
+                # nur dieses Geraet, auch dann, wenn das Buendel keinen
+                # mitbringt: die alten Schluessel gehoeren zu einem Stand der
+                # App, den diese Anmeldung gerade abloest.
+                kyber_alt = db.execute(
+                    "DELETE FROM one_time_kyber_prekeys"
+                    " WHERE user_id=? AND device_id=?",
+                    (bundle.user_id, geraet)).rowcount
+                # DAS DACH (KYBER_OTK_MAX_GESAMT). Platz ist, was die anderen
+                # Geraete uebrig lassen — der eigene alte Vorrat ist gerade
+                # weg und zaehlt nicht mehr. Am Dach wird GEKUERZT, nicht
+                # abgewiesen (Begruendung dort); genommen werden die
+                # kleinsten Kennungen, damit dasselbe Buendel immer dieselben
+                # Schluessel ergibt. Was die App davon hat, sagt ihr die Zahl
+                # in der Antwort.
+                platz = max(0, KYBER_OTK_MAX_GESAMT - (_kyber_zeilen - kyber_alt))
+                kyber_neu = kyber_neu[:platz]
+                db.executemany(
+                    "INSERT INTO one_time_kyber_prekeys (user_id, device_id,"
+                    " key_id, public_key, signature) VALUES (?,?,?,?,?)",
+                    [(bundle.user_id, geraet, kid, schluessel, signatur)
+                     for kid, schluessel, signatur in kyber_neu],
                 )
         except (sqlite3.Error, ValueError, OverflowError) as exc:
             # OverflowError gehoert dazu, seit die Kennungen im Rumpf keine
@@ -1894,6 +2431,8 @@ def register(req: RegisterRequest, request: Request):
             # wer nachsehen muss, hat das Journal.
             print(f"[!] /register: Bundle nicht gespeichert ({type(exc).__name__})")
             raise HTTPException(400, "Bundle konnte nicht gespeichert werden") from exc
+        # Nach dem Commit, noch unter der Sperre — siehe _kyber_zeilen.
+        kyber_zeilen_aendern(len(kyber_neu) - kyber_alt)
 
         # Zaehlt JE GERAET. Der Client leitet aus dieser Zahl ab, ob er
         # nachliefern muss — adressweit gezaehlt saehe ein leeres Zweitgeraet
@@ -1902,7 +2441,25 @@ def register(req: RegisterRequest, request: Request):
             "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id=? AND device_id=?",
             (bundle.user_id, geraet),
         ).fetchone()[0]
-    return {"ok": True, "one_time_prekeys": count}
+        kyber_count = db.execute(
+            "SELECT COUNT(*) FROM one_time_kyber_prekeys"
+            " WHERE user_id=? AND device_id=?",
+            (bundle.user_id, geraet),
+        ).fetchone()[0]
+    # `one_time_kyber_prekeys` steht genau dann da, wenn die Anmeldung Kyber
+    # trug — dann auch bei 0. Ohne Kyber bleibt die Antwort Zeichen fuer
+    # Zeichen die alte (MEHRGERAETE.md §3.2 "Antwort unveraendert"; die Tests
+    # vergleichen sie als Ganzes). Eine neue App erkennt am Fehlen des Feldes
+    # einen Relay, der Kyber nicht kennt — der wuerde die Felder still
+    # verwerfen (pydantic ignoriert Unbekanntes), und die App stuende ohne
+    # Kyber da, ohne es zu merken. (Praktisch scheitert sie dort schon am
+    # Besitznachweis, weil der alte Relay die Kyber-Felder nicht mitsigniert
+    # erwartet — aber darauf soll sich niemand verlassen muessen.) Und am
+    # Dach sieht sie hier, wie viel ihres Vorrats angekommen ist.
+    antwort = {"ok": True, "one_time_prekeys": count}
+    if kyber is not None:
+        antwort["one_time_kyber_prekeys"] = kyber_count
+    return antwort
 
 
 # ------------------------------------------------------------- Prekeys abholen
@@ -1926,6 +2483,16 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
     Einmalschluessel wird gezogen, kein Eimer-Token bei otk_limit_ok. Das ist
     der Aufruf, den der Client oft macht (Auffrischung der Geraeteliste), und
     er darf deshalb nichts verbrauchen.
+
+    KYBER (seit 16.10.2026): je Geraet, das sich mit Kyber angemeldet hat,
+    stehen `kyber_prekey_id`, `kyber_prekey`, `kyber_prekey_sig` und
+    `kyber_einmal` im Eintrag — und als Kopie von geraete[0] auch flach,
+    dieselbe Regel wie oben. Ein Einmalschluessel, wenn einer da ist und die
+    Bremse es zulaesst (`kyber_einmal: true`), sonst der Last-Resort-Schluessel
+    (`false`). Bei einem Geraet ohne Kyber fehlen ALLE VIER Felder, und zwar
+    ganz und nicht als null: eine neue App erkennt daran ein Geraet, mit dem
+    sie keine Sitzung bauen kann, und eine alte liest ohnehin nur, was sie
+    kennt.
     """
     if not herkunft_ok(request, "pk"):
         raise HTTPException(429, "zu viele Anfragen")
@@ -1936,7 +2503,8 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
     with schreibsperre:
         rows = db.execute(
             "SELECT device_id, identity_key, signed_prekey_id, signed_prekey,"
-            " signed_prekey_sig, registration_id FROM identities"
+            " signed_prekey_sig, registration_id, kyber_prekey_id, kyber_prekey,"
+            " kyber_prekey_sig FROM identities"
             " WHERE user_id=? ORDER BY device_id", (user_id,)
         ).fetchall()
         if not rows:
@@ -1960,7 +2528,20 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
         # dass der Prekey-Drain um den Geraetefaktor billiger wird (bei 5
         # Geraeten 5x). Tragbar, weil ein geleerter Vorrat laut Entwurf kein
         # Fehler ist, sondern X3DH ohne Einmalschluessel.
+        #
+        # DIESELBE BUCHUNG GILT FUER DEN KYBER-EINMALSCHLUESSEL, kein eigener
+        # Eimer. Ein Sitzungsaufbau verbraucht je Geraet genau einen EC- und
+        # einen Kyber-Einmalschluessel (PQXDH nimmt beide); ein zweiter Eimer
+        # liesse einen ehrlichen Abrufer doppelt zahlen, ohne den Drain
+        # langsamer zu machen — der Angreifer zoege dann eben aus beiden. Der
+        # Drain ist damit fuer beide Sorten gleich teuer (OTK_REFILL_PER_SEC,
+        # 6 je Minute und Adresse): 50 Kyber-Einmalschluessel sind nach rund
+        # 7 Minuten weg, 100 EC-Schluessel nach rund 15. Was danach kommt, ist
+        # der Last-Resort-Schluessel — PQXDH laeuft weiter, nur ohne die
+        # Einmal-Eigenschaft fuer den Kyber-Teil. Und die Platte beruehrt der
+        # Drain nicht: er macht die Tabelle kleiner, nicht groesser.
         otks: dict[int, tuple] = {}
+        kybers: dict[int, tuple] = {}
         if otk_limit_ok(user_id):
             # Atomar ist hier nur die ANWEISUNG: DELETE ... RETURNING gibt die
             # Zeile heraus, die es selbst entfernt hat, dieselbe kann also nie
@@ -1979,10 +2560,28 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
                     ).fetchone()
                     if treffer is not None:
                         otks[r[0]] = treffer
+                    # Nur fuer Geraete MIT Last-Resort-Schluessel. register()
+                    # laesst ohnehin keinen Kyber-Vorrat ohne ihn zu; die
+                    # Bedingung haelt nur fest, dass ein Einmalschluessel
+                    # allein nie ausgegeben wird — der Abrufer koennte ihn
+                    # nicht in ein vollstaendiges Buendel einsetzen.
+                    if r[7] is None:
+                        continue
+                    k_treffer = db.execute(
+                        "DELETE FROM one_time_kyber_prekeys WHERE rowid = ("
+                        "  SELECT rowid FROM one_time_kyber_prekeys"
+                        "  WHERE user_id=? AND device_id=? LIMIT 1"
+                        ") RETURNING key_id, public_key, signature",
+                        (user_id, r[0])
+                    ).fetchone()
+                    if k_treffer is not None:
+                        kybers[r[0]] = k_treffer
+            # Nach dem Commit, noch unter der Sperre — siehe _kyber_zeilen.
+            kyber_zeilen_aendern(-len(kybers))
 
     def als_geraet(r) -> dict:
         otk = otks.get(r[0])
-        return {
+        eintrag = {
             "device_id": r[0],
             "registration_id": r[5],
             "signed_prekey_id": r[2],
@@ -1992,10 +2591,24 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
                 {"key_id": otk[0], "public_key": b64e(otk[1])} if otk else None
             ),
         }
+        if r[7] is not None:
+            # Einmal- ODER Last-Resort-Schluessel, in denselben drei Feldern.
+            # libsignals PreKeyBundle hat nur EINEN Platz fuer einen
+            # Kyber-Prekey, und welcher es ist, muss der Absender nicht
+            # wissen — der Empfaenger erkennt es an der Kennung. kyber_einmal
+            # ist Auskunft fuer die App (Diagnose, Tests), keine Bedingung.
+            kid, schluessel, signatur = kybers.get(r[0], (r[6], r[7], r[8]))
+            eintrag.update({
+                "kyber_prekey_id": kid,
+                "kyber_prekey": b64e(schluessel),
+                "kyber_prekey_sig": b64e(signatur),
+                "kyber_einmal": r[0] in kybers,
+            })
+        return eintrag
 
     geraete = [als_geraet(r) for r in rows]
     erstes = geraete[0]
-    return {
+    antwort = {
         "user_id": user_id,
         # Der Identitaetsschluessel gehoert der ADRESSE, nicht dem Geraet — er
         # steht deshalb nur einmal da und nicht in jedem Geraeteeintrag.
@@ -2005,8 +2618,15 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
         "signed_prekey": erstes["signed_prekey"],
         "signed_prekey_sig": erstes["signed_prekey_sig"],
         "one_time_prekey": erstes["one_time_prekey"],
-        "geraete": geraete,
     }
+    # Flach dieselben Kyber-Felder wie in geraete[0] — derselbe Schluessel,
+    # kein zweiter gezogener, aus demselben Grund wie beim EC-Einmalschluessel.
+    for feld in ("kyber_prekey_id", "kyber_prekey", "kyber_prekey_sig",
+                 "kyber_einmal"):
+        if feld in erstes:
+            antwort[feld] = erstes[feld]
+    antwort["geraete"] = geraete
+    return antwort
 
 
 # ------------------------------------------------------------------ WebSocket
@@ -2434,12 +3054,42 @@ async def ws_endpoint(ws: WebSocket):
 
         # Zaehlt JE GERAET — sonst saehe ein frisch gekoppeltes Zweitgeraet den
         # vollen Vorrat des Erstgeraets und lieferte nie nach.
-        otk_left = db.execute(
-            "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id=? AND device_id=?",
+        otk_left, kyber_left, hat_kyber = db.execute(
+            "SELECT"
+            " (SELECT COUNT(*) FROM one_time_prekeys"
+            "   WHERE user_id=?1 AND device_id=?2),"
+            " (SELECT COUNT(*) FROM one_time_kyber_prekeys"
+            "   WHERE user_id=?1 AND device_id=?2),"
+            " (SELECT kyber_prekey IS NOT NULL FROM identities"
+            "   WHERE user_id=?1 AND device_id=?2)",
             (user_id, device_id)
-        ).fetchone()[0]
-        if otk_left < OTK_LOW_WATERMARK:
-            await ws.send_json({"type": "prekeys_low", "remaining": otk_left})
+        ).fetchone()
+        # DER KYBER-VORRAT LOEST DIESELBE NACHRICHT AUS, mit einem Feld mehr.
+        #
+        # Keine eigene Nachrichtenart, weil die App auf `prekeys_low` ohnehin
+        # das GANZE Buendel neu anmeldet (register() ersetzt beide Vorraete
+        # auf einmal) — zwei Ausloeser fuer denselben Weg waeren zwei
+        # Gelegenheiten, einen davon nicht zu verdrahten. `remaining` behaelt
+        # seine Bedeutung (EC-Vorrat), damit keine bestehende Auswertung still
+        # etwas anderes zaehlt; `kyber_remaining` steht daneben, NUR fuer
+        # Geraete mit Kyber. Eine alte App bekommt die Nachricht deshalb nie
+        # wegen Kyber: ohne Last-Resort-Schluessel ist ihr Kyber-Vorrat immer
+        # 0, und sie meldete sich sonst bei jeder Verbindung neu an, ohne dass
+        # sich je etwas aenderte.
+        #
+        # AUS DEMSELBEN GRUND NICHT AM DACH (KYBER_OTK_MAX_GESAMT): bekaeme das
+        # Geraet beim Nachliefern nicht mindestens OTK_LOW_WATERMARK Schluessel
+        # unter, stuende es danach wieder unter der Schwelle — und die App
+        # meldete sich bei jeder Verbindung vergeblich neu an. Ist der
+        # EC-Vorrat knapp, geht die Nachricht trotzdem, wie bisher.
+        platz_fuer_geraet = KYBER_OTK_MAX_GESAMT - (_kyber_zeilen - kyber_left)
+        kyber_knapp = (bool(hat_kyber) and kyber_left < OTK_LOW_WATERMARK
+                       and platz_fuer_geraet >= OTK_LOW_WATERMARK)
+        if otk_left < OTK_LOW_WATERMARK or kyber_knapp:
+            meldung = {"type": "prekeys_low", "remaining": otk_left}
+            if hat_kyber:
+                meldung["kyber_remaining"] = kyber_left
+            await ws.send_json(meldung)
 
         # ---- Hauptschleife: Umschlaege weiterleiten ----
         budget = Rahmenbudget()
