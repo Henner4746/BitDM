@@ -134,7 +134,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 
 | Baustein | Zustand | Wie das festgestellt wurde |
 |---|---|---|
-| Signal-Protokoll, X3DH + Double Ratchet | läuft | `libsignal_protocol_dart` 0.8.2, die Bibliothek, die Signal benutzt |
+| Signal-Protokoll, X3DH + Double Ratchet | läuft | `libsignal_protocol_dart` 0.8.2 — eine Portierung nach Dart von Mixin, **nicht Signals offizielle Bibliothek, und ungeprüft**. BitDM baut sie aus einer gepatchten Kopie im Repository (`secure-messenger/app/third_party/libsignal_protocol_dart/`, Änderungen dort in `BITDM-AENDERUNGEN.md`). X3DH + Double Ratchet, Protokollfassung 3; **kein Post-Quanten-Schlüsseltausch** (kein PQXDH, kein SPQR) |
 | Nachrichten über den Relay | läuft | Ende zu Ende über den laufenden Relay |
 | Nahbereich, ohne Netz | **in einer Richtung bewiesen** | 325 B / 1,35 s zwischen zwei Geräten, beide offline — die eine Angabe hier ohne Protokoll im Repository; unabhängig bezeugt von einem ESP32-Aufbau als fremdem Gerät |
 | Nahbereich, zweite Richtung | **funktioniert** | 26.09.2026: ein Galaxy S25 Ultra im Modus *nur in der Nähe* schickte von sich aus Signal-verschlüsselte Nachrichten per Bluetooth 5.4 an einen PC mit dem echten BitDM-Kern; der PC entschlüsselte, antwortete per Bluetooth, Zustell- und Lesebestätigungen kamen ebenso zurück (`app/test_manuell/pc_kontakt_test.dart`, `tools/pc_kontakt/`) |
@@ -439,12 +439,34 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
 
 ## Bekannte Lücken
 
+- **Den größten Teil dieses Codes hat eine KI geschrieben.** BitDM ist von
+  einer Person zusammen mit Claude (Anthropic) gebaut worden, und die KI hat
+  den überwiegenden Teil des Codes geschrieben, auch die kryptografischen
+  Teile. Jede Entwurfsentscheidung ist bewusst getroffen und begründet, die
+  Tests sind umfangreich, und die bisherigen Prüfungen waren gründlich — aber
+  es waren Prüfungen *durch dieselbe KI, die den Code geschrieben hat*, und
+  die kann beim Prüfen dieselben blinden Flecken haben wie beim Schreiben. Das
+  gehört zum Risiko, nicht in eine Fußnote.
 - **Keine unabhängige Prüfung.** Niemand außerhalb dieses Projekts hat die
   Kryptografie, das Protokoll oder die Umsetzung durchgesehen. Eine eigene
-  Prüfung am 25.09.2026 fand und behob rund 80 Befunde (CHANGELOG 1.8.1); der
-  Weg zu einer externen steht in [`docs/AUDIT.md`](secure-messenger/docs/AUDIT.md).
-- **Die Signal-Bibliothek ist eine Portierung aus der Gemeinschaft**
-  (`libsignal_protocol_dart`), nicht Signals eigene, geprüfte libsignal.
+  Prüfung am 25.09.2026 fand und behob rund 80 Befunde (CHANGELOG 1.8.1), ein
+  KI-gestütztes Sicherheitsaudit am 16.10.2026 weitere 63, davon zwei schwere
+  in der Dart-Portierung von libsignal (behoben, siehe unten). Der Weg zu einer
+  externen Prüfung steht in [`docs/AUDIT.md`](secure-messenger/docs/AUDIT.md).
+- **Die Signal-Bibliothek ist eine Portierung nach Dart von Mixin**
+  (`libsignal_protocol_dart`), **nicht Signals offizielle Bibliothek, und
+  ungeprüft.** Für sie gibt es kein veröffentlichtes Audit, und das Audit vom
+  16.10.2026 fand darin zwei schwere Fehler in der Zustandsverwaltung, die ein
+  bösartiger Relay ausnutzen kann (Wiederholen von Nachrichten, Zurücksetzen
+  der Sitzung, Wiederverwendung von Schlüssel und IV). BitDM baut deshalb jetzt
+  eine gepatchte Kopie aus dem Repository, mit je einem Test pro Korrektur:
+  `secure-messenger/app/third_party/libsignal_protocol_dart/BITDM-AENDERUNGEN.md`.
+  Gepatcht heißt nicht geprüft; der Wechsel auf Signals offizielle libsignal
+  (Rust, über FFI) ist vorgesehen.
+- **Kein Post-Quanten-Schlüsseltausch.** Die Portierung kann nur X3DH. Signal
+  hat X3DH 2023 durch PQXDH ersetzt und 2025 einen Post-Quanten-Ratchet
+  ergänzt; „Signal-Protokoll“ heißt hier also der Stand von 2023. Heute
+  mitgeschnittener Verkehr bleibt nur so lange vertraulich, wie X25519 hält.
 - **Der Nahbereich verrät, dass jemand mit BitDM in der Nähe ist.** Die
   Bluetooth-Werbung trägt feste Dienstkennungen; der Inhalt ist verschlüsselt,
   die Anwesenheit sieht jeder Scanner. Wechselnde Kennungen müssen erst auf
