@@ -8,6 +8,7 @@
 
 import 'dart:typed_data';
 
+import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 import 'package:sqlite3/common.dart';
 
 import '../crypto/key_derivation.dart';
@@ -92,6 +93,77 @@ class SignalStoreRepository {
       registrationId: registrationId(),
     );
     return BitdmSignalStore(identity: identity, state: loadState());
+  }
+
+  static const _metaArchivBereinigt = 'signal_archiv_bereinigt_v1';
+
+  /// Entfernt Archiveintraege, die bytegleich mit der aktiven Sitzung sind.
+  ///
+  /// Solche Doppelkopien entstanden in libsignal_protocol_dart 0.8.2: beim
+  /// Rueckfall auf einen archivierten Zustand lief das Entfernen des
+  /// befoerderten Eintrags ins Leere, der Zustand stand danach zweimal im
+  /// Record. Die Kopie im Archiv altert nicht mit und haelt
+  /// Nachrichtenschluessel fest, die die aktive Sitzung laengst verbraucht
+  /// hat. Sobald die aktive Sitzung einen wiederholten alten Umschlag nicht
+  /// mehr als Duplikat erkennt, entschluesselt die Kopie ihn erneut und wird
+  /// wieder zur aktiven Sitzung — die Sitzung springt zurueck.
+  ///
+  /// Der eigene Stand der Bibliothek legt keine neuen Doppelkopien mehr an
+  /// (third_party/libsignal_protocol_dart/BITDM-AENDERUNGEN.md). BESTEHENDE
+  /// Installationen tragen sie aber womoeglich schon in der Datei, und dort
+  /// bleiben sie wirksam. Deshalb laeuft das hier einmal je Datenbank.
+  ///
+  /// Bewusst nur BYTEGLEICHE Eintraege: ein archivierter Zustand, der sich
+  /// vom aktiven unterscheidet, ist eine echte alte Sitzung. Die wird
+  /// gebraucht, damit Nachrichten ankommen, die vor einem Sitzungswechsel
+  /// unterwegs waren.
+  ///
+  /// Gibt zurueck, wie viele Eintraege entfernt wurden.
+  int bereinigeArchivDoppel() {
+    if (db.meta(_metaArchivBereinigt) != null) return 0;
+
+    var entfernt = 0;
+    db.transaction((raw) {
+      final zeilen =
+          raw.select('SELECT address, record FROM sessions').toList();
+      final setzen = raw.prepare(
+        'UPDATE sessions SET record = ? WHERE address = ?',
+      );
+      try {
+        for (final zeile in zeilen) {
+          final adresse = zeile['address'] as String;
+          final record = SessionRecord.fromSerialized(_blob(zeile['record']));
+          final aktuell = record.sessionState.serialize();
+          // Erst sammeln, dann loesen: unlink veraendert die Liste, ueber die
+          // sonst gerade iteriert wird.
+          final doppel = record.previousSessionStates
+              .where((s) => _bytesGleich(s.serialize(), aktuell))
+              .toList();
+          if (doppel.isEmpty) continue;
+          for (final s in doppel) {
+            s.unlink();
+          }
+          entfernt += doppel.length;
+          setzen.execute([record.serialize(), adresse]);
+        }
+      } finally {
+        setzen.close();
+      }
+      raw.execute(
+        'INSERT INTO meta (key, value) VALUES (?, ?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        [_metaArchivBereinigt, '$entfernt'],
+      );
+    });
+    return entfernt;
+  }
+
+  static bool _bytesGleich(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// Schreibt alle offenen Aenderungen — alles oder nichts.

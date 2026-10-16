@@ -548,6 +548,12 @@ class RealMessengerCore implements MessengerCore {
     final db = EncryptedDatabase.open(databasePath, keys.databaseKey);
     _ruheSchluessel = Uint8List.fromList(keys.attachmentKey);
     final signalRepo = SignalStoreRepository(db);
+    // EINMAL JE DATENBANK, VOR DEM ERSTEN LADEN: Doppelkopien aus dem
+    // Sitzungsarchiv entfernen, die die alte Fassung der Signal-Bibliothek
+    // hinterlassen hat. Siehe [SignalStoreRepository.bereinigeArchivDoppel] —
+    // sie machen einen wiederholten alten Umschlag spaeter wieder
+    // entschluesselbar. Ohne Eintraege kostet der Aufruf eine Abfrage.
+    signalRepo.bereinigeArchivDoppel();
     final store = signalRepo.openStore(keys);
 
     _db = db;
