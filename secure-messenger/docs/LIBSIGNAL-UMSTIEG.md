@@ -60,7 +60,7 @@ Versuch: `BitDM-audit-arbeit/werkzeuge/libsignal_spike/bin/spike.dart`, reines D
 
 ### Bau und Plattformen
 - **Android, Windows, Linux:** Die Binärdateien lädt der Build-Hook des Pakets und prüft sie per SHA-256.
-- **Web:** Das WASM-Modul liegt in `web/pkg/`. Die CSP (`script-src 'self' 'wasm-unsafe-eval'`) erlaubt das bereits. Es geht nur der normale Web-Build, nicht `--wasm`.
+- **Web:** Das WASM-Modul legt der Build-Hook in `web/pkg/` an (in `.gitignore`, Prüfsummen in `deploy/webapp/README.md`). Die CSP bleibt `script-src 'self' 'wasm-unsafe-eval'`, ohne `'unsafe-eval'`; dafür sorgt `web/libsignal_ohne_eval.js` (siehe „Web-Fassung“ unten). Es geht nur der normale Web-Build, nicht `--wasm`.
 - **F-Droid-Verzeichnis und Reproduzierbarkeit:** Die Rust-Bibliothek wird im Workflow aus der Quelle gebaut (Rust-Toolchain und `protoc`). Die Bitgleichheit wird danach neu gemessen.
 - **Größe:** Die APK wird je ABI um einige MB größer. Das wird gemessen und notiert.
 
@@ -78,6 +78,14 @@ Versuch: `BitDM-audit-arbeit/werkzeuge/libsignal_spike/bin/spike.dart`, reines D
 - **Die Anbindung hat einen einzigen Betreuer.** Deshalb gilt die feste Fassung, der Bau aus der Quelle für Veröffentlichungen und eine einmalige Durchsicht des dünnen Anbindungscodes (`rust/src/api`).
 - **Der Ablauf lässt sich nicht gegen Wiederholung absichern:** Laut Paket kann `markKyberPreKeyUsed` die Entschlüsselung nicht abbrechen. BitDM muss das Ergebnis danach prüfen und die Nachricht verwerfen. Dafür kommt ein Test aus dem LS-1-Nachweis.
 - **Web:** Ein Panic in einem asynchronen Aufruf kehrt laut Paket nie zurück. Die Aufrufe brauchen daher eine Frist.
+
+## Web-Fassung (16.10.2026)
+
+**Befund:** Der Lader von flutter_rust_bridge 2.13.0 macht die WASM-Anbindung mit `new Function("window.wasm_bindgen = wasm_bindgen")` global sichtbar. Das ist `eval`, und die CSP von bitdm.net/app/ verbietet es. Die Web-App blieb beim Anlegen der Identität stehen. Upstream ist das offen: fzyzcjy/flutter_rust_bridge#3477.
+
+**Behebung:** `web/libsignal_ohne_eval.js` läuft vor `flutter_bootstrap.js` und erledigt genau diesen einen konstanten Text ohne `eval`; jeder andere `Function`-Aufruf geht unverändert an den echten Konstruktor, den die CSP weiter verbietet. `test/web/libsignal_ohne_eval_test.dart` prüft an den Quellen der aufgelösten Pakete, dass der Text gleich bleibt und keine weitere `eval`-Stelle dazukommt (mutationsgeprüft). Die zweite `eval` in der WASM-Anbindung gehört zum Worker-Pool, den libsignal nicht einbaut; sie wird nie aufgerufen.
+
+**Durchstich:** zwei Web-Clients mit der Produktions-CSP und getrennter Herkunft gegen einen lokalen Relay mit `BITDM_KYBER_PFLICHT=1`. Anmeldung mit Kyber, Kontaktanfrage (PQXDH), Annahme, Nachricht und Antwort liefen durch, mit Lesebestätigung.
 
 ## Befunde beim Umbau (16.10.2026)
 

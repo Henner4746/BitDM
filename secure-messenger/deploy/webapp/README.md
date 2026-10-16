@@ -12,6 +12,34 @@ Einstellungen nicht nur dort liegen.
 `--no-web-resources-cdn` ist Pflicht: ohne lädt Flutter CanvasKit von
 gstatic.com, und die CSP unten verbietet das (zu Recht).
 
+### Seit 2.0.0: libsignal als WASM
+
+Der Build-Hook des Pakets `libsignal` legt beim Web-Bau `app/web/pkg/` an
+(`libsignal_frb.js`, `libsignal_frb_bg.wasm`, `.wasm-version` = Crate-Fassung
+7.0.0) und Flutter kopiert sie nach `build/web/pkg/`. Der Ordner steht in
+`.gitignore`. Die Prüfsumme, gegen die der Hook prüft, liegt im selben
+GitHub-Release wie die Dateien; das fängt kaputte Downloads ab, aber kein
+ausgetauschtes Release. Darum vor dem Packen gegen diese Werte prüfen
+(Paket libsignal 8.0.0, Dateien aus dem Release `libsignal_frb-7.0.0`,
+Archiv `libsignal_frb-7.0.0-wasm32.tar.gz`, gemessen am 16.10.2026):
+
+    cd app/build/web/pkg
+    echo "432f8028350acfef8ef5cdfa76d8b0e2c9bf5f82012bcf74d5662819764bb645  libsignal_frb.js" | sha256sum -c
+    echo "5f3d15e5fe3aeb76c5b233d407520212343d6c966637b1a660394f87d1b70d8c  libsignal_frb_bg.wasm" | sha256sum -c
+
+Ändern sich die Werte ohne Fassungswechsel im `pubspec.yaml`, nicht ausliefern.
+
+`web/libsignal_ohne_eval.js` muss mit ausgeliefert werden. Ohne das Skript
+bräuchte flutter_rust_bridge `'unsafe-eval'` in der CSP und bleibt sonst beim
+Anlegen der Identität stehen (Begründung im Skript,
+`test/web/libsignal_ohne_eval_test.dart` wacht darüber).
+
+In der Konsole steht danach „Buffers cannot be shared due to missing
+cross-origin headers“. Das ist gewollt: COOP/COEP bräuchte nur der
+Worker-Pool von flutter_rust_bridge, und den baut libsignal nicht ein.
+Durchstich am 16.10.2026: zwei Web-Clients mit dieser CSP gegen einen lokalen
+Relay mit Kyber-Pflicht, Anfrage, Annahme, Nachricht und Antwort.
+
 ## Ausliefern
 
     cd /opt/bitdm/secure-messenger/website

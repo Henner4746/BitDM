@@ -32,6 +32,9 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+# libsignal als WASM: legt der Build-Hook des Pakets libsignal bei jedem
+# Web-Bau an (geprueft gegen deploy/webapp/README.md, „Bauen“).
+/web/pkg/
 
 # Symbolication related
 app.*.symbols

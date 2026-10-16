@@ -41,6 +41,9 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <!-- VOR flutter_bootstrap.js und ohne async: libsignal im Browser ohne
+       'unsafe-eval' in der CSP. Begruendung in der Datei selbst. -->
+  <script src="libsignal_ohne_eval.js"></script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
