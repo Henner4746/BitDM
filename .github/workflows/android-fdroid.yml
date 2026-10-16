@@ -168,9 +168,28 @@ jobs:
         with:
           name: android-unsigniert
           path: aus
+      # DASSELBE MUSTER WIE IN linux.yml, und aus demselben Grund: ein
+      # Job-Output gehoert ueber `env:` ins Skript und nicht als `${{ }}` in
+      # den Text, den die Shell danach auswertet. Hier ist die Lage besser —
+      # der Name entsteht im Schritt „Rezept“, also VOR dem fremden Bau-Code,
+      # und dieser Auftrag hat kein `contents: write`. Trotzdem gleich
+      # umgestellt: wer sich auf „hier kommt der Wert aus einer guten Quelle“
+      # verlaesst, prueft das bei der naechsten Aenderung nicht nachher.
+      - name: APK-Namen pruefen
+        id: pruefen
+        env:
+          APK: ${{ needs.bauen.outputs.apk }}
+        run: |
+          if [[ ! $APK =~ ^bitdm-[0-9]+\.[0-9]+\.[0-9]+-unsigned\.apk$ ]]; then
+            echo "Unerwarteter APK-Name aus dem Bau-Auftrag." >&2
+            exit 1
+          fi
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
       - name: Pruefsumme nachrechnen
         working-directory: aus
-        run: sha256sum -c "${{ needs.bauen.outputs.apk }}.sha256"
+        env:
+          APK: ${{ steps.pruefen.outputs.apk }}
+        run: sha256sum -c "$APK.sha256"
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
-          subject-path: aus/${{ needs.bauen.outputs.apk }}
+          subject-path: aus/${{ steps.pruefen.outputs.apk }}
