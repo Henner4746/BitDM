@@ -316,6 +316,7 @@ const Map<String, Map<String, String>> strings = {
     'attachBroken': "That file did not come through intact. Ask the sender to send it again.",
     'attachNet': 'That did not go through. Check the connection and try again.',
     'attachWeb': 'Files do not work in the browser — that needs the app.',
+    'attachNoPicker': 'There is no file picker on this system — that needs the app for Android, Windows or Linux.',
     'webOnboard': 'Browser version, limited. Without an app password your identity '
         'only lasts until the page is reloaded — after that you get it back with '
         'your 12 words. With an app password it stays in this browser, encrypted. '
@@ -735,6 +736,7 @@ const Map<String, Map<String, String>> strings = {
     'attachBroken': 'Diese Datei ist nicht heil angekommen. Bitte die Gegenstelle, sie noch einmal zu schicken.',
     'attachNet': 'Das ging nicht durch. Prüf die Verbindung und versuch es noch einmal.',
     'attachWeb': 'Dateien gehen im Browser nicht — dafür braucht es die App.',
+    'attachNoPicker': 'Auf diesem System gibt es keine Dateiauswahl — dafür braucht es die App für Android, Windows oder Linux.',
     'webOnboard': 'Browser-Fassung, eingeschränkt. Ohne App-Passwort bleibt deine '
         'Identität nur bis zum Neuladen der Seite — danach holst du sie mit den '
         '12 Wörtern zurück. Mit App-Passwort bleibt sie verschlüsselt in diesem '
