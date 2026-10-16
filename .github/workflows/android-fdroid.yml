@@ -17,12 +17,31 @@
 # ZWEI AUFTRAEGE wie in linux.yml: `bauen` laeuft fremden Code (Gradle, pub,
 # Bau-Hooks) und darf deshalb nur lesen; `beglaubigen` bestaetigt per Sigstore,
 # dass die APK aus diesem Lauf stammt (`gh attestation verify`).
+#
+# SIGNALS LIBSIGNAL KOMMT AUS DER QUELLE (ab 2.0.0). Der Build-Hook des
+# Dart-Pakets `libsignal` wuerde vorgebaute Bibliotheken von GitHub laden und
+# sie nur gegen eine Pruefsummendatei aus demselben Release pruefen. Das Rezept
+# baut sie stattdessen mit fest gepinnter Rust-Toolchain, cargo-ndk und protoc
+# (secure-messenger/fdroid/libsignal-quellbau.sh) und stellt den Hook so um,
+# dass er nur diesen Bau nimmt. Weil das im Rezept steht, macht F-Droids
+# eigener Bauserver genau dasselbe. Der Schritt „libsignal aus der Quelle“
+# prueft danach an der fertigen APK, dass es wirklich diese Bibliotheken sind.
+#
+# GEGENPROBE: Von Hand mit `gegenprobe` gestartet, baut der Workflow dieselbe
+# Quelle zweimal auf getrennten Runnern, und `vergleichen` verlangt zwei
+# bitgleiche APKs. So wird die Reproduzierbarkeit gemessen, bevor F-Droid sie
+# misst. Beglaubigt wird nur der erste Bau.
 name: Android (F-Droid-Bau)
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      gegenprobe:
+        description: 'Zweimal getrennt bauen und auf Bitgleichheit vergleichen'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -33,6 +52,10 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        lauf: ${{ fromJSON(inputs.gegenprobe && '["erster", "zweiter"]' || '["erster"]') }}
     container:
       image: registry.gitlab.com/fdroid/fdroidserver:buildserver-trixie
     env:
@@ -98,6 +121,11 @@ jobs:
           # Nicht still mit einer kaputten Datei weiterlaufen.
           grep -q "^    versionCode: $CODE\$" "$HOME_VAGRANT/metadata/com.bitdm.bitdm.yml"
           grep -q "^    commit: $GITHUB_SHA\$" "$HOME_VAGRANT/metadata/com.bitdm.bitdm.yml"
+          # Das Rezept holt rustup als Srclib (fuer den Quellbau von libsignal).
+          # In fdroiddata liegt die Beschreibung unter srclibs/, hier bringt
+          # das Repo eine Kopie mit.
+          mkdir -p "$HOME_VAGRANT/srclibs"
+          cp quelle/secure-messenger/fdroid/srclibs/rustup.yml "$HOME_VAGRANT/srclibs/"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
@@ -151,9 +179,46 @@ jobs:
           cat "$APK.sha256" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      # DIE BIBLIOTHEK IN DER APK MUSS DIE AUS DEM QUELLBAU SEIN. Gradle strippt
+      # Native-Bibliotheken beim Packen noch einmal, die Datei in der APK ist
+      # also nicht byte-gleich mit der von cargo. elf_pruefen.py vergleicht
+      # deshalb die Build-ID, die libsignal-quellbau.sh setzt und die das
+      # Strippen stehen laesst. Dazu darf der Hook keinen Download-Cache
+      # angelegt haben. Die Groessen je ABI kommen in die Zusammenfassung.
+      - name: libsignal aus der Quelle
+        env:
+          APK: ${{ steps.raus.outputs.apk }}
+        run: |
+          set -eu
+          APP_DIR=$HOME_VAGRANT/build/com.bitdm.bitdm/secure-messenger/app
+          if find "$APP_DIR/.dart_tool" -name .download-complete -path '*libsignal*' | grep .; then
+            echo "::error::Der libsignal-Hook hat doch eine Binaerdatei heruntergeladen."
+            exit 1
+          fi
+          rm -rf apk-libs && mkdir apk-libs
+          unzip -q "aus/$APK" 'lib/*' -d apk-libs
+          {
+            echo '### Native Bibliotheken je ABI (Byte, unkomprimiert in der APK)'
+            echo '| ABI | liblibsignal_frb.so | alle .so der ABI |'
+            echo '|---|---:|---:|'
+          } >> "$GITHUB_STEP_SUMMARY"
+          for paar in arm64-v8a:aarch64-linux-android armeabi-v7a:armv7-linux-androideabi; do
+            abi=${paar%%:*}
+            ziel=${paar#*:}
+            set -- "$APP_DIR"/.pub-cache/hosted/pub.dev/libsignal-*/rust/target/"$ziel"/release/liblibsignal_frb.so
+            if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+              echo "::error::Kein Quellbau fuer $ziel gefunden."
+              exit 1
+            fi
+            python3 -I quelle/secure-messenger/fdroid/elf_pruefen.py --gleich \
+              "apk-libs/lib/$abi/liblibsignal_frb.so" "$1"
+            echo "| $abi | $(stat -c %s "apk-libs/lib/$abi/liblibsignal_frb.so") | $(du -cb "apk-libs/lib/$abi/"*.so | tail -n1 | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "APK gesamt: $(stat -c %s "aus/$APK") Byte" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: android-unsigniert
+          name: ${{ matrix.lauf == 'erster' && 'android-unsigniert' || 'android-gegenprobe' }}
           path: ${{ github.workspace }}/aus/
 
   beglaubigen:
@@ -193,3 +258,49 @@ jobs:
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: aus/${{ steps.pruefen.outputs.apk }}
+
+  # Nur mit `gegenprobe`: zwei Bauten derselben Quelle auf getrennten Runnern
+  # muessen bitgleich sein. F-Droid prueft spaeter genau das, nur mit seinem
+  # eigenen Bau gegen unsere signierte APK. Weichen sie ab, nennt vergleich.py
+  # die Eintraege.
+  vergleichen:
+    needs: bauen
+    if: ${{ inputs.gegenprobe }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: secure-messenger/fdroid
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-unsigniert
+          path: erster
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-gegenprobe
+          path: zweiter
+      - name: Bitgleich?
+        env:
+          APK: ${{ needs.bauen.outputs.apk }}
+        run: |
+          if [[ ! $APK =~ ^bitdm-[0-9]+\.[0-9]+\.[0-9]+-unsigned\.apk$ ]]; then
+            echo "Unerwarteter APK-Name aus dem Bau-Auftrag." >&2
+            exit 1
+          fi
+          echo '### Gegenprobe' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sha256sum "erster/$APK" "zweiter/$APK" | tee -a "$GITHUB_STEP_SUMMARY"
+          if cmp -s "erster/$APK" "zweiter/$APK"; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo '**Bitgleich.**' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 -I secure-messenger/fdroid/vergleich.py "erster/$APK" "zweiter/$APK" \
+            | tee -a "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '**Nicht bitgleich.**' >> "$GITHUB_STEP_SUMMARY"
+          exit 1

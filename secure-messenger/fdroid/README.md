@@ -61,6 +61,31 @@ Telefon bleibt der Windows-Bau, wie er ist.
   und F-Droid wechseln. Fragt der Reviewer danach: das ist die Begründung, und
   umstellbar ist es später mit `VercodeOperation` und `Binaries` je ABI.
 
+## libsignal aus der Quelle (ab 2.0.0)
+
+Signals libsignal kommt als Rust-Bibliothek über das Dart-Paket `libsignal`.
+Dessen Build-Hook würde sie vorgebaut von GitHub laden. Das Rezept baut sie
+stattdessen selbst, im `build:`-Schritt vor `flutter build apk`:
+
+- `libsignal-quellbau.sh` prüft die Pins, installiert Rust 1.99.1 (Srclib
+  `rustup`) und cargo-ndk 4.1.2 und baut arm64 und armv7.
+- `libsignal-hook-quellbau.patch` stellt den Hook so um, dass er für Android
+  nur diesen Bau nimmt und sonst abbricht.
+- `elf_pruefen.py` erkennt die Bibliothek in der fertigen APK an ihrer
+  Build-ID wieder.
+- `srclibs/rustup.yml` ist eine Kopie aus fdroiddata und nur für den
+  eigenen Workflow da.
+
+Begründung, Fundstellen im Hook und alle Fassungen stehen in
+`../docs/LIBSIGNAL-UMSTIEG.md` unter „Bau und Plattformen“.
+**Wer `libsignal` hebt, muss Patch und Hashes im Skript neu machen.** Das
+Skript bricht sonst ab, und das ist gewollt.
+
+Vor dem ersten Tag einer neuen Fassung lohnt die Gegenprobe:
+**Actions → Android (F-Droid-Bau) → Run workflow → `gegenprobe`**. Dann baut der
+Workflow zweimal auf getrennten Runnern, und der Auftrag `vergleichen` sagt,
+ob beide APKs bitgleich sind.
+
 ## Release-Ablauf (Android), ab 1.9.1
 
 1. Fassung in `app/pubspec.yaml` heben (`1.9.1+21`) **und** `appFassung` in

@@ -59,10 +59,64 @@ Versuch: `BitDM-audit-arbeit/werkzeuge/libsignal_spike/bin/spike.dart`, reines D
 - Das Bündel wird größer (≈ 2,5 KB). Die Stückelung trägt bis 64 KiB.
 
 ### Bau und Plattformen
-- **Android, Windows, Linux:** Die Binärdateien lädt der Build-Hook des Pakets und prüft sie per SHA-256.
+- **Android, Release und F-Droid:** Die Bibliothek wird aus der Quelle gebaut, im F-Droid-Rezept selbst. Damit baut F-Droids Server sie genauso. Stand 16.10.2026 auf Zweig `feat/libsignal-quellbau`, Einzelheiten unten.
+- **Windows, Linux und Android-Bauten am eigenen Rechner:** Die Binärdateien lädt weiter der Build-Hook des Pakets. Er prüft sie gegen eine Prüfsummendatei aus demselben GitHub-Release, und das schützt nicht gegen ein ausgetauschtes Release (Befund unten). Für die Linux-Pakete aus `linux.yml` ist das noch offen.
 - **Web:** Das WASM-Modul legt der Build-Hook in `web/pkg/` an (in `.gitignore`, Prüfsummen in `deploy/webapp/README.md`). Die CSP bleibt `script-src 'self' 'wasm-unsafe-eval'`, ohne `'unsafe-eval'`; dafür sorgt `web/libsignal_ohne_eval.js` (siehe „Web-Fassung“ unten). Es geht nur der normale Web-Build, nicht `--wasm`.
-- **F-Droid-Verzeichnis und Reproduzierbarkeit:** Die Rust-Bibliothek wird im Workflow aus der Quelle gebaut (Rust-Toolchain und `protoc`). Die Bitgleichheit wird danach neu gemessen.
-- **Größe:** Die APK wird je ABI um einige MB größer. Das wird gemessen und notiert.
+- **Größe:** Die APK wird um gut 4 MB größer, etwa 2,5 MB für arm64-v8a und 1,7 MB für armeabi-v7a. Gemessen ist das an den vorgebauten Bibliotheken upstream (6,30 und 4,54 MB, gestrippt 2,54 und 1,71 MB). In der APK liegen sie gestrippt und unkomprimiert. Die Werte des eigenen Baus schreibt der Workflow je ABI in die Zusammenfassung.
+
+#### Der Build-Hook von `libsignal` 8.0.0 (Befund vom 16.10.2026)
+
+Untersucht ist `hook/build.dart` aus dem pub-Cache (sha256 `23e12134…f591`). Die Datei ist gleich dem Tag `v8.0.0` upstream. `rust/` im Paket ist gleich dem Tag `libsignal_frb-7.0.0`, aus dem die Binärdateien stammen. Es fehlt nur `.cargo/config.toml`, und die gilt nur für WASM.
+
+| Frage | Antwort | Fundstelle |
+|---|---|---|
+| Woher kommen die Binärdateien? | Aus dem GitHub-Release `libsignal_frb-<Crate-Fassung>`. Die Fassung kommt aus `rust/Cargo.toml` (7.0.0), nicht aus der Paketfassung 8.0.0. Ein Archiv je Ziel, z. B. `libsignal_frb-7.0.0-android-arm64-v8a.tar.gz`. | `main`, Z. 203–247; `_readVersion`, Z. 273; `_resolveAssetInfo`, Z. 629 |
+| Wogegen wird geprüft? | Gegen `libsignal_frb-7.0.0-checksums.sha256` aus **demselben** Release. Das fängt kaputte Downloads ab. Wer das Release austauschen kann, tauscht aber beide Dateien. | `_resolveExpectedChecksum`, Z. 907; `_downloadChecksums`, Z. 957 |
+| Nimmt er einen lokalen Bau? | Nur aus `rust/target/release/`, mit Stempel `.crate-version`, und nur wenn Ziel und Rechner gleich sind. Für Android also nie. Probe: Mit dem unveränderten Hook und einer fertigen `.so` in `rust/target/aarch64-linux-android/release/` lädt er trotzdem herunter (`7.0.0-android-arm64-v8a/.download-complete`). | `_findLocalBuild`, Z. 586–597; Stempelprüfung Z. 157–175 |
+| Gibt es einen Schalter? | Nur `LIBSIGNAL_ALLOW_UNVERIFIED_DOWNLOAD`, und der lockert die Prüfung nur. Unter `flutter build` kommt er nicht einmal an: hooks_runner 1.1.1 (Flutter 3.44.8) gibt Hooks nur eine feste Liste von Umgebungsvariablen weiter, nämlich PATH, HOME, ANDROID_HOME, ANDROID_NDK*, LIBCLANG_PATH, TEMP/TMP, Proxy-Variablen sowie CCACHE_* und NIX_*. Eine Umgebungsvariable als Weiche scheidet damit aus. | Hook Z. 892; `hooks_runner` `build_runner.dart`, Z. 588–622 |
+| Und `.skip_libsignal_hook`? | Schaltet den Hook ganz ab. Dann registriert er gar keine Bibliothek. Upstream braucht die Datei nur intern für `make`. | Z. 121–132 |
+| Die README? | Verspricht, der Hook nehme einen Bau aus `make build` „automatically“. Das gilt nur für den Rechner selbst. `make build-android` (Makefile upstream) legt die Android-Bibliotheken nach `rust/target/<triple>/release/`, also genau dorthin, wo der Hook nie nachsieht. Einen Stempel schreibt es auch nicht. Der Quellbau für Android ist upstream beschrieben, aber nicht angeschlossen. | README Z. 145–147 und 551–600 |
+
+Folge: Ohne Eingriff in den Hook geht es nicht. Verworfen ist, den Download-Cache des Hooks vorzubelegen (`.dart_tool/hooks_runner/shared/libsignal/build/7.0.0-android-*/` mit `.download-complete`). Das hinge am inneren Aufbau von hooks_runner, und änderte der sich, lüde der Hook still wieder herunter.
+
+#### Wie der Quellbau läuft
+
+- **Rezept** `fdroid/com.bitdm.bitdm.yml`: Der sudo-Block installiert zusätzlich `gcc libc6-dev protobuf-compiler`. Der C-Compiler ist für die Bau-Skripte der Crates auf dem Rechner selbst, das F-Droid-Image hat keinen. Dazu kommt das Srclib `rustup@1.29.1`. In `build:` läuft vor `flutter build apk` der Aufruf `bash ../fdroid/libsignal-quellbau.sh $$rustup$$`. Der Bau liegt damit hinter dem Scanner, also löscht `scandelete` nichts davon.
+- **`fdroid/libsignal-quellbau.sh`:**
+  - Prüft zuerst die Pins gegen den Quellstand: `pubspec.lock` (libsignal 8.0.0), Crate 7.0.0, NDK und protoc.
+  - Patcht den Hook, aber nur ausgehend vom geprüften Hash. Danach muss der Hash der umgestellten Fassung herauskommen.
+  - Installiert Rust und prüft den Commit von rustc. Danach `cargo install --locked cargo-ndk`.
+  - Baut `aarch64-linux-android` und `armv7-linux-androideabi` mit `--platform 28` (= minSdk) und `--locked`.
+  - Schreibt Panic-Pfade von Paket, Cargo und rustup auf feste Präfixe um und setzt eine Build-ID.
+  - Schreibt den Stempel `.crate-version` und räumt die Zwischenstände weg.
+- **`fdroid/libsignal-hook-quellbau.patch`:** Für Android nimmt der Hook nur noch `rust/target/<triple>/release/liblibsignal_frb.so`, mit der Stempelprüfung von upstream. Fehlt die Datei, bricht der Bau ab. Ein Rückfall auf den Download ist ausgeschlossen. Probe mit `testCodeBuildHook` gegen den umgestellten Hook, 5 von 5 Fällen grün:
+  - arm64 mit Bau wird genommen, ohne Download-Cache.
+  - armv7 ohne Bau bricht ab.
+  - Ein falscher Stempel bricht ab.
+  - Ein fehlender Stempel bricht ab.
+  - x86_64 bricht ab, statt herunterzuladen.
+- **Workflow** `android-fdroid.yml`:
+  - Legt die Srclib-Beschreibung bereit (`fdroid/srclibs/rustup.yml`, Kopie aus fdroiddata).
+  - Neuer Schritt „libsignal aus der Quelle“. Er vergleicht die Bibliothek in der fertigen APK per Build-ID mit dem Quellbau (`fdroid/elf_pruefen.py`). Gradle strippt beim Packen noch einmal, deshalb taugt der Dateivergleich nicht. Er prüft auch die 16-KiB-Ausrichtung für arm64, verlangt, dass kein Download-Cache des Hooks existiert, und schreibt die Größen je ABI in die Zusammenfassung.
+  - Neue Eingabe `gegenprobe`: Von Hand gestartet, baut der Workflow zweimal auf getrennten Runnern, und der Auftrag `vergleichen` verlangt bitgleiche APKs. Beglaubigt wird nur der erste Bau.
+
+| Werkzeug | Fassung | Woher, wie geprüft |
+|---|---|---|
+| Rust | 1.99.1 (`58cf8f9c35b3…`) | rustup, Profil minimal. Die Teile prüft rustup gegen ihr Manifest, den Commit prüft `rustc -vV`. |
+| rustup | 1.29.1 | Srclib aus fdroiddata, Binärdatei über `RUSTUP_VERSION`. Die `Prepare`-Zeile des Srclibs greift ab 1.29 nicht mehr, daher die Variable. |
+| cargo-ndk | 4.1.2 | `cargo install --locked` von crates.io, wie upstream |
+| protoc | 3.21.12 | Debian trixie `protobuf-compiler` (3.21.12-11+deb13u1). Geprüft wird die protoc-Fassung, nicht das Debian-Paket. |
+| NDK | r28c (28.2.13676358) | `ndk:` im Rezept, `source.properties` geprüft |
+| libsignal | Paket 8.0.0, Crate 7.0.0, Signal v0.105.0 (`4beb029d…`) | Prüfsumme in `pubspec.lock`, `Cargo.lock` mit `--locked` |
+
+Upstream baut anders: rustc 1.99.0, NDK r26d, `--platform 24`, ohne Build-ID. Die eigenen Bibliotheken sind deshalb nicht byte-gleich mit den vorgebauten, und das ist auch nicht das Ziel. Ziel ist, dass zwei Bauten derselben Quelle gleich sind, bei uns und bei F-Droid.
+
+#### Bitgleichheit: Stand
+
+- **Im F-Droid-Image: noch nicht gemessen.** Dafür muss der Zweig auf GitHub liegen. Dann den Workflow „Android (F-Droid-Bau)“ von Hand mit `gegenprobe` starten: Er baut zweimal und vergleicht selbst. Der Push braucht Henriks Ja.
+- **Vorab am Windows-Rechner** (nicht das F-Droid-Image, nur Rust-Teil): siehe Nachtrag unten, sobald gelaufen.
+- Bekannte Risiken für die Gleichheit sind Pfade und Werkzeugfassungen. Pfade schreibt das Skript um, und F-Droid baut ohnehin im selben Pfad (`/home/vagrant/build/com.bitdm.bitdm`). Die Werkzeuge sind oben gepinnt.
+- **Laufzeit:** F-Droid bricht einen Bau nach 2 Stunden ab (Standard `timeout`). Der Rust-Teil kommt zum bisherigen Bau dazu. Liegt der GitHub-Lauf deutlich über einer Stunde, im Rezept `timeout:` setzen.
 
 ## Reihenfolge
 
