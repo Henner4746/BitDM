@@ -129,7 +129,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 
 | Component | State | How that was established |
 |---|---|---|
-| Signal protocol, X3DH + Double Ratchet | working | `libsignal_protocol_dart` 0.8.2 — a pure-Dart port by Mixin, **not Signal's official library, and unaudited**. BitDM builds it from a patched copy in the repository (`secure-messenger/app/third_party/libsignal_protocol_dart/`, see its `BITDM-AENDERUNGEN.md`). X3DH + Double Ratchet, protocol version 3; **no post-quantum key exchange** (no PQXDH, no SPQR) |
+| Signal protocol, PQXDH + Double Ratchet | working (from 2.0.0) | **Signal's official libsignal** (Rust, version 0.105) through the Dart binding [`libsignal`](https://pub.dev/packages/libsignal) 8.0.0. Session setup is **PQXDH with Kyber-1024**; a session without Kyber is impossible. Up to 1.9.x BitDM used `libsignal_protocol_dart`, an unaudited pure-Dart port — see [`docs/LIBSIGNAL-UMSTIEG.md`](secure-messenger/docs/LIBSIGNAL-UMSTIEG.md) |
 | Messages over the relay | working | end-to-end over the live relay |
 | Nearby transport, no network | **proven one direction** | 325 B / 1.35 s between two devices, both offline — the one figure here with no log in the repository; independently witnessed by an ESP32 rig acting as a foreign device |
 | Nearby, second direction | **working** | 26.09.2026: a Galaxy S25 Ultra in *nearby-only* mode sent Signal-encrypted messages on its own to a PC running the real BitDM core over Bluetooth 5.4; the PC decrypted, replied over Bluetooth, and delivery and read receipts came back the same way (`app/test_manuell/pc_kontakt_test.dart`, `tools/pc_kontakt/`) |
@@ -430,21 +430,19 @@ concerned. Two separate bugs in this project had that single root cause.
   cryptography, the protocol, or the implementation. An internal review on
   25.09.2026 found and fixed ~80 issues (CHANGELOG 1.8.1), and an AI-run
   security audit on 16.10.2026 found 63 more, two of them high severity in the
-  Dart port of libsignal (fixed, see below). The way to an external audit is in
+  Dart port of libsignal (gone with 2.0.0, see below). The way to an external audit is in
   [`docs/AUDIT.md`](secure-messenger/docs/AUDIT.md).
-- **The Signal library is a pure-Dart port by Mixin**
-  (`libsignal_protocol_dart`), **not Signal's official library, and
-  unaudited.** It has no published audit, and the audit of 16.10.2026 found two
-  high-severity state-handling bugs in it that a malicious relay could exploit
-  (message replay, session reset, key and IV reuse). BitDM now builds a patched
-  copy from the repository, with a test for each fix:
-  `secure-messenger/app/third_party/libsignal_protocol_dart/BITDM-AENDERUNGEN.md`.
-  Patched is not audited; moving to Signal's official libsignal (Rust, via FFI)
-  is the plan.
-- **No post-quantum key exchange.** The port implements X3DH only. Signal
-  replaced X3DH with PQXDH in 2023 and added a post-quantum ratchet in 2025;
-  "Signal protocol" here means the 2023 state of it. Traffic recorded today
-  stays confidential only as long as X25519 does.
+- **The Dart binding to libsignal has a single maintainer.** Since 2.0.0 the
+  cryptography is Signal's own libsignal (Rust). It reaches Dart through the
+  package `libsignal` 8.0.0 (flutter_rust_bridge, AGPL-3.0), which is young,
+  unaudited and maintained by one person. BitDM pins the exact version; release
+  builds are to compile the Rust library from source. Up to 1.9.x BitDM used a
+  pure-Dart port (`libsignal_protocol_dart`) in which the audit of 16.10.2026
+  found two high-severity state-handling bugs — that is why it was replaced.
+- **Post-quantum session setup (PQXDH), not yet a post-quantum ratchet.**
+  Every new session uses Kyber-1024 (PQXDH). Whether the post-quantum ratchet
+  Signal added in 2025 (SPQR) is active through this binding is not verified
+  yet.
 - **Nearby mode reveals that a BitDM user is near.** The Bluetooth adverts carry
   fixed service identifiers; the content is encrypted, but presence is visible
   to any scanner. Rotating identifiers need testing on real phones first.

@@ -78,3 +78,27 @@ Versuch: `BitDM-audit-arbeit/werkzeuge/libsignal_spike/bin/spike.dart`, reines D
 - **Die Anbindung hat einen einzigen Betreuer.** Deshalb gilt die feste Fassung, der Bau aus der Quelle für Veröffentlichungen und eine einmalige Durchsicht des dünnen Anbindungscodes (`rust/src/api`).
 - **Der Ablauf lässt sich nicht gegen Wiederholung absichern:** Laut Paket kann `markKyberPreKeyUsed` die Entschlüsselung nicht abbrechen. BitDM muss das Ergebnis danach prüfen und die Nachricht verwerfen. Dafür kommt ein Test aus dem LS-1-Nachweis.
 - **Web:** Ein Panic in einem asynchronen Aufruf kehrt laut Paket nie zurück. Die Aufrufe brauchen daher eine Frist.
+
+## Befunde beim Umbau (16.10.2026)
+
+Die Tests gegen die neue Bibliothek haben zwei schwere Eigenheiten der Anbindung und zwei Fehler im Kern gezeigt. Alle vier sind behoben und mit Tests belegt.
+
+1. **Die Anbindung ruft `isTrustedIdentity` nie auf.** Beim Sitzungsaufbau legt sie die Sitzung ab, BEVOR `saveIdentity` laeuft. BitDMs Pruefung „Schluessel ergibt Adresse“ kam damit zu spaet: Ein feindlicher Relay haette unter einer fremden Adresse sein eigenes Buendel ausliefern und mitlesen koennen. Das Bibliotheksverhalten ist in `test/crypto/signal_bibliothek_test.dart` festgehalten, Gruppe „BEFUND 16.10.2026“. Gegenmittel, jedes einzeln getestet:
+   - **Riegel vor libsignal:** `PreKeyBundleBridge.fromRelay` verlangt, dass der Schluessel die `userId` ergibt. `_bauSitzungen` verlangt, dass `userId` die angefragte Adresse ist. `_nimmUmschlagJetzt` rechnet bei jeder Erstnachricht die Absenderadresse aus deren Schluessel nach. Alle drei werfen `FremdeIdentitaet`.
+   - **Schnappschuss** um jeden Sitzungsaufbau: Bei einem Fehler bleibt nichts im Speicher.
+   - **`getIdentity` liefert immer den Schluessel der Adresse**, auch fuer unbekannte Adressen. Damit lehnt libsignal einen fremden Schluessel selbst mit `untrustedIdentity` ab, und zwar bevor eine Sitzung entsteht. `saveIdentity` wirft nicht mehr, denn ein Wurf aus einem Rueckruf wird zur Panic im Rust-Faden, und im Browser kehrt der Aufruf danach nie zurueck.
+   - **Mutationsprobe:** Ohne Riegel und ohne Schnappschuss wird `test/net/fremde_identitaet_test.dart` rot („eine Sitzung mit Mallorys Schluesseln steht unter Doras Adresse“).
+2. **Geraetekennungen nur von 1 bis 127.** `ProtocolAddress` in libsignal 0.105 wirft ausserhalb dieses Bereichs. BitDM vergab fuer Zweitgeraete Zufallszahlen bis 2^31, jedes Zweitgeraet waere also stumm gewesen.
+   - Neue Kennungen kommen jetzt aus 2..127.
+   - Bestehende Zweitgeraete mit groesserer Kennung ziehen beim ersten Verbinden um und melden sich neu an.
+   - Geraete der Gegenstelle ausserhalb des Bereichs werden beim Senden uebersprungen.
+   - Der Relay lehnt Anmeldungen MIT Kyber und einer Kennung ueber 127 ab.
+3. **Einmalschlüssel gingen doppelt zum Relay.** Jede Anmeldung lud alle lokalen Einmalschlüssel hoch, auch solche, die der Relay schon ausgegeben hatte. Er gab sie dann ein zweites Mal aus, und die Erstnachricht des Zweiten scheiterte. Dazu meldete der Relay `prekeys_low` unter 20 Kyber-Schlüsseln, die App füllte erst unter 5 nach und meldete sich bei jedem Verbinden ergebnislos neu an.
+   - Die App merkt sich, bis zu welcher Nummer sie gemeldet hat, und lädt nur Neues hoch. Den vollen Bestand bekommt nur ein Relay, der sie nicht kennt.
+   - `prekeys_low` erzeugt immer einen frischen Satz. Lokal bleiben höchstens 400 EC- und 100 Kyber-Einmalschlüssel.
+   - Belegt in `test/net/prekey_nachschub_test.dart`.
+4. **Doppelversand im Nachversand.** `sendMessage` sendet unabgewartet, und bis zum Ende steht die Nachricht auf „sending“. Kam in diesem Fenster jemand in Reichweite oder verband sich der Relay neu, schickte der Nachversand sie ein zweites Mal. Der Fehler ist älter als der Umstieg, aber mit der Rust-Anbindung wurde das Fenster breit genug, um im Gesamtlauf aufzufallen.
+   - Jetzt gilt ein Sendeversuch je Nachricht und je Ausgangseintrag zur Zeit. Was der Nachversand deshalb überspringt, holt er nach, sobald der laufende Versuch endet.
+   - Belegt in `test/nah/nahweg_test.dart`, „WAEHREND SIE NOCH HINAUSGEHT“. Gegen den alten Kern zeigt der Test zwei Umschläge.
+
+**Offen:** Hat ein Kontakt nur Geraete mit alter App, bleibt die Nachricht auf „wird gesendet“. Die Oberflaeche sagt noch nicht, dass der Kontakt aktualisieren muss. Dafuer braucht der Kontakt ein eigenes Feld.

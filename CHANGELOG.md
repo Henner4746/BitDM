@@ -4,7 +4,25 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
-## 1.9.1 — noch nicht veröffentlicht
+## 2.0.0 — noch nicht veröffentlicht
+
+**Signals offizielle libsignal statt der Dart-Nachbildung.** Bis 1.9.x lief die Verschlüsselung über `libsignal_protocol_dart`, eine nie geprüfte Nachbildung in reinem Dart. Das Sicherheitsaudit vom 16.10.2026 fand darin zwei schwere Fehler in der Zustandsverwaltung. Ab 2.0.0 rechnet Signals eigene Bibliothek (Rust, libsignal 0.105, über das Paket `libsignal` 8.0.0). Plan und Nachweise: [`secure-messenger/docs/LIBSIGNAL-UMSTIEG.md`](secure-messenger/docs/LIBSIGNAL-UMSTIEG.md).
+
+- **Post-Quanten-Sitzungsaufbau (PQXDH, Kyber-1024).** Jede neue Sitzung nutzt ihn; ohne Kyber gibt es keine Sitzung.
+- **Adressen, Chats und Kontakte bleiben.** Dieselben zwölf Wörter ergeben dieselbe Adresse (nachgemessen). Beim ersten Start wird mit jedem Kontakt die Sitzung neu aufgebaut.
+- **Nicht mit 1.9.x verträglich.** Eine App vor 2.0.0 kann keine Sitzung mit 2.0.0 aufbauen und umgekehrt. Beide Seiten müssen aktualisieren.
+- **Signierte Prekeys werden jetzt wöchentlich erneuert** (vorher nie, Audit LS-4).
+- **Über Bluetooth werden keine Einmalschlüssel mehr verschenkt.** Vorher konnte derselbe Schlüssel auch beim Relay ausgegeben werden, und eine Erstnachricht ging still verloren (Audit PR-4).
+- **Keine Nachricht geht mehr doppelt hinaus.** Kam während des Sendens jemand in Bluetooth-Reichweite oder stand die Verbindung wieder, schickte der Nachversand dieselbe Nachricht ein zweites Mal.
+- **Erst festschreiben, dann senden.** Der Sitzungsstand wird gespeichert, bevor eine Nachricht hinausgeht. Ein Absturz genau dazwischen konnte vorher dazu führen, dass ein Nachrichtenschlüssel zweimal benutzt wurde.
+
+**Weitere Behebungen aus dem Audit vom 16.10.2026**
+- Eine „Absage“ oder „Zusage“ eines Kontakts wird nur noch als Antwort auf eine eigene Anfrage angenommen. Vorher konnte jeder Kontakt damit die ganze Unterhaltung löschen bzw. sich ein Fremder selbst zum Kontakt machen (PR-1, PR-2).
+- Unbeantwortete Anfragen von Fremden bekommen keine Bluetooth-Leuchtfeuer mehr (PR-3).
+- Die Anmeldung beim Relay signiert nur noch eine Challenge von genau 32 Byte (KR-2, App-Teil).
+- Linux- und F-Droid-Workflow setzen Werte aus dem Bau-Schritt nicht mehr ungeprüft in Skripte ein (PL-1).
+
+## 1.9.1 — veröffentlicht am 15.10.2026
 
 Behebungen aus der Prüfung vom 14.10.2026 (Quellstand `e5aefdf`), Einzelheiten
 in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE-2026-10-14.md).
