@@ -252,7 +252,7 @@ Jeder Schritt ist ein Commit, jeder einzeln grün.
 
 | Nr. | Inhalt | Art | Gates |
 |---|---|---|---|
-| 0 | Basis prüfen: Die beiden Zweige sind in `feat/libsignal-offiziell` (Henrik führt zusammen). `refactor/main-dart` auf die neue Basis setzen. Zuordnungsskript neu laufen lassen, neue Mitglieder (Geräteabmeldung, Anhangknopf) zuordnen und diesen Plan nachtragen. | Doku | – |
+| 0 | Basis prüfen: `fix/anhangknopf-pc`, `feat/geraeteabmeldung`, `fix/kontaktaufbau` und `fix/nahbereich-anleitung` sind in `feat/libsignal-offiziell` (Henrik führt zusammen; geprüft mit `git merge-base --is-ancestor`). `refactor/main-dart` auf die neue Basis setzen. Zuordnungsskript neu laufen lassen, neue Mitglieder (Geräteabmeldung, Anhangknopf) zuordnen und diesen Plan nachtragen. | Doku | – |
 | 1 | Charakterisierungstests C1–C7 und Mutationsprobe | Test | G1, G5 |
 | 2 | `tool/reine_verschiebung.py` und `tool/namen_pruefen.py` (G2/G3 als Skript) | Werkzeug | G1 |
 | 3 | `Einbrennschutz` nach `oberflaeche/einbrennschutz.dart`, `anzeigeThema` und `bitThema` nach `oberflaeche/app_thema.dart`. `main.dart` exportiert sie. | Verschiebung + Import/Export | G1–G5 |
@@ -322,9 +322,10 @@ extension _Sperre on _HomeState {
    - `fix/nahbereich-anleitung` (`2887796`, +7/−5): `nahHilfeScreen`.
 
    Kommen sie nach der Aufteilung, kann git den Verschiebungen nicht folgen,
-   und die Änderungen müssen von Hand in die neuen Dateien. **Empfehlung:**
-   beide vor Schritt 0 in die Basis nehmen. Alternativ trage ich sie danach
-   von Hand nach.
+   und die Änderungen müssen von Hand in die neuen Dateien.
+   **Entschieden (Henrik, 17.10.2026):** Beide kommen vor Phase 2 mit in die
+   Basis, zusammen mit `fix/anhangknopf-pc` und `feat/geraeteabmeldung`.
+   Schritt 0 prüft, dass alle vier drin sind.
 2. **Keine parallele Arbeit an der Oberfläche während Phase 2.** Jeder Zweig,
    der in der Zeit `main.dart` ändert, bekommt dieselben Konflikte. Am besten
    läuft Phase 2 in einem Zug.
