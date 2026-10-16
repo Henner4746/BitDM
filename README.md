@@ -13,7 +13,7 @@ Your address *is* your public key.**
 |---|---|
 | **Android 9+** | released, signed APK |
 | **Windows x64** | released, unsigned installer and zip |
-| **Linux** | built by CI, not yet launched by anyone |
+| **Linux** | released, tar.gz; tested in a container under Xvfb, not yet on a real desktop |
 | **Web** | runs at [bitdm.net/app](https://bitdm.net/app/), limited |
 
 Most messengers ask for your number first. BitDM asks for nothing. On first
@@ -153,7 +153,7 @@ Along the way that rig also measured something the specs do not make obvious:
 |---|---|---|---|---|
 | **Android 9+** | released, signed APK | Android 12+ | UnifiedPush | app password, fingerprint, device PIN, hardware key |
 | **Windows x64** | released, unsigned installer and zip | no | no — the connection stays open instead | app password |
-| **Linux** | built by CI, not yet launched by anyone | no | no | app password |
+| **Linux** | released, tar.gz; tested in a container under Xvfb, not yet on a real desktop | no | no | app password |
 | **Web** | runs at [bitdm.net/app](https://bitdm.net/app/), limited | no | no | app password |
 
 Nearby, push and three of the four lock factors sit behind an Android platform
@@ -247,8 +247,28 @@ entry.
 `bitdm-linux-x64-1.9.1.tar.gz` on the
 [GitHub release](https://github.com/Henner4746/BitDM/releases/tag/v1.9.1), built
 by [`.github/workflows/linux.yml`](.github/workflows/linux.yml) on Ubuntu 22.04
-from the tagged source; the workflow log prints its sha256. Unpack and run
-`./bitdm`; it needs GTK 3 and libsecret. **Nobody has launched this build yet.**
+from the tagged source.
+
+| What | Value |
+|---|---|
+| **tar.gz** (sha256) | `2b64b92968f0953afff186abd9c6ba682919370efd6db51f417117216c5d0227` |
+
+The release also carries a build attestation:
+`gh attestation verify bitdm-linux-x64-1.9.1.tar.gz -R Henner4746/BitDM`
+checks that the file came out of that workflow for the tag `v1.9.1`.
+
+Unpack and run `./bitdm`. It needs GTK 3, libsecret and an unlocked keyring
+behind it (GNOME Keyring or another Secret Service).
+
+**Tested on 17.10.2026 — in a Debian 13 container under Xvfb, not on a real
+desktop.** This archive (sha256 above), with an unlocked GNOME Keyring: it
+starts, creates an identity, sets an app password, comes back locked after a
+restart, rejects a wrong password, opens with the right one and still shows a
+note to self written before the restart. The test kept it away from
+relay.bitdm.net, so 1.9.1 has not yet sent a message on Linux. Two Linux
+instances of a newer development build did exchange messages over a local
+relay: contact request, accept, both directions, and again after a locked
+restart.
 
 ### Web
 
@@ -465,8 +485,12 @@ concerned. Two separate bugs in this project had that single root cause.
   protection. The relay itself sends no CORS headers; nginx in front of
   relay.bitdm.net allows exactly the origin `https://bitdm.net`, so a web build
   hosted anywhere else cannot register there.
-- **The Linux build has never been launched.** CI builds and publishes it; no
-  one has started it on a real desktop yet.
+- **Linux has only been tested in a container.** Debian 13 under Xvfb
+  (17.10.2026): start, identity, app password and lock work; a development
+  build also sent and received messages over a local relay. Not tested: a real
+  desktop (Wayland, GPU drivers, notifications), other distributions, and 1.9.1
+  itself against relay.bitdm.net. Without an unlocked keyring the window stays
+  empty and shows no error.
 - **The Windows binaries are unsigned** — installer and zip alike.
 - **Groups are limited:** up to 20 members, fan-out over one-to-one sessions
   (no sender keys — reasoning in `docs/FUNKTIONSVERGLEICH.md`).

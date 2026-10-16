@@ -13,7 +13,7 @@ Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 |---|---|
 | **Android 9+** | veröffentlicht, signiertes APK |
 | **Windows x64** | veröffentlicht, unsignierter Installer und Zip |
-| **Linux** | von der CI gebaut, noch von niemandem gestartet |
+| **Linux** | veröffentlicht, tar.gz; im Container unter Xvfb getestet, noch nicht auf einem echten Desktop |
 | **Web** | läuft unter [bitdm.net/app](https://bitdm.net/app/), eingeschränkt |
 
 Die meisten Messenger fragen zuerst nach deiner Nummer. BitDM fragt nach gar
@@ -160,7 +160,7 @@ Beide Seiten brauchen BLE 5.0.
 |---|---|---|---|---|
 | **Android 9+** | veröffentlicht, signiertes APK | Android 12+ | UnifiedPush | App-Passwort, Fingerabdruck, Geräte-PIN, Hardware-Schlüssel |
 | **Windows x64** | veröffentlicht, unsignierter Installer und Zip | nein | nein — die Verbindung bleibt stattdessen offen | App-Passwort |
-| **Linux** | von der CI gebaut, noch von niemandem gestartet | nein | nein | App-Passwort |
+| **Linux** | veröffentlicht, tar.gz; im Container unter Xvfb getestet, noch nicht auf einem echten Desktop | nein | nein | App-Passwort |
 | **Web** | läuft unter [bitdm.net/app](https://bitdm.net/app/), eingeschränkt | nein | nein | App-Passwort |
 
 Nahbereich, Push und drei der vier Sperrfaktoren liegen hinter einem
@@ -255,9 +255,30 @@ legt keinen Autostart-Eintrag an.
 `bitdm-linux-x64-1.9.1.tar.gz` am
 [GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v1.9.1),
 gebaut von [`.github/workflows/linux.yml`](.github/workflows/linux.yml) auf
-Ubuntu 22.04 aus dem markierten Quellcode; das Protokoll des Laufs nennt die
-sha256. Auspacken und `./bitdm` starten; gebraucht werden GTK 3 und libsecret.
-**Gestartet hat diesen Build noch niemand.**
+Ubuntu 22.04 aus dem markierten Quellcode.
+
+| Was | Wert |
+|---|---|
+| **tar.gz** (sha256) | `2b64b92968f0953afff186abd9c6ba682919370efd6db51f417117216c5d0227` |
+
+Am Release hängt außerdem ein Herkunftsnachweis:
+`gh attestation verify bitdm-linux-x64-1.9.1.tar.gz -R Henner4746/BitDM`
+prüft, dass die Datei aus genau diesem Workflow für das Tag `v1.9.1` stammt.
+
+Auspacken und `./bitdm` starten. Gebraucht werden GTK 3, libsecret und
+dahinter ein entsperrter Schlüsselbund (GNOME Keyring oder ein anderer Secret
+Service).
+
+**Getestet am 17.10.2026 — in einem Debian-13-Container unter Xvfb, nicht auf
+einem echten Desktop.** Genau dieses Archiv (sha256 oben), mit entsperrtem
+GNOME Keyring: Es startet, legt eine Identität an, setzt ein App-Passwort,
+kommt nach einem Neustart gesperrt hoch, weist ein falsches Passwort ab, öffnet
+mit dem richtigen und zeigt eine vor dem Neustart geschriebene Notiz an mich
+weiter an. Der Test hielt es von relay.bitdm.net fern; eine Nachricht hat 1.9.1
+unter Linux also noch nicht verschickt. Zwei Linux-Instanzen eines neueren
+Entwicklungsstands haben über einen lokalen Relay Nachrichten ausgetauscht:
+Kontaktanfrage, Annahme, beide Richtungen und noch einmal nach einem gesperrten
+Neustart.
 
 ### Web
 
@@ -489,8 +510,13 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   kein Screenshot-Schutz. Der Relay selbst schickt keine CORS-Kopfzeilen; das
   nginx vor relay.bitdm.net erlaubt genau die Herkunft `https://bitdm.net`, eine
   Web-Fassung auf einem anderen Host kann sich dort also nicht anmelden.
-- **Der Linux-Build wurde noch nie gestartet.** Die CI baut und veröffentlicht
-  ihn; auf einem echten Desktop lief er noch nicht.
+- **Linux ist nur im Container getestet.** Debian 13 unter Xvfb (17.10.2026):
+  Start, Identität, App-Passwort und Sperre funktionieren; ein
+  Entwicklungsstand hat außerdem über einen lokalen Relay Nachrichten gesendet
+  und empfangen. Nicht getestet: ein echter Desktop (Wayland, Grafiktreiber,
+  Benachrichtigungen), andere Distributionen und 1.9.1 selbst gegen
+  relay.bitdm.net. Ohne entsperrten Schlüsselbund bleibt das Fenster leer, ohne
+  Fehlermeldung.
 - **Die Windows-Dateien sind unsigniert** — Installer wie Zip.
 - **Gruppen mit Grenzen:** bis 20 Mitglieder, Verteilung über Einzelsitzungen
   (keine Sender Keys — Begründung in `docs/FUNKTIONSVERGLEICH.md`).
