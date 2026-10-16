@@ -127,23 +127,48 @@ void main() {
     expect(funk.postfachOffen, isFalse);
   });
 
-  test('B: declineRequest laesst das Leuchtfeuer weiterlaufen', () async {
+  test('B: eine offene Anfrage leuchtet nicht, eine abgesagte schon gar '
+      'nicht', () async {
+    // GEAENDERT AM 16.10.2026. Der Fehler, den dieser Test fand, war: nach
+    // `declineRequest` lief das Leuchtfeuer fuer den Abgewiesenen weiter.
+    // Dafuer musste es vorher ueberhaupt laufen — und genau das war die
+    // groessere Luecke: eine EINGEHENDE, nie angenommene Anfrage schaltete
+    // das Leuchtfeuer ein. Wer die Adresse kennt, schickt eine Nachricht und
+    // erkennt das Geraet danach in Funkreichweite wieder. Seit dem
+    // 16.10.2026 nimmt der Nahbereich `incomingPending` nicht mehr auf
+    // (real_messenger_core._nahKontakte).
+    //
+    // Der Test prueft deshalb jetzt beides: dass eine offene Anfrage nicht
+    // leuchtet, und dass auch nach der Absage nichts von ihr erkannt wird.
+    // BERT haelt den Nahbereich dabei am Laufen — ohne einen aktiven Kontakt
+    // funkt die App gar nicht, und dann prueft der zweite Teil nichts.
+    final bert = await Gegenstelle.neu();
+    gegenstellen[bert.adresse] = bert;
+    kern.ablageFuerTest.speichereKontakt(
+        Contact(id: bert.adresse, addedAt: DateTime.now().toUtc()));
     kern.ablageFuerTest.speichereKontakt(Contact(
         id: anna.adresse,
         addedAt: DateTime.now().toUtc(),
         state: ContactState.incomingPending));
     await funkAn();
-    expect(funk.werbungen.last, hasLength(1));
+
+    expect(funk.werbungen.last, hasLength(1),
+        reason: 'genau ein Leuchtfeuer: fuer Bert, nicht fuer Annas offene '
+            'Anfrage');
+    await annaInReichweite();
+    expect(nah.inReichweite, isEmpty,
+        reason: 'eine offene Anfrage darf nicht erkannt werden');
 
     await kern.declineRequest(anna.adresse);
     await kern.nahRuhtFuerTest;
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
-    expect(await kern.getContacts(), isEmpty, reason: 'sie ist weg');
+    expect((await kern.getContacts()).map((k) => k.id), [bert.adresse],
+        reason: 'sie ist weg, Bert nicht');
     await annaInReichweite();
     expect(nah.inReichweite, isEmpty,
         reason: 'eine abgesagte Kontaktanfrage darf nicht weiter erkannt '
-            'werden — und fuer sie wird auch noch geleuchtet');
+            'werden — und fuer sie wird auch nicht geleuchtet');
   });
 
   test('C: nach einem MEHRDEUTIGEN Funkversuch reicht der Relay nach', () async {

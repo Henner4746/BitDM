@@ -541,28 +541,54 @@ void main() {
   });
 
   group('Wer auf dem Empfangsweg dazukommt', () {
-    test('KOMMT IN DEN NAHBEREICH — sonst findet ihn nie jemand', () async {
-      // BOB FUEGT ANNA HINZU, Annas App legt Bob beim Empfangen an. Hier ist
-      // die App Anna.
+    test('KOMMT ERST MIT DER ANNAHME IN DEN NAHBEREICH, nicht schon mit '
+        'seiner Nachricht', () async {
+      // GEAENDERT AM 16.10.2026. Bis dahin pruefte dieser Test das
+      // Gegenteil: dass ein beim Empfangen angelegter Kontakt sofort im
+      // Nahbereich landet, mit der Begruendung „sonst findet ihn nie jemand“.
+      // Das Verfahren laeuft in beide Richtungen, jedes Leuchtfeuer haengt am
+      // gemeinsamen Geheimnis — wer selbst keines aussendet, wird auch nicht
+      // gefunden.
       //
-      // Ohne diesen Schritt kennt Annas Nahbereich Bob nicht: sie sendet kein
-      // Leuchtfeuer fuer ihn aus und erkennt seines nicht. Und weil das
-      // Verfahren in beide Richtungen laeuft — jedes Leuchtfeuer haengt am
-      // gemeinsamen Geheimnis —, findet dann auch Bob sie nicht. Ausgerechnet
-      // fuer den zuletzt hinzugekommenen Kontakt, den, neben dem man am
-      // ehesten steht, taete die ganze Schicht stillschweigend nichts.
+      // Die Begruendung stimmt, die Grenze lag falsch. Ein Eingang legt den
+      // Absender als `incomingPending` an, und das kann JEDER, der die
+      // Adresse kennt. Eine einzige Nachricht genuegte damit, um das
+      // Leuchtfeuer fuer einen Fremden einzuschalten — und ausrechnen kann er
+      // es selbst, aus seinem eigenen Schluessel und der oeffentlichen
+      // Adresse des Empfaengers. Er erkennt das Opfer danach in
+      // Funkreichweite wieder, ohne dass dessen Nutzer je etwas angenommen
+      // hat; bei einer ignorierten Anfrage dauerhaft. Das widerspricht
+      // data.dart („nur wer dich als Kontakt hat, erkennt, dass du es bist“)
+      // und NAHBEREICH.md („Fremde sind unsichtbar — von Bauart“).
+      //
+      // Jetzt gilt: mit der Annahme, nicht mit der Nachricht. Der Kontakt,
+      // neben dem man am ehesten steht, ist danach weiter dabei — nur eben
+      // nach der Einwilligung. Wer diese Grenze verschiebt, macht diesen Test
+      // rot und muss die beiden Texte mit aendern.
       await funkAn();
       expect(funk.werbungen, isEmpty,
           reason: 'noch gibt es keinen Kontakt, fuer den zu werben waere');
 
       await kern.connect();
       await annaSchreibtUeberRelay('erste', 'hallo, ich bin neu');
+      await warteBis(
+          () => kern.ablageFuerTest.verlauf(anna.adresse).isNotEmpty);
+      await kern.nahRuhtFuerTest;
+
+      expect(kern.ablageFuerTest.kontakt(anna.adresse)?.state,
+          ContactState.incomingPending,
+          reason: 'ohne diesen Zustand prueft der Test darunter nichts');
+      expect(funk.werbungen, isEmpty,
+          reason: 'eine offene Anfrage darf kein Leuchtfeuer ausloesen');
+
+      // DIE ANNAHME SCHALTET IHN FREI, und zwar sofort — nicht erst beim
+      // naechsten anderen Anlass.
+      await kern.acceptRequest(anna.adresse);
       await warteBis(() => funk.werbungen.isNotEmpty);
       await kern.nahRuhtFuerTest;
 
       expect(funk.werbungen, isNotEmpty,
-          reason: 'fuer den neuen Kontakt wird kein Leuchtfeuer ausgesendet — '
-              'er ist im Nahbereich gar nicht angekommen');
+          reason: 'nach der Annahme wird fuer sie geworben');
       expect(funk.werbungen.last, hasLength(1));
       // Und die Gegenprobe in der anderen Richtung: ihr Leuchtfeuer steht
       // jetzt auch in der Tabelle.

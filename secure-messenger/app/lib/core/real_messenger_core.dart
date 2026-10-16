@@ -1207,10 +1207,38 @@ class RealMessengerCore implements MessengerCore {
   /// wird fuer ihn ein Leuchtfeuer ausgesendet noch eines von ihm erwartet.
   /// Nur das eine von beiden hiesse: ihn nicht mehr finden, ihm aber weiter
   /// zeigen, wo man ist.
+  ///
+  /// `incomingPending` IST NIE DABEI, und das ist eine Sicherheitsgrenze.
+  ///
+  /// Vorher nahm diese Liste JEDEN Kontakt. Ein Eingang von einem Unbekannten
+  /// legt aber einen Kontakt `incomingPending` mit `zeigtAnwesenheit = true`
+  /// an. Eine einzige Nachricht genuegte damit, und das Geraet sendete ein
+  /// Leuchtfeuer, das der Absender aus seinem eigenen Schluessel und der
+  /// oeffentlichen Adresse des Empfaengers selbst ausrechnen kann —
+  /// Anwesenheitserkennung fuer jeden, der die Adresse kennt, ohne dass die
+  /// Anfrage je angenommen wurde. Bei einer ignorierten Anfrage (Werbe- oder
+  /// Belaestigungspost) blieb das dauerhaft so.
+  ///
+  /// Das widersprach der Zusage in der App („nur wer dich als Kontakt hat,
+  /// erkennt, dass du es bist“, data.dart) und dem Entwurf in
+  /// docs/NAHBEREICH.md („Fremde sind unsichtbar — von Bauart“). Jetzt gilt
+  /// beides wortwoertlich: wer hereinschreibt, bekommt keine Anwesenheit, bis
+  /// der Nutzer die Anfrage annimmt. [acceptRequest] setzt den Nahbereich
+  /// dafuer neu auf.
+  ///
+  /// `outgoingPending` IST DABEI, und zwar bewusst: Diese Adresse hat der
+  /// Nutzer selbst eingetippt oder abgescannt, die Einwilligung liegt also
+  /// vor. Fuer einen Angreifer ist der Zustand nicht erreichbar — er kann
+  /// nicht bewirken, dass jemand IHN hinzufuegt. Ihn auszuschliessen wuerde
+  /// dagegen den Modus „nur in der Naehe“ treffen, in dem genau dieser
+  /// Kontakt erkannt werden muss, bevor irgendetwas laufen kann
+  /// (test/nah/nahweg_test.dart, Gruppe „Nur in der Naehe“).
   List<NahKontakt> _nahKontakte() => [
         for (final k in _chats!.alleKontakte())
           // Die Notizen sind kein Gegenueber, nach dem man suchen koennte.
-          if (k.zeigtAnwesenheit && k.id != myId)
+          if (k.state != ContactState.incomingPending &&
+              k.zeigtAnwesenheit &&
+              k.id != myId)
             NahKontakt(
               adresse: k.id,
               identitaet: BitdmAddress.decode(k.id),
@@ -2475,10 +2503,23 @@ class RealMessengerCore implements MessengerCore {
             refs: [messageId]));
   }
 
+  /// Die Gegenstelle sagt zu: aus UNSERER Anfrage wird ein aktiver Kontakt.
+  ///
+  /// NUR AUS `outgoingPending`. Vorher stand hier „alles ausser active“, und
+  /// damit war auch `incomingPending` dabei — der Zustand eines FREMDEN,
+  /// dessen Anfrage noch auf dem Tisch liegt. Ein Fremder musste also nur
+  /// erst eine Anfrage und gleich danach eine Zusage schicken, um sich selbst
+  /// zum Kontakt zu machen: die Annehmen-/Ablehnen-Karte verschwand, er
+  /// erschien als gewoehnlicher Chat, bekam Lesebestaetigungen und konnte das
+  /// Opfer in beliebige Gruppen stecken (neue Gruppen nimmt der Kern von
+  /// jedem aktiven Kontakt an).
+  ///
+  /// Der Uebergang `incomingPending → active` gehoert allein dem Nutzer und
+  /// passiert ausschliesslich in [acceptRequest].
   void _bestaetigeKontakt(String von) {
     final chats = _chats!;
     final k = chats.kontakt(von);
-    if (k == null || k.state == ContactState.active) return;
+    if (k == null || k.state != ContactState.outgoingPending) return;
     chats.speichereKontakt(k.copyWith(state: ContactState.active));
     _contacts.add(ContactEvent(
         type: ContactEventType.requestAccepted,
@@ -2486,8 +2527,31 @@ class RealMessengerCore implements MessengerCore {
         at: DateTime.now().toUtc()));
   }
 
+  /// Die Gegenstelle sagt ab: UNSERE Anfrage ist damit erledigt.
+  ///
+  /// NUR AUS `outgoingPending`, und das ist der ganze Befund. [entferneKontakt]
+  /// loescht in einer Transaktion Nachrichten BEIDER Seiten, Anhaenge,
+  /// Reaktionen, Stimmen, den Ausgang, den Kontakt samt lokalem Namen und
+  /// „verifiziert“ — und seine Stimme bei der Fernloeschung. Ohne
+  /// Zustandspruefung konnte das JEDER Kontakt jederzeit ausloesen, auch ein
+  /// langst angenommener: eine einzige Steuernachricht, und der gesamte
+  /// Verlauf auf dem Geraet des Gegenuebers war weg, ausdruecklich auch
+  /// dessen eigene Nachrichten. Das umgeht die Regel „nur eigene
+  /// Nachrichten, nur binnen 24 Stunden“ des Widerrufs und ist genau die
+  /// Beweisvernichtung, die Betroffene am haertesten trifft.
+  ///
+  /// In jedem anderen Zustand wird die Absage still verworfen. Wer eine
+  /// Unterhaltung beenden will, tut das bei sich; er kann es nicht beim
+  /// anderen tun.
   void _lehnteAb(String von) {
-    _chats!.entferneKontakt(von);
+    final chats = _chats!;
+    final k = chats.kontakt(von);
+    if (k == null || k.state != ContactState.outgoingPending) return;
+    final weg = chats.entferneKontakt(von);
+    // Die Anhangdateien mit, wie in [removeContact] und [declineRequest].
+    // Bis hierher wurde die Rueckgabe verworfen, und die (ruhend
+    // verschluesselten) Dateien blieben verwaist liegen.
+    unawaited(_loescheDateien(weg.dateien));
     _contacts.add(ContactEvent(
         type: ContactEventType.requestDeclined,
         contactId: von,
@@ -2600,6 +2664,12 @@ class RealMessengerCore implements MessengerCore {
     unawaited(_versucheZuSenden(contactId,
         Payload.control(PayloadKind.contactAccept, _neueId(),
             DateTime.now().toUtc())));
+    // DER NAHBEREICH MUSS HIER NEU AUFSETZEN, seit er nur noch aktive
+    // Kontakte nimmt (siehe [_nahKontakte]). Vorher war ein Kontakt schon
+    // als offene Anfrage dabei, und die Annahme aenderte am Funk nichts.
+    // Jetzt kommt er genau mit dieser Zusage hinzu — ohne diese Zeile erst
+    // beim naechsten anderen Anlass, etwa dem naechsten Eingang.
+    await _richteNaheEin();
   }
 
   @override
