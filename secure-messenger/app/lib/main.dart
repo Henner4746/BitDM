@@ -687,6 +687,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       FocusManager.instance.addListener(_fokusNachfassen);
     }
     _setzeMeldetexte();
+    _starte();
+  }
+
+  /// Startet den Zustand und waehlt danach den ersten Bildschirm — beim
+  /// Oeffnen und ueber "Erneut versuchen", wenn der Schluesselspeicher zu war
+  /// (AppState.schluesselspeicherZu).
+  void _starte() {
     st.boot().then((_) {
       if (!mounted) return;
       // Wer schon eine Identitaet hat, sieht das Onboarding nicht wieder.
@@ -1233,7 +1240,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ),
       );
   List<Color> get avp => _schriftThema.avatar;
-  String t(String k) => strings[lang]![k] ?? k;
+  /// Am Rechner und im Browser "Geraet" statt "Telefon" — siehe
+  /// [geraetErsetzungen] in data.dart.
+  String t(String k) => textFuer(lang, k);
 
   @override
   void dispose() {
@@ -4196,7 +4205,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   }
 
   Widget buildScreen() {
-    if (!st.bereit) return const SizedBox.shrink();
+    if (!st.bereit) {
+      return st.schluesselspeicherZu
+          ? schluesselspeicherScreen()
+          : const SizedBox.shrink();
+    }
     // Die Sperre kommt VOR allem anderen. Es gibt eine Identitaet, der
     // gesicherte Bereich des Geraets ruecke sie nur noch nicht heraus.
     if (st.gesperrt) return gesperrtScreen();
@@ -4399,6 +4412,47 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           Expanded(child: Text(s, style: mono(size: 12, color: p.dim))),
         ]),
       );
+
+  /// Der Schluesselspeicher des Systems war beim Start nicht zu lesen
+  /// (AppState.schluesselspeicherZu) — unter Linux ein gesperrter oder gar
+  /// nicht laufender Schluesselbund.
+  ///
+  /// NUR "Erneut versuchen", kein Anlegen und kein Wiederherstellen: ob es
+  /// eine Identitaet gibt, ist gerade unbekannt. Das Onboarding saehe aus, als
+  /// waere sie weg.
+  Widget schluesselspeicherScreen() {
+    final aufLinux = !kIsWeb && defaultTargetPlatform == TargetPlatform.linux;
+    final laeuft = st.startetGerade;
+    return SingleChildScrollView(
+      key: const ValueKey('schluesselspeicher-zu'),
+      padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 40),
+          h2(t('keyStoreTitle')),
+          const SizedBox(height: 8),
+          Text(t(aufLinux ? 'keyStoreLinux' : 'keyStoreOther'),
+              style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
+          const SizedBox(height: 22),
+          _hinweisKasten(t('keyStoreSafe'), warnend: false),
+          const SizedBox(height: 14),
+          outlineBtn(
+              t(laeuft ? 'keyStoreTrying' : 'keyStoreRetry'),
+              laeuft
+                  ? null
+                  : () {
+                      _starte();
+                      // boot() traegt sich sofort als laufend ein; neu
+                      // zeichnen, damit der Knopf das zeigt.
+                      setState(() {});
+                    },
+              padding: const EdgeInsets.all(13),
+              weight: FontWeight.w500),
+        ],
+      ),
+    );
+  }
 
   /// Wartet darauf, dass ein Faktor das Fach oeffnet.
   ///

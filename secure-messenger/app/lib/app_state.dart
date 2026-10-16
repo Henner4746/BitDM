@@ -164,6 +164,23 @@ class AppState extends ChangeNotifier {
   /// der gesicherte Bereich des Geraets ruecke sie nur noch nicht heraus.
   bool gesperrt = false;
 
+  /// Ob der Schluesselspeicher des Systems beim letzten [boot] nicht zu lesen
+  /// war — unter Linux ein gesperrter oder gar nicht laufender Schluesselbund.
+  ///
+  /// Dann ist UNBEKANNT, ob es eine Identitaet gibt. [bereit] bleibt deshalb
+  /// false: kein Onboarding (dort liesse sich eine zweite Identitaet anlegen),
+  /// keine Chatliste, nichts, was am fertigen Start haengt. Die Oberflaeche
+  /// zeigt nur die Meldung und "Erneut versuchen", also noch einmal [boot].
+  /// Geloescht oder neu angelegt wird in diesem Zustand nichts.
+  ///
+  /// Bis 17.10.2026 flog die Ausnahme unbehandelt aus [boot], und unter Linux
+  /// ohne entsperrten Schluesselbund blieb das Fenster leer, ohne ein Wort.
+  bool schluesselspeicherZu = false;
+
+  /// Ob [boot] gerade laeuft — der Knopf "Erneut versuchen" ruht solange.
+  bool get startetGerade => _bootLauf != null;
+  Future<void>? _bootLauf;
+
   /// Die eingerichteten Faktoren, so wie sie in der Fachdatei stehen.
   ///
   /// Leer heisst: keine Sperre. Die App oeffnet dann ohne Rueckfrage, und die
@@ -173,23 +190,39 @@ class AppState extends ChangeNotifier {
   final _abos = <StreamSubscription<Object?>>[];
   final _zufall = Random();
 
-  Future<void> boot() async {
-    await _ladeFaktoren();
+  /// Liest die Faktoren und oeffnet die Identitaet, wenn es eine gibt.
+  ///
+  /// Darf noch einmal gerufen werden, solange [bereit] false ist ("Erneut
+  /// versuchen"). Ein Aufruf, waehrend schon einer laeuft, wartet auf
+  /// denselben Lauf — ein Doppelklick oeffnet die Datenbank nicht zweimal.
+  Future<void> boot() => _bootLauf ??= _boot();
+
+  Future<void> _boot() async {
     try {
-      hatIdentitaet = await core.initialize();
-      gesperrt = false;
-    } on LockedException {
-      // Es GIBT eine Identitaet, sie liegt nur in einem Fach, das noch
-      // niemand geoeffnet hat. Das ist kein Fehler, sondern der Zweck.
-      hatIdentitaet = true;
-      gesperrt = true;
+      await _ladeFaktoren();
+      try {
+        hatIdentitaet = await core.initialize();
+        gesperrt = false;
+      } on LockedException {
+        // Es GIBT eine Identitaet, sie liegt nur in einem Fach, das noch
+        // niemand geoeffnet hat. Das ist kein Fehler, sondern der Zweck.
+        schluesselspeicherZu = false;
+        hatIdentitaet = true;
+        gesperrt = true;
+        bereit = true;
+        return;
+      } on SchluesselspeicherException {
+        // Der Speicher ist zu, nicht leer — siehe [schluesselspeicherZu].
+        schluesselspeicherZu = true;
+        return;
+      }
+      schluesselspeicherZu = false;
+      if (hatIdentitaet) await _nachIdentitaet();
       bereit = true;
+    } finally {
+      _bootLauf = null;
       notifyListeners();
-      return;
     }
-    if (hatIdentitaet) await _nachIdentitaet();
-    bereit = true;
-    notifyListeners();
   }
 
   Future<void> _ladeFaktoren() async {
