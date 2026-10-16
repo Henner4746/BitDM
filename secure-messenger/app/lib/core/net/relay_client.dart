@@ -162,6 +162,14 @@ class RelayClient {
   final Duration ackTimeout;
   final Duration handshakeTimeout;
 
+  /// Wie lang ein Nonce des Relays zu sein hat, auf das Byte.
+  ///
+  /// Der Server erzeugt `secrets.token_bytes(32)` — bei der WS-Anmeldung und
+  /// bei der Registrierung. Geprueft wird es, weil mit demselben
+  /// Identitaetsschluessel auch Prekeys signiert werden: siehe die
+  /// Begruendung bei `case 'challenge'`.
+  static const int nonceLaenge = 32;
+
   /// Welches Geraet dieser Adresse hier spricht. NULL HEISST GERAET 1.
   ///
   /// ═══════════════ DIE EINE REGEL, DIE DIE UMSTELLUNG TRAEGT
@@ -225,6 +233,14 @@ class RelayClient {
       if (bundle.deviceId != null) 'device_id': bundle.deviceId,
     });
     final nonce = base64.decode(challenge['nonce']! as String);
+    // Dieselbe Pruefung wie bei der WS-Challenge, und aus demselben Grund
+    // (siehe [nonceLaenge]). Hier haengt zwar der Hash des eigenen Buendels
+    // hinten dran, was die Bytes schwer steuerbar macht — aber „schwer“ ist
+    // kein Riegel, und die Pruefung kostet eine Zeile.
+    if (nonce.length != nonceLaenge) {
+      throw const RelayException(
+          'der Server hat eine unzulaessige Challenge geschickt');
+    }
 
     final signatur = Curve.calculateSignature(
       identity.keyPair.getPrivateKey(),
@@ -377,6 +393,40 @@ class RelayClient {
     switch (m['type']) {
       case 'challenge':
         final nonce = base64.decode(m['nonce']! as String);
+        // DIE LAENGE WIRD GEPRUEFT, UND ZWAR HART.
+        //
+        // Hier wird mit dem IDENTITAETSSCHLUESSEL signiert, und zwar mit
+        // derselben Funktion, die auch die signierten Prekeys signiert. Ohne
+        // Laengenpruefung ist das ein Signaturorakel: Ein boesartiger Relay
+        // schickt als „Challenge“
+        //   * 33 Byte `0x05 ‖ K` und bekommt eine gueltige
+        //     Signed-Prekey-Signatur fuer einen Schluessel K, dessen privaten
+        //     Teil er selbst kennt (key_helper signiert genau diese 33 Byte),
+        //   * 64 Byte `nonce ‖ sha256(bundle)` und bekommt eine gueltige
+        //     Registrierungssignatur fuer ein selbst gewaehltes Buendel.
+        // Mitlesen kann er damit nicht — X3DH braucht zusaetzlich
+        // DH(EK_A, IK_B) —, aber er kann sich gegenueber anderen Relays als
+        // der Nutzer ausgeben und untergeschobene Prekeys verteilen.
+        //
+        // 32 Byte ist, was der Server schickt (`secrets.token_bytes(32)`).
+        // Alles andere ist kein Nonce, sondern ein Versuch.
+        //
+        // DAS IST DIE HAELFTE DER BEHEBUNG. Die andere ist ein fester
+        // Kontext in der Signatur („BitDM-ws-v1“ ‖ Relay-Host ‖ Adresse ‖
+        // Geraet ‖ nonce). Die braucht eine Aenderung am Server und kommt
+        // getrennt; ohne sie bleibt die Signatur ueber ein 32-Byte-Nonce
+        // eines Relays bei einem anderen Relay verwendbar.
+        if (nonce.length != nonceLaenge) {
+          _events.add(const RelayProtocolError(
+              'Challenge mit unzulaessiger Nonce-Laenge'));
+          if (!angemeldet.isCompleted) {
+            angemeldet.completeError(const RelayException(
+                'der Server hat eine unzulaessige Challenge geschickt'));
+          }
+          // Nichts signieren und die Leitung zumachen.
+          unawaited(close());
+          return;
+        }
         // DIE GERAETEKENNUNG WIRD MITSIGNIERT, sobald sie in der Query steht
         // (Spezifikation §2.2): nonce ‖ uint32be(device_id), also 36 statt 32
         // Byte. Ein Herunterhandeln faellt damit geschlossen aus — streicht
