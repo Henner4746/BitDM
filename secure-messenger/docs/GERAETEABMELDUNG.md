@@ -274,23 +274,42 @@ Adressen ohne Liste laufen wie bisher. `canonical_bytes` bleibt unveraendert.
 
 ### 8.5 Beitritt
 
-Ein Geraet, das nicht in der Liste steht, schickt
-`POST /geraeteliste/beitritt` mit
+**Auf dem vorhandenen Geraet** ("Geraet hinzufuegen") erzeugt die App einen
+**Beitrittscode**: 10 Zufallsbyte, als 16 Zeichen Base32 in vier Gruppen
+angezeigt (`ABCD-EFGH-IJKL-MNOP`), dazu als QR-Code. Er verlaesst dieses
+Geraet nie — auch der Relay sieht ihn nicht — und gilt 10 Minuten fuer genau
+einen Beitritt.
+
+**Das neue Geraet** (Woerter eingegeben, steht nicht in der Liste) bekommt den
+Code eingetippt oder gescannt und schickt `POST /geraeteliste/beitritt` mit
 
 ```
-{"adresse":"…","device_id":37,"info":"…","schluessel":"<GS b64>","v":1,"zeit":…}
+{"adresse":"…","device_id":37,"info":"…","nachweis":"<b64 32>","schluessel":"<GS b64>","v":1,"zeit":…}
 ```
 
-signiert mit beiden Schluesseln (Beitritts-Praefix). Der Identitaetsschluessel
-belegt den Besitz der Woerter (sonst koennte jeder fremde Adressen mit
-Anfragen fluten), der Geraeteschluessel den Besitz des neuen Schluessels. Der
-Relay haelt hoechstens 3 Anfragen je Adresse fuer 10 Minuten und meldet
-verbundenen Mitgliedern `{"type":"beitritt"}`. Mitglieder holen sie mit
-`GET /geraeteliste/<adresse>/beitritte`, pruefen beide Signaturen selbst und
-zeigen den **Vergleichscode**: die ersten 4 Byte von `SHA-256("BitDM-Vergleich-v1\n" ‖ anfrage)`
-als Zahl modulo 10^6, sechsstellig. Das neue Geraet zeigt denselben Code. Erst
-dann laesst das Mitglied zu, indem es eine neue Fassung mit dem Eintrag
-veroeffentlicht.
+`nachweis = HMAC-SHA256(Code, "BitDM-Beitritt-Nachweis-v1
+" ‖ adresse ‖ "
+" ‖ device_id ‖ "
+" ‖ schluessel)`.
+Unterschrieben mit beiden Schluesseln (Beitritts-Praefix): der
+Identitaetsschluessel belegt den Besitz der Woerter (sonst koennte jeder fremde
+Adressen mit Anfragen fluten), der Geraeteschluessel den Besitz des neuen
+Schluessels. Der Relay prueft beide Signaturen und die Form des Nachweises,
+haelt hoechstens 3 Anfragen je Adresse fuer 10 Minuten und meldet verbundenen
+Mitgliedern `{"type":"beitritt"}`.
+
+**Das vorhandene Geraet** holt die Anfragen (`GET /geraeteliste/<adresse>/beitritte`),
+prueft beide Signaturen selbst und laesst **nur** die Anfrage zu, deren
+Nachweis zu seinem Code passt — indem es eine neue Fassung mit dem Eintrag
+veroeffentlicht. Danach ist der Code verbraucht.
+
+**Warum kein Vergleichscode** (erster Entwurf): Anfragen sind oeffentlich, und
+ein sechsstelliger Code aus der Anfrage selbst laesst sich mit den Woertern in
+Sekunden fuer eine eigene Anfrage nachrechnen. Wer dann die echte Anfrage
+verdraengt (hoechstens 3 je Adresse), bekaeme sein Geraet vom Besitzer selbst
+bestaetigt — genau der stille Mitleser, den B verhindern soll. Ein Code, der
+nie das bestaetigende Geraet verlaesst, hat dieses Problem nicht: ohne ihn
+gibt es keinen passenden Nachweis, und 80 Bit lassen sich nicht durchprobieren.
 
 ### 8.6 Abruf
 

@@ -4600,6 +4600,9 @@ def _beitritt(user, geraet_id, gs, *, signer_ik=None, zeit=1760700000):
     import relay_server as rs
     roh = rs.kanonisch({
         "adresse": user["user_id"], "device_id": geraet_id, "info": "",
+        # Der HMAC mit dem Code des bestaetigenden Geraets. Den prueft nur das
+        # Mitglied; dieser Server sieht nur seine Form.
+        "nachweis": b64(os.urandom(32)),
         "schluessel": b64(gs["pub"]), "v": 1, "zeit": zeit})
     nachricht = BEITRITT_PRAEFIX_T + roh.encode()
     return rs.BeitrittRequest(

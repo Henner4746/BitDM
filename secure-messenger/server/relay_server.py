@@ -2006,11 +2006,17 @@ def lies_beitritt(roh: str, sig_identitaet: str, sig_geraet: str) -> Beitritt:
     dass der Anfragende den Schluessel hat, den er eingetragen haben will.
     """
     obj = _lies_kanonisch(
-        roh, {"adresse", "device_id", "info", "schluessel", "v", "zeit"})
+        roh, {"adresse", "device_id", "info", "nachweis", "schluessel", "v", "zeit"})
     if not _adresse_kanonisch(obj["adresse"]):
         raise HTTPException(400, "adresse ungueltig")
     if not _ganzzahl(obj["device_id"], 1, LIBSIGNAL_GERAET_MAX):
         raise HTTPException(400, "device_id 1..127")
+    # Der Nachweis: HMAC mit dem Code, den das bestaetigende Geraet anzeigt
+    # (§8.5). Dieser Server kennt den Code nicht und kann ihn nicht pruefen —
+    # nur die Form. Pruefen tut das Mitglied, und nur so ist eine Anfrage, die
+    # jemand mit den Woertern dazwischenschiebt, von der echten zu
+    # unterscheiden.
+    _schluessel_32(obj["nachweis"], "nachweis")
     if not _ganzzahl(obj["zeit"], 0, EPOCHE_MAX):
         raise HTTPException(400, "zeit ungueltig")
     if not isinstance(obj["info"], str) or len(obj["info"]) > GERAETE_INFO_MAX:
