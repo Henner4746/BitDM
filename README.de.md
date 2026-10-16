@@ -170,6 +170,14 @@ vier Faktoren an, von denen drei nicht funktionieren konnten, und einer davon
 sprach auf einem PC von "der PIN, dem Muster oder dem Passwort dieses
 Telefons".
 
+Bei den Anhängen ging es andersherum, und erst mit 2.0.0. Bis 1.9.x stand
+„Datei anhängen“ am PC da und tat nichts: die Dateiauswahl gab es nur unter
+Android, und der Aufruf scheiterte still. Seit 2.0.0 tragen die Startprogramme
+für Windows und Linux denselben Kanal (`windows/runner/datei_kanal.cpp`,
+`linux/runner/datei_kanal.cc`); Dateien aussuchen, schicken und öffnen geht
+dort also auch. In der Web-Fassung ist der Menüpunkt ausgegraut und sagt,
+warum.
+
 
 **Funktionen neben dem Kern** — Antworten, Reaktionen, Bearbeiten, Für alle
 löschen, Umfragen, Gruppen (bis 20), Sprachnachrichten (Android), geplante und

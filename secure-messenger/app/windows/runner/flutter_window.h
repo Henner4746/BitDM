@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include "datei_kanal.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -34,6 +35,9 @@ class FlutterWindow : public Win32Window {
   // Kanal "bitdm/fenster" — auf Windows nur die Screenshot-Sperre. Die
   // Gegenstelle ist lib/core/fenster.dart.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> fenster_kanal_;
+
+  // Kanal "bitdm/dateien" — Dateiauswahl und Oeffnen, siehe datei_kanal.cpp.
+  std::unique_ptr<DateiKanal> datei_kanal_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

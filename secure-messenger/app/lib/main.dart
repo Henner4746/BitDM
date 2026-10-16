@@ -1864,21 +1864,34 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
       builder: (ctx) {
-        Widget eintrag(String text, VoidCallback tun) => InkWell(
-              onTap: () {
-                Navigator.pop(ctx);
-                tun();
-              },
+        // [tun] null: abgeschaltet — grau und ohne Wirkung.
+        Widget eintrag(String text, VoidCallback? tun) => InkWell(
+              onTap: tun == null
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      tun();
+                    },
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                child: Text(text, style: mono(size: 13.5, color: p.ink)),
+                child: Text(text, style: mono(size: 13.5, color: tun == null ? p.dim : p.ink)),
               ),
             );
+        // ABGESCHALTET MIT GRUND statt eines Punkts, der auf Druck nichts tut
+        // (so war es am PC bis 17.10.2026). Heute nur noch im Browser.
+        final fehlt = st.dateien.auswahlFehlt;
         return SafeArea(
           child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SizedBox(height: 8),
-            eintrag(t('attach'), () => anhangWaehlen(cid)),
-            eintrag(t('attachOnce'), () => anhangWaehlen(cid, einmal: true)),
+            eintrag(t('attach'), fehlt == null ? () => anhangWaehlen(cid) : null),
+            eintrag(t('attachOnce'), fehlt == null ? () => anhangWaehlen(cid, einmal: true) : null),
+            if (fehlt != null)
+              Padding(
+                key: const ValueKey('anhang-grund'),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Text(fehlt == 'anhangWeb' ? t('attachWeb') : t('attachNoPicker'),
+                    style: mono(size: 11, color: p.muted, height: 1.45)),
+              ),
             eintrag(t('pollNew'), () => _legeUmfrageAn(cid)),
             const SizedBox(height: 6),
           ])),

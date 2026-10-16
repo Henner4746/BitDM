@@ -102,6 +102,15 @@ Zeile mit ✅ ist gebaut UND durch Tests belegt; die Testdatei steht dabei.
   einen Tor-Ausgang. Ohne den Schalter sieht der Relay die IP-Adresse. Bis
   15.10.2026 stand Tor zusätzlich oben unter „bewusst NICHT gebaut“ als
   „Offen“ — überholt seit der dritten Runde.
+- **Anhänge je Plattform:** Aussuchen und Öffnen unter Android, Windows und
+  Linux — am PC erst seit 2.0.0 (`windows/runner/datei_kanal.cpp`,
+  `linux/runner/datei_kanal.cc`). Bis 1.9.x stand „Datei anhängen“ am PC da
+  und tat nichts. Unter Windows geht ein empfangener Anhang vor dem Öffnen
+  durch die Anhangprüfung des Systems (Markierung „aus dem Internet“,
+  Virenscanner). „Speichern unter“ legt am PC in den Download-Ordner. Im
+  Browser ist der Menüpunkt ausgegraut und nennt den Grund.
+  Belegt durch `test/oberflaeche/anhang_knopf_test.dart` und
+  `integration_test/datei_kanal_test.dart`.
 - **Sprachnachrichten:** nur Android. Das Manifest trägt dafür wieder
   `RECORD_AUDIO` (vorher ausdrücklich entfernt) — Begründung dort.
 - **Tipp-Anzeige:** braucht einen Relay mit flüchtigen Rahmen (ab dieser

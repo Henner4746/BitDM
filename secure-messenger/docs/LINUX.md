@@ -500,14 +500,38 @@ Kein Absturz, aber auch kein Hinweis auf eine neue Nachricht. Das liesse sich
 mit einer `LinuxInitializationSettings` beheben, im Unterschied zu allem
 anderen in diesem Abschnitt.
 
-### Anhaenge — verschluesseln ja, aussuchen und oeffnen nein
+### Anhaenge — aussuchen und oeffnen ja (seit 2.0.0)
 
-Die Dateiauswahl laeuft ueber `bitdm/dateien` → `DateiKanal.kt`
-(`lib/core/dateien.dart:103`). Auf Linux antwortet der Kanal mit
-`MissingPluginException`, und die Dart-Seite gibt dann `null` zurueck — der
-Kommentar dort sagt es so: *„Auf dem Entwicklungsrechner gibt es diesen Kanal
-nicht."* Es kann also keine Datei zum Senden ausgewaehlt werden, und
-`Dateien.oeffne` fuer eine empfangene Datei gibt `false`.
+**Bis 1.9.x** lief die Dateiauswahl nur ueber `bitdm/dateien` →
+`DateiKanal.kt`. Auf Linux antwortete der Kanal mit `MissingPluginException`,
+die Dart-Seite gab still `null` zurueck, und „Datei anhaengen" tat auf Druck
+nichts — der Menuepunkt stand trotzdem da. Ebenso „Sicherung einspielen", und
+„Oeffnen" bei einem empfangenen Anhang meldete faelschlich, keine App koenne
+die Datei oeffnen. Unter Windows genauso.
+
+**Seit 2.0.0** gibt es den Kanal auch im Startprogramm:
+`linux/runner/datei_kanal.cc`, eingehaengt in `my_application.cc` (Windows:
+`windows/runner/datei_kanal.cpp`). Damit ist dieser Kanal die Ausnahme zur
+Regel oben — er hat auf Linux eine Gegenseite.
+
+- **Aussuchen** — `GtkFileChooserNative`: in einer Sandbox (Flatpak, Snap)
+  ueber das Portal, sonst der Dialog von GTK. Gewaehlt wird die
+  Originaldatei, kopiert wird nichts. Ein Dateiname, der kein UTF-8 ist, wird
+  abgelehnt — `dart:io` koennte ihn ohnehin nicht oeffnen.
+- **Oeffnen** — `gtk_show_uri_on_window`, also das Standardprogramm des
+  Desktops. HTML, SVG, Skripte gehen stattdessen an das Programm fuer
+  `text/plain`, wie unter Android (`Dateien.aktiverInhalt`, dieselbe Liste wie
+  `AKTIVE_ENDUNGEN` in `DateiKanal.kt`): im Browser liefen Skripte und luden
+  von fremden Servern nach. Die entschluesselte Kopie hat kein
+  Ausfuehrungsrecht.
+- **Speichern unter** — beantwortet der Kanal nicht. `Dateien.speichere` legt
+  die Datei dann in den Download-Ordner (XDG) und sagt, wohin.
+
+Im **Browser** gibt es den Kanal weiterhin nicht. Dort ist „Datei anhaengen"
+ausgegraut und nennt den Grund (`DateiWahl.auswahlFehlt`), statt auf Druck
+nichts zu tun. Belegt durch `test/oberflaeche/anhang_knopf_test.dart` (Weiche
+je Plattform) und `integration_test/datei_kanal_test.dart` (echter Dialog,
+von aussen bedient).
 
 Die **Verschluesselung** der Anhaenge laeuft dagegen weiter:
 `lib/core/anhang/native_krypto.dart` benutzt `bitdm/krypto`, wenn es da ist,

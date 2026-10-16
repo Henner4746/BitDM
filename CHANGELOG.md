@@ -16,6 +16,11 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 - **Keine Nachricht geht mehr doppelt hinaus.** Kam während des Sendens jemand in Bluetooth-Reichweite oder stand die Verbindung wieder, schickte der Nachversand dieselbe Nachricht ein zweites Mal.
 - **Erst festschreiben, dann senden.** Der Sitzungsstand wird gespeichert, bevor eine Nachricht hinausgeht. Ein Absturz genau dazwischen konnte vorher dazu führen, dass ein Nachrichtenschlüssel zweimal benutzt wurde.
 
+**Anhänge am PC.** Bis 1.9.x stand „Datei anhängen“ unter Windows und Linux im Menü und tat auf Druck nichts — die Dateiauswahl gab es nur unter Android. Ebenso „Sicherung einspielen“; „Öffnen“ bei einem empfangenen Anhang meldete fälschlich, keine App könne die Datei öffnen.
+- Unter Windows und Linux öffnet sich jetzt der Dateidialog des Systems. Geschickt wird die Originaldatei, ohne Kopie.
+- Empfangene Anhänge lassen sich am PC öffnen. Unter Windows laufen sie vorher durch die Anhangprüfung des Systems (Markierung „aus dem Internet“, Virenscanner); dann fragt Windows bei Programmen und Skripten nach, und Office öffnet in der geschützten Ansicht. HTML, SVG und Skripte gehen wie unter Android als Text auf.
+- Im Browser ist der Menüpunkt ausgegraut und nennt den Grund, statt nichts zu tun.
+
 **Weitere Behebungen aus dem Audit vom 16.10.2026**
 - Eine „Absage“ oder „Zusage“ eines Kontakts wird nur noch als Antwort auf eine eigene Anfrage angenommen. Vorher konnte jeder Kontakt damit die ganze Unterhaltung löschen bzw. sich ein Fremder selbst zum Kontakt machen (PR-1, PR-2).
 - Unbeantwortete Anfragen von Fremden bekommen keine Bluetooth-Leuchtfeuer mehr (PR-3).

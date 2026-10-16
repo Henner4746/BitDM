@@ -162,6 +162,13 @@ shown and broken: the first Windows build offered four factors of which three
 could not work, and one of them said "the PIN, pattern or password of this
 phone" on a PC.
 
+Attachments went the other way, and only in 2.0.0. Until 1.9.x "Attach file"
+was visible on the PC and did nothing: the file picker was Android-only, and
+the call failed silently. Since 2.0.0 the Windows and Linux runners carry the
+same channel (`windows/runner/datei_kanal.cpp`, `linux/runner/datei_kanal.cc`),
+so choosing, sending and opening files works there too. In the web build the
+entry is greyed out and says why.
+
 
 **Features beyond the core** — replies, reactions, edits, delete for everyone,
 polls, groups (up to 20), voice messages (Android), scheduled and pinned
