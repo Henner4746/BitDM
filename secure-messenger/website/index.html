@@ -45,6 +45,40 @@
   var r = document.documentElement;
   r.setAttribute('data-lang', l);
   r.setAttribute('lang', l);
+
+  /* DAS EIGENE GERAET, HIER OBEN und nicht erst unter dem Download.
+     Der erste Bildschirm zeigt seit der Neuordnung schon den passenden
+     Download-Knopf. Stuende die Erkennung weiter unten, saehe ein
+     Windows-Nutzer auf einem langsamen Geraet kurz den Android-Knopf.
+     Nur die Browserkennung, nichts wird gespeichert oder verschickt.
+     Chromebooks bekommen den Browser: eine APK laesst sich dort nur im
+     Entwicklermodus installieren. Ohne Skript bleibt Android stehen. */
+  try {
+    var ua = navigator.userAgent || '';
+    var p = (navigator.userAgentData && navigator.userAgentData.platform) || '';
+    var tippMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;   // iPad im Desktop-Modus
+    var geraet =
+      /Android/i.test(ua + p)                   ? 'android' :
+      /iPhone|iPad|iPod/.test(ua) || tippMac    ? 'ios' :
+      /Windows/i.test(ua + p)                   ? 'windows' :
+      /CrOS|Chrome OS/i.test(ua + p)            ? 'chromeos' :
+      /Macintosh|Mac OS X|macOS/i.test(ua + p)  ? 'mac' :
+      /Linux|X11/i.test(ua + p)                 ? 'linux' : '';
+    var karte = {android:'android', windows:'windows', linux:'linux',
+                 ios:'web', mac:'web', chromeos:'web'}[geraet];
+    if (karte) {
+      r.setAttribute('data-geraet', geraet);
+      r.setAttribute('data-karte', karte);
+    }
+  } catch (e) {}
+
+  /* Die letzte Nachricht im Chat oben gleitet herein, sobald man ihn sieht.
+     Versteckt wird sie nur, wenn das Skript laeuft und niemand weniger
+     Bewegung wuenscht. Ohne Skript steht sie einfach da. */
+  try {
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+        'IntersectionObserver' in window) r.classList.add('chat-wartet');
+  } catch (e) {}
 })();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -268,15 +302,23 @@
   --ink:#f3f5fe; --body:#cfd3e5; --muted:#9397ab;
   --r-lg:14px; --r:8px; --r-sm:4px; --r-pill:99px;
   --rail:clamp(18px,4vw,56px);
+  /* FLIESSTEXT IN DER SCHRIFT DES SYSTEMS, seit der Neuordnung (17.10.2026).
+     Die App macht es genauso: Doto fuer Anzeigen, Chivo Mono fuer Beschriftungen,
+     Nachrichtentext in der Systemschrift (themen.dart, textSchrift = null:
+     "die liest sich in Saetzen am besten"). Ganze Absaetze in Monospace
+     waren der lauteste Einwand gegen die Seite. Nichts davon wird geladen. */
+  --sans:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --mono:'Chivo Mono',ui-monospace,monospace;
 }
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{
   margin:0; background:var(--ground); color:var(--body);
-  font:400 16px/1.65 'Chivo Mono',ui-monospace,monospace;
+  font:400 17px/1.6 var(--sans);
   -webkit-font-smoothing:antialiased;
   overflow-x:hidden;
 }
+code{font-family:var(--mono); font-size:.88em}
 
 /* ─── Zweisprachigkeit: ohne JavaScript bleibt Englisch sichtbar ───
    !important ist hier kein Notnagel, sondern richtig: Sprachsichtbarkeit ist
@@ -370,6 +412,11 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 }
 .src-link:hover{color:var(--lit)}
 @media (max-width:640px){.src-link{display:none}}
+/* Der Weg zum Download steht in der Kopfleiste, damit er beim Lesen weiter
+   unten nicht verloren geht. Auf dem Telefon fehlt er: dort steht der Knopf
+   im ersten Bildschirm, und die Leiste waere sonst zu voll. */
+.bezel .bezel-dl{width:auto; padding:9px 13px}
+@media (max-width:640px){.bezel .bezel-dl{display:none}}
 
 /* ════════════ Hauptanzeige ════════════ */
 .display-mod{padding:clamp(44px,7vw,88px) 0 clamp(30px,4vw,44px)}
@@ -401,6 +448,7 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 /* Die durchlaufende Zeile: 14 Gruppen a 4 Zeichen */
 #addr{
   display:flex; flex-wrap:wrap; gap:clamp(9px,1.5vw,18px);
+  font-family:var(--mono);   /* erbte bis 17.10.2026 Chivo Mono vom body */
   font-size:clamp(15px,3.4vw,30px);
   word-break:keep-all;
 }
@@ -426,11 +474,129 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
 .regen:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
 .regen:active{background:#101220}
 
-/* ════════════ These ════════════ */
-.thesis{padding:clamp(30px,5vw,54px) 0 clamp(24px,4vw,40px); max-width:68ch}
-.thesis h1{font-size:clamp(26px,5.2vw,46px); margin-bottom:22px}
-.thesis p{font-size:clamp(15px,1.9vw,18px); line-height:1.7; color:var(--body); margin:0 0 16px}
-.thesis strong{color:var(--lit-hi); font-weight:600}
+/* ════════════ Erster Bildschirm ════════════
+   NEU GEORDNET AM 17.10.2026 nach einer Durchsicht von aussen: oben stand
+   eine Schluesselanzeige ueber die volle Breite, der Download begann am
+   Desktop erst an der Unterkante. Jetzt oben, was man davon hat, wie ein
+   Chat aussieht, der Download und der Hinweis auf die Vorabversion. Die
+   Adressanzeige mit Zaehlwerk steht unveraendert weiter unten und eroeffnet
+   dort die Technik.
+   NUR OBEN UND UNTEN polstern: .wrap traegt den seitlichen Rand. */
+.held{display:grid; gap:clamp(30px,4vw,56px); align-items:center;
+  padding-top:clamp(26px,5vw,64px); padding-bottom:clamp(40px,6vw,76px)}
+@media (min-width:960px){.held{grid-template-columns:minmax(0,1fr) minmax(0,480px)}}
+.held .screen{display:block}
+.held h1{font-size:clamp(34px,5.6vw,60px); line-height:1.02; margin:14px 0 22px; text-wrap:balance}
+.held-lede{font-size:clamp(17px,1.7vw,19.5px); line-height:1.6; color:var(--body);
+  max-width:34em; margin:0 0 18px}
+.held-fakten{list-style:none; margin:0 0 26px; padding:0; display:flex; flex-wrap:wrap;
+  gap:8px 18px; font:600 11px/1.4 var(--mono); letter-spacing:.14em;
+  text-transform:uppercase; color:var(--dim)}
+.held-fakten li{display:flex; align-items:center; gap:9px}
+.held-fakten li + li::before{content:''; width:4px; height:4px; border-radius:1px;
+  background:var(--unlit)}
+
+/* Je Geraet ein Knopf. Ohne Skript Android; mit Skript setzt die Erkennung
+   ganz oben data-karte, und genau eine Zeile bleibt sichtbar. */
+.held-dl{display:none; flex-wrap:wrap; align-items:center; gap:10px 14px}
+.held-dl[data-fuer="android"]{display:flex}
+html[data-karte] .held-dl[data-fuer="android"]{display:none}
+html[data-karte="android"] .held-dl[data-fuer="android"],
+html[data-karte="windows"] .held-dl[data-fuer="windows"],
+html[data-karte="linux"] .held-dl[data-fuer="linux"],
+html[data-karte="web"] .held-dl[data-fuer="web"]{display:flex}
+.held-dl .btn{width:auto; padding:15px 22px; font-size:12px}
+.held-andere{font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+  color:var(--muted); text-decoration:none; padding:10px 2px;
+  transition:color .18s cubic-bezier(.33,1,.68,1)}
+.held-andere:hover{color:var(--lit)}
+.held-meta{flex-basis:100%; margin:0; font:400 12px/1.5 var(--mono); color:var(--dim)}
+.held-nur{display:none}
+html[data-geraet="ios"] .held-nur[data-fuer="ios"],
+html[data-geraet="mac"] .held-nur[data-fuer="mac"],
+html[data-geraet="chromeos"] .held-nur[data-fuer="chromeos"]{display:inline}
+
+/* Der Hinweis auf die Vorabversion: in den Farben, mit denen die App selbst
+   Hinweise zeigt (webHinweis in main.dart: tint, tintLine, tintInk). */
+.vorab{margin:26px 0 0; max-width:34em; padding:14px 16px; border-radius:var(--r);
+  background:#2b2741; border:1px solid var(--unlit-deep); color:var(--lit-hi);
+  font-size:15px; line-height:1.55}
+.vorab b{display:block; margin-bottom:5px; font:600 11px/1.3 var(--mono);
+  letter-spacing:.14em; text-transform:uppercase; color:var(--lit)}
+.vorab a{color:var(--lit-hi)}
+
+/* ════════════ Die Chatansicht ════════════
+   EIN NACHBAU, KEIN BILDSCHIRMFOTO. Die Android-App setzt FLAG_SECURE, ein
+   Foto vom Telefon ist schwarz. Darum hier die Oberflaeche aus chatScreen()
+   und msgBubble() in main.dart, Mass fuer Mass: Farben aus palDark
+   (data.dart), Blasen 252 px breit mit 8/2-Ecken, Text 13,5 px in der
+   Systemschrift, Zeit 9,5 px Chivo Mono, "Direkt" als Marke an der Nachricht.
+   Zeigen darf er nur, was die App kann. Die Inhalte sind erfunden; die
+   Fussnote sagt es. Bei einer Aenderung an der Chatansicht der App hier
+   nachziehen. */
+.held-chat{margin:0; padding:clamp(16px,2.4vw,24px)}
+.held-chat .display-head{margin-bottom:16px}
+/* Der Zusatz "Nachbau" faellt hier auch auf dem Telefon nicht weg: er sagt,
+   dass die Inhalte erfunden sind. */
+@media (max-width:520px){.held-chat .display-head .screen:not(.screen-lit){display:block}}
+.app{position:relative; z-index:1; max-width:392px; margin:0 auto; overflow:hidden;
+  background:#161826; border:1px solid var(--line); border-radius:var(--r-lg);
+  color:#e9e9ed; font-family:var(--sans)}
+/* Auf breiten Schirmen etwas groesser als auf dem Telefon, sonst wirkt die
+   App neben der Ueberschrift wie eine Briefmarke. zoom statt transform:
+   es nimmt den Platz mit, den es braucht. */
+@media (min-width:960px){.app{zoom:1.08}}
+.app-kopf{display:flex; align-items:center; padding:8px 17px}
+.app-knopf{flex:none; width:30px; height:30px; display:grid; place-items:center;
+  border:1px solid var(--line); border-radius:8px; color:#9397ab; font-size:15px; line-height:1}
+.app-ident{flex:none; width:32px; height:32px; margin-left:11px; border-radius:8px;
+  overflow:hidden; display:grid; grid-template-columns:repeat(3,1fr)}
+.app-ident i{display:block}
+.app-wer{flex:1; min-width:0; margin-left:8px}
+.app-id{display:block; font:600 14px/1.2 'Doto',monospace; letter-spacing:.8px; color:#e9e9ed}
+.app-unter{display:block; font:400 10px/1.4 var(--mono); letter-spacing:1px; color:#75798c;
+  text-transform:uppercase}
+.app-info{color:var(--lit); font-size:12px}
+.app-strich{height:1px; background:rgba(233,233,237,.14)}
+.app-verlauf{padding:17px 17px 9px; display:flex; flex-direction:column}
+.app-hinweis{margin:0 0 8px; text-align:center; font:400 10.5px/1.5 var(--mono); color:#75798c}
+.blase{align-self:flex-start; max-width:252px; margin:0 0 8px; padding:8px 11px;
+  background:#232532; border-radius:8px 8px 8px 2px}
+.blase.ich{align-self:flex-end; background:#2b2741; border:1px solid var(--unlit-deep);
+  border-radius:8px 8px 2px 8px}
+.blase p{margin:0; font-size:13.5px; line-height:1.4; color:#e9e9ed}
+.blase-fuss{display:flex; justify-content:flex-end; align-items:center; margin-top:3px;
+  font:400 9.5px/1 var(--mono); color:#75798c}
+.direkt{margin-right:6px; padding:4px 5px; border:1px solid var(--unlit-deep); border-radius:4px;
+  font:600 8px/1 var(--mono); letter-spacing:.9px; text-transform:uppercase; color:var(--lit)}
+.haken{margin-left:5px}
+.haken.gelesen{color:var(--lit)}
+.app-eingabe{display:flex; align-items:flex-end; gap:8px; padding:11px 17px 16px;
+  border-top:1px solid rgba(233,233,237,.14)}
+.app-plus{flex:none; width:36px; height:36px; display:grid; place-items:center;
+  border:1px solid var(--line); border-radius:8px; color:#9397ab; font-size:16px; line-height:1}
+.app-feld{flex:1; min-width:0; padding:2px 11px; background:#1c1e2c;
+  border:1px solid var(--line); border-radius:8px;
+  font:400 13.5px/1.4 var(--mono); color:#75798c; white-space:nowrap; overflow:hidden}
+.app-mikro{flex:none; width:36px; height:36px; display:grid; place-items:center;
+  border:1px solid var(--line); border-radius:8px}
+.app-mikro::before{content:''; width:11px; height:11px; border-radius:50%; background:#9397ab}
+.app-senden{flex:none; height:36px; display:grid; place-items:center; padding:0 14px;
+  border:1px solid #9184d9; border-radius:8px;
+  font:600 11px/1 var(--mono); letter-spacing:1.2px; text-transform:uppercase; color:#e9e9ed}
+
+/* Hereingleiten wie in der App (bewegung.dart): 160 ms, easeOutCubic, von
+   der Seite, auf der die Blase steht, um 8 % ihrer Breite und 15 % ihrer
+   Hoehe. Dieselbe Kurve, die diese Seite ueberall benutzt. Nur die letzte
+   Nachricht bewegt sich, auch das wie in der App. */
+html.chat-wartet .blase.zuletzt{opacity:0; transform:translate(-8%,15%)}
+html.chat-wartet .blase.zuletzt.da{opacity:1; transform:none;
+  transition:opacity .16s cubic-bezier(.33,1,.68,1), transform .16s cubic-bezier(.33,1,.68,1)}
+
+/* ════════════ Adresse ════════════ */
+.adresse-text{max-width:66ch; margin-top:clamp(22px,3vw,30px)}
+.adresse-text p{font-size:17px; line-height:1.65; color:var(--body); margin:0 0 14px}
+.adresse-text strong, .held strong{color:var(--lit-hi); font-weight:600}
 
 /* ════════════ Herunterladen ════════════
    Eine Karte je Plattform. Die ERSTE ist die grosse: ohne Skript Android,
@@ -452,13 +618,13 @@ html[data-lang="en"] .toggle::before{transform:translateX(100%)}
   padding:20px; display:flex; flex-direction:column; gap:12px; min-width:0}
 .dl-kopf{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
 .dl h3{font-size:18px}
-.dl-meta{margin:0; font-size:12px; line-height:1.5; color:var(--dim)}
-.dl-text{margin:0; font-size:13px; line-height:1.6; color:var(--muted)}
+.dl-meta{margin:0; font:400 12px/1.5 var(--mono); color:var(--dim)}
+.dl-text{margin:0; font-size:14.5px; line-height:1.6; color:var(--muted)}
 .dl .act{display:flex; flex-direction:column; gap:8px}
 .dl:first-child{grid-column:1/-1; border-color:var(--line); padding:clamp(20px,3vw,30px)}
 .dl:first-child h3{font-size:clamp(22px,3.2vw,28px)}
 .dl:first-child .dl-meta{font-size:13px}
-.dl:first-child .dl-text{font-size:14.5px; color:var(--body); max-width:66ch}
+.dl:first-child .dl-text{font-size:15.5px; color:var(--body); max-width:66ch}
 @media (min-width:640px){
   .dl:first-child .act{flex-direction:row; flex-wrap:wrap}
   .dl:first-child .btn{width:auto; min-width:230px}
@@ -489,7 +655,7 @@ html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
 .fd-qr{width:164px; height:164px; flex:none; border-radius:var(--r-sm); background:#fff}
 .fd-text{display:grid; gap:10px; flex:1 1 240px; min-width:0}
 .pruef-auf .fd .hint{margin:0}
-.fd-adresse{font-size:11.5px; line-height:1.6; color:var(--body); word-break:break-all}
+.fd-adresse{font-size:12px; line-height:1.6; color:var(--body); word-break:break-all}
 /* Breite wie jeder .btn: auf dem Telefon volle Breite, in der grossen Karte
    ab 640 px nur so breit wie noetig — dann linksbuendig statt gestreckt. */
 .fd .fd-kopier{justify-self:start}
@@ -503,10 +669,10 @@ html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
   background:var(--unlit-deep); box-shadow:none}
 .lamp.on{background:var(--lit); box-shadow:0 0 10px rgba(181,171,252,.75)}
 
-.dl-fehlt{margin:16px 0 0; font-size:13px; color:var(--muted)}
+.dl-fehlt{margin:16px 0 0; font-size:14.5px; color:var(--muted)}
 .dl-bescheid{margin-top:clamp(24px,3.4vw,34px); padding-top:clamp(20px,3vw,26px);
   border-top:1px solid var(--line-soft); display:grid; gap:12px; max-width:640px}
-.dl-bescheid p{margin:0; font-size:13.5px; line-height:1.6; color:var(--muted)}
+.dl-bescheid p{margin:0; font-size:15px; line-height:1.6; color:var(--muted)}
 
 .btn{
   display:inline-flex; align-items:center; justify-content:center; gap:9px;
@@ -542,39 +708,50 @@ html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
 .schirme figure{margin:0 auto; max-width:290px}
 .schirme img{display:block; width:100%; height:auto; border-radius:var(--r-lg);
   border:1px solid var(--line)}
-.schirme figcaption{margin:9px 2px 0; font-size:11.5px; line-height:1.55;
+.schirme figcaption{margin:9px 2px 0; font-size:13.5px; line-height:1.55;
   color:var(--muted)}
 .pruef{margin:18px 0 0}
-.pruef dt{margin:14px 0 4px; font-size:11px; letter-spacing:.08em;
+.pruef dt{margin:14px 0 4px; font-family:var(--mono); font-size:11px; letter-spacing:.08em;
   text-transform:uppercase; color:var(--muted)}
-.pruef dd{margin:0; font-size:11.5px; line-height:1.7; color:var(--muted)}
+.pruef dd{margin:0; font:400 12px/1.7 var(--mono); color:var(--muted)}
+.pruef dd code{font-size:1em}
 /* Ein 64-Zeichen-Hash sprengt sonst jedes Telefon und darf darum mitten im
    Zeichen brechen. Der Befehl daneben NICHT: sonst haengt ein einzelnes "b"
    von "bitdm-1.5.1.apk" allein in der naechsten Zeile. Der bricht an Leer-
    zeichen, wie Text das tut. */
 .pruef dd > code:first-child{word-break:break-all}
 .pruef dd{overflow-wrap:break-word}
-.hint{font-size:11.5px; line-height:1.55; color:var(--muted); margin:0}
+.hint{font-size:14px; line-height:1.55; color:var(--muted); margin:0}
 
 /* ════════════ Module ════════════ */
-.mod{border-top:1px solid var(--line-soft); padding:clamp(46px,7vw,86px) 0}
+/* NUR OBEN UND UNTEN, wie beim Download: die Kurzschreibweise `padding:a 0`
+   nahm .wrap bis 17.10.2026 den seitlichen Rand, und auf dem Telefon klebte
+   jeder Technik-Abschnitt am Bildschirmrand. */
+.mod{position:relative;
+  padding-top:clamp(46px,7vw,86px); padding-bottom:clamp(46px,7vw,86px)}
+/* Der Strich ueber jedem Modul liegt innerhalb des Randes, auf derselben
+   Flucht wie der Inhalt (siehe footer.wrap weiter unten). */
+.mod::before{content:''; position:absolute; top:0; left:var(--rail); right:var(--rail);
+  height:1px; background:var(--line-soft)}
 .mod-head{margin-bottom:clamp(24px,3.6vw,38px)}
 .mod-head .screen{display:block; margin-bottom:13px}
 .mod-head h2{font-size:clamp(20px,3.4vw,31px); max-width:22ch}
-.mod-head p{margin:14px 0 0; max-width:64ch; color:var(--muted); font-size:14.5px; line-height:1.7}
+.mod-head p{margin:14px 0 0; max-width:62ch; color:var(--muted); font-size:17px; line-height:1.65}
+/* Freie Absaetze zwischen den Bauteilen eines Moduls */
+.mod > p{max-width:66ch; font-size:16.5px; line-height:1.65}
 
 /* Was der Server sieht — zwei Anzeigen nebeneinander */
 .split{display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
 .pane{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel-2); overflow:hidden}
 .pane-head{display:flex; align-items:center; gap:9px; padding:13px 17px; border-bottom:1px solid var(--line-soft)}
-.pane-body{padding:17px; font-size:13px; line-height:1.75}
+.pane-body{padding:17px; font-size:15px; line-height:1.7}
 .plain{color:var(--lit-hi)}
-.cipher{color:var(--dim); word-break:break-all; font-size:11.5px; line-height:1.8}
+.cipher{color:var(--dim); word-break:break-all; font:400 11.5px/1.8 var(--mono)}
 
 .sees{list-style:none; margin:20px 0 0; padding:0; display:grid; gap:1px;
   border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--line-soft)}
 .sees li{display:flex; align-items:center; gap:12px; padding:13px 17px; background:var(--panel)}
-.sees .what{flex:1; font-size:13.5px; color:var(--body)}
+.sees .what{flex:1; font-size:15px; line-height:1.45; color:var(--body)}
 .sees .verdict{font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.13em; text-transform:uppercase}
 .sees .yes .verdict{color:var(--lit)}
 .sees .no  .verdict{color:var(--muted)}
@@ -584,7 +761,7 @@ html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
 .step{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:19px; position:relative}
 .step .screen{display:block; margin-bottom:11px}
 .step h3{font-size:15px; margin-bottom:9px; color:var(--lit-hi)}
-.step p{margin:0; font-size:13px; line-height:1.65; color:var(--muted)}
+.step p{margin:0; font-size:15px; line-height:1.6; color:var(--muted)}
 
 /* Wiederherstellung: die zwoelf Woerter */
 .words{display:grid; gap:9px; grid-template-columns:repeat(auto-fill,minmax(126px,1fr)); margin-top:6px}
@@ -602,7 +779,7 @@ html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
   font:600 11px/1.5 'Chivo Mono',monospace; letter-spacing:.13em;
   text-transform:uppercase; color:var(--muted)}
 .plate-row dd{margin:0; padding:15px 17px; background:var(--panel);
-  font-size:13.5px; line-height:1.6; color:var(--body)}
+  font-size:15.5px; line-height:1.6; color:var(--body)}
 @media (max-width:560px){
   .plate-row{grid-template-columns:1fr}
   .plate-row dt{border-right:0; border-bottom:1px solid var(--line-soft)}
@@ -613,7 +790,7 @@ html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
 .fact{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:19px}
 .fact .num{font-family:'Doto',monospace; font-weight:700; font-size:clamp(24px,3.6vw,32px);
   color:var(--lit); letter-spacing:.02em; display:block; margin-bottom:9px}
-.fact p{margin:0; font-size:12.5px; line-height:1.6; color:var(--muted)}
+.fact p{margin:0; font-size:14.5px; line-height:1.55; color:var(--muted)}
 
 /* ════════════ Fuss ════════════ */
 /* footer.wrap UND NICHT NUR footer — sonst greift nichts davon.
@@ -634,11 +811,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   border-top:1px solid var(--line-soft); padding-top:clamp(38px,5vw,58px)}
 .foot-col{min-width:170px}
 .foot-col .screen{display:block; margin-bottom:13px}
-.foot-col a{display:block; color:var(--muted); text-decoration:none; font-size:13px;
+.foot-col a{display:block; color:var(--muted); text-decoration:none; font-size:15px;
   padding:4px 0; transition:color .18s cubic-bezier(.33,1,.68,1)}
 .foot-col a:hover{color:var(--lit)}
 .foot-note{margin:34px 0 0; padding-top:22px; border-top:1px solid var(--line-soft);
-  font-size:11.5px; line-height:1.7; color:var(--muted); max-width:74ch}
+  font-size:13.5px; line-height:1.65; color:var(--muted); max-width:74ch}
 
 /* ─── Was auf Zeigen und Druecken antwortet ───
 
@@ -691,12 +868,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
 .faq{display:grid; gap:10px}
 .faq-item{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:0 19px}
 .faq-item summary{cursor:pointer; list-style:none; padding:16px 0; color:var(--ink);
-  font:600 14px/1.45 'Chivo Mono',monospace; display:flex; justify-content:space-between; gap:14px}
+  font:600 16.5px/1.45 var(--sans); display:flex; justify-content:space-between; gap:14px}
 .faq-item summary::-webkit-details-marker{display:none}
-.faq-item summary::after{content:'+'; color:var(--lit); flex:none}
+.faq-item summary::after{content:'+'; color:var(--lit); flex:none; font-family:var(--mono)}
 .faq-item[open] summary::after{content:'–'}
 .faq-item summary:focus-visible{outline:2px solid var(--lit); outline-offset:4px; border-radius:var(--r-sm)}
-.faq-item p{margin:0 0 17px; font-size:13.5px; line-height:1.65; color:var(--body)}
+.faq-item p{margin:0 0 18px; max-width:68ch; font-size:16px; line-height:1.65; color:var(--body)}
 </style>
 </head>
 
@@ -713,6 +890,9 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     <a class="src-link" href="https://github.com/Henner4746/BitDM" rel="noopener">
       <span class="de">Quellcode</span><span class="en">Source</span>
     </a>
+    <a class="btn btn-primary bezel-dl" href="#download">
+      <span class="de">Herunterladen</span><span class="en">Download</span>
+    </a>
     <div class="toggle" role="group" aria-label="Sprache / Language">
       <button type="button" data-set-lang="de" aria-pressed="false">DE</button>
       <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
@@ -722,84 +902,147 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
 
 <main id="top">
 
-  <!-- ═══════════ Hauptanzeige ═══════════ -->
-  <section class="wrap display-mod">
-    <div class="display">
-      <div class="display-head">
-        <span class="screen screen-lit de">Adresse — öffentlicher Schlüssel</span>
-        <span class="screen screen-lit en">Address — public key</span>
-        <span class="rule"></span>
-        <span class="screen de">Beispiel</span>
-        <span class="screen en">Example</span>
-      </div>
+  <!-- ═══════════ Erster Bildschirm ═══════════
+       SEIT DER NEUORDNUNG (17.10.2026) steht hier, was man davon hat, wie ein
+       Chat aussieht, der Download fuer das eigene Geraet und der Hinweis auf
+       die Vorabversion. Vorher fuellten Schluesselanzeige, Generator und eine
+       Erklaerung zur Kryptografie den ersten Bildschirm, und der Download
+       begann am Desktop an der Unterkante. Die Adressanzeige steht jetzt als
+       erstes Technik-Modul unter dem Download. -->
+  <section class="wrap held" aria-labelledby="held-titel">
+    <div class="held-text">
+      <span class="screen screen-lit de">Verschlüsselter Messenger</span>
+      <span class="screen screen-lit en">Encrypted messenger</span>
+      <h1 id="held-titel">
+        <span class="de">Schreiben ohne Telefonnummer</span>
+        <span class="en">Messaging without a phone number</span>
+      </h1>
+      <p class="held-lede">
+        <span class="de">BitDM fragt nicht nach Nummer, E-Mail oder Namen. Ihr
+          tauscht eine Adresse oder einen QR-Code, und jede Nachricht ist
+          Ende-zu-Ende verschlüsselt. Liegen zwei Telefone nah beieinander,
+          kommt sie auch ohne Internet an, über Bluetooth.</span>
+        <span class="en">BitDM does not ask for a number, an e-mail address or a
+          name. You swap an address or a QR code, and every message is
+          end-to-end encrypted. When two phones are close together, it even
+          arrives without internet, over Bluetooth.</span>
+      </p>
+      <ul class="held-fakten">
+        <li><span class="de">Kostenlos</span><span class="en">Free</span></li>
+        <li><span class="de">Quelloffen</span><span class="en">Open source</span></li>
+        <li><span class="de">Ohne Werbung</span><span class="en">No ads</span></li>
+      </ul>
 
-      <!-- DIE ADRESSE STEHT HIER, nicht erst im Skript.
-           Sie war bis zum 26.07.2026 leer: die 56 Zellen entstanden
-           ausschliesslich in build(). Ohne JavaScript zeigte die
-           Hauptanzeige des ersten Bildschirms damit einen leeren Kasten —
-           auf einer Seite, die zwei Abschnitte weiter unten damit wirbt,
-           ohne JavaScript zu funktionieren.
-           Das Skript ersetzt die Zeichen jetzt nur noch. Wer den Knopf
-           drueckt, bekommt eine neue; wer kein JavaScript hat, sieht
-           dieselbe wie jeder andere. Sie ist ein Beispiel und kein
-           Schlüssel — das steht in der Fussnote der Seite. -->
-      <div id="addr" role="img"
-           aria-label="Beispiel einer BitDM-Adresse: 56 Zeichen in 14 Gruppen" data-en-aria-label="Example of a BitDM address: 56 characters in 14 groups"
-        ><span class="grp"><span class="ch">m</span><span class="ch">b</span><span class="ch">m</span><span class="ch">7</span></span><span class="grp"><span class="ch">7</span><span class="ch">4</span><span class="ch">g</span><span class="ch">7</span></span><span class="grp"><span class="ch">o</span><span class="ch">w</span><span class="ch">k</span><span class="ch">l</span></span><span class="grp"><span class="ch">4</span><span class="ch">i</span><span class="ch">q</span><span class="ch">v</span></span><span class="grp"><span class="ch">p</span><span class="ch">i</span><span class="ch">7</span><span class="ch">a</span></span><span class="grp"><span class="ch">w</span><span class="ch">e</span><span class="ch">c</span><span class="ch">f</span></span><span class="grp"><span class="ch">4</span><span class="ch">h</span><span class="ch">y</span><span class="ch">c</span></span><span class="grp"><span class="ch">t</span><span class="ch">o</span><span class="ch">h</span><span class="ch">4</span></span><span class="grp"><span class="ch">z</span><span class="ch">k</span><span class="ch">7</span><span class="ch">y</span></span><span class="grp"><span class="ch">b</span><span class="ch">l</span><span class="ch">r</span><span class="ch">i</span></span><span class="grp"><span class="ch">z</span><span class="ch">l</span><span class="ch">x</span><span class="ch">w</span></span><span class="grp"><span class="ch">y</span><span class="ch">w</span><span class="ch">b</span><span class="ch">o</span></span><span class="grp"><span class="ch">c</span><span class="ch">p</span><span class="ch">g</span><span class="ch">y</span></span><span class="grp"><span class="ch">7</span><span class="ch">c</span><span class="ch">w</span><span class="ch">y</span></span></div>
-
-      <div class="display-foot">
-        <button class="regen" type="button" id="regen">
-          <span class="de">Neu erzeugen</span><span class="en">Generate again</span>
-        </button>
-        <p class="hint" style="margin:0">
-          <span class="de">Kein Konto dahinter. Diese Zeichenkette <em>ist</em> der Schlüssel.
-            Die App erzeugt ihn auf dem Gerät, in einer Zehntelsekunde, ohne einen
-            Server zu fragen.</span>
-          <span class="en">There is no account behind it: this string <em>is</em> the
-            key. The app generates it on the device, in a fraction of a second,
-            without asking any server.</span>
+      <!-- EIN KNOPF JE GERAET, sichtbar ist genau einer (CSS .held-dl,
+           Erkennung ganz oben im Kopf). Dateinamen und Groessen sind dieselben
+           wie in den Karten unter "Herunterladen": BEIM NEUEN RELEASE BEIDE
+           STELLEN nachziehen. -->
+      <div class="held-dl" data-fuer="android">
+        <a class="btn btn-primary" href="bitdm-1.9.1.apk" download>
+          <span class="de">Für Android herunterladen</span><span class="en">Download for Android</span>
+        </a>
+        <a class="held-andere" href="#download"><span class="de">Andere Geräte</span><span class="en">Other devices</span></a>
+        <p class="held-meta">
+          <span class="de">APK, Version 1.9.1, 47 MB, ab Android 9. Auch über F-Droid und Obtainium.</span>
+          <span class="en">APK, version 1.9.1, 47 MB, Android 9 or newer. Also via F-Droid and Obtainium.</span>
         </p>
       </div>
-    </div>
-  </section>
+      <div class="held-dl" data-fuer="windows">
+        <a class="btn btn-primary" href="bitdm-windows-setup-1.9.1.exe" download>
+          <span class="de">Für Windows herunterladen</span><span class="en">Download for Windows</span>
+        </a>
+        <a class="held-andere" href="#download"><span class="de">Andere Geräte</span><span class="en">Other devices</span></a>
+        <p class="held-meta">
+          <span class="de">Installer, Version 1.9.1, 13 MB, x64. Braucht keine Adminrechte.</span>
+          <span class="en">Installer, version 1.9.1, 13 MB, x64. Needs no admin rights.</span>
+        </p>
+      </div>
+      <div class="held-dl" data-fuer="linux">
+        <a class="btn btn-primary" href="https://github.com/Henner4746/BitDM/releases/tag/v1.9.1">
+          <span class="de">Linux-Paket auf GitHub</span><span class="en">Linux package on GitHub</span>
+        </a>
+        <a class="held-andere" href="#download"><span class="de">Andere Geräte</span><span class="en">Other devices</span></a>
+        <p class="held-meta">
+          <span class="de">Version 1.9.1, x64, braucht GTK 3 und libsecret. Ausprobiert hat es noch niemand.</span>
+          <span class="en">Version 1.9.1, x64, needs GTK 3 and libsecret. Nobody has tried it yet.</span>
+        </p>
+      </div>
+      <div class="held-dl" data-fuer="web">
+        <a class="btn btn-primary" href="/app/">
+          <span class="de">Im Browser öffnen</span><span class="en">Open in the browser</span>
+        </a>
+        <a class="held-andere" href="#download"><span class="de">Andere Geräte</span><span class="en">Other devices</span></a>
+        <p class="held-meta">
+          <span class="held-nur" data-fuer="ios"><span class="de">Für das iPhone gibt es keine App. </span><span class="en">There is no iPhone app. </span></span>
+          <span class="held-nur" data-fuer="mac"><span class="de">Für den Mac gibt es keine App. </span><span class="en">There is no Mac app. </span></span>
+          <span class="de">Ohne Installation. Anhänge und Nahbereich fehlen im Browser.</span>
+          <span class="en">Nothing to install. Attachments and nearby mode are missing in the browser.</span>
+        </p>
+      </div>
 
-  <!-- ═══════════ These ═══════════ -->
-  <section class="wrap thesis">
-    <h1>
-      <span class="de">Deine Identität<br>passt in<br>56 Zeichen</span>
-      <span class="en">Your identity<br>fits into<br>56 characters</span>
-    </h1>
-    <p class="de">
-      Die meisten Messenger fragen zuerst nach deiner Telefonnummer. BitDM fragt
-      nach gar nichts. Beim ersten Start erzeugt die App ein Schlüsselpaar. Die
-      Adresse oben ist der öffentliche Teil davon, lesbar kodiert und mit einer
-      Prüfsumme gegen Vertipper.
-    </p>
-    <p class="de">
-      Das hat eine Folge, die man leicht überliest: <strong>ein Server kann dir
-      keinen falschen Schlüssel unterschieben.</strong> Er müsste dafür die
-      Adresse ändern, und die hast du bereits.
-    </p>
-    <p class="de">
-      Verschlüsselt wird mit <strong>libsignal</strong>, derselben Bibliothek,
-      die Signal benutzt, mit <strong>AES 256 Bit</strong> für jede einzelne
-      Nachricht. Was genau darin steckt, steht weiter unten Zeile für Zeile.
-    </p>
-    <p class="en">
-      Most messengers ask for your phone number first. BitDM asks for nothing at
-      all. On first launch the app generates a key pair. The address above is
-      its public half, readably encoded and carrying a checksum against typos.
-    </p>
-    <p class="en">
-      That has a consequence which is easy to miss: <strong>a server cannot slip
-      you the wrong key.</strong> It would have to change the address, and you
-      already have that.
-    </p>
-    <p class="en">
-      The encryption is <strong>libsignal</strong>, the same library Signal
-      uses, with <strong>AES 256-bit</strong> for every single message. What
-      exactly is inside it is spelled out line by line further down.
-    </p>
+      <p class="vorab">
+        <b><span class="de">Vorabversion</span><span class="en">Pre-release</span></b>
+        <span class="de">BitDM ist noch nicht unabhängig geprüft. Hängt deine
+          Sicherheit an der Verschlüsselung, etwa als Journalistin oder unter
+          Überwachung, nimm bis dahin Signal. <a href="#grenzen">Was BitDM nicht kann</a></span>
+        <span class="en">BitDM has not been independently audited yet. If your
+          safety depends on the encryption, for example as a journalist or under
+          surveillance, use Signal until then. <a href="#grenzen">What BitDM cannot do</a></span>
+      </p>
+    </div>
+
+    <!-- DIE CHATANSICHT: Nachbau aus main.dart, siehe CSS ".app". Kontakte
+         heissen in BitDM nicht, sie erscheinen als Kurzadresse und Muster
+         ('noNames' in data.dart). UBLF…5DR5 und das Muster sind aus einer
+         erfundenen Adresse mit bitHash() aus painters.dart gerechnet, wie die
+         App es tut. "Direkt" steht an Nachrichten, die ueber Bluetooth kamen,
+         weil der Relay nicht erreichbar war: darum die Huette ohne Netz. -->
+    <figure class="display held-chat">
+      <figcaption class="display-head">
+        <span class="screen screen-lit de">Ein Chat in der App</span>
+        <span class="screen screen-lit en">A chat in the app</span>
+        <span class="rule"></span>
+        <span class="screen de">Nachbau, Inhalt erfunden</span>
+        <span class="screen en">Replica, made-up content</span>
+      </figcaption>
+      <div class="app">
+        <div class="app-kopf">
+          <span class="app-knopf" aria-hidden="true">‹</span>
+          <span class="app-ident" aria-hidden="true"><i style="background:#9184d9"></i><i style="background:#b5abfc"></i><i style="background:#796cbf"></i><i style="background:#b5abfc"></i><i style="background:#5d5294"></i><i style="background:#796cbf"></i><i style="background:#b5abfc"></i><i style="background:#796cbf"></i><i style="background:#292b31"></i></span>
+          <span class="app-wer">
+            <span class="app-id">UBLF…5DR5</span>
+            <span class="app-unter"><span class="de">Verschlüsselt · Details</span><span class="en">Encrypted · Details</span></span>
+          </span>
+          <span class="app-knopf app-info" aria-hidden="true">i</span>
+        </div>
+        <div class="app-strich"></div>
+        <div class="app-verlauf">
+          <p class="app-hinweis"><span class="de">Screenshot-Schutz aktiv · Ende-zu-Ende verschlüsselt</span><span class="en">Screenshot protection on · End-to-end encrypted</span></p>
+          <div class="blase">
+            <p><span class="de">Wir sind an der Hütte. Wo seid ihr?</span><span class="en">We're at the hut. Where are you?</span></p>
+            <div class="blase-fuss">14:02</div>
+          </div>
+          <div class="blase ich">
+            <p><span class="de">Noch eine halbe Stunde. Ab hier gibt es kaum Netz.</span><span class="en">Half an hour to go. Barely any signal from here on.</span></p>
+            <div class="blase-fuss">14:03<span class="haken gelesen" aria-hidden="true">✓✓</span></div>
+          </div>
+          <div class="blase">
+            <p><span class="de">Wir sehen euch schon vom Fenster aus.</span><span class="en">We can already see you from the window.</span></p>
+            <div class="blase-fuss"><span class="direkt"><span class="de">Direkt</span><span class="en">Direct</span></span>14:29</div>
+          </div>
+          <div class="blase zuletzt">
+            <p><span class="de">Die Suppe steht auf dem Tisch.</span><span class="en">The soup is on the table.</span></p>
+            <div class="blase-fuss"><span class="direkt"><span class="de">Direkt</span><span class="en">Direct</span></span>14:29</div>
+          </div>
+        </div>
+        <div class="app-eingabe" aria-hidden="true">
+          <span class="app-plus">+</span>
+          <span class="app-feld"><span class="de">Nachricht</span><span class="en">Message</span></span>
+          <span class="app-mikro"></span>
+          <span class="app-senden"><span class="de">Senden</span><span class="en">Send</span></span>
+        </div>
+      </div>
+    </figure>
   </section>
 
   <!-- ═══════════ Herunterladen ═══════════
@@ -1081,30 +1324,19 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   </section>
 
   <!-- DAS EIGENE GERAET ZUERST. Steht direkt unter der Sektion und nicht am
-       Dateiende, damit die Reihenfolge feststeht, bevor jemand dorthin scrollt.
-       Nur die Browserkennung, nichts wird gespeichert oder verschickt.
-       Chromebooks bekommen den Browser: eine APK laesst sich dort nur im
-       Entwicklermodus installieren. -->
+       Dateiende, damit die Reihenfolge feststeht, bevor jemand dorthin scrollt. -->
   <script>
   (function () {
-    var ua = navigator.userAgent || '';
-    var p = (navigator.userAgentData && navigator.userAgentData.platform) || '';
-    var tippMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;   // iPad im Desktop-Modus
-    var geraet =
-      /Android/i.test(ua + p)                   ? 'android' :
-      /iPhone|iPad|iPod/.test(ua) || tippMac    ? 'ios' :
-      /Windows/i.test(ua + p)                   ? 'windows' :
-      /CrOS|Chrome OS/i.test(ua + p)            ? 'chromeos' :
-      /Macintosh|Mac OS X|macOS/i.test(ua + p)  ? 'mac' :
-      /Linux|X11/i.test(ua + p)                 ? 'linux' : '';
-    var karte = {android:'android', windows:'windows', linux:'linux',
-                 ios:'web', mac:'web', chromeos:'web'}[geraet];
+    /* Erkannt ist das Geraet schon ganz oben im Kopf (data-karte), weil der
+       erste Bildschirm den passenden Knopf zeigt. Hier wird nur die Karte
+       nach vorn geschoben. */
+    var r = document.documentElement;
+    var karte = r.getAttribute('data-karte');
     if (!karte) return;
     var el = document.querySelector('.dl[data-plattform="' + karte + '"]');
     if (!el) return;
     el.parentNode.insertBefore(el, el.parentNode.firstElementChild);
     el.classList.add('dl-dein');
-    document.documentElement.setAttribute('data-geraet', geraet);
   })();
 
   // "Adresse kopieren" erst zeigen, wenn es die Zwischenablage gibt. Ohne
@@ -1134,23 +1366,109 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   })();
   </script>
 
+  <!-- ═══════════ Adresse ═══════════
+       STAND BIS 17.10.2026 GANZ OBEN, ueber die volle Breite des ersten
+       Bildschirms. Anzeige, Zaehlwerk und Knopf sind unveraendert; das
+       Zaehlwerk laeuft jetzt los, wenn die Anzeige ins Bild kommt, statt
+       beim Laden ungesehen weiter unten. -->
+  <section class="wrap mod" id="adresse">
+    <div class="mod-head">
+      <span class="screen screen-lit de">Modul · Adresse</span>
+      <span class="screen screen-lit en">Module · address</span>
+      <h2>
+        <span class="de">Deine Identität passt in 56 Zeichen</span>
+        <span class="en">Your identity fits into 56 characters</span>
+      </h2>
+    </div>
+    <div class="display">
+      <div class="display-head">
+        <span class="screen screen-lit de">Adresse · öffentlicher Schlüssel</span>
+        <span class="screen screen-lit en">Address · public key</span>
+        <span class="rule"></span>
+        <span class="screen de">Beispiel</span>
+        <span class="screen en">Example</span>
+      </div>
+
+      <!-- DIE ADRESSE STEHT HIER, nicht erst im Skript.
+           Sie war bis zum 26.07.2026 leer: die 56 Zellen entstanden
+           ausschliesslich in build(). Ohne JavaScript zeigte die
+           Hauptanzeige des ersten Bildschirms damit einen leeren Kasten —
+           auf einer Seite, die zwei Abschnitte weiter unten damit wirbt,
+           ohne JavaScript zu funktionieren.
+           Das Skript ersetzt die Zeichen jetzt nur noch. Wer den Knopf
+           drueckt, bekommt eine neue; wer kein JavaScript hat, sieht
+           dieselbe wie jeder andere. Sie ist ein Beispiel und kein
+           Schlüssel — das steht in der Fussnote der Seite. -->
+      <div id="addr" role="img"
+           aria-label="Beispiel einer BitDM-Adresse: 56 Zeichen in 14 Gruppen" data-en-aria-label="Example of a BitDM address: 56 characters in 14 groups"
+        ><span class="grp"><span class="ch">m</span><span class="ch">b</span><span class="ch">m</span><span class="ch">7</span></span><span class="grp"><span class="ch">7</span><span class="ch">4</span><span class="ch">g</span><span class="ch">7</span></span><span class="grp"><span class="ch">o</span><span class="ch">w</span><span class="ch">k</span><span class="ch">l</span></span><span class="grp"><span class="ch">4</span><span class="ch">i</span><span class="ch">q</span><span class="ch">v</span></span><span class="grp"><span class="ch">p</span><span class="ch">i</span><span class="ch">7</span><span class="ch">a</span></span><span class="grp"><span class="ch">w</span><span class="ch">e</span><span class="ch">c</span><span class="ch">f</span></span><span class="grp"><span class="ch">4</span><span class="ch">h</span><span class="ch">y</span><span class="ch">c</span></span><span class="grp"><span class="ch">t</span><span class="ch">o</span><span class="ch">h</span><span class="ch">4</span></span><span class="grp"><span class="ch">z</span><span class="ch">k</span><span class="ch">7</span><span class="ch">y</span></span><span class="grp"><span class="ch">b</span><span class="ch">l</span><span class="ch">r</span><span class="ch">i</span></span><span class="grp"><span class="ch">z</span><span class="ch">l</span><span class="ch">x</span><span class="ch">w</span></span><span class="grp"><span class="ch">y</span><span class="ch">w</span><span class="ch">b</span><span class="ch">o</span></span><span class="grp"><span class="ch">c</span><span class="ch">p</span><span class="ch">g</span><span class="ch">y</span></span><span class="grp"><span class="ch">7</span><span class="ch">c</span><span class="ch">w</span><span class="ch">y</span></span></div>
+
+      <div class="display-foot">
+        <button class="regen" type="button" id="regen">
+          <span class="de">Neu erzeugen</span><span class="en">Generate again</span>
+        </button>
+        <p class="hint" style="margin:0">
+          <span class="de">Kein Konto dahinter. Diese Zeichenkette <em>ist</em> der Schlüssel.
+            Die App erzeugt ihn auf dem Gerät, in einer Zehntelsekunde, ohne einen
+            Server zu fragen.</span>
+          <span class="en">There is no account behind it: this string <em>is</em> the
+            key. The app generates it on the device, in a fraction of a second,
+            without asking any server.</span>
+        </p>
+      </div>
+    </div>
+    <div class="adresse-text">
+      <p class="de">
+        Die meisten Messenger fragen zuerst nach deiner Telefonnummer. BitDM
+        fragt nach gar nichts. Beim ersten Start erzeugt die App ein
+        Schlüsselpaar. Die Adresse oben ist der öffentliche Teil davon, lesbar
+        kodiert und mit einer Prüfsumme gegen Vertipper.
+      </p>
+      <p class="de">
+        Darum <strong>kann dir kein Server einen falschen Schlüssel
+        unterschieben:</strong> Er müsste die Adresse ändern, und die hast du schon.
+      </p>
+      <!-- BIS 17.10.2026 STAND HIER "libsignal, derselben Bibliothek, die
+           Signal benutzt". Das hatte 25dd038 an dieser Stelle uebersehen.
+           BitDM 1.9.x rechnet mit libsignal_protocol_dart. -->
+      <p class="de">
+        Verschlüsselt wird mit dem <strong>Signal-Protokoll</strong>, umgesetzt
+        mit libsignal_protocol_dart, einer Dart-Portierung aus der Gemeinschaft,
+        nicht mit Signals eigener Bibliothek. Jede Nachricht bekommt einen
+        eigenen Schlüssel für <strong>AES mit 256 Bit</strong>. Was genau darin
+        steckt, steht weiter unten Zeile für Zeile.
+      </p>
+      <p class="en">
+        Most messengers ask for your phone number first. BitDM asks for nothing
+        at all. On first launch the app generates a key pair. The address above
+        is its public half, readably encoded and carrying a checksum against typos.
+      </p>
+      <p class="en">
+        So <strong>no server can slip you the wrong key:</strong> it would have
+        to change the address, and you already have it.
+      </p>
+      <p class="en">
+        The encryption is the <strong>Signal protocol</strong>, implemented with
+        libsignal_protocol_dart, a community Dart port, not Signal's own
+        library. Every message gets its own key for <strong>256-bit
+        AES</strong>. What exactly is inside is listed line by line further down.
+      </p>
+    </div>
+  </section>
+
   <!-- ═══════════ Was der Server sieht ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Sichtbarkeit</span>
-      <span class="screen screen-lit en">Module — visibility</span>
+      <span class="screen screen-lit de">Modul · Sichtbarkeit</span>
+      <span class="screen screen-lit en">Module · visibility</span>
       <h2>
         <span class="de">Was der Server sieht</span>
         <span class="en">What the server sees</span>
       </h2>
-      <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Inhalt. Sie schützt
-        nicht, <em>dass</em> du geschrieben hast. Wer das verschweigt, verkauft
-        Sicherheit, statt sie zu liefern; deshalb steht es hier und nicht im
-        Kleingedruckten.</p>
-      <p class="en">End-to-end encryption protects the content. It does not
-        protect the fact <em>that</em> you wrote. Hiding that means selling
-        security instead of delivering it, so it stands here rather than in the
-        fine print.</p>
+      <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Inhalt. <em>Dass</em> du
+        geschrieben hast, sieht der Server trotzdem, und zwar das hier:</p>
+      <p class="en">End-to-end encryption protects the content. The server still sees
+        <em>that</em> you wrote, and this is what it sees:</p>
     </div>
 
     <div class="split">
@@ -1161,8 +1479,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
           <span class="screen screen-lit en">On your device</span>
         </div>
         <div class="pane-body plain">
-          <span class="de">„Treffen wir uns um acht am üblichen Ort?"</span>
-          <span class="en">“Shall we meet at eight, the usual place?”</span>
+          <span class="de">„Wir sind an der Hütte. Wo seid ihr?“</span>
+          <span class="en">“We're at the hut. Where are you?”</span>
         </div>
       </div>
       <div class="pane">
@@ -1188,20 +1506,20 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   <!-- ═══════════ Signalweg ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Ohne Netz</span>
-      <span class="screen screen-lit en">Module — No network</span>
+      <span class="screen screen-lit de">Modul · Ohne Netz</span>
+      <span class="screen screen-lit en">Module · No network</span>
       <h2>
         <span class="de">Wenn es keinen Server gibt</span>
         <span class="en">When there is no server</span>
       </h2>
-      <p class="de">Zwei Telefone, die nebeneinander liegen, brauchen niemanden
-        dazwischen. BitDM findet den anderen über Bluetooth und schickt die
-        Nachricht direkt: kein WLAN, keine Mobilfunkdaten, kein Rechenzentrum.
-        Sie tragen dann ein Zeichen: <strong>direkt</strong>.</p>
-      <p class="en">Two phones lying next to each other need nobody in between.
-        BitDM finds the other over Bluetooth and delivers the message directly:
-        no Wi-Fi, no mobile data, no data centre. Such messages carry a mark:
-        <strong>direct</strong>.</p>
+      <p class="de">Liegen zwei Telefone nah beieinander, findet BitDM das andere über
+        Bluetooth und schickt die Nachricht direkt: ohne WLAN, ohne Mobilfunkdaten,
+        ohne Rechenzentrum. Solche Nachrichten tragen das Zeichen <strong>Direkt</strong>,
+        wie im Chat oben.</p>
+      <p class="en">When two phones are close together, BitDM finds the other over
+        Bluetooth and delivers the message directly: no Wi-Fi, no mobile data, no
+        data centre. Such messages carry the mark <strong>Direct</strong>, as in
+        the chat at the top.</p>
     </div>
 
     <div class="fact">
@@ -1212,36 +1530,31 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </div>
 
     <p>
-      <span class="de">Das Schwierige daran ist nicht das Senden, sondern das
-        <em>Finden</em>. Ein Gerät, das seine Adresse in die Gegend ruft, damit
-        Freunde es erkennen, verrät sie auch allen anderen. Eine Adresse,
-        die man über Tage wiedererkennt, ist ein Bewegungsprofil.</span>
-      <span class="en">The hard part is not the sending, it is the
-        <em>finding</em>. A device broadcasting its address so friends can spot
-        it also hands that address to everyone else. An address you can
-        recognise across days is a movement profile.</span>
+      <span class="de">Schwierig ist das <em>Finden</em>. Ein Gerät, das seine
+        Adresse in die Gegend ruft, verrät sie allen in Reichweite. Und eine
+        Adresse, die man über Tage wiedererkennt, ist ein Bewegungsprofil.</span>
+      <span class="en">The hard part is <em>finding</em> each other. A device that
+        broadcasts its address hands it to everyone in range. And an address you
+        can recognise across days is a movement profile.</span>
     </p>
 
     <p>
-      <span class="de">BitDM sendet darum keine Adresse aus, sondern
-        <strong>Leuchtfeuer</strong>: sechs Byte je Kontakt, berechnet aus dem
-        gemeinsamen Geheimnis und dem laufenden Viertelstundenfenster. Wer das
-        Geheimnis hat, erkennt daran seinen Kontakt. Wer es nicht hat, sieht
-        sechs Byte Rauschen, die sich alle fünfzehn Minuten ändern.</span>
-      <span class="en">So BitDM broadcasts no address. It broadcasts
-        <strong>beacons</strong>: six bytes per contact, computed from the shared
-        secret and the current fifteen-minute window. Whoever holds the secret
-        recognises their contact in it. Whoever does not sees six bytes of noise
-        that change every fifteen minutes.</span>
+      <span class="de">BitDM sendet darum <strong>Leuchtfeuer</strong> statt einer
+        Adresse: sechs Byte je Kontakt, berechnet aus dem gemeinsamen Geheimnis und
+        der laufenden Viertelstunde. Wer das Geheimnis hat, erkennt seinen Kontakt.
+        Alle anderen sehen Rauschen, das sich alle fünfzehn Minuten ändert.</span>
+      <span class="en">So BitDM broadcasts <strong>beacons</strong> instead of an
+        address: six bytes per contact, computed from the shared secret and the
+        current quarter hour. Whoever holds the secret recognises their contact.
+        Everyone else sees noise that changes every fifteen minutes.</span>
     </p>
 
     <p>
-      <span class="de">Es gibt bewusst <strong>keine Anzeige, wer gerade in
-        Reichweite ist</strong>. Am Zeichen an einer Nachricht lässt sich
-        ablesen, wie sie <em>gegangen ist</em>; wer da war, sagt niemand.</span>
-      <span class="en">There is deliberately <strong>no display of who is
-        nearby</strong>. The mark on a message tells you how it
-        <em>travelled</em>; who was around is nobody's business.</span>
+      <span class="de">Die App <strong>zeigt nicht an, wer gerade in Reichweite
+        ist</strong>. Am Zeichen einer Nachricht siehst du nur, welchen Weg sie
+        genommen hat.</span>
+      <span class="en">The app <strong>does not show who is in range</strong>. The
+        mark on a message only tells you which way it travelled.</span>
     </p>
 
     <div class="schirme">
@@ -1265,10 +1578,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              data-en-alt="Your own ID: a QR code and the same address in
                   fourteen blocks to read out loud.">
         <figcaption>
-          <span class="de">Die Adresse IST der Schlüssel — als QR-Code und in
-            Blöcken, die man vorlesen kann.</span>
-          <span class="en">The address IS the key — as a QR code and in blocks
-            you can read out loud.</span>
+          <span class="de">Die Adresse ist der Schlüssel: als QR-Code und in
+            Blöcken zum Vorlesen.</span>
+          <span class="en">The address is the key: as a QR code and in blocks
+            to read out loud.</span>
         </figcaption>
       </figure>
     </div>
@@ -1287,8 +1600,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
 
   <section class="wrap mod">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Signalweg</span>
-      <span class="screen screen-lit en">Module — signal path</span>
+      <span class="screen screen-lit de">Modul · Signalweg</span>
+      <span class="screen screen-lit en">Module · signal path</span>
       <h2>
         <span class="de">Wie eine Nachricht entsteht</span>
         <span class="en">How a message comes about</span>
@@ -1340,17 +1653,18 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   <!-- ═══════════ Wiederherstellung ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Wiederherstellung</span>
-      <span class="screen screen-lit en">Module — recovery</span>
+      <span class="screen screen-lit de">Modul · Wiederherstellung</span>
+      <span class="screen screen-lit en">Module · recovery</span>
       <h2>
         <span class="de">Zwölf Wörter, einmal notiert</span>
         <span class="en">Twelve words, written down once</span>
       </h2>
-      <p class="de">Ohne Konto gibt es niemanden, der dich zurücklassen könnte.
-        Deshalb bekommst du beim ersten Start zwölf Wörter. Sie sind der einzige
-        Weg zurück; einen zweiten haben auch wir nicht.</p>
-      <p class="en">Without an account, there is nobody who could let you back
-        in. So on first launch you get twelve words. They are the only way back; we do not have a second one either.</p>
+      <p class="de">Ohne Konto gibt es keinen Kundendienst, der dich wieder
+        hereinlässt. Beim ersten Start bekommst du deshalb zwölf Wörter. Sie sind
+        der einzige Weg zurück, auch wir haben keinen zweiten.</p>
+      <p class="en">Without an account there is no support desk to let you back in.
+        So on first launch you get twelve words. They are the only way back; we
+        have no second one either.</p>
     </div>
     <div class="words" aria-label="Beispiel einer Wiederherstellungsphrase" data-en-aria-label="Example of a recovery phrase">
       <div class="word"><i>01</i><span>village</span></div>
@@ -1377,18 +1691,21 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
        ═══════════════════════════════════════════════════════════════════ -->
   <section class="wrap mod">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Verfahren</span>
-      <span class="screen screen-lit en">Module — primitives</span>
+      <span class="screen screen-lit de">Modul · Verfahren</span>
+      <span class="screen screen-lit en">Module · primitives</span>
       <h2>
         <span class="de">Womit genau</span>
         <span class="en">With what, exactly</span>
       </h2>
-      <p class="de">Die Kryptographie stammt aus <strong>libsignal</strong>, der Bibliothek
-        hinter Signal. Die riskanten Teile sind damit die, an denen schon andere
-        gerechnet und geprüft haben.</p>
-      <p class="en">The cryptography comes from <strong>libsignal</strong>, the library behind
-        Signal. The risky parts are therefore the ones others have already worked
-        through and reviewed.</p>
+      <!-- BIS 17.10.2026 STAND HIER "libsignal, der Bibliothek hinter Signal".
+           25dd038 hatte die Stelle uebersehen. -->
+      <p class="de">Das Protokoll ist das von Signal. Gerechnet wird es mit
+        <strong>libsignal_protocol_dart</strong>, einer Dart-Portierung aus der
+        Gemeinschaft, nicht mit Signals eigener Bibliothek. Ein unabhängiges Audit
+        von BitDM gibt es noch nicht.</p>
+      <p class="en">The protocol is Signal's. It is computed with
+        <strong>libsignal_protocol_dart</strong>, a community Dart port, not with
+        Signal's own library. BitDM has not had an independent audit yet.</p>
     </div>
 
     <dl class="plate">
@@ -1433,16 +1750,16 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   <!-- ═══════════ Geraetespeicher ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Gerätespeicher</span>
-      <span class="screen screen-lit en">Module — device storage</span>
+      <span class="screen screen-lit de">Modul · Gerätespeicher</span>
+      <span class="screen screen-lit en">Module · device storage</span>
       <h2>
         <span class="de">Wenn das Telefon in fremde Hände fällt</span>
         <span class="en">If the phone falls into the wrong hands</span>
       </h2>
       <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Weg. Was auf dem Gerät
-        liegt, ist eine zweite Frage, und sie wird oft gar nicht gestellt.</p>
-      <p class="en">End-to-end encryption protects the path. What sits on the device
-        is a second question, and one that often goes unasked.</p>
+        liegt, schützen diese Schichten.</p>
+      <p class="en">End-to-end encryption protects the path. These layers protect
+        what sits on the device.</p>
     </div>
 
     <dl class="plate">
@@ -1491,8 +1808,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   <!-- ═══════════ Anhänge ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Anhänge</span>
-      <span class="screen screen-lit en">Module — attachments</span>
+      <span class="screen screen-lit de">Modul · Anhänge</span>
+      <span class="screen screen-lit en">Module · attachments</span>
       <h2>
         <span class="de">Große Dateien, ohne großen Server</span>
         <span class="en">Large files, without a large server</span>
@@ -1509,21 +1826,22 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <div class="step">
         <span class="screen de">Schritt 1</span><span class="screen en">Step 1</span>
         <h3><span class="de">In Stücke teilen</span><span class="en">Split into pieces</span></h3>
-        <p class="de">32 MiB je Stück. Reißt die Verbindung ab — auf Mobilfunk bei drei
-          Gigabyte der Normalfall —, kostet das ein Stück und nicht die ganze Datei.</p>
-        <p class="en">32 MiB each. If the connection drops — the normal case for three
-          gigabytes over mobile — it costs one piece, not the whole file.</p>
+        <p class="de">32 MiB je Stück. Reißt die Verbindung ab, bei drei Gigabyte über
+          Mobilfunk der Normalfall, kostet das ein Stück und nicht die ganze Datei.</p>
+        <p class="en">32 MiB each. If the connection drops, which is normal for three
+          gigabytes over mobile, you lose one piece and not the whole file.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
         <h3><span class="de">Je Stück ein Schlüssel</span><span class="en">One key per piece</span></h3>
-        <p class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb, und jedes Stück bekommt einen eigenen Zufallsschlüssel. Mit
-          <em>einem</em> Schlüssel für die ganze Datei müsste ein Zähler über alle
-          Stücke sauber geführt werden — über Abbrüche und Wiederaufnahmen hinweg —,
-          und ein Fehler dabei bricht GCM vollständig.</p>
-        <p class="en"><strong>AES with a 256-bit key</strong> in GCM mode, and every piece gets its own random key. With <em>one</em> key for
-          the whole file a counter would have to be tracked across all pieces — across
-          aborts and resumptions —, and a single slip there breaks GCM completely.</p>
+        <p class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb, mit eigenem
+          Zufallsschlüssel je Stück. Mit <em>einem</em> Schlüssel für die ganze Datei
+          müsste ein Zähler über alle Stücke, Abbrüche und Wiederaufnahmen hinweg
+          stimmen, und ein einziger Fehler dabei bricht GCM.</p>
+        <p class="en"><strong>AES with a 256-bit key</strong> in GCM mode, with its own
+          random key per piece. With <em>one</em> key for the whole file a counter
+          would have to stay right across all pieces, aborts and resumptions, and a
+          single slip breaks GCM.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
@@ -1538,12 +1856,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <div class="step">
         <span class="screen de">Schritt 4</span><span class="screen en">Step 4</span>
         <h3><span class="de">Schlüssel gehen anders</span><span class="en">Keys travel elsewhere</span></h3>
-        <p class="de">Die Anleitung — wo die Stücke liegen und womit sie aufgehen — reist
-          als gewöhnliche Nachricht durch die Signal-Sitzung. Der Speicher bekommt die
-          Schlüssel also nie zu sehen; er kennt Größe und Zeitpunkt, mehr nicht.</p>
-        <p class="en">The recipe — where the pieces are and what opens them — travels as an
-          ordinary message through the Signal session. The store therefore never sees the
-          keys; it knows size and timing, nothing else.</p>
+        <p class="de">Wo die Stücke liegen und womit sie aufgehen, reist als gewöhnliche
+          Nachricht durch die Signal-Sitzung. Der Speicher sieht die Schlüssel also
+          nie; er kennt Größe und Zeitpunkt, mehr nicht.</p>
+        <p class="en">Where the pieces are and what opens them travels as an ordinary
+          message through the Signal session. The store never sees the keys; it
+          knows size and timing, nothing else.</p>
       </div>
     </div>
   </section>
@@ -1556,8 +1874,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
        im Kommentar ueber der Liste. -->
   <section class="wrap mod" id="desktop">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Desktop</span>
-      <span class="screen screen-lit en">Module — desktop</span>
+      <span class="screen screen-lit de">Modul · Desktop</span>
+      <span class="screen screen-lit en">Module · desktop</span>
       <h2>
         <span class="de">Am PC fehlen drei Dinge</span>
         <span class="en">Three things are missing on the PC</span>
@@ -1565,31 +1883,18 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <p class="de">Ein Teil von BitDM steckt vollständig in Android-Code und hat
         auf Windows keine Gegenseite: der Nahbereich über Bluetooth, der
         Weckdienst für Push und jede Sperre außer dem App-Passwort. Am PC werden
-        sie deshalb gar nicht erst angeboten. Das ist eine Entscheidung und keine
-        halbe Arbeit: lieber etwas weglassen, als es anbieten und daran
-        scheitern.</p>
+        sie deshalb gar nicht erst angeboten. Lieber etwas weglassen, als es
+        anbieten und daran scheitern.</p>
       <p class="en">Part of BitDM lives entirely in Android code and has no
         counterpart on Windows: the nearby exchange over Bluetooth, the push
         wake-up, and every lock factor except the app password. On the PC they
-        are not offered at all. That is a decision rather than unfinished work:
-        better to leave something out than to offer it and fail at it.</p>
+        are not offered at all. Better to leave something out than to offer it
+        and fail at it.</p>
     </div>
 
-    <p>
-      <span class="de">Wie es aussieht, wenn man es anders macht, stand am
-        30. Juli 2026 kurz auf dem Bildschirm: der erste Windows-Bau bot vier
-        Sperren an, von denen drei nicht funktionieren konnten. Ein Druck darauf
-        endete in einer Fehlermeldung des Systems, und eine davon erklärte auf
-        einem Schreibtisch-PC ernsthaft <em>„the PIN, pattern or password of this
-        phone“</em>. Eine Liste, in der die Hälfte der Einträge nichts tut, lässt
-        an der anderen Hälfte genauso zweifeln.</span>
-      <span class="en">What the other approach looks like was briefly on screen
-        on 30 July 2026: the first Windows build offered four locks, three of
-        which could not work. Pressing them ended in a system error, and one of
-        them seriously explained <em>“the PIN, pattern or password of this
-        phone”</em> on a desktop computer. A list where half the entries do
-        nothing makes a reader doubt the other half just as much.</span>
-    </p>
+    <!-- HIER STAND BIS 17.10.2026 ein Absatz ueber den ersten Windows-Bau vom
+         30.07.2026, der vier Sperren anbot, von denen drei nicht gingen. Bei der
+         Neuordnung gestrichen: die Liste darunter sagt dasselbe kuerzer. -->
 
     <!-- Fundstellen zu den Zeilen, in der Reihenfolge der Liste:
          1 Nachrichten     — dart:io-Netz, laeuft am PC: core/net/relay_client.dart
@@ -1633,10 +1938,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   </section>
 
   <!-- ═══════════ Grenzen ═══════════ -->
-  <section class="wrap mod">
+  <section class="wrap mod" id="grenzen">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Grenzen</span>
-      <span class="screen screen-lit en">Module — limits</span>
+      <span class="screen screen-lit de">Modul · Grenzen</span>
+      <span class="screen screen-lit en">Module · limits</span>
       <h2>
         <span class="de">Was BitDM nicht kann</span>
         <span class="en">What BitDM cannot do</span>
@@ -1695,8 +2000,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
-        <dd><span class="de">Sind die zwölf Wörter weg, ist die Identität weg — außer du hast sie vorher in Teilen an Vertrauenskontakte gegeben (etwa 2 von 3). Kein Zurücksetzen, keine Wiederherstellung per Mail.</span>
-            <span class="en">Twelve words gone means identity gone — unless you split them among trusted contacts beforehand (say 2 of 3). No reset, no recovery by email.</span></dd>
+        <dd><span class="de">Sind die zwölf Wörter weg, ist die Identität weg, außer du hast sie vorher in Teilen an Vertrauenskontakte gegeben (etwa 2 von 3). Kein Zurücksetzen, keine Wiederherstellung per Mail.</span>
+            <span class="en">If the twelve words are gone, the identity is gone, unless you split them among trusted contacts beforehand (say 2 of 3). No reset, no recovery by email.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Prüfung</span><span class="en">Audit</span></dt>
@@ -1721,14 +2026,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   <!-- ═══════════ Belege ═══════════ -->
   <section class="wrap mod">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Nachprüfbarkeit</span>
-      <span class="screen screen-lit en">Module — verifiability</span>
+      <span class="screen screen-lit de">Modul · Nachprüfbarkeit</span>
+      <span class="screen screen-lit en">Module · verifiability</span>
       <h2>
         <span class="de">Der Quellcode liegt offen</span>
         <span class="en">The source is open</span>
       </h2>
-      <p class="de">Ein Sicherheitsversprechen, das niemand nachprüfen kann, ist wertlos. Der vollständige Quellcode steht unter AGPL-3.0 offen: App,
-        Server und Tests.</p>
+      <p class="de">Ein Sicherheitsversprechen, das niemand nachprüfen kann, ist wertlos. Der
+        vollständige Quellcode steht unter AGPL-3.0 offen: App, Server und Tests.</p>
       <p class="en">A security promise nobody can check is worthless. The complete
         source is open under AGPL-3.0: app, server and tests.</p>
     </div>
@@ -1736,8 +2041,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     <div class="facts">
       <div class="fact">
         <span class="num">AES-256</span>
-        <p class="de">Schlüssellänge überall, wo AES benutzt wird: Nachrichten, App-Sperre, Anhänge. 256 Bit — 32 Byte, nachlesbar im Quelltext.</p>
-        <p class="en">Key length everywhere AES is used: messages, app lock, attachments. 256 bits — 32 bytes, verifiable in the source.</p>
+        <p class="de">Schlüssellänge überall, wo AES benutzt wird: Nachrichten, App-Sperre, Anhänge. 256 Bit, also 32 Byte, nachlesbar im Quelltext.</p>
+        <p class="en">Key length everywhere AES is used: messages, app lock, attachments. 256 bits, i.e. 32 bytes, verifiable in the source.</p>
       </div>
       <div class="fact">
         <span class="num">AGPL-3.0</span>
@@ -1779,8 +2084,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
        Dieselben Fragen stehen unten als FAQPage (JSON-LD), auf Englisch. -->
   <section class="wrap mod" id="faq">
     <div class="mod-head">
-      <span class="screen screen-lit de">Modul — Fragen</span>
-      <span class="screen screen-lit en">Module — questions</span>
+      <span class="screen screen-lit de">Modul · Fragen</span>
+      <span class="screen screen-lit en">Module · questions</span>
       <h2>
         <span class="de">Häufige Fragen</span>
         <span class="en">Frequently asked questions</span>
@@ -1809,7 +2114,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Wie sicher ist BitDM?</span><span class="en">How secure is BitDM?</span></summary>
-        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), umgesetzt mit die Dart-Portierung libsignal_protocol_dart aus der Gemeinschaft, nicht Signals eigene Bibliothek; Anhänge über AES-256-GCM, auch auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht; der Quellcode liegt offen, damit jeder nachsehen kann.</p>
+        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), umgesetzt mit der Dart-Portierung libsignal_protocol_dart aus der Gemeinschaft, nicht Signals eigene Bibliothek; Anhänge über AES-256-GCM, auch auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht; der Quellcode liegt offen, damit jeder nachsehen kann.</p>
         <p class="en">Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), implemented with the community Dart port libsignal_protocol_dart, not Signal's own library; attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check.</p>
       </details>
       <details class="faq-item">
@@ -1924,10 +2229,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </div>
   </div>
   <p class="foot-note">
-    <span class="de">BitDM ist eine Vorabversion. Die Adresse und die zwölf Wörter
-      oben sind Beispiele, keine echten Schlüssel.</span>
-    <span class="en">BitDM is a pre-release. The address and the twelve words
-      above are examples, not real keys.</span>
+    <span class="de">BitDM ist eine Vorabversion. Adresse und zwölf Wörter oben sind
+      Beispiele, keine echten Schlüssel. Der Chat ganz oben ist ein Nachbau der
+      Android-App mit erfundenen Inhalten; ein Bildschirmfoto bleibt dort wegen
+      des Screenshot-Schutzes schwarz.</span>
+    <span class="en">BitDM is a pre-release. The address and the twelve words above
+      are examples, not real keys. The chat at the very top is a replica of the
+      Android app with made-up content; a screenshot there stays black because of
+      the screenshot protection.</span>
   </p>
 </footer>
 
@@ -2110,7 +2419,42 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     requestAnimationFrame(frame);
   }
 
-  render(box.querySelector('.ch') ? adresseAusMarkup() : randomAddress());
+  /* ERST, WENN DIE ANZEIGE INS BILD KOMMT. Sie stand bis 17.10.2026 ganz
+     oben, da war "beim Laden" dasselbe wie "wenn man sie sieht". Jetzt steht
+     sie unter dem Download, und beim Laden liefe das Zaehlwerk ungesehen ab.
+     Ohne IntersectionObserver wie frueher sofort. */
+  function ersterLauf(){
+    render(box.querySelector('.ch') ? adresseAusMarkup() : randomAddress());
+  }
+  if ('IntersectionObserver' in window){
+    var anzeigeWache = new IntersectionObserver(function(eintraege){
+      if (!eintraege.some(function(e){ return e.isIntersecting; })) return;
+      anzeigeWache.disconnect();
+      ersterLauf();
+    }, { threshold: 0.35 });
+    anzeigeWache.observe(box);
+  } else {
+    ersterLauf();
+  }
+
+  /* ── Die Chatansicht ───────────────────────────────────────────────────
+     Die letzte Nachricht gleitet herein, wenn der Chat zu sehen ist; der
+     Kopf hat sie dafuer versteckt (html.chat-wartet). Einmal, nicht in
+     Schleife: es ist eine Auskunft, wie die App eine Nachricht zeigt, keine
+     Vorfuehrung. */
+  (function(){
+    var root = document.documentElement;
+    if (!root.classList.contains('chat-wartet')) return;
+    var zuletzt = document.querySelector('.blase.zuletzt');
+    if (!zuletzt) { root.classList.remove('chat-wartet'); return; }
+    var chatWache = new IntersectionObserver(function(eintraege){
+      if (!eintraege.some(function(e){ return e.isIntersecting; })) return;
+      chatWache.disconnect();
+      /* Kurz warten, damit das Auge zuerst den Verlauf hat */
+      setTimeout(function(){ zuletzt.classList.add('da'); }, 700);
+    }, { threshold: 0.6 });
+    chatWache.observe(zuletzt.parentNode);
+  })();
 
   /* Beim ersten Lauf laeuft das Zaehlwerk auf die Adresse zu, die schon im
      Markup steht — nicht auf eine neue. Wer ohne JavaScript kommt, sieht
