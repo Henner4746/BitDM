@@ -22,6 +22,10 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 - Die Anmeldung beim Relay signiert nur noch eine Challenge von genau 32 Byte (KR-2, App-Teil).
 - Linux- und F-Droid-Workflow setzen Werte aus dem Bau-Schritt nicht mehr ungeprüft in Skripte ein (PL-1).
 
+**Linux und Rechner** (aus dem ersten echten Linux-Lauf am 17.10.2026)
+- Ohne erreichbaren oder entsperrten Schlüsselbund (GNOME Keyring, KWallet) blieb das Fenster unter Linux leer. Jetzt steht dort eine Meldung mit „Erneut versuchen“. Gelöscht oder neu angelegt wird dabei nichts.
+- Am Rechner und im Browser ist in Sperrbildschirm, 12-Wörter-Seite, Startseite, Wiederherstellen und Fernlöschung von „diesem Gerät“ die Rede statt vom Telefon. In der Android-App bleibt es beim Telefon.
+
 ## 1.9.1 — veröffentlicht am 15.10.2026
 
 Behebungen aus der Prüfung vom 14.10.2026 (Quellstand `e5aefdf`), Einzelheiten

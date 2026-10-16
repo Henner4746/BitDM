@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 
 // ---- identity / mock constants ----
@@ -543,6 +545,13 @@ const Map<String, Map<String, String>> strings = {
     'updateLater': 'Later',
     'updateNotif': 'BitDM {neu} is available.',
     'keyArtLabel': 'Key image',
+    // Schluesselspeicher beim Start nicht lesbar (AppState.schluesselspeicherZu).
+    'keyStoreTitle': 'Key not reachable',
+    'keyStoreLinux': 'No keyring is reachable, or it is locked. BitDM keeps the key to your identity there and cannot open without it.\n\nStart or unlock GNOME Keyring or KWallet, then try again.',
+    'keyStoreOther': 'The key store of this device did not answer. BitDM keeps the key to your identity there and cannot open without it.\n\nTry again in a moment. If it keeps failing, restart the device.',
+    'keyStoreSafe': 'Nothing was deleted and no new identity was created. If there is an identity on this device, it is still there.',
+    'keyStoreRetry': 'Try again',
+    'keyStoreTrying': 'Trying …',
   },
   'de': {
     'h1a': 'Kein Name.', 'h1b': 'Keine Nummer.',
@@ -922,5 +931,93 @@ const Map<String, Map<String, String>> strings = {
     'updateLater': 'Später',
     'updateNotif': 'BitDM {neu} ist verfügbar.',
     'keyArtLabel': 'Schlüsselbild',
+    'keyStoreTitle': 'Schlüssel nicht erreichbar',
+    'keyStoreLinux': 'Kein Schlüsselbund erreichbar, oder er ist gesperrt. BitDM legt den Schlüssel deiner Identität dort ab und kann ohne ihn nicht öffnen.\n\nGNOME Keyring oder KWallet starten bzw. entsperren, dann erneut versuchen.',
+    'keyStoreOther': 'Der Schlüsselspeicher dieses Geräts hat nicht geantwortet. BitDM legt den Schlüssel deiner Identität dort ab und kann ohne ihn nicht öffnen.\n\nGleich noch einmal versuchen. Klappt es dauerhaft nicht, das Gerät neu starten.',
+    'keyStoreSafe': 'Es wurde nichts gelöscht und keine neue Identität angelegt. Gibt es auf diesem Gerät eine Identität, ist sie noch da.',
+    'keyStoreRetry': 'Erneut versuchen',
+    'keyStoreTrying': 'Wird versucht …',
   },
 };
+
+/// Ob die Texte vom Telefon sprechen duerfen: nur in der Android-App.
+///
+/// Im Browser NICHT, auch auf einem Telefon nicht — dort weiss die App nicht,
+/// worauf sie laeuft, und "dieses Geraet" stimmt in beiden Faellen.
+bool get textAufTelefon =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
+
+/// Was auf Linux, Windows, macOS und im Browser in diesen Texten anders steht:
+/// "Geraet" statt "Telefon". Je Text eine Liste von Ersetzungen (alt, neu).
+///
+/// Gemeldet vom ersten echten Linux-Lauf (17.10.2026): auf einem Rechner
+/// stand "The identity on this phone is sealed".
+///
+/// ERSETZUNGEN UND KEINE ZWEITEN TEXTE, damit niemand einen Text an zwei
+/// Stellen pflegen muss. Aendert jemand oben einen Text so, dass ein `alt`
+/// darin nicht mehr vorkommt, faellt das im Test auf
+/// (test/oberflaeche/geraet_texte_test.dart) — und ebenso ein neuer Text, der
+/// "phone" oder "Telefon" sagt, ohne hier oder in der Liste der reinen
+/// Android-Texte dort zu stehen.
+const Map<String, Map<String, List<(String, String)>>> geraetErsetzungen = {
+  'en': {
+    'restoreLinkSub': [('your phone', 'your device')],
+    'restoreIntro': [('your old phone', 'your old device')],
+    'restoreNote': [('the old phone', 'the old device')],
+    'phraseSub': [('this phone', 'this device')],
+    'lockedSub': [
+      ('nowhere on this device', 'nowhere on it'),
+      ('on this phone', 'on this device'),
+    ],
+    'lockedNoFactor': [('on this phone', 'on this device')],
+    // Am Rechner gibt es keinen Sicherheitsschluessel (nur 'pw', siehe
+    // _faktorGehtHier in main.dart) — verwechselt wird dort das Passwort, mit
+    // dem man sich am Geraet anmeldet.
+    'pwUnlockHint': [
+      ('Not the phone PIN, not the security key PIN.',
+          'Not the password or PIN you use to sign in to this device.'),
+    ],
+    'wipeSub': [('your phone', 'your device')],
+    'wipeExplain': [
+      ('on this phone', 'on this device'),
+      ('A locked phone', 'A locked device'),
+    ],
+    'wipeAskText': [('their phone', 'their device')],
+    'cmd_wipe': [("contact's phone", "contact's device")],
+  },
+  'de': {
+    'restoreLinkSub': [('Telefon verloren', 'Gerät verloren')],
+    'restoreIntro': [('dein altes Telefon', 'dein altes Gerät')],
+    'restoreNote': [('dem alten Telefon', 'dem alten Gerät')],
+    'phraseSub': [('dieses Telefon', 'dieses Gerät')],
+    'lockedSub': [
+      ('liegt nirgends lesbar auf diesem Gerät', 'liegt hier nirgends lesbar'),
+      ('auf diesem Telefon', 'auf diesem Gerät'),
+    ],
+    'lockedNoFactor': [('auf diesem Telefon', 'auf diesem Gerät')],
+    'pwUnlockHint': [
+      ('Nicht die Telefon-PIN und nicht die PIN des Sicherheitsschlüssels.',
+          'Nicht das Passwort oder die PIN, mit der du dich an diesem Gerät anmeldest.'),
+    ],
+    'wipeSub': [('Ist dein Telefon weg', 'Ist dein Gerät weg')],
+    'wipeExplain': [
+      ('auf diesem Telefon', 'auf diesem Gerät'),
+      ('Ein gesperrtes Telefon', 'Ein gesperrtes Gerät'),
+    ],
+    'wipeAskText': [('das Telefon zu löschen', 'das Gerät zu löschen')],
+    'cmd_wipe': [('Telefon dieses Kontakts', 'Gerät dieses Kontakts')],
+  },
+};
+
+/// Der Text [k] in [lang] — fuer die Plattform, auf der die App laeuft, oder
+/// fuer die in [telefon] genannte.
+String textFuer(String lang, String k, {bool? telefon}) {
+  var text = strings[lang]![k] ?? k;
+  if (telefon ?? textAufTelefon) return text;
+  for (final (alt, neu) in geraetErsetzungen[lang]?[k] ?? const <(String, String)>[]) {
+    text = text.replaceAll(alt, neu);
+  }
+  return text;
+}
