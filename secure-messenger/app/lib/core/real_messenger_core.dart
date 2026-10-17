@@ -1813,14 +1813,24 @@ class RealMessengerCore implements MessengerCore {
     if (antwort.userId != von) {
       throw StateError('Buendel von $von gehoert zu ${antwort.userId}');
     }
+    // EINE ALTE APP ANTWORTET OHNE KYBER — derselbe Vermerk wie beim Relay
+    // ([_bauSitzungen]). Ohne ihn stuende die Nachricht im Modus "nur in der
+    // Naehe" stumm auf "wird gesendet", obwohl die Gegenstelle daneben steht.
+    final PreKeyBundle buendel;
+    try {
+      buendel = PreKeyBundleBridge.fromRelay(antwort);
+    } on GegenstelleOhneKyberException {
+      _merkeAppFassung(von, veraltet: true);
+      rethrow;
+    }
     final vorher = store.schnappschuss();
     try {
-      await _sitzungsBauer(store)
-          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(antwort));
+      await _sitzungsBauer(store).processPreKeyBundle(ziel, buendel);
     } catch (_) {
       store.stelleWiederHer(vorher);
       rethrow;
     }
+    _merkeAppFassung(von, veraltet: false);
     // Und sofort nachholen, was darauf gewartet hat.
     _stosseNachversandAn();
   }
@@ -1895,6 +1905,7 @@ class RealMessengerCore implements MessengerCore {
     if (store == null || chats == null) return;
 
     final Payload payload;
+    var neueSitzung = false;
     try {
       final huelle = Envelope.fromBytes(umschlag);
       // VOR LIBSIGNAL: passt der Schluessel einer Erstnachricht zum Absender?
@@ -1938,6 +1949,7 @@ class RealMessengerCore implements MessengerCore {
         throw const ErneutEingespielt();
       }
       payload = Payload.fromBytes(klar);
+      neueSitzung = huelle.startetSitzung;
     } catch (fehler) {
       _behandleEingangsfehler(fehler, von);
       // AUCH HIER bestaetigen. _behandleEingangsfehler schreibt den
@@ -2061,6 +2073,15 @@ class RealMessengerCore implements MessengerCore {
     // Steuernachrichten legen nichts in den Verlauf, veraendern aber trotzdem
     // den Ratchet. Ohne diese Zeile bliebe der Fortschritt im Arbeitsspeicher.
     chats.speichereNurSitzung(store);
+
+    // EINE ERSTNACHRICHT HAT GERADE EINE SITZUNG GEBAUT, und zwar mit Kyber:
+    // ohne PQXDH haette libsignal sie nicht entschluesselt. Wer so schreibt,
+    // hat aktualisiert. Der Vermerk [Contact.brauchtNeuereApp] faellt, und
+    // was an ihn wartet, geht jetzt los statt erst beim naechsten Verbinden —
+    // ueber die neue Sitzung, ohne neues Buendel ([_bekannteGeraete]).
+    if (neueSitzung && _merkeAppFassung(von, veraltet: false)) {
+      _stosseNachversandAn();
+    }
 
     // HIER KANN EIN KONTAKT ENTSTANDEN ODER VERSCHWUNDEN SEIN, und das geht
     // den Nahbereich an: die erste Nachricht von jemand Unbekanntem legt ihn
@@ -4909,7 +4930,9 @@ class RealMessengerCore implements MessengerCore {
   /// auf; ein einzelnes altes Zweitgeraet darf aber nicht dazu fuehren, dass
   /// das aktuelle Hauptgeraet nichts mehr bekommt. Hat KEIN Geraet Kyber,
   /// fliegt [GegenstelleOhneKyberException] — dann muss die Gegenstelle
-  /// aktualisieren, und das soll die Oberflaeche sagen koennen.
+  /// aktualisieren, und das sagt die Oberflaeche: der Kontakt bekommt
+  /// [Contact.brauchtNeuereApp], siehe [_merkeAppFassung]. Steht danach mit
+  /// mindestens einem Geraet eine Sitzung, faellt der Vermerk wieder.
   ///
   /// MEHR ALS EINE ZAHL WIRD BEI DER EIGENEN ADRESSE GEPRUEFT — siehe
   /// [_istEigenesBuendel]. Ein feindlicher Relay kann sonst ein Geraet
@@ -4929,12 +4952,40 @@ class RealMessengerCore implements MessengerCore {
     // Sitzung im Speicher bleiben und beim naechsten Festschreiben in die
     // Datei wandern.
     final vorher = store.schnappschuss();
+    final List<int> ziele;
     try {
-      return await _bauSitzungenOhneRiegel(store, an, antwort);
-    } catch (_) {
+      ziele = await _bauSitzungenOhneRiegel(store, an, antwort);
+    } catch (e) {
       store.stelleWiederHer(vorher);
+      if (e is GegenstelleOhneKyberException) {
+        _merkeAppFassung(an, veraltet: true);
+      }
       rethrow;
     }
+    // JEDE SITZUNG IST SEIT 2.0.0 EINE MIT KYBER: die alten hat Stufe 15
+    // geloescht (encrypted_database.dart), und neue ohne PQXDH baut libsignal
+    // nicht. Ein Ziel genuegt also als Beleg, dass die Gegenstelle mitkommt.
+    if (ziele.isNotEmpty) _merkeAppFassung(an, veraltet: false);
+    return ziele;
+  }
+
+  /// Haelt am Kontakt fest, ob er erst BitDM aktualisieren muss, und meldet
+  /// es der Oberflaeche — aber nur, wenn sich etwas aendert.
+  ///
+  /// NUR FUER KONTAKTE. Die eigene Adresse (alte Zweitgeraete) und
+  /// Gruppenmitglieder ohne Kontakt aendern nichts; fuer sie gibt es keinen
+  /// Chat, in dem der Hinweis stehen koennte.
+  ///
+  /// Rueckgabe: ob der Vermerk umgesprungen ist.
+  bool _merkeAppFassung(String an, {required bool veraltet}) {
+    if (an == myId) return false;
+    if (!(_chats?.setzeBrauchtNeuereApp(an, veraltet) ?? false)) return false;
+    _contacts.add(ContactEvent(
+      type: ContactEventType.needsUpdateChanged,
+      contactId: an,
+      at: DateTime.now().toUtc(),
+    ));
+    return true;
   }
 
   Future<List<int>> _bauSitzungenOhneRiegel(

@@ -79,7 +79,7 @@ class EncryptedDatabase {
   CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 15;
+  static const int schemaVersion = 16;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -282,6 +282,8 @@ class EncryptedDatabase {
             _schemaV14(db);
           case 15:
             _schemaV15(db);
+          case 16:
+            _schemaV16(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -614,6 +616,32 @@ class EncryptedDatabase {
     db.execute("DELETE FROM meta WHERE key IN "
         "('relay_prekey_count', 'signal_archiv_bereinigt_v1')");
     _metaSchreiben(db, 'signal_bibliothek', 'libsignal-offiziell');
+  }
+
+  /// Ob ein Kontakt erst BitDM aktualisieren muss (seit 2.0.0).
+  ///
+  /// `contacts.braucht_neuere_app`: 1, wenn beim letzten Sitzungsaufbau
+  /// KEIN Geraet des Kontakts ein Buendel mit Kyber hatte — eine App vor
+  /// 2.0.0. Die Nachrichten bleiben dann im Nachversand, und die Oberflaeche
+  /// sagt, warum, statt stumm "wird gesendet" zu zeigen.
+  ///
+  /// EINE SPALTE an contacts, aus demselben Grund wie `geraete_geprueft`
+  /// ([_schemaV8]): ein Wert je Kontakt, gelesen mit der Zeile, die ohnehin
+  /// geholt wird. KEIN INDEX, danach wird nie gesucht.
+  ///
+  /// BESTEHENDE ZEILEN BEKOMMEN DIE 0. Ob ein Kontakt noch eine alte App
+  /// hat, weiss vor dem ersten Sendeversuch mit 2.0.0 niemand; die 1 setzt
+  /// der Kern, sobald er es feststellt.
+  ///
+  /// NICHT IN DIE SICHERUNG (chat_repository.dart `_kontaktSpalten`): eine
+  /// wiederhergestellte Ablage hat keine wartenden Nachrichten mehr, und ob
+  /// die Gegenstelle inzwischen aktualisiert hat, zeigt der naechste
+  /// Sendeversuch.
+  ///
+  /// WIEDERHOLBAR wie [_schemaV8].
+  static void _schemaV16(CommonDatabase db) {
+    _spalteDazu(db, 'contacts', 'braucht_neuere_app',
+        'INTEGER NOT NULL DEFAULT 0');
   }
 
   /// GRUPPENHAKEN: welches Mitglied eine eigene Gruppennachricht schon hat.
