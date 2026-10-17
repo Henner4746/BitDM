@@ -4,6 +4,45 @@ Stand 17.10.2026, Zweig `refactor/main-dart`, Basis `feat/libsignal-offiziell`
 (`e9769f9`). **Phase 1: Plan.** Umgesetzt wird erst, wenn `fix/anhangknopf-pc`
 und `feat/geraeteabmeldung` in der Basis sind. Vorher läuft nichts davon.
 
+## Stand: Phase 2 umgesetzt (17.10.2026, nachts)
+
+Zweig `refactor/main-dart-phase2` (lokal, nicht gepusht). Basis ist
+`integration/kritik-2026-10-17`: `feat/libsignal-offiziell` mit
+`fix/anhangknopf-pc`, `fix/linux-schluesselbund`, `feat/geraeteabmeldung`,
+`feat/hinweis-veraltete-app`, `fix/nahbereich-anleitung` und
+`fix/kontaktaufbau`. Umgesetzt hat das die koordinierende Sitzung, weil die
+Planungssitzung keine Nachrichten mehr bekommen konnte.
+
+| Ergebnis | |
+|---|---|
+| `main.dart` | 218 Zeilen (vorher 8 665): Start, `BitApp`, Relay-Ziele, Exporte |
+| `oberflaeche/home.dart` | 714 Zeilen: `Home`, aller Zustand, Lebenszyklus, `_raeumeOberflaecheAuf`, `build` |
+| `oberflaeche/home/*.dart` | 21 Teile, je 86–589 Zeilen |
+| Tests | nach jedem Schritt vollständig grün (1 507), am Ende 1 511 mit C1/C3/C5/C7 |
+| G2 | jeder Verschiebe-Commit „rein verschoben“ laut `tool/reine_verschiebung.py` |
+| G3 | `tool/namen_pruefen.py` ohne Kollision |
+| G4 | im Verschiebewerkzeug geprüft; die vier Tear-off-Methoden stehen in der Klasse |
+
+Abweichungen vom Plan:
+
+- **Schritt 1 nach den Verschiebungen geschrieben, aber in die Basis
+  committet** (`fd208f8`). C1, C3, C5 und C7 waren jeweils in einer
+  Mutationsprobe rot und laufen auf dem Stand VOR (Integration) und NACH der
+  Aufteilung grün. Damit ist derselbe Nachweis erbracht. C2, C4 und C6 fehlen;
+  teils decken `sprachnachricht_test`, `zurueck_test` und
+  `fernloeschung_ui_test` das ab.
+- **Vier unbenutzte Mitglieder bleiben in der Klasse:** `ephLabel`, `nowHm`,
+  `zugriffsBlock`, `_uhr`. In einer privaten Extension meldete der Analyzer
+  sie als unbenutzt; toten Code zu löschen ist keine Verschiebung. Eigener
+  Aufräum-Commit.
+- **Neue Mitglieder seit dem Plan:** `reqErgebnis` und `_starte` in die
+  Klasse, `schluesselspeicherScreen` nach `sperre.dart`, `_geraeteStil` nach
+  `bausteine.dart`. Vorher stand `_geraeteStil` zwischen Kommentar und
+  Methode von `_hinweisKasten` (`6aef266` stellt das richtig).
+- **Schritt 27 (Felder nach Modul ordnen) ist offen.**
+- **Offen am Gerät:** eine Windows-Fassung starten und Anlegen, Sperren,
+  Entsperren, Chat und Einstellungen durchklicken; dazu der Emulatorlauf.
+
 ## Ausgangslage
 
 `main.dart` hat 8 540 Zeilen. Davon sind 7 982 (Zeile 559–8540) **eine einzige

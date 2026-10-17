@@ -1070,7 +1070,7 @@ const Map<String, Map<String, List<(String, String)>>> geraetErsetzungen = {
     ],
     'lockedNoFactor': [('on this phone', 'on this device')],
     // Am Rechner gibt es keinen Sicherheitsschluessel (nur 'pw', siehe
-    // _faktorGehtHier in main.dart) — verwechselt wird dort das Passwort, mit
+    // _faktorGehtHier in oberflaeche/home/zugriff.dart) — verwechselt wird dort das Passwort, mit
     // dem man sich am Geraet anmeldet.
     'pwUnlockHint': [
       ('Not the phone PIN, not the security key PIN.',

@@ -16,7 +16,7 @@
 //
 // `debugDefaultTargetPlatformOverride` ist der einzige Weg dorthin: die Weiche
 // haengt an der Plattform und nicht an der Fenstergroesse (siehe `_imFenster`
-// in main.dart, samt Begruendung).
+// in oberflaeche/home/rahmen.dart, samt Begruendung).
 //
 // UND SIE STEHT NICHT FEST AUF WINDOWS. Bis zum 30.07.2026 tat sie das, damit
 // liefen alle Faelle auf einer der VIER Plattformen hinter `_imFenster`. Die
@@ -76,7 +76,7 @@ void main() {
   /// DAS IST DER GANZE ZWECK DIESER DATEI: ohne die Weiche laeuft alles darunter
   /// im Telefon-Zweig und prueft nichts von dem, was hier gemeint ist. Sie
   /// haengt an der Plattform und nicht an der Fenstergroesse (siehe
-  /// `_imFenster` in main.dart).
+  /// `_imFenster` in oberflaeche/home/rahmen.dart).
   ///
   /// [plattform] ist windows, wo die Plattform nichts zur Sache tut — sonst
   /// waeren aus sieben Faellen einundzwanzig geworden, fuer drei Belege.
@@ -98,7 +98,7 @@ void main() {
   /// Ein Fall, bei dem die PLATTFORM den Unterschied macht — windows UND macOS.
   ///
   /// WELCHE FAELLE DAS SIND, und warum nicht alle: `_imFenster` deckt vier
-  /// Plattformen ab (main.dart:564-568, kIsWeb + windows + linux + macOS).
+  /// Plattformen ab (oberflaeche/home/rahmen.dart, kIsWeb + windows + linux + macOS).
   /// Plattformabhaengig ist daran nur, was aus einer TASTE wird — und das
   /// entscheiden zwei verschiedene Buendel:
   ///
@@ -128,7 +128,7 @@ void main() {
   /// UND DAS WEB LAEUFT HIER GAR NICHT MIT: `kIsWeb` ist eine Konstante des
   /// Uebersetzers, kein Schalter — im Widget-Test laesst es sich nicht setzen.
   /// Der vierte Zweig von `_imFenster` bleibt damit ungemessen; was fuer ihn
-  /// gilt, steht als Fundstelle an `_mitTasten` in main.dart.
+  /// gilt, steht als Fundstelle an `_mitTasten` in oberflaeche/home/tastatur.dart.
   void aufBeidenFenstern(
       String name, Future<void> Function(WidgetTester) koerper) {
     for (final pl in const [TargetPlatform.windows, TargetPlatform.macOS]) {
@@ -337,7 +337,7 @@ void main() {
       // `_clipboardShortcuts` (default_text_editing_shortcuts.dart:328-329), auf
       // macOS aus `_macShortcuts` selbst (753-754) plus
       // `_macDisablingTextShortcuts` (897). Alle Fundstellen stehen bei
-      // `_mitTasten` in main.dart. Zu ActivateIntent wird die Taste im Feld also
+      // `_mitTasten` in oberflaeche/home/tastatur.dart. Zu ActivateIntent wird die Taste im Feld also
       // gar nicht — auf beiden hier gelaufenen Plattformen.
       //
       // Dieser Fall haelt genau das fest. Er ist kein Selbstlaeufer: haengt die

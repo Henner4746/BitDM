@@ -1,9 +1,8 @@
 // geraete_seite.dart — Geraete verwalten, beitreten, abgemeldet sein.
 //
 // Die Oberflaeche der Geraeteabmeldung (docs/GERAETEABMELDUNG.md). EIGENE
-// DATEI und nicht in main.dart: dort haengen nur drei Zeilen, die hierher
-// zeigen (Meine ID, Chatliste, Startbildschirm). main.dart wird gerade
-// aufgeteilt, und jede Zeile weniger dort ist eine Zusammenfuehrung weniger.
+// DATEI und nicht in oberflaeche/home: dort haengen nur drei Zeilen, die
+// hierher zeigen (Meine ID, Chatliste, Startbildschirm).
 //
 // Was hier steht:
 //   * [GeraeteKachel]     — in "Meine ID": wie viele Geraete, und der Weg

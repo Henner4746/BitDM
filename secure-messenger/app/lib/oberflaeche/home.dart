@@ -407,7 +407,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     //
     // AUF ANDROID LAEUFT DIESE ZEILE ALSO INS LEERE, und das ist Absicht:
     // angemeldet wird der Horcher nur unter `if (_imFenster)` (initState,
-    // main.dart:425-429). `removeListener` auf einen nicht angemeldeten Horcher
+    // home.dart). `removeListener` auf einen nicht angemeldeten Horcher
     // ist ein Nichts — `ChangeNotifier.removeListener` laeuft die Liste ab und
     // tut nichts, wenn er nicht drinsteht, ohne assert und ohne Wurf
     // (change_notifier.dart:339-363; `FocusManager` mischt ChangeNotifier ein

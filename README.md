@@ -397,19 +397,23 @@ problem. See [`docs/ZWISCHENLAGER.md`](secure-messenger/docs/ZWISCHENLAGER.md).
 
 ```
 secure-messenger/
-  app/lib/               Flutter app — 67 files, 22,471 lines Dart
-    main.dart              5,078 of them; the platform switches live here
+  app/lib/               Flutter app — 113 files, 43,953 lines Dart
+    main.dart              218 of them: start, BitApp, relay targets
+    oberflaeche/home.dart  714: Home with all its state, lifecycle and lock clean-up
+    oberflaeche/home/      21 parts of Home, 86–589 lines each: lock, access,
+                           emergency, identity, chats, settings, nearby …
     core/crypto/           libsignal sessions, identity, address encoding, BIP39
     core/nah/              nearby: beacons, BLE radio, chunking, route choice
     core/anhang/           attachments: chunk crypto, recipe, blob store client
     core/store/            encrypted local database
-  app/test/              73 files, 16,980 lines — 820 tests, all green
-  app/integration_test/  1 file, 153 lines — attachment throughput on real hardware
-  app/android/…/kotlin/  8 files, 2,574 lines — BLE, keystore, foreground service
+  app/test/              144 files, 36,334 lines — 1,511 tests, all green
+  app/integration_test/  3 files, 791 lines — attachment throughput on real hardware
+  app/android/…/kotlin/  9 files, 3,062 lines — BLE, keystore, foreground service
                          (plus 2 test files)
   app/windows/           CMake, runner, and bitdm.iss for the installer
   app/linux/  app/web/   project files; no published build
   app/tool/symbol/       3 Python scripts that render and distribute the app icon
+  app/tool/*.py          checks for the main.dart split: pure move, name collisions
   server/                Python relay + blob store, 4,508 lines including tests
   docs/                  operations, threat notes, measurements
   website/               bitdm.net

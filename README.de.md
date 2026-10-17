@@ -418,19 +418,23 @@ Netzproblem aussieht. Siehe
 
 ```
 secure-messenger/
-  app/lib/               Flutter-App — 67 Dateien, 22.471 Zeilen Dart
-    main.dart              5.078 davon; hier liegen die Plattform-Weichen
+  app/lib/               Flutter-App — 113 Dateien, 43.953 Zeilen Dart
+    main.dart              218 davon: Start, BitApp, Relay-Ziele
+    oberflaeche/home.dart  714: Home mit allem Zustand, Lebenszyklus, Aufräumen beim Sperren
+    oberflaeche/home/      21 Teile von Home, je 86–589 Zeilen: Sperre, Zugriff,
+                           Notfall, Identität, Chats, Einstellungen, Nahbereich …
     core/crypto/           libsignal-Sitzungen, Identität, Adresskodierung, BIP39
     core/nah/              Nahbereich: Leuchtfeuer, BLE-Funk, Zerlegen, Wegwahl
     core/anhang/           Anhänge: Stückkrypto, Rezept, Zwischenlager-Anbindung
     core/store/            verschlüsselte lokale Datenbank
-  app/test/              73 Dateien, 16.980 Zeilen — 820 Tests, alle grün
-  app/integration_test/  1 Datei, 153 Zeilen — Anhang-Durchsatz auf echter Hardware
-  app/android/…/kotlin/  8 Dateien, 2.574 Zeilen — BLE, Schlüsselspeicher,
+  app/test/              144 Dateien, 36.334 Zeilen — 1.511 Tests, alle grün
+  app/integration_test/  3 Dateien, 791 Zeilen — Anhang-Durchsatz auf echter Hardware
+  app/android/…/kotlin/  9 Dateien, 3.062 Zeilen — BLE, Schlüsselspeicher,
                          Vordergrunddienst (plus 2 Testdateien)
   app/windows/           CMake, Runner und bitdm.iss für das Installationsprogramm
   app/linux/  app/web/   Projektdateien; kein veröffentlichter Build
   app/tool/symbol/       3 Python-Skripte, die das App-Symbol rendern und verteilen
+  app/tool/*.py          Prüfungen für die Aufteilung von main.dart: reine Verschiebung, Namen
   server/                Python-Relay + Zwischenlager, 4.508 Zeilen einschließlich Tests
   docs/                  Betrieb, Bedrohungsnotizen, Messungen
   website/               bitdm.net

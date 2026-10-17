@@ -22,7 +22,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// Rechner und im Browser erscheint dieser Text nicht.
 const _nurAndroid = {
   // Sicherheitsschluessel, Geraetesperre, Fingerabdruck: nur Android
-  // (_faktorGehtHier und _nurAufAndroid in main.dart).
+  // (_faktorGehtHier und _nurAufAndroid in oberflaeche/home/zugriff.dart).
   'stickPinHint',
   'lockNoScreenLockBody',
   'fidoHold',
