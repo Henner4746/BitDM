@@ -4943,6 +4943,15 @@ def test_prekey_zeigt_nur_gelistete_geraete_und_traegt_die_liste(relay):
     assert voll["geraeteliste"] == erwartet == knapp["geraeteliste"]
     assert json.loads(erwartet["liste"])["epoche"] == 1
 
+    # Gleich nach dem Zuruecksetzen hat die Adresse kein angemeldetes Geraet.
+    # `?nur_geraete=1` sagt trotzdem, welche Kennungen die Liste fuehrt; das
+    # volle Buendel gibt es erst, wenn sich jemand anmeldet.
+    _setze(rs, _liste(henrik, 2, {42: _geraet()}, 42))
+    leer = rs.get_prekey(henrik["user_id"], _Anfrage(), nur_geraete=True)
+    assert leer["geraete"] == []
+    assert json.loads(leer["geraeteliste"]["liste"])["epoche"] == 2
+    assert _status(lambda: rs.get_prekey(henrik["user_id"], _Anfrage())) == 404
+
 
 def test_die_anlage_raeumt_geraete_von_vor_der_liste_ab(relay):
     """Geraete, die sich vor der ersten Liste angemeldet hatten, stehen nicht

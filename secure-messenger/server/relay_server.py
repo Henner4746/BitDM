@@ -2887,7 +2887,12 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
         liste = gespeicherte_liste(user_id)
         if liste is not None:
             rows = [r for r in rows if r[0] in liste[1]]
-        if not rows:
+        # Mit Liste, aber ohne angemeldetes Geraet (gleich nach dem
+        # Zuruecksetzen, bevor sich das neue Geraet anmeldet): `?nur_geraete=1`
+        # antwortet trotzdem, mit leerer Geraeteliste und der signierten Liste.
+        # Ein 404 hiesse fuer die App "diese Adresse hat noch nichts" — und
+        # ein neues Geraet waehlte seine Kennung, ohne die belegten zu kennen.
+        if not rows and not (nur_geraete and liste is not None):
             raise HTTPException(404, "unbekannte Adresse")
         # Die signierte Liste geht mit, damit jeder Abrufer selbst pruefen
         # kann, welche Geraete die Adresse wirklich hat (§8.6, Stufe 2) —
@@ -3066,7 +3071,12 @@ async def setze_geraeteliste(req: GeraetelisteRequest, request: Request):
     unter der schreibsperre hat kein await (siehe dort); die beiden
     Signaturpruefungen sind C-Code und kosten Mikrosekunden.
     """
-    if not herkunft_ok(request, "reg", cost=5):
+    # EINE EIGENE FAMILIE und nicht "reg": jedes neue Geraet legt seine Liste
+    # einmal an, und in derselben Familie verdoppelte das die Kosten jeder
+    # Erstanmeldung - bei vielen neuen Nutzern hinter einer Adresse (NAT, Tor)
+    # griff die Bremse dann doppelt so frueh. Zwei Signaturpruefungen in C
+    # sind billig; die Bremse hier haelt nur Fluten ab.
+    if not herkunft_ok(request, "liste", cost=2):
         raise HTTPException(429, "zu viele Anfragen")
     neu = lies_liste(req.liste, req.sig_identitaet, req.sig_geraet)
     uid = neu.adresse
@@ -3160,7 +3170,7 @@ async def beantrage_beitritt(req: BeitrittRequest, request: Request):
     Mitglied sie bestaetigt — indem es eine neue Fassung der Liste
     veroeffentlicht — oder bis BEITRITT_TTL um ist.
     """
-    if not herkunft_ok(request, "reg", cost=5):
+    if not herkunft_ok(request, "beitritt", cost=5):
         raise HTTPException(429, "zu viele Anfragen")
     a = lies_beitritt(req.anfrage, req.sig_identitaet, req.sig_geraet)
     with schreibsperre:
