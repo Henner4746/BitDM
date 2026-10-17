@@ -255,6 +255,7 @@ ThemeData bitThema(Pal p,
   TextStyle m(double groesse, {FontWeight dicke = FontWeight.w400, Color? farbe, double? abstand}) =>
       TextStyle(
         fontFamily: mono,
+        fontFamilyFallback: symbolSchriften,
         fontVariations: [FontVariation('wght', dicke.value.toDouble())],
         fontSize: groesse,
         fontWeight: dicke,
@@ -280,6 +281,8 @@ ThemeData bitThema(Pal p,
     // normalerweise in der Schrift des Systems gesetzt, weil sie sich in
     // Saetzen besser liest — nur die Terminal-Themen setzen ihn mono.
     fontFamily: text,
+    // ✓ ◷ ★ & Co. aus der App statt aus dem Netz, siehe [symbolSchriften].
+    fontFamilyFallback: symbolSchriften,
     scaffoldBackgroundColor: p.bg,
     dialogTheme: DialogThemeData(
       backgroundColor: p.surf,
@@ -1288,6 +1291,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     if (_abfolgeImFenster) size *= _schriftFaktor;
     return TextStyle(
       fontFamily: family,
+      fontFamilyFallback: symbolSchriften,
       fontVariations: [FontVariation('wght', weight.value.toDouble())],
       fontSize: size,
       fontWeight: weight,

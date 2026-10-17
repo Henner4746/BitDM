@@ -59,6 +59,21 @@ class Thema {
   String nameIn(String sprache) => name[sprache] ?? name['en']!;
 }
 
+/// Ersatzschriften fuer die Sonderzeichen der Oberflaeche: ✓ ◷ ★ ● ○ ◌ ◍ ◎
+/// aus Noto Sans Symbols 2, ⇉ ≡ ∿ → ≈ aus Noto Sans Math, je nur diese
+/// Glyphen.
+///
+/// KEINE EIGENE SCHRIFT HAT SIE. Im Browser holte die Flutter-Engine sie
+/// darum zur Laufzeit aus web/fontfallback/ nach — und weil dort die Datei
+/// fehlte, bei jedem neuen Layout wieder: im offenen Chat alle zwei Sekunden
+/// eine 404 (16.10.2026). Als Ersatzschrift der App kommen sie ohne Netz aus
+/// und sehen auf jeder Plattform gleich aus. Gehoert an jeden TextStyle, der
+/// nichts erbt (TextPainter, Themen-Stile); alle anderen erben ihn von
+/// `bitThema`. Ein neues Zeichen ohne Glyphe meldet
+/// test/oberflaeche/schriftzeichen_test.dart, geschnitten wird mit
+/// tool/schrift/untermenge.py.
+const symbolSchriften = <String>['BitDM Symbole', 'BitDM Mathe'];
+
 /// Dasselbe Alphabet wie die Adressen: A-Z und 2-7.
 const _base32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const _hex = '0123456789ABCDEF';
@@ -373,7 +388,13 @@ class _SchleierMaler extends CustomPainter {
     final tp = TextPainter(
       text: TextSpan(
           text: z,
-          style: TextStyle(fontFamily: schrift, fontSize: groesse, color: c, fontWeight: dicke, height: 1)),
+          style: TextStyle(
+              fontFamily: schrift,
+              fontFamilyFallback: symbolSchriften,
+              fontSize: groesse,
+              color: c,
+              fontWeight: dicke,
+              height: 1)),
       textDirection: TextDirection.ltr,
     )..layout();
     return _satz[schluessel] = tp;
@@ -435,6 +456,7 @@ class _SchleierMaler extends CustomPainter {
           text: teile.join(),
           style: TextStyle(
               fontFamily: schrift,
+              fontFamilyFallback: symbolSchriften,
               fontSize: 22,
               fontWeight: FontWeight.w600,
               letterSpacing: 6,

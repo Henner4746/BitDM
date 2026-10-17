@@ -224,7 +224,7 @@ flutter:
   uses-material-design: true
 
   # Lokal eingebettete Schriften — die App stellt zur Laufzeit KEINE
-  # Netzwerkanfrage fuer Typografie. Beides sind Variable Fonts mit
+  # Netzwerkanfrage fuer Typografie. Doto und Chivo Mono sind Variable Fonts mit
   # wght-Achse, eine Datei deckt daher alle genutzten Schnitte (w300-w900) ab.
   # Lizenz: SIL Open Font License, siehe assets/fonts/OFL-*.txt
   # (OFL ist mit AGPL-3.0 vereinbar und fuer F-Droid unproblematisch).
@@ -235,6 +235,15 @@ flutter:
     - family: Chivo Mono
       fonts:
         - asset: assets/fonts/ChivoMono.ttf
+    # Nur die Sonderzeichen der Oberflaeche (✓ ◷ ★ ● ○ ◌ ◍ ◎, ⇉ ≡ ∿ → ≈),
+    # zusammen gut 6 KB, als fontFamilyFallback (symbolSchriften in
+    # lib/themen.dart). Neu schneiden: tool/schrift/untermenge.py.
+    - family: BitDM Symbole
+      fonts:
+        - asset: assets/fonts/NotoSansSymbols2-BitDM.ttf
+    - family: BitDM Mathe
+      fonts:
+        - asset: assets/fonts/NotoSansMath-BitDM.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

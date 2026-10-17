@@ -16,6 +16,7 @@ in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE
 - Die Einstellungen der Passwort-Ableitung (Argon2id) aus der Fachdatei werden vor dem Entsperren geprüft. Eine manipulierte Datei konnte die App vorher abstürzen oder minutenlang hängen lassen.
 - Der Wiederherstellen-Bildschirm sagt jetzt, dass ein anderes Gerät mit denselben 12 Wörtern angemeldet bleibt und weiter Nachrichten bekommt.
 - Die Anleitung „Nur in der Nähe“ behauptete, die Zustellung über Funk sei noch nicht gebaut, und verlangte den Standortzugriff, den BitDM gar nicht anfordert. Sie beschreibt jetzt, was der Nahbereich tatsächlich kann: Bluetooth 5 und Android 12 auf beiden Seiten, rund zwei Meter gemessen, und die Kontaktanfrage geht erst über den Relay hinaus.
+- Die Web-Fassung fragte im offenen Chat alle zwei Sekunden eine fehlende Schriftdatei an (404), weil keine ihrer Schriften die Haken ✓ und die Uhr ◷ am Zustellstatus hatte. Die eigenen Sonderzeichen (✓ ◷ ★ ● ○ ◌ ◍ ◎ ⇉ ≡ ∿ → ≈) bringt die App jetzt in zwei Noto-Untermengen von zusammen gut 6 KB selbst mit, auf allen Plattformen gleich. Für empfangene Symbole liegt im Web zusätzlich ein Teil von Noto Sans Symbols 2. Ein neuer Test meldet jedes künftige Sonderzeichen ohne Glyphe.
 
 **Behoben (Relay)**
 - Ein Fremder konnte die Anmeldung eines Geräts stören, indem er dessen Einmal-Nonce verdrängte. Die Plätze gehören jetzt der Herkunft der Anfrage; über Tor dem Circuit, sobald der Onion-Dienst die Circuit-Kennung weitergibt.
