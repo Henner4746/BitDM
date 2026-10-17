@@ -16,6 +16,13 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 - **Keine Nachricht geht mehr doppelt hinaus.** Kam während des Sendens jemand in Bluetooth-Reichweite oder stand die Verbindung wieder, schickte der Nachversand dieselbe Nachricht ein zweites Mal.
 - **Erst festschreiben, dann senden.** Der Sitzungsstand wird gespeichert, bevor eine Nachricht hinausgeht. Ein Absturz genau dazwischen konnte vorher dazu führen, dass ein Nachrichtenschlüssel zweimal benutzt wurde.
 
+**Geräte abmelden.** Bis 1.9.x blieb ein verlorenes Telefon Teil der Identität und bekam weiter jede Nachricht — auch nachdem man sie mit den zwölf Wörtern auf einem neuen wiederhergestellt hatte. Ab 2.0.0 führt jede Identität eine signierte Geräteliste. Bedrohungsmodell und Protokoll: [`secure-messenger/docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md).
+- **Abmelden** unter Einstellungen › Meine ID › Geräte verwalten. Das abgemeldete Gerät bekommt sofort nichts mehr, kommt beim Relay nicht wieder hinein und vergisst die zwölf Wörter; seine Unterhaltungen bleiben verschlüsselt darauf.
+- **Ein weiteres Gerät** braucht jetzt zusätzlich zu den Wörtern einen Code vom vorhandenen Gerät. Wer kein Gerät mehr hat, meldet auf dem neuen alle anderen ab.
+- **Kontakte prüfen die Liste selbst** und verschlüsseln nur an Geräte darin — auch dann, wenn ein Relay etwas anderes behauptet.
+- **Die Grenze bleibt benannt:** Wer die zwölf Wörter kennt, kann alle Geräte abmelden und übernehmen. Dann hilft nur eine neue Identität.
+- **Beim Update** legt das erste aktualisierte Gerät die Liste an; jedes weitere tritt einmal per Code bei. Der Relay muss vorher aktualisiert sein.
+
 **Weitere Behebungen aus dem Audit vom 16.10.2026**
 - Eine „Absage“ oder „Zusage“ eines Kontakts wird nur noch als Antwort auf eine eigene Anfrage angenommen. Vorher konnte jeder Kontakt damit die ganze Unterhaltung löschen bzw. sich ein Fremder selbst zum Kontakt machen (PR-1, PR-2).
 - Unbeantwortete Anfragen von Fremden bekommen keine Bluetooth-Leuchtfeuer mehr (PR-3).

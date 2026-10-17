@@ -276,7 +276,7 @@ Adressen ohne Liste laufen wie bisher. `canonical_bytes` bleibt unveraendert.
 
 **Auf dem vorhandenen Geraet** ("Geraet hinzufuegen") erzeugt die App einen
 **Beitrittscode**: 10 Zufallsbyte, als 16 Zeichen Base32 in vier Gruppen
-angezeigt (`ABCD-EFGH-IJKL-MNOP`), dazu als QR-Code. Er verlaesst dieses
+angezeigt (`ABCD-EFGH-IJKL-MNOP`). Er verlaesst dieses
 Geraet nie — auch der Relay sieht ihn nicht — und gilt 10 Minuten fuer genau
 einen Beitritt.
 
@@ -343,3 +343,147 @@ gibt es keinen passenden Nachweis, und 80 Bit lassen sich nicht durchprobieren.
   eigene Adresse: Spiegel gehen nur an gelistete eigene Geraete und werden nur
   von solchen angenommen — damit ist `MEHRGERAETE.md` §12.1 strukturell zu.
   Ohne Liste (Gegenstelle mit alter App) bleibt es beim bisherigen Verhalten.
+- **Kosten:** Nachgeladen wird die Liste einer Gegenstelle bei der
+  Auffrischung, die es ohnehin gibt (6 Stunden), und wenn Post von einem
+  Geraet kommt, das nicht in ihrer Liste steht (hoechstens einmal je Minute,
+  bei Gegenstellen ohne Liste alle 6 Stunden). Bei einem **Fremden**, der zum
+  ersten Mal schreibt, fragt die App nicht nach — dort gibt es nichts zu
+  schuetzen. Die Pruefung vor dem Entschluesseln entscheidet im Normalfall
+  ohne Wartestelle; gewartet wird nur, wenn wirklich nachgeladen wird.
+- **Relay-Bremsen:** `POST /geraeteliste` hat eine eigene Familie (`liste`,
+  2 Marken), `POST /geraeteliste/beitritt` ebenfalls (`beitritt`, 5). In der
+  Familie der Anmeldung (`reg`) verdoppelte die Anlage der Liste die Kosten
+  jeder Erstanmeldung — gemessen an den Ende-zu-Ende-Tests, die danach in
+  429 liefen.
+
+### 8.8 Die Oberflaeche
+
+- **Einstellungen › Meine ID:** die Zahl der Geraete wie bisher. Mit Liste
+  dazu "Geraete verwalten": jedes Geraet mit Name (verschluesselt in der
+  Liste) und Einrichtungsdatum, "Abmelden" je anderem Geraet, "Alle anderen
+  abmelden", "Dieses Geraet abmelden", "Geraet hinzufuegen" (zeigt den Code)
+  und immer sichtbar der ehrliche Satz aus §4. Ohne Liste (alter Relay) bleibt
+  der alte Satz stehen, dass Abmelden nicht geht — er stimmt dort weiterhin.
+- **Chatliste, wenn dieses Geraet nicht in der Liste steht:** eine Karte mit
+  Codefeld und "Kein anderes Geraet mehr? — Alle anderen Geraete abmelden"
+  (mit Rueckfrage, die sagt, dass das jeder mit den Woertern kann). Die
+  Verbindungszeile sagt "Geraet nicht bestaetigt" statt "keine Verbindung".
+- **Startbildschirm nach einer Abmeldung:** "Dieses Geraet wurde abgemeldet …
+  mit deinen 12 Woertern holst du sie zurueck — ein anderes Geraet muss das
+  dann bestaetigen." Nur im laufenden Prozess; nach einem Neustart weiss das
+  Geraet davon nichts mehr (die Woerter und damit die Datenbank sind zu).
+
+Code: `lib/core/net/geraeteliste.dart` (Protokoll), `lib/core/geraeteverwaltung.dart`
+(Kern, `part of real_messenger_core.dart`), `lib/geraete_seite.dart`
+(Oberflaeche), drei kleine Einhaengungen in `lib/main.dart`.
+
+---
+
+## 9. Belege
+
+**Relay** (`server/test_relay.py`, Abschnitt "Geraeteabmeldung", 17 Faelle):
+Anlage nur mit sich allein; mit Liste reicht der Identitaetsschluessel nicht
+mehr (`/register` und `/ws`); Abmelden raeumt Zeile, Warteschlange und Prekeys
+ab und trennt mit 4410; **das abgemeldete Geraet kommt auf keinem Weg zurueck**
+(Wiederverbindung, alte Kennung, neue Kennung, eigene Liste, Beitrittsanfrage)
+— nur das laute Zuruecksetzen bleibt; Beitritt nur mit Bestaetigung; Epoche
+genau +1; kanonische Schreibweise; Selbstabmeldung; die Luecke zwischen
+Vorraum und `connections`.
+
+**App gegen den echten Relay** (`app/test/net/geraeteabmeldung_test.dart`):
+(1) dieselben Woerter allein reichen nicht, ein falscher Code auch nicht;
+(2+3) Abmeldung: Woerter weg, Datenbank bleibt, Annas Post nur noch ans
+Telefon, nichts liegt beim Relay; Neustart ohne Identitaet; wer die Woerter
+wieder eingibt, bekommt den Verlauf, aber keine neue Nachricht; (2b) abgemeldet,
+waehrend es aus war — es merkt es beim naechsten Verbinden; (4) Zuruecksetzen.
+
+**Oberflaeche** (`app/test/oberflaeche/geraete_seite_test.dart`, echter Kern
+mit Attrappe): die Beitrittskarte weist einen falschen Code ab, die Rueckfrage
+beim Zuruecksetzen sagt, dass das jeder mit den Woertern kann, und danach steht
+nur dieses Geraet in der Liste; die Geraeteliste zeigt "dieses Geraet" und den
+ehrlichen Satz, bei einem einzigen Geraet keine Abmeldeknoepfe, und
+"Geraet hinzufuegen" zeigt einen gueltigen Code, der mit dem Schliessen
+verfaellt.
+
+**Bestehende Tests, angepasst:** `zwei_geraete_test.dart` koppelt das Tablet
+jetzt per Code (`test/support/geraete_koppeln.dart`); der Fall "altes Tablet
+ohne Kyber" belegt zusaetzlich, dass eine alte App bei einer Adresse mit Liste
+nicht mehr hereinkommt. `sicherung_test.dart` ("Telefon weg, wiederherstellen")
+setzt auf dem neuen Telefon zurueck, wie es ein Mensch dort tun muss.
+
+**App, Stufe 2** (`app/test/net/geraeteliste_stufe2_test.dart`, gegen eine
+Attrappe, die luegt): kein Spiegel an ein eigenes Geraet ausserhalb der Liste,
+auch mit echtem, von uns signiertem Prekey; nichts an ein Geraet ausserhalb der
+Liste einer Gegenstelle — bei der ersten Nachricht, bei alten Sitzungen, nach
+einer Abmeldung, nach einem Wiedereinspielen einer alten Fassung; ein neuer
+Schluessel unter alter Kennung verwirft die alte Sitzung; Post von einem nicht
+gelisteten Geraet wird nicht entschluesselt; ein alter Relay ohne Listen aendert
+nichts.
+
+**Beide Sprachen** (`app/test/net/geraeteliste_test.dart` mit
+`geraeteliste_fixtures.json` aus `server/tools/write_geraeteliste_fixtures.py`):
+Dart schreibt die Liste Zeichen fuer Zeichen wie Python, libsignal nimmt die
+Signaturen des Relays an, jede Veraenderung faellt auf.
+
+**Mutationsproben** (je Riegel einzeln ausgeschaltet, Rueckbau per SHA-256
+geprueft): 12 im Relay, 10 in der App — alle werden rot. Drei App-Riegel waren
+zuerst durch eine andere Schicht verdeckt (Listenfilter beim Versand, beim
+Sitzungsaufbau, Abmeldung beim Verbinden); die Faelle, die sie einzeln zeigen,
+sind seither dabei.
+
+## 10. Grenzen und Offenes
+
+- **Wer die Woerter hat, kann zuruecksetzen** (§4). Das ist laut, aber nicht
+  zu verhindern. Heilung: neue Identitaet — Option C, eigenes Vorhaben.
+- **Ein gestohlenes, entsperrtes Mitglied** kann bis zu seiner Abmeldung selbst
+  abmelden und hinzufuegen (es ist ein Mitglied). Der Besitzer setzt mit den
+  Woertern zurueck; danach hat das Geraet nichts mehr.
+- **QR-Code zum Scannen** des Beitrittscodes: der vorhandene Leser haengt
+  privat in `main.dart` am Kontakt-Hinzufuegen. Nach der Aufteilung von
+  `main.dart` nachruesten.
+- **Umbenennen von Geraeten** und **"zuletzt gesehen"** in der Liste: nicht
+  gebaut. Der Name ist die Plattform ("Android", "Windows" …) plus Datum.
+- **Relay verliert seine Datenbank:** das erste Geraet legt neu an (Epoche 1);
+  die anderen sehen eine aeltere Epoche, als sie kennen, und behandeln sie als
+  Rueckschritt — sie muessen neu beitreten. Selten, aber dann laestig.
+- **Kennung eines abgemeldeten Geraets** kann ein spaeteres Geraet zufaellig
+  wieder bekommen (1 zu ~120). Gegenstellen verwerfen die alte Sitzung, sobald
+  sie die neue Fassung sehen (Schluessel geaendert); bis dahin kann eine
+  Nachricht an das neue Geraet scheitern und wird nachgesendet.
+- **Umstellung:** 2.0.0 ist ein harter Schnitt. Das erste aktualisierte Geraet
+  einer Adresse legt die Liste an; jedes weitere tritt einmal per Code bei.
+  Geraete mit alter App fallen bei der Anlage heraus (sie koennten mit 2.0.0
+  ohnehin nicht mehr reden).
+- **Der Relay muss zuerst** ausgerollt werden. Gegen einen alten Relay laeuft
+  die App ohne Liste weiter wie bisher — ohne Abmeldung.
+
+## 11. Vorschlag fuer die FAQ der Webseite
+
+Nicht eingebaut: die Webseite darf sich erst mit der Fassung aendern, die das
+hier ausliefert (siehe die Sperre fuer `fix/audit-2026-10-16` und alles darauf).
+
+**DE — Was passiert, wenn mein Telefon weg ist?**
+
+> Mit deinen zwölf Wörtern holst du deine Identität auf einem neuen Gerät
+> zurück. Hast du noch ein anderes Gerät, meldest du das verlorene dort unter
+> „Geräte verwalten“ ab. Hast du keins mehr, wählst du auf dem neuen
+> „Alle anderen Geräte abmelden“. Das alte Telefon bekommt ab da keine
+> Nachricht mehr, kann sich nicht wieder anmelden und vergisst deine Wörter,
+> sobald es online geht. Seine Unterhaltungen bleiben darauf verschlüsselt.
+> Eine Grenze bleibt: Wer deine zwölf Wörter kennt, kann dasselbe tun und dich
+> abmelden. War das Telefon entsperrt oder liegen die Wörter nicht sicher,
+> leg danach eine neue Identität an.
+
+**EN — What happens if I lose my phone?**
+
+> Your twelve words bring your identity back on a new device. If you still
+> have another device, sign the lost one out there under “Manage devices”. If
+> you have none left, choose “Sign out all other devices” on the new one. From
+> then on the old phone gets no messages, cannot sign back in, and forgets
+> your words as soon as it goes online. Its chats stay encrypted on it. One
+> limit remains: anyone who knows your twelve words can do the same and sign
+> you out. If the phone was unlocked or the words are not safe, create a new
+> identity afterwards.
+
+Dazu im JSON-LD-Block oben (`"name": "What happens if I lose my phone?"`)
+derselbe englische Text.

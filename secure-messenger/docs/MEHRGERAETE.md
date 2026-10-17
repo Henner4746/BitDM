@@ -13,6 +13,12 @@ Serverstuetze, §8 ist die Umstellung, §11 sagt, wer wann was fertig hat.
 (`LIBSIGNAL-UMSTIEG.md`). Alles dort ist additiv; ohne Kyber gilt §1–§3
 unveraendert.
 
+**Nachtrag 17.10.2026: Geraeteabmeldung.** `GERAETEABMELDUNG.md` ersetzt §6
+("kein Widerruf") und §12.5: jede Adresse fuehrt eine signierte Geraeteliste,
+jedes Geraet hat einen eigenen Geraeteschluessel, und ein weiteres Geraet kommt
+nur mit der Bestaetigung eines vorhandenen hinzu. Die Stellen unten, die das
+Gegenteil sagen, sind markiert; der Rest dieser Datei gilt unveraendert.
+
 In dieser Sitzung wurde **nichts gebaut und nichts getestet** (zwei parallele
 Arbeiten am selben Verzeichnis). Alle Zahlen sind gelesen oder gerechnet; der
 Messbefehl steht jeweils dabei, gesammelt in §14.
@@ -39,6 +45,11 @@ weg. Jedes Geraet signiert seine eigenen Sitzungsschluessel selbst. Es gibt
 kein Geraet mit mehr Recht auf die Adresse als ein anderes. Es gibt deshalb
 **keine Kopplungsmaske, keinen QR-Fluss, kein Hauptgeraet** — der Besitz der
 zwoelf Woerter IST die Kopplung.
+
+> **Ueberholt seit 17.10.2026** (`GERAETEABMELDUNG.md` §8.5): die Woerter allein
+> reichen nicht mehr. Ein weiteres Geraet tritt bei, indem ein Geraet der
+> Liste es per Code bestaetigt. Ohne anderes Geraet bleibt nur das
+> Zuruecksetzen — und das wirft alle anderen sichtbar hinaus.
 
 **Was die Voraussetzung nicht loest:** Die AUTHENTISIERUNG faellt weg, die
 ADRESSIERUNG nicht. Der Relay kennt heute nur Adressen: eine Buendelzeile je
@@ -580,6 +591,13 @@ dieser Adresse (`?nur_geraete=1` fuer die eigene Adresse, eine Zeile,
 **keine** Verwaltungsmaske). Damit wird aus einem unsichtbaren Mitleser eine
 sichtbare Zahl, die nicht stimmt.
 
+> **Ueberholt seit 17.10.2026:** Es gibt einen Widerruf. Ein Geraet der
+> Geraeteliste meldet ein anderes ab; der Relay laesst es nicht mehr herein,
+> und Gegenstellen verschluesseln nicht mehr an es (`GERAETEABMELDUNG.md` §8).
+> Wer die zwoelf Woerter hat, kommt nicht mehr STILL dazu, sondern nur noch
+> per Zuruecksetzen — laut, alle anderen Geraete fallen dabei heraus. Die
+> Geraetezahl bleibt sichtbar, jetzt mit "Geraete verwalten".
+
 ---
 
 ## 7. Vergessene Geraete
@@ -720,6 +738,9 @@ Geraeteverwaltung, kein Widerruf (§6), kein Abgleich von Haken- und
 Lesezustand (§5.2), kein Mehrgeraetebetrieb ueber den Nahbereich (§13.4),
 keine Anhang-Dateien auf dem zweiten Geraet (nur der Eintrag; `zustand` und
 `pfad` sind ortsgebunden, `encrypted_database.dart:387-390`).
+
+> **Seit 17.10.2026** gibt es Geraeteverwaltung und Widerruf
+> (`GERAETEABMELDUNG.md`); der Rest dieser Aufzaehlung gilt weiter.
 
 **Wie es der Nutzer erfaehrt** — zwei Stellen, beide reiner Text, keine neue
 Maske:
@@ -961,6 +982,14 @@ gehoert vor S4 geklaert, nicht danach.
 > Signal ueber getrennte Identitaetsschluessel beantwortet, kann BitDM per
 > Konstruktion nicht stellen. Der Riegel muss deshalb woanders sitzen: an dem,
 > was man dem eigenen Zweitgeraet ueberhaupt zu tun erlaubt.
+>
+> **NACHTRAG 17.10.2026: strukturell geschlossen** durch Stufe 2 der
+> Geraeteabmeldung (`GERAETEABMELDUNG.md` §8.7). Die App verschluesselt an
+> eigene Geraete nur, wenn sie in der signierten Geraeteliste stehen, und
+> nimmt nur von solchen etwas an. Ein vom Relay erfundenes Geraet 7 steht in
+> keiner Liste, die er faelschen koennte — dafuer braeuchte er den
+> Identitaetsschluessel. Der Riegel `_istEigenesBuendel` bleibt als zweite
+> Schicht stehen. Beleg: `app/test/net/geraeteliste_stufe2_test.dart`.
 
 **12.2 Auffrischungsfenster 6 Stunden.** Gesetzt, nicht gemessen. Zu kurz
 kostet Anfragen (§4: 4 je Kontakt und Tag), zu lang laesst ein neues Geraet
@@ -983,6 +1012,11 @@ verschluesseln kann.
 in dieser Spezifikation, sondern eine Eigenschaft des Entwurfs „die Adresse
 IST der Schluessel". Es gibt keine Loesung, die den Besitz der zwoelf Woerter
 entwertet, ohne die Identitaet zu wechseln. Muss so benannt bleiben.
+
+> **Ueberholt seit 17.10.2026, bis auf den letzten Satz:** Ein Geraet laesst
+> sich abmelden (`GERAETEABMELDUNG.md`). Was bleibt, ist genau die Grenze aus
+> dem zweiten Satz: die Woerter selbst lassen sich nicht entwerten — wer sie
+> hat, kann zuruecksetzen. Heilung bleibt eine neue Identitaet.
 
 **12.6 Der gleichzeitige Wettlauf um Kennung 1** (§1) ist nicht abgesichert.
 
