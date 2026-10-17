@@ -48,6 +48,28 @@ import 'core/verbindungstest.dart';
 import 'data.dart' show shortId;
 import 'fassung.dart';
 
+/// Was "Kontakt hinzufuegen" wirklich bewirkt hat.
+///
+/// Bis 15.10.2026 gab es nur ja/nein, und "ja" hiess auf dem Bildschirm
+/// immer "Anfrage gesendet" — auch wenn nichts gesendet wurde.
+enum Hinzugefuegt {
+  /// Die Adresse taugt nicht.
+  ungueltig,
+
+  /// Die Anfrage ist unterwegs oder geht beim naechsten Verbinden.
+  angefragt,
+
+  /// Mit "nur in der Naehe" geht eine Kontaktanfrage nicht hinaus; sie
+  /// wartet, bis der Schalter aus ist.
+  wartet,
+
+  /// Die Gegenseite hatte schon angefragt — jetzt seid ihr Kontakte.
+  angenommen,
+
+  /// Schon ein bestaetigter Kontakt. Gesendet wurde nichts.
+  schonKontakt,
+}
+
 class AppState extends ChangeNotifier {
   AppState(this.core,
       {this.tresor,
@@ -136,6 +158,102 @@ class AppState extends ChangeNotifier {
     return c is RealMessengerCore && c.abgewiesen;
   }
 
+  // ═══════════════════════════════ Geraeteliste (docs/GERAETEABMELDUNG.md)
+  //
+  // Dieselbe Typpruefung wie bei [geraeteZahl]: die Geraeteverwaltung gibt es
+  // nur im echten Kern, die Attrappe kennt keinen Relay.
+
+  RealMessengerCore? get _echt {
+    final c = core;
+    return c is RealMessengerCore ? c : null;
+  }
+
+  /// Wo dieses Geraet in der Liste seiner Identitaet steht.
+  ListenStand get geraeteStand => _echt?.geraeteStand ?? ListenStand.unbekannt;
+
+  /// Ob die eigene Adresse eine Geraeteliste hat. Ohne (alter Relay) laesst
+  /// sich kein Geraet abmelden — das muss die Oberflaeche sagen.
+  bool get hatGeraeteliste => _echt?.hatGeraeteliste ?? false;
+
+  List<GeraetAnzeige> get eigeneGeraete => _echt?.eigeneGeraete ?? const [];
+
+  /// Der Code, den dieses Geraet gerade fuer ein neues zeigt — oder null.
+  String? get beitrittscode => _echt?.beitrittscode;
+
+  /// Die Kennung des Geraets, das zuletzt ueber einen Code hinzukam.
+  int? get zuletztHinzugefuegt => _echt?.zuletztHinzugefuegt;
+
+  /// Ob dieses Geraet in diesem Lauf abgemeldet wurde — fuer den Hinweis auf
+  /// dem Startbildschirm. Nach einem Neustart ist er weg: die Woerter, und mit
+  /// ihnen alles, was es darueber wusste, sind dann nicht mehr da.
+  bool abgemeldetHinweis = false;
+
+  /// Wann und von welchem Geraet dieses abgemeldet wurde.
+  ({DateTime zeit, String? von})? abmeldung;
+
+  Future<void> meldeGeraetAb(int id) async {
+    await _echt?.meldeGeraetAb(id);
+    notifyListeners();
+  }
+
+  Future<void> meldeAlleAnderenAb() async {
+    await _echt?.meldeAlleAnderenAb();
+    notifyListeners();
+  }
+
+  Future<void> meldeDiesesGeraetAb() async {
+    await _echt?.meldeDiesesGeraetAb();
+  }
+
+  Future<String?> starteHinzufuegen() async {
+    final c = _echt;
+    if (c == null) return null;
+    final code = await c.starteHinzufuegen();
+    notifyListeners();
+    return code;
+  }
+
+  void beendeHinzufuegen() {
+    _echt?.beendeHinzufuegen();
+    notifyListeners();
+  }
+
+  /// Bittet mit dem Code eines anderen Geraets um Aufnahme. false: kein Code.
+  Future<bool> trittBei(String code) async {
+    final c = _echt;
+    if (c == null) return false;
+    try {
+      await c.trittBei(code);
+    } on FormatException {
+      return false;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  void brichBeitrittAb() {
+    _echt?.brichBeitrittAb();
+    notifyListeners();
+  }
+
+  /// "Alle anderen Geraete abmelden" auf einem Geraet ausserhalb der Liste.
+  Future<void> setzeZurueck() async {
+    await _echt?.setzeZurueck();
+    notifyListeners();
+  }
+
+  /// Der Kern meldet: dieses Geraet ist abgemeldet, die Woerter sind weg.
+  /// Danach sieht die App aus wie vor dem Anlegen einer Identitaet — mit
+  /// einem Hinweis, warum. Die Datenbank bleibt (der Kern loescht sie nicht).
+  Future<void> _nachAbmeldung() async {
+    _wiederverbindung?.cancel();
+    _wiederverbindung = null;
+    _fehlversuche = 0;
+    abmeldung = _echt?.abmeldung;
+    abgemeldetHinweis = true;
+    await _vergissIdentitaet();
+  }
+
   /// Ob [boot] durch ist. Vorher zeigt die App nichts an.
   bool bereit = false;
 
@@ -164,6 +282,23 @@ class AppState extends ChangeNotifier {
   /// der gesicherte Bereich des Geraets ruecke sie nur noch nicht heraus.
   bool gesperrt = false;
 
+  /// Ob der Schluesselspeicher des Systems beim letzten [boot] nicht zu lesen
+  /// war — unter Linux ein gesperrter oder gar nicht laufender Schluesselbund.
+  ///
+  /// Dann ist UNBEKANNT, ob es eine Identitaet gibt. [bereit] bleibt deshalb
+  /// false: kein Onboarding (dort liesse sich eine zweite Identitaet anlegen),
+  /// keine Chatliste, nichts, was am fertigen Start haengt. Die Oberflaeche
+  /// zeigt nur die Meldung und "Erneut versuchen", also noch einmal [boot].
+  /// Geloescht oder neu angelegt wird in diesem Zustand nichts.
+  ///
+  /// Bis 17.10.2026 flog die Ausnahme unbehandelt aus [boot], und unter Linux
+  /// ohne entsperrten Schluesselbund blieb das Fenster leer, ohne ein Wort.
+  bool schluesselspeicherZu = false;
+
+  /// Ob [boot] gerade laeuft — der Knopf "Erneut versuchen" ruht solange.
+  bool get startetGerade => _bootLauf != null;
+  Future<void>? _bootLauf;
+
   /// Die eingerichteten Faktoren, so wie sie in der Fachdatei stehen.
   ///
   /// Leer heisst: keine Sperre. Die App oeffnet dann ohne Rueckfrage, und die
@@ -173,23 +308,39 @@ class AppState extends ChangeNotifier {
   final _abos = <StreamSubscription<Object?>>[];
   final _zufall = Random();
 
-  Future<void> boot() async {
-    await _ladeFaktoren();
+  /// Liest die Faktoren und oeffnet die Identitaet, wenn es eine gibt.
+  ///
+  /// Darf noch einmal gerufen werden, solange [bereit] false ist ("Erneut
+  /// versuchen"). Ein Aufruf, waehrend schon einer laeuft, wartet auf
+  /// denselben Lauf — ein Doppelklick oeffnet die Datenbank nicht zweimal.
+  Future<void> boot() => _bootLauf ??= _boot();
+
+  Future<void> _boot() async {
     try {
-      hatIdentitaet = await core.initialize();
-      gesperrt = false;
-    } on LockedException {
-      // Es GIBT eine Identitaet, sie liegt nur in einem Fach, das noch
-      // niemand geoeffnet hat. Das ist kein Fehler, sondern der Zweck.
-      hatIdentitaet = true;
-      gesperrt = true;
+      await _ladeFaktoren();
+      try {
+        hatIdentitaet = await core.initialize();
+        gesperrt = false;
+      } on LockedException {
+        // Es GIBT eine Identitaet, sie liegt nur in einem Fach, das noch
+        // niemand geoeffnet hat. Das ist kein Fehler, sondern der Zweck.
+        schluesselspeicherZu = false;
+        hatIdentitaet = true;
+        gesperrt = true;
+        bereit = true;
+        return;
+      } on SchluesselspeicherException {
+        // Der Speicher ist zu, nicht leer — siehe [schluesselspeicherZu].
+        schluesselspeicherZu = true;
+        return;
+      }
+      schluesselspeicherZu = false;
+      if (hatIdentitaet) await _nachIdentitaet();
       bereit = true;
+    } finally {
+      _bootLauf = null;
       notifyListeners();
-      return;
     }
-    if (hatIdentitaet) await _nachIdentitaet();
-    bereit = true;
-    notifyListeners();
   }
 
   Future<void> _ladeFaktoren() async {
@@ -1173,6 +1324,17 @@ class AppState extends ChangeNotifier {
         _planeFernloeschung();
       }))
       ..add(core.neuesteFassungGemeldet.listen(_nimmNeuesteFassung))
+      // Die Geraeteliste: Stand, Liste, laufender Beitritt. Eine Abmeldung
+      // raeumt die Oberflaeche ab wie "alles loeschen", nur ohne die
+      // Datenbank anzufassen.
+      ..add((_echt?.geraeteGeaendert ?? const Stream<ListenStand>.empty())
+          .listen((s) {
+        if (s == ListenStand.abgemeldet && hatIdentitaet) {
+          unawaited(_nachAbmeldung());
+        } else {
+          notifyListeners();
+        }
+      }))
       ..add(core.messageStatusUpdates.listen(_uebernehmeStatus))
       ..add(core.anhangAenderungen.listen((a) {
         anhaenge.putIfAbsent(a.chatId, () => {})[a.messageId] = a;
@@ -1541,6 +1703,7 @@ class AppState extends ChangeNotifier {
   Future<void> identitaetAnlegen() async {
     frischePhrase = await core.createIdentity();
     hatIdentitaet = true;
+    abgemeldetHinweis = false;
     await _nachIdentitaet();
     notifyListeners();
   }
@@ -1554,6 +1717,7 @@ class AppState extends ChangeNotifier {
     try {
       await core.restoreIdentity(woerter);
       hatIdentitaet = true;
+      abgemeldetHinweis = false;
       // Eine alte Meldung vom Fehlversuch davor gehoert nicht mehr hierher.
       if (letzterFehler == 'phraseUngueltig') letzterFehler = null;
       await _nachIdentitaet();
@@ -1589,17 +1753,31 @@ class AppState extends ChangeNotifier {
 
   bool adresseGueltig(String a) => core.isValidAddress(a);
 
-  /// Gibt true zurueck, wenn die Anfrage rausging.
-  Future<bool> kontaktHinzufuegen(String adresse) async {
+  /// Fuegt hinzu und sagt, was daraus geworden ist — und mit welcher Kennung,
+  /// damit die Oberflaeche einen angenommenen Kontakt gleich oeffnen kann.
+  Future<({Hinzugefuegt art, String? id})> kontaktHinzufuegen(
+      String adresse) async {
     try {
-      await core.addContact(adresse);
+      final k = await core.addContact(adresse);
       if (letzterFehler == 'adresseUngueltig') letzterFehler = null;
+      // VOR dem Neuladen: danach steht der Kontakt schon im neuen Zustand da.
+      final warAktiv =
+          kontakte.any((c) => c.id == k.id && c.state == ContactState.active);
       await _ladeKontakteNeu();
-      return true;
+      final art = switch (k.state) {
+        ContactState.active =>
+          warAktiv ? Hinzugefuegt.schonKontakt : Hinzugefuegt.angenommen,
+        // Auch eine schon frueher gestellte Anfrage: wann sie hinausgeht,
+        // haengt am Schalter, nicht daran, wann sie gestellt wurde.
+        _ => einstellungen.nurNahbereich
+            ? Hinzugefuegt.wartet
+            : Hinzugefuegt.angefragt,
+      };
+      return (art: art, id: k.id);
     } on InvalidAddressException {
       letzterFehler = 'adresseUngueltig';
       notifyListeners();
-      return false;
+      return (art: Hinzugefuegt.ungueltig, id: null);
     }
   }
 
@@ -1851,6 +2029,15 @@ class AppState extends ChangeNotifier {
     if (eigen == null) return einstellungen.messageLifetime;
     return eigen == 0 ? null : Duration(seconds: eigen);
   }
+
+  /// Muss die Gegenstelle dieses Chats erst BitDM aktualisieren?
+  ///
+  /// Nur bei einem Kontakt; eine Gruppe und die Notizen haben keine eigene
+  /// Gegenstelle. Der Kern setzt den Vermerk und meldet jeden Wechsel als
+  /// [ContactEventType.needsUpdateChanged] — das laedt [kontakte] neu.
+  bool brauchtNeuereApp(String chatId) =>
+      kontakte.where((k) => k.id == chatId).firstOrNull?.brauchtNeuereApp ??
+      false;
 
   Future<void> setzeChatFrist(String chatId, Duration? frist) async {
     await core.setzeChatFrist(chatId, frist);
@@ -2708,6 +2895,12 @@ class AppState extends ChangeNotifier {
     unawaited(Benachrichtigungen.instanz.nimmWarnungWeg());
 
     await core.wipeEverything();
+    await _vergissIdentitaet();
+  }
+
+  /// Was nach dem Ende der Identitaet auf diesem Geraet geschieht — nach
+  /// "alles loeschen" und nach einer Abmeldung (docs/GERAETEABMELDUNG.md).
+  Future<void> _vergissIdentitaet() async {
     // DIE FACHDATEI AUCH HIER, nicht nur im Kern. Der echte Kern loescht sie
     // ueber seinen Schluesselspeicher mit — aber "alles loeschen" ist genau
     // die Stelle, an der ein vergessener Rest am teuersten ist: eine Fachdatei

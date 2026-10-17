@@ -36,6 +36,7 @@ import 'core/qr_bild.dart';
 import 'core/verbindungstest.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'data.dart';
+import 'geraete_seite.dart';
 import 'formatierung.dart';
 import 'core/crypto/teilgeheimnis.dart';
 import 'schluesselbild.dart';
@@ -559,7 +560,11 @@ const Map<String, UnlockFactorKind> zeilenArt = {
 class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProviderStateMixin {
   String screen = 'onboard';
   String? chat;
-  bool reqSent = false, sheet = false, panic = false, wiped = false, copied = false;
+  bool sheet = false, panic = false, wiped = false, copied = false;
+  /// Was das letzte "Anfrage senden" bewirkt hat; null, solange es nichts zu
+  /// sagen gibt. Bis 15.10.2026 ein bool, und "wahr" hiess immer "Anfrage
+  /// gesendet" — siehe [Hinzugefuegt].
+  Hinzugefuegt? reqErgebnis;
 
   /// Die Bildlaufsteuerung der offenen Unterhaltung.
   final _chatScroll = ScrollController();
@@ -687,6 +692,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       FocusManager.instance.addListener(_fokusNachfassen);
     }
     _setzeMeldetexte();
+    _starte();
+  }
+
+  /// Startet den Zustand und waehlt danach den ersten Bildschirm — beim
+  /// Oeffnen und ueber "Erneut versuchen", wenn der Schluesselspeicher zu war
+  /// (AppState.schluesselspeicherZu).
+  void _starte() {
     st.boot().then((_) {
       if (!mounted) return;
       // Wer schon eine Identitaet hat, sieht das Onboarding nicht wieder.
@@ -1233,7 +1245,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ),
       );
   List<Color> get avp => _schriftThema.avatar;
-  String t(String k) => strings[lang]![k] ?? k;
+  /// Am Rechner und im Browser "Geraet" statt "Telefon" — siehe
+  /// [geraetErsetzungen] in data.dart.
+  String t(String k) => textFuer(lang, k);
 
   @override
   void dispose() {
@@ -1864,21 +1878,34 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
       builder: (ctx) {
-        Widget eintrag(String text, VoidCallback tun) => InkWell(
-              onTap: () {
-                Navigator.pop(ctx);
-                tun();
-              },
+        // [tun] null: abgeschaltet — grau und ohne Wirkung.
+        Widget eintrag(String text, VoidCallback? tun) => InkWell(
+              onTap: tun == null
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      tun();
+                    },
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                child: Text(text, style: mono(size: 13.5, color: p.ink)),
+                child: Text(text, style: mono(size: 13.5, color: tun == null ? p.dim : p.ink)),
               ),
             );
+        // ABGESCHALTET MIT GRUND statt eines Punkts, der auf Druck nichts tut
+        // (so war es am PC bis 17.10.2026). Heute nur noch im Browser.
+        final fehlt = st.dateien.auswahlFehlt;
         return SafeArea(
           child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SizedBox(height: 8),
-            eintrag(t('attach'), () => anhangWaehlen(cid)),
-            eintrag(t('attachOnce'), () => anhangWaehlen(cid, einmal: true)),
+            eintrag(t('attach'), fehlt == null ? () => anhangWaehlen(cid) : null),
+            eintrag(t('attachOnce'), fehlt == null ? () => anhangWaehlen(cid, einmal: true) : null),
+            if (fehlt != null)
+              Padding(
+                key: const ValueKey('anhang-grund'),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Text(fehlt == 'anhangWeb' ? t('attachWeb') : t('attachNoPicker'),
+                    style: mono(size: 11, color: p.muted, height: 1.45)),
+              ),
             eintrag(t('pollNew'), () => _legeUmfrageAn(cid)),
             const SizedBox(height: 6),
           ])),
@@ -3550,9 +3577,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   Future<void> sendReq() async {
     final eingabe = addCtl.text.replaceAll(RegExp(r'[\s\-]'), '');
     if (eingabe.isEmpty) return;
-    final ok = await st.kontaktHinzufuegen(eingabe);
+    final r = await st.kontaktHinzufuegen(eingabe);
     if (!mounted) return;
-    setState(() => reqSent = ok);
+    // HATTE DIE GEGENSEITE SCHON ANGEFRAGT, war das ein Annehmen — und dann
+    // geht der Chat auf, genau wie beim Annehmen auf der Karte ([acceptReq]).
+    final id = r.id;
+    if (r.art == Hinzugefuegt.angenommen && id != null) {
+      await Benachrichtigungen.instanz.frageErlaubnis();
+      if (!mounted) return;
+      await st.unterhaltungOeffnen(id);
+      if (!mounted) return;
+      setState(() { reqErgebnis = null; screen = 'chat'; chat = id; });
+      return;
+    }
+    setState(() =>
+        reqErgebnis = r.art == Hinzugefuegt.ungueltig ? null : r.art);
   }
 
   Future<void> acceptReq(String id) async {
@@ -3581,7 +3620,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     if (!mounted) return;
     setState(() {
       final l = lang;
-      screen = 'onboard'; chat = null; reqSent = false; sheet = false;
+      screen = 'onboard'; chat = null; reqErgebnis = null; sheet = false;
       wiped = true; copied = false;
       enroll = null;
       lang = l;
@@ -4183,7 +4222,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   }
 
   Widget buildScreen() {
-    if (!st.bereit) return const SizedBox.shrink();
+    if (!st.bereit) {
+      return st.schluesselspeicherZu
+          ? schluesselspeicherScreen()
+          : const SizedBox.shrink();
+    }
     // Die Sperre kommt VOR allem anderen. Es gibt eine Identitaet, der
     // gesicherte Bereich des Geraets ruecke sie nur noch nicht heraus.
     if (st.gesperrt) return gesperrtScreen();
@@ -4296,6 +4339,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                     const SizedBox(height: 12),
                     webHinweis(t('webOnboard')),
                   ],
+                  // Gerade abgemeldet (geraete_seite.dart): warum die App
+                  // aussieht wie frisch installiert, und wie es zurueckgeht.
+                  if (st.abgemeldetHinweis) ...[
+                    const SizedBox(height: 12),
+                    _hinweisKasten(abgemeldetText(st, t)),
+                  ],
                   if (wiped) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -4386,6 +4435,47 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
           Expanded(child: Text(s, style: mono(size: 12, color: p.dim))),
         ]),
       );
+
+  /// Der Schluesselspeicher des Systems war beim Start nicht zu lesen
+  /// (AppState.schluesselspeicherZu) — unter Linux ein gesperrter oder gar
+  /// nicht laufender Schluesselbund.
+  ///
+  /// NUR "Erneut versuchen", kein Anlegen und kein Wiederherstellen: ob es
+  /// eine Identitaet gibt, ist gerade unbekannt. Das Onboarding saehe aus, als
+  /// waere sie weg.
+  Widget schluesselspeicherScreen() {
+    final aufLinux = !kIsWeb && defaultTargetPlatform == TargetPlatform.linux;
+    final laeuft = st.startetGerade;
+    return SingleChildScrollView(
+      key: const ValueKey('schluesselspeicher-zu'),
+      padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 40),
+          h2(t('keyStoreTitle')),
+          const SizedBox(height: 8),
+          Text(t(aufLinux ? 'keyStoreLinux' : 'keyStoreOther'),
+              style: mono(size: 12.5, weight: FontWeight.w300, color: p.muted, height: 1.6)),
+          const SizedBox(height: 22),
+          _hinweisKasten(t('keyStoreSafe'), warnend: false),
+          const SizedBox(height: 14),
+          outlineBtn(
+              t(laeuft ? 'keyStoreTrying' : 'keyStoreRetry'),
+              laeuft
+                  ? null
+                  : () {
+                      _starte();
+                      // boot() traegt sich sofort als laufend ein; neu
+                      // zeichnen, damit der Knopf das zeigt.
+                      setState(() {});
+                    },
+              padding: const EdgeInsets.all(13),
+              weight: FontWeight.w500),
+        ],
+      ),
+    );
+  }
 
   /// Wartet darauf, dass ein Faktor das Fach oeffnet.
   ///
@@ -5337,31 +5427,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ]),
         const SizedBox(height: 16),
 
-        // WIE VIELE GERAETE AUF DIESER IDENTITAET SITZEN.
-        //
-        // Verpflichtend und keine Kuer. Wer die zwoelf Woerter hat, kann
-        // vollstaendig als man selbst auftreten — das war schon immer so.
-        // Seit dem Mehrgeraetebetrieb bekommt er zusaetzlich von JEDEM
-        // Absender eine eigene Kopie jeder Nachricht, ohne dass irgendwo
-        // etwas auffiele. Und es gibt keinen Widerruf: ein Geraet abzumelden
-        // ist unmoeglich, weil kein Geraet mehr Recht auf die Adresse hat als
-        // ein anderes; die einzige Abhilfe ist eine neue Identitaet.
-        //
-        // Diese Zeile macht aus einem unsichtbaren Mitleser eine sichtbare
-        // Zahl, die nicht stimmt. KEINE VERWALTUNGSMASKE — es gaebe nichts zu
-        // verwalten, und ein Knopf "abmelden", der nichts abmeldet, waere
-        // schlimmer als keine Zahl.
-        //
-        // Nichts steht da, solange niemand gefragt hat (kein Relay erreicht,
-        // nur in der Naehe): eine erfundene 1 waere genau die Halbwahrheit,
-        // gegen die diese Zeile gebaut ist.
-        if (st.geraeteZahl != null) ...[
-          _hinweisKasten(
-            st.geraeteZahl! <= 1
-                ? t('geraeteEins')
-                : t('geraeteViele').replaceFirst('{n}', '${st.geraeteZahl}'),
-            warnend: st.geraeteZahl! > 1,
-          ),
+        // WIE VIELE GERAETE AUF DIESER IDENTITAET SITZEN — und seit der
+        // Geraeteabmeldung (docs/GERAETEABMELDUNG.md) der Weg, eines davon
+        // abzumelden. Die Zahl bleibt verpflichtend: aus einem unsichtbaren
+        // Mitleser wird eine sichtbare Zahl, die nicht stimmt. Ohne
+        // Geraeteliste (alter Relay) bleibt es bei der Warnung, dass Abmelden
+        // nicht geht. Nichts steht da, solange niemand gefragt hat. Alles
+        // Weitere in geraete_seite.dart.
+        if (st.geraeteZahl != null || st.hatGeraeteliste) ...[
+          GeraeteKachel(st: st, stil: _geraeteStil),
           const SizedBox(height: 16),
         ],
 
@@ -5434,26 +5508,35 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ]),
         const SizedBox(height: 16),
         _knopfBreite(outlineBtn(t('sendReq'), sendReq, padding: const EdgeInsets.all(13))),
-        if (reqSent) ...[
+        if (reqErgebnis case final erg?) ...[
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(color: p.surf, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(4)),
-                  child: Text(t('pending').toUpperCase(), style: mono(size: 10, weight: FontWeight.w500, color: p.tintInk, spacing: 1.2)),
-                ),
-                const SizedBox(width: 8),
+                // "Ausstehend" nur, wo etwas aussteht.
+                if (erg != Hinzugefuegt.schonKontakt) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(4)),
+                    child: Text(t('pending').toUpperCase(), style: mono(size: 10, weight: FontWeight.w500, color: p.tintInk, spacing: 1.2)),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Text(
                     shortId(adresseFormatiert(
                         addCtl.text.replaceAll(RegExp(r'[\s\-]'), ''))),
                     style: doto(size: 13, weight: FontWeight.w600, color: p.muted, spacing: 0.8)),
               ]),
               const SizedBox(height: 6),
-              Text(t('reqSentNote'), style: mono(size: 12, color: p.muted, height: 1.4)),
+              Text(
+                  t(switch (erg) {
+                    Hinzugefuegt.wartet => 'reqWaitsNote',
+                    Hinzugefuegt.schonKontakt => 'reqKnownNote',
+                    _ => 'reqSentNote',
+                  }),
+                  style: mono(size: 12, color: p.muted, height: 1.4)),
             ]),
           ),
         ],
@@ -5465,7 +5548,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         // den unteren Fensterrand, mit mehreren hundert Pixeln Leere darueber.
         // Und weil Spacer und Scrollview nicht zusammengehen, war der
         // Bildschirm gleichzeitig nicht scrollbar — mit eingeblendetem
-        // reqSent-Kasten lief er in einem niedrigen Fenster ueber.
+        // Ergebnis-Kasten lief er in einem niedrigen Fenster ueber.
         if (_imFenster) const SizedBox(height: 22) else const Spacer(),
         Text(t('addFoot'), style: mono(size: 11, color: p.dim, height: 1.5)),
       ]),
@@ -5516,7 +5599,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       // Verbindung" liest, sucht den Fehler bei seinem WLAN.
       ConnectionState.error => (
           p.dim,
-          st.abgewiesen ? t('connGeraeteVoll') : t('connError'),
+          st.geraeteStand == ListenStand.beitrittNoetig ||
+                  st.geraeteStand == ListenStand.wartetAufBestaetigung
+              ? t('connBeitritt')
+              : st.abgewiesen
+              ? t('connGeraeteVoll')
+              : t('connError'),
           false
         ),
       ConnectionState.disconnected => (p.dim, t('connOffline'), false),
@@ -5541,7 +5629,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// Was das '+' in der Kopfzeile tut. Als Methode, weil [_Bedienbar] die
   /// Handlung zweimal braucht — fuer den Zeiger und fuer den Tipp.
   void _zumHinzufuegen() =>
-      setState(() { screen = 'add'; addCtl.clear(); reqSent = false; });
+      setState(() { screen = 'add'; addCtl.clear(); reqErgebnis = null; });
 
   Widget chatsScreen() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -5593,6 +5681,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       Container(height: 1, color: p.lineSoft),
       if (st.fernloeschung.faellig != null) fernBanner(),
       if (st.updateHinweis != null) updateKarte(st.updateHinweis!),
+      // NICHT IN DER GERAETELISTE: Code eingeben oder alle anderen abmelden
+      // (geraete_seite.dart). Ohne das stuende hier nur "keine Verbindung".
+      if (st.geraeteStand == ListenStand.beitrittNoetig ||
+          st.geraeteStand == ListenStand.wartetAufBestaetigung)
+        BeitrittsKarte(st: st, stil: _geraeteStil),
       // SOLANGE ES KEIN APP-PASSWORT GIBT, steht das hier, und zwar ohne
       // Knopf zum Wegklicken: die Identitaet ist in dem Zustand beim
       // naechsten Neuladen weg, und das ist keine Meldung, die man einmal
@@ -5931,6 +6024,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       befehlsLeiste(),
       erwaehnungsLeiste(),
       eingabeBezug(),
+      // DIE GEGENSTELLE HAT NUR EINE APP VOR 2.0.0. Ruhig, nicht als Fehler:
+      // hier ist nichts schiefgegangen, und nichts geht verloren — die
+      // Nachrichten warten im Nachversand. Ohne diesen Kasten standen sie
+      // stumm auf "wird gesendet", und niemand erfuhr, warum.
+      if (st.brauchtNeuereApp(cid))
+        Padding(
+          key: const ValueKey('hinweis-neuere-app'),
+          padding: const EdgeInsets.fromLTRB(17, 0, 17, 8),
+          child: _hinweisKasten(t('peerNeedsUpdate'), warnend: false),
+        ),
       if (chatFehlerText() != null)
         Container(
           width: double.infinity,
@@ -7367,15 +7470,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     // Die Reihenfolge ist nicht beliebig: die fehlende Berechtigung steht vor
     // dem ausgeschalteten Bluetooth, weil sie sich mit einem Tipp in der App
     // erledigen laesst und das andere einen Weg in die Systemleiste braucht.
+    //
+    // NICHT NUR BEI `!z.geht`: `geht` enthaelt `erweitert` nicht. Bis
+    // 15.10.2026 stand die ganze Kette in `if (!z.geht)`, und ein Telefon mit
+    // Bluetooth 4.2 bekam gar keinen Hinweis — der Schalter ging an, und es
+    // war fuer niemanden sichtbar.
     String? hindernis;
     Widget? ausweg;
-    if (z != null && !z.geht) {
+    if (z != null) {
       if (z.zuAlt) {
         hindernis = t('nearbyTooOld');
-      } else if (!z.vorhanden || !z.erweitert) {
-        // Beides heisst fuer den Nutzer dasselbe: dieses Telefon kann es
-        // nicht. Ob die Hardware ganz fehlt oder nur die erweiterte Werbung,
-        // aendert nichts daran, was er tun kann — naemlich nichts.
+      } else if (!z.vorhanden) {
         hindernis = t('nearbyNoHardware');
       } else if (!z.rechte) {
         // Der Knopf aus den Anleitungen, links eingerueckt wie die Zeile
@@ -7395,6 +7500,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         }
       } else if (!z.an) {
         hindernis = t('nearbyBtOff');
+      } else if (!z.erweitert) {
+        // ERST NACH `an`, und das ist keine Geschmackssache: Android meldet
+        // `isLeExtendedAdvertisingSupported()` bei ausgeschaltetem Bluetooth
+        // als false (BluetoothAdapter `getLeAccess`). Davor gefragt, stuende
+        // bei jedem, der nur Bluetooth aus hat, "dieses Telefon kann es
+        // nicht" — so war es bis 15.10.2026, mit "kein Bluetooth LE".
+        hindernis = t('nearbyNoExtended');
       }
     }
 
@@ -7417,7 +7529,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       // weg vom naechsten Feld. Mit gleichem Abstand nach beiden Seiten las
       // sich der Satz wie eine Anmerkung zu "nur in der Naehe" — also zu dem
       // Schalter, um den es dabei gerade nicht geht.
-      if (prefs.naheAn && (z?.geht ?? false)) ...[
+      // Nicht neben einem Hindernis: "kostet Akku" unter "kein Bluetooth 5"
+      // laese sich, als funke das Telefon trotzdem.
+      if (prefs.naheAn && hindernis == null && (z?.geht ?? false)) ...[
         const SizedBox(height: 4),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 11),
@@ -8184,6 +8298,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// Der Akzent bleibt dem vorbehalten, was schiefging oder Aufmerksamkeit
   /// braucht. Ruhige Hinweise bekommen die gewoehnliche Umrandung — sie
   /// stehen da, ohne zu rufen.
+  /// Die Bausteine fuer die Oberflaeche der Geraeteabmeldung
+  /// (geraete_seite.dart).
+  GeraeteStil get _geraeteStil => GeraeteStil(
+        p: p,
+        t: t,
+        text: (g, f, {fett = false}) => mono(
+            size: g, color: f, weight: fett ? FontWeight.w600 : FontWeight.w400),
+        titel: (g, f) => doto(size: g, color: f, weight: FontWeight.w700),
+        hinweis: (s, {warnend = true}) => _hinweisKasten(s, warnend: warnend),
+      );
+
   Widget _hinweisKasten(String text, {bool warnend = true}) => Container(
         width: double.infinity,
         padding: const EdgeInsets.all(Masse.innen),

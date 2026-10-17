@@ -24,8 +24,11 @@ import 'dart:math';
 import 'dart:typed_data';
 
 
+import 'package:libsignal/libsignal.dart' show PrivateKey;
+
 import '../crypto/signal_identity.dart';
 import '../nah/wegwahl.dart' show Ausgangsfehler;
+import 'geraeteliste.dart';
 import 'netz_zugang.dart';
 import 'relay_protocol.dart';
 
@@ -54,8 +57,37 @@ class RelayUnbekannt extends RelayException {
   const RelayUnbekannt() : super('der Relay kennt dieses Geraet nicht');
 }
 
+/// Der Relay hat dieses Geraet abgewiesen, weil es nicht (mehr) in der
+/// Geraeteliste steht (WebSocket-Schluss 4410, docs/GERAETEABMELDUNG.md §8.4).
+///
+/// NICHT wie [RelayUnbekannt] behandeln: dort meldet sich der Kern neu an.
+/// Hier muss er die signierte Liste selbst ansehen — ob er wirklich
+/// abgemeldet ist, entscheidet die Liste, nie dieser Code allein.
+class RelayAbgemeldetFehler extends RelayException {
+  const RelayAbgemeldetFehler()
+      : super('dieses Geraet steht nicht in der Geraeteliste');
+}
+
 sealed class RelayEvent {
   const RelayEvent();
+}
+
+/// Waehrend der Verbindung: dieses Geraet wurde aus der Geraeteliste
+/// genommen. Gleich danach schliesst der Relay mit 4410.
+class RelayAbgemeldet extends RelayEvent {
+  const RelayAbgemeldet(this.epoche);
+  final int epoche;
+}
+
+/// Die Geraeteliste der eigenen Adresse hat eine neue Fassung.
+class RelayGeraetelisteNeu extends RelayEvent {
+  const RelayGeraetelisteNeu(this.epoche);
+  final int epoche;
+}
+
+/// Ein Geraet bittet um Beitritt zur eigenen Adresse.
+class RelayBeitritt extends RelayEvent {
+  const RelayBeitritt();
 }
 
 /// Ein Umschlag fuer uns. [ciphertext] ist noch verschluesselt.
@@ -185,6 +217,16 @@ class RelayClient {
   /// diesen Client schon.
   int? geraeteKennung;
 
+  /// Der Geraeteschluessel dieses Geraets (docs/GERAETEABMELDUNG.md §8.1).
+  ///
+  /// GESETZT, SOBALD DIE ADRESSE EINE GERAETELISTE HAT. Dann unterschreibt er
+  /// bei `/register` und bei der WebSocket-Anmeldung zusaetzlich dieselben
+  /// Bytes wie der Identitaetsschluessel — den haben alle Geraete der Adresse,
+  /// auch ein abgemeldetes; erst dieser Schluessel unterscheidet sie. Null:
+  /// keine Liste (oder ein Relay, der keine kennt), dann geht nichts davon
+  /// hinaus.
+  PrivateKey? geraeteSchluessel;
+
   final _events = StreamController<RelayEvent>.broadcast();
   final _wartendeAcks = <String, Completer<void>>{};
 
@@ -244,13 +286,16 @@ class RelayClient {
     // XEdDSA ueber den Identitaetsschluessel. Seit 2.0.0 aus der offiziellen
     // libsignal; der Relay prueft sie unveraendert (am 16.10.2026 mit 40
     // Signaturen beider Vorzeichen nachgewiesen, docs/LIBSIGNAL-UMSTIEG.md).
-    final signatur = identity.keyPair.sign(
-      message: bundle.registrationChallenge(Uint8List.fromList(nonce)),
-    );
+    final nachricht = bundle.registrationChallenge(Uint8List.fromList(nonce));
+    final signatur = identity.keyPair.sign(message: nachricht);
+    final gs = geraeteSchluessel;
 
     final antwort = await _postJson('/register', {
       'bundle': bundle.toJson(),
       'signature': base64.encode(signatur),
+      if (gs != null)
+        'geraete_signatur': base64.encode(gs.sign(
+            message: [...utf8.encode(anmeldePraefix), ...nachricht])),
     });
     return antwort['one_time_prekeys'] as int? ?? 0;
   }
@@ -311,6 +356,47 @@ class RelayClient {
   /// aktualisierter Relay wird also beim naechsten Verbinden erkannt.
   bool _kenntGeraete = true;
 
+  // ═══════════════════════════════════════════════════════ Geraeteliste
+
+  /// Die signierte Geraeteliste einer Adresse, so wie der Relay sie fuehrt —
+  /// ungeprueft (das macht `Geraeteliste.pruefe`). Null: es gibt keine.
+  ///
+  /// 404 HEISST HIER "KEINE LISTE", gleich ob der Relay die Adresse nicht hat
+  /// oder den Pfad nicht kennt (alter Relay). Den Unterschied klaert erst der
+  /// Versuch, eine anzulegen ([setzeGeraeteliste]).
+  Future<Map<String, Object?>?> holeGeraeteliste(String userId) async {
+    try {
+      return await _getJson('/geraeteliste/$userId');
+    } on RelayException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Reicht eine neue Fassung ein. Rueckgabe: die Epoche, die der Relay jetzt
+  /// fuehrt. 409: die Epoche passt nicht (jemand war schneller); 404/405: der
+  /// Relay kennt keine Geraeteliste.
+  Future<int> setzeGeraeteliste(Geraeteliste liste) async {
+    final antwort = await _postJson('/geraeteliste', liste.alsJson());
+    return (antwort['epoche'] as num?)?.toInt() ?? liste.epoche;
+  }
+
+  /// Bittet um Beitritt (§8.5).
+  Future<void> beantrageBeitritt(Beitrittsanfrage anfrage) async {
+    await _postJson('/geraeteliste/beitritt', anfrage.alsJson());
+  }
+
+  /// Die offenen Beitrittsanfragen der eigenen Adresse — ungeprueft.
+  Future<List<Map<String, Object?>>> holeBeitritte(String userId) async {
+    final j = await _getJson('/geraeteliste/$userId/beitritte');
+    final roh = j['beitritte'];
+    if (roh is! List) return const [];
+    return [
+      for (final b in roh)
+        if (b is Map) b.cast<String, Object?>(),
+    ];
+  }
+
   // ═══════════════════════════════════════════════════════════ Verbindung
 
   /// Verbindet und weist sich aus.
@@ -347,6 +433,8 @@ class RelayClient {
         if (!angemeldet.isCompleted) {
           angemeldet.completeError(code == 4401
               ? const RelayUnbekannt()
+              : code == 4410
+              ? const RelayAbgemeldetFehler()
               : RelayException('Verbindung vor der Anmeldung beendet '
                   '(Code $code)'));
         }
@@ -437,16 +525,18 @@ class RelayClient {
         // Bei Geraet 1 steht sie NICHT in der Query, es werden also die
         // heutigen 32 Byte signiert. Siehe [geraeteKennung].
         final g = geraeteKennung;
-        final sig = identity.keyPair.sign(
-          message: g == null
-              ? Uint8List.fromList(nonce)
-              : Uint8List.fromList([
-                  ...nonce,
-                  ...(ByteData(4)..setUint32(0, g, Endian.big))
-                      .buffer
-                      .asUint8List(),
-                ]),
-        );
+        final zuSignieren = g == null
+            ? Uint8List.fromList(nonce)
+            : Uint8List.fromList([
+                ...nonce,
+                ...(ByteData(4)..setUint32(0, g, Endian.big))
+                    .buffer
+                    .asUint8List(),
+              ]);
+        final sig = identity.keyPair.sign(message: zuSignieren);
+        // Mit Geraeteliste dieselben Bytes noch einmal, mit dem
+        // Geraeteschluessel (§8.4). Ohne Liste geht das Feld gar nicht hinaus.
+        final gs = geraeteSchluessel;
         // Das Koennen steht im SELBEN Rahmen wie die Signatur — der muss
         // ohnehin raus, und damit liegt es dem Relay VOR der ersten
         // Zustellung vor. Alles Spaetere haelfe der ersten Ladung nicht, und
@@ -460,6 +550,9 @@ class RelayClient {
         _ws?.sende(jsonEncode({
           'signature': base64.encode(sig),
           'empfangsnachweis': true,
+          if (gs != null)
+            'geraete_signatur': base64.encode(gs.sign(
+                message: [...utf8.encode(anmeldePraefix), ...zuSignieren])),
         }));
 
       case 'auth_result':
@@ -528,6 +621,17 @@ class RelayClient {
           return;
         }
         _loeseAckAus(m['id'], grund);
+
+      // Die Geraeteliste (docs/GERAETEABMELDUNG.md §8.3). Nur Hinweise: was
+      // wirklich gilt, liest der Kern aus der signierten Liste.
+      case 'abgemeldet':
+        _events.add(RelayAbgemeldet((m['epoche'] as num?)?.toInt() ?? 0));
+
+      case 'geraeteliste':
+        _events.add(RelayGeraetelisteNeu((m['epoche'] as num?)?.toInt() ?? 0));
+
+      case 'beitritt':
+        _events.add(const RelayBeitritt());
 
       case 'push_ok':
         // Die Bestaetigung fuer den Anstoss-Endpunkt. Niemand wartet darauf —

@@ -63,6 +63,19 @@ class StorageException extends MessengerException {
   const StorageException(super.message, [super.cause]);
 }
 
+/// Der Schluesselspeicher des Systems hat nicht geantwortet — unter Linux
+/// meist ein gesperrter oder gar nicht laufender Schluesselbund (GNOME Keyring,
+/// KWallet; libsecret meldet dann `KeyringLocked`).
+///
+/// EIGENE AUSNAHME, weil die Oberflaeche darauf etwas anderes sagen muss als
+/// auf eine kaputte Datei: hier ist nichts verloren, der Speicher ist nur
+/// gerade zu. Wer das mit "keine Identitaet" verwechselt, bietet an, eine neue
+/// anzulegen. Erbt von [StorageException], damit jeder bisherige Faenger sie
+/// weiter faengt.
+class SchluesselspeicherException extends StorageException {
+  const SchluesselspeicherException(super.message, [super.cause]);
+}
+
 /// Cryptographic failure (key setup, session). A single message that fails to
 /// decrypt should surface as `MessageStatus.failed`, NOT throw.
 class CryptoException extends MessengerException {

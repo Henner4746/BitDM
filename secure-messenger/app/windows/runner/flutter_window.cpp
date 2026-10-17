@@ -70,6 +70,9 @@ bool FlutterWindow::OnCreate() {
         ergebnis->Success(flutter::EncodableValue(an ? (ok != FALSE) : false));
       });
 
+  datei_kanal_ = std::make_unique<DateiKanal>(
+      flutter_controller_->engine()->messenger(), [this]() { return GetHandle(); });
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });

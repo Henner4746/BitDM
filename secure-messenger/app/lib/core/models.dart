@@ -484,7 +484,16 @@ enum ContactState {
 }
 
 /// Kinds of asynchronous contact events pushed to the UI.
-enum ContactEventType { incomingRequest, requestAccepted, requestDeclined, removed }
+/// `needsUpdateChanged`: [Contact.brauchtNeuereApp] ist umgesprungen, in
+/// eine der beiden Richtungen. Nur bei einem echten Wechsel, nicht bei jedem
+/// Sendeversuch.
+enum ContactEventType {
+  incomingRequest,
+  requestAccepted,
+  requestDeclined,
+  removed,
+  needsUpdateChanged,
+}
 
 class Message {
   final String id; // client-generated, stable, unique (e.g. UUID v4)
@@ -670,6 +679,16 @@ class Contact {
   /// Payload.ttlSeconds). Was sie schreibt, loescht sich nach IHRER Wahl.
   final int? fristSekunden;
 
+  /// Die Gegenstelle hat nur Geraete mit einer App vor 2.0.0 (seit 2.0.0).
+  ///
+  /// Eine TATSACHE, die der Kern feststellt, keine Entscheidung des Nutzers:
+  /// beim Relay (oder ueber Funk) lag kein Buendel mit Kyber, und ohne Kyber
+  /// baut die offizielle libsignal keine Sitzung. Nachrichten an diesen
+  /// Kontakt bleiben im Nachversand, und die Oberflaeche sagt, warum.
+  /// Gesetzt bei `GegenstelleOhneKyberException`, geloescht, sobald mit
+  /// einem seiner Geraete eine Sitzung steht.
+  final bool brauchtNeuereApp;
+
   const Contact({
     required this.id,
     required this.addedAt,
@@ -681,6 +700,7 @@ class Contact {
     this.archiviert = false,
     this.stumm = false,
     this.fristSekunden,
+    this.brauchtNeuereApp = false,
   });
 
   Contact copyWith({
@@ -691,6 +711,7 @@ class Contact {
     bool? angeheftet,
     bool? archiviert,
     bool? stumm,
+    bool? brauchtNeuereApp,
     // Ein Waechter statt `int?`: null ist hier ein gueltiger neuer Wert
     // ("folgt der Grundeinstellung") und muss sich von "nicht angegeben"
     // unterscheiden lassen.
@@ -709,6 +730,7 @@ class Contact {
         fristSekunden: identical(fristSekunden, _unveraendert)
             ? this.fristSekunden
             : fristSekunden as int?,
+        brauchtNeuereApp: brauchtNeuereApp ?? this.brauchtNeuereApp,
       );
 }
 

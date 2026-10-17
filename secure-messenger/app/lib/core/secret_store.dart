@@ -62,23 +62,34 @@ class DeviceSecretStore implements SecretStore {
 
   @override
   Future<Uint8List?> read() async {
+    // ZWEI GETRENNTE FEHLER. Antwortet das Plugin nicht, ist der Speicher nur
+    // zu (unter Linux: Schluesselbund gesperrt) — die Identitaet kann noch da
+    // sein. Steht dagegen Unsinn drin, ist sie beschaedigt. Bis 17.10.2026
+    // fing ein gemeinsames catch beides als dasselbe.
+    final String? b64;
     try {
-      final b64 = await _storage.read(key: _schluessel);
-      if (b64 == null) return null;
-      final bytes = base64.decode(b64);
-      if (bytes.length != 16) {
-        throw const StorageException(
-            'die gespeicherte Identitaet hat die falsche Groesse');
-      }
-      return bytes;
-    } on StorageException {
-      rethrow;
+      b64 = await _storage.read(key: _schluessel);
     } catch (e) {
       // Die Meldung des Plugins koennte den Wert enthalten. Sie darf nicht
       // weitergereicht werden.
-      throw StorageException(
+      throw SchluesselspeicherException(
           'Schluesselspeicher nicht lesbar (${e.runtimeType})');
     }
+    if (b64 == null) return null;
+    final Uint8List bytes;
+    try {
+      bytes = base64.decode(b64);
+    } on FormatException {
+      // Ohne die Meldung: eine FormatException traegt den Text, an dem sie
+      // scheiterte.
+      throw const StorageException(
+          'die gespeicherte Identitaet ist beschaedigt');
+    }
+    if (bytes.length != 16) {
+      throw const StorageException(
+          'die gespeicherte Identitaet hat die falsche Groesse');
+    }
+    return bytes;
   }
 
   @override
@@ -89,7 +100,7 @@ class DeviceSecretStore implements SecretStore {
     try {
       await _storage.write(key: _schluessel, value: base64.encode(entropy));
     } catch (e) {
-      throw StorageException(
+      throw SchluesselspeicherException(
           'Schluesselspeicher nicht beschreibbar (${e.runtimeType})');
     }
   }
@@ -99,7 +110,7 @@ class DeviceSecretStore implements SecretStore {
     try {
       await _storage.delete(key: _schluessel);
     } catch (e) {
-      throw StorageException(
+      throw SchluesselspeicherException(
           'Schluesselspeicher nicht loeschbar (${e.runtimeType})');
     }
   }

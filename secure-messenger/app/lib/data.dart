@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 
 // ---- identity / mock constants ----
@@ -179,9 +181,53 @@ const Map<String, Map<String, String>> strings = {
     'idNote': 'The ID holds no private key. Details under Settings › Security.',
     'geraeteEins': 'One device uses this identity.',
     'geraeteViele': '{n} devices use this identity — anyone with your 12 words gets their own copy of every message. There is no way to log a device out.',
+    // Geraeteliste (docs/GERAETEABMELDUNG.md). Der Satz oben gilt nur noch
+    // bei einem Relay ohne Geraeteliste.
+    'geraeteVieleListe': '{n} devices use this identity. Each one had to be confirmed on a device you already had — you can sign any of them out.',
+    'geraeteVerwalten': 'Manage devices',
+    'geraeteTitel': 'Devices',
+    'geraeteDieses': 'this device',
+    'geraeteSeit': 'since {d}',
+    'geraeteOhneName': 'Device {n}',
+    'geraeteAbmelden': 'Sign out',
+    'geraeteAbmeldenFrage': 'Sign out {name}? It stops receiving messages right away and forgets your 12 words. Its chats stay encrypted on it; only your 12 words open them again.',
+    'geraeteDiesesAbmelden': 'Sign out this device',
+    'geraeteDiesesAbmeldenFrage': 'Sign out this device? It forgets your 12 words and stops receiving messages. Your other devices keep working.',
+    'geraeteAlleAnderen': 'Sign out all other devices',
+    'geraeteAlleAnderenFrage': 'Sign out every device except this one?',
+    'geraeteHinzufuegen': 'Add device',
+    'geraeteCodeTitel': 'Code for the new device',
+    'geraeteCodeText': 'On the new device, enter your 12 words and then this code. It works once and for 10 minutes. Nobody else sees it — not even the server.',
+    'geraeteCodeWartet': 'Waiting for the new device …',
+    'geraeteHinzugefuegt': 'Device added.',
+    'geraeteVoll': 'This identity already has 5 devices. Sign one out first.',
+    'geraeteKeineListe': 'This server does not know device lists yet. Signing out a device only works after it is updated.',
+    'geraeteFehler': 'That did not work. Check the connection and try again.',
+    'geraeteWoerterHinweis': 'Anyone who knows your 12 words can sign out all your devices and take over. If that has happened — say the phone was stolen unlocked, or the words were lying around — only a new identity helps.',
+    'beitrittTitel': 'This device is not confirmed yet',
+    'beitrittText': 'Your identity is already in use on another device. There, open Settings › My ID › Manage devices › Add device, and enter the code here.',
+    'beitrittCode': 'Code from the other device',
+    'beitrittSenden': 'Confirm',
+    'beitrittWartet': 'Waiting for the other device …',
+    'beitrittAbbrechen': 'Cancel',
+    'beitrittCodeFalsch': 'That is not a valid code (16 characters).',
+    'beitrittKeinGeraet': 'No other device any more?',
+    'beitrittZuruecksetzen': 'Sign out all other devices',
+    'beitrittZuruecksetzenFrage': 'All other devices of this identity are signed out and receive nothing from now on. Do this if your phone is gone. Anyone who knows your 12 words can do the same — if the phone was unlocked or the words are not safe, create a new identity afterwards.',
+    'abgemeldetHinweis': 'This device was signed out{von}. Your chats stay here, encrypted; your 12 words bring them back — another device then has to confirm it.',
+    'abgemeldetVon': ' by {name}',
+    'connBeitritt': 'Device not confirmed',
     'shareFailed': 'No app to share with was found.',
     'addTitle': 'Add contact', 'idLabel': 'BitDM ID', 'paste': 'Paste', 'scan': 'Scan QR', 'sendReq': 'Send request',
     'pending': 'Pending', 'reqSentNote': 'Request sent. The chat opens once the other side confirms.',
+    'peerNeedsUpdate': 'The other side has to update BitDM (2.0 or newer). Until then your messages wait here and go out on their own afterwards.',
+    // Mit "nur in der Naehe" geht eine Kontaktanfrage nicht hinaus (nahweg_test
+    // "EIN NEUER KONTAKT ENTSTEHT NICHT UEBER FUNK"). Bis 15.10.2026 stand hier
+    // trotzdem "Anfrage gesendet".
+    'reqWaitsNote': 'Saved, but not sent: with “Nearby only” on, a contact '
+        'request does not go out. It goes by itself once you switch that off. '
+        'The chat opens once the other side confirms.',
+    'reqKnownNote': 'Already one of your contacts — nothing was sent.',
 
     'addFoot': 'No messages are transmitted before confirmation. A contact can be removed unilaterally at any time.',
     'chats': 'Chats', 'connOnline': 'connected', 'connConnecting': 'connecting', 'connOffline': 'offline', 'connError': 'no connection', 'connGeraeteVoll': 'too many devices', 'wantsChat': 'Wants to start an encrypted chat with you.', 'accept': 'Accept', 'decline': 'Decline',
@@ -316,6 +362,7 @@ const Map<String, Map<String, String>> strings = {
     'attachBroken': "That file did not come through intact. Ask the sender to send it again.",
     'attachNet': 'That did not go through. Check the connection and try again.',
     'attachWeb': 'Files do not work in the browser — that needs the app.',
+    'attachNoPicker': 'There is no file picker on this system — that needs the app for Android, Windows or Linux.',
     'webOnboard': 'Browser version, limited. Without an app password your identity '
         'only lasts until the page is reloaded — after that you get it back with '
         'your 12 words. With an app password it stays in this browser, encrypted. '
@@ -464,6 +511,12 @@ const Map<String, Map<String, String>> strings = {
         'scan as locating you and demands location access — and that is one '
         'permission BitDM will not ask for.',
     'nearbyNoHardware': 'This phone has no Bluetooth LE.',
+    // Getrennt von "kein Bluetooth LE": ein Telefon mit BLE 4.2 hat Bluetooth
+    // LE, aber keine erweiterte Werbung — und genau die braucht der
+    // Nahbereich (funk.dart `erweitert`).
+    'nearbyNoExtended': 'This phone has no Bluetooth 5 (extended advertising). '
+        'Nearby needs it on both phones — without it, this phone can neither '
+        'be found nor find anyone.',
     'nearbyBtOff': 'Bluetooth is switched off.',
     'nearbyNoPerm': 'BitDM is not allowed to use Bluetooth yet.',
     'nearbyAllow': 'Allow',
@@ -543,6 +596,13 @@ const Map<String, Map<String, String>> strings = {
     'updateLater': 'Later',
     'updateNotif': 'BitDM {neu} is available.',
     'keyArtLabel': 'Key image',
+    // Schluesselspeicher beim Start nicht lesbar (AppState.schluesselspeicherZu).
+    'keyStoreTitle': 'Key not reachable',
+    'keyStoreLinux': 'No keyring is reachable, or it is locked. BitDM keeps the key to your identity there and cannot open without it.\n\nStart or unlock GNOME Keyring or KWallet, then try again.',
+    'keyStoreOther': 'The key store of this device did not answer. BitDM keeps the key to your identity there and cannot open without it.\n\nTry again in a moment. If it keeps failing, restart the device.',
+    'keyStoreSafe': 'Nothing was deleted and no new identity was created. If there is an identity on this device, it is still there.',
+    'keyStoreRetry': 'Try again',
+    'keyStoreTrying': 'Trying …',
   },
   'de': {
     'h1a': 'Kein Name.', 'h1b': 'Keine Nummer.',
@@ -601,9 +661,51 @@ const Map<String, Map<String, String>> strings = {
     'idNote': 'Die ID enthält keinen privaten Schlüssel. Details unter Einstellungen › Sicherheit.',
     'geraeteEins': 'Ein Gerät benutzt diese Identität.',
     'geraeteViele': '{n} Geräte benutzen diese Identität — wer deine 12 Wörter hat, bekommt von jeder Nachricht eine eigene Kopie. Ein Gerät abmelden geht nicht.',
+    // Geraeteliste (docs/GERAETEABMELDUNG.md). Der Satz oben gilt nur noch
+    // bei einem Relay ohne Geraeteliste.
+    'geraeteVieleListe': '{n} Geräte benutzen diese Identität. Jedes musste auf einem Gerät bestätigt werden, das du schon hattest — und jedes kannst du abmelden.',
+    'geraeteVerwalten': 'Geräte verwalten',
+    'geraeteTitel': 'Geräte',
+    'geraeteDieses': 'dieses Gerät',
+    'geraeteSeit': 'seit {d}',
+    'geraeteOhneName': 'Gerät {n}',
+    'geraeteAbmelden': 'Abmelden',
+    'geraeteAbmeldenFrage': '{name} abmelden? Es bekommt ab sofort keine Nachrichten mehr und vergisst deine 12 Wörter. Seine Unterhaltungen bleiben dort verschlüsselt liegen; nur deine 12 Wörter öffnen sie wieder.',
+    'geraeteDiesesAbmelden': 'Dieses Gerät abmelden',
+    'geraeteDiesesAbmeldenFrage': 'Dieses Gerät abmelden? Es vergisst deine 12 Wörter und bekommt keine Nachrichten mehr. Deine anderen Geräte laufen weiter.',
+    'geraeteAlleAnderen': 'Alle anderen abmelden',
+    'geraeteAlleAnderenFrage': 'Alle Geräte außer diesem abmelden?',
+    'geraeteHinzufuegen': 'Gerät hinzufügen',
+    'geraeteCodeTitel': 'Code für das neue Gerät',
+    'geraeteCodeText': 'Gib auf dem neuen Gerät deine 12 Wörter ein und dann diesen Code. Er gilt einmal und 10 Minuten lang. Niemand sonst sieht ihn — auch der Server nicht.',
+    'geraeteCodeWartet': 'Warte auf das neue Gerät …',
+    'geraeteHinzugefuegt': 'Gerät hinzugefügt.',
+    'geraeteVoll': 'Diese Identität hat schon 5 Geräte. Melde erst eines ab.',
+    'geraeteKeineListe': 'Dieser Server kennt noch keine Geräteliste. Ein Gerät abmelden geht erst nach seinem Update.',
+    'geraeteFehler': 'Das hat nicht geklappt. Verbindung prüfen und noch einmal versuchen.',
+    'geraeteWoerterHinweis': 'Wer deine 12 Wörter kennt, kann alle deine Geräte abmelden und selbst übernehmen. Ist das passiert — etwa weil das Telefon entsperrt gestohlen wurde oder die Wörter herumlagen —, hilft nur eine neue Identität.',
+    'beitrittTitel': 'Dieses Gerät ist noch nicht bestätigt',
+    'beitrittText': 'Deine Identität ist schon auf einem anderen Gerät angemeldet. Öffne dort Einstellungen › Meine ID › Geräte verwalten › Gerät hinzufügen und gib den Code hier ein.',
+    'beitrittCode': 'Code vom anderen Gerät',
+    'beitrittSenden': 'Bestätigen lassen',
+    'beitrittWartet': 'Warte auf das andere Gerät …',
+    'beitrittAbbrechen': 'Abbrechen',
+    'beitrittCodeFalsch': 'Das ist kein gültiger Code (16 Zeichen).',
+    'beitrittKeinGeraet': 'Kein anderes Gerät mehr?',
+    'beitrittZuruecksetzen': 'Alle anderen Geräte abmelden',
+    'beitrittZuruecksetzenFrage': 'Alle anderen Geräte dieser Identität werden abgemeldet und bekommen ab sofort nichts mehr. Nimm das, wenn dein Telefon weg ist. Wer deine 12 Wörter kennt, kann dasselbe tun — war das Telefon entsperrt oder sind die Wörter nicht sicher, leg danach eine neue Identität an.',
+    'abgemeldetHinweis': 'Dieses Gerät wurde abgemeldet{von}. Deine Unterhaltungen liegen verschlüsselt hier; mit deinen 12 Wörtern holst du sie zurück — ein anderes Gerät muss das dann bestätigen.',
+    'abgemeldetVon': ' von {name}',
+    'connBeitritt': 'Gerät nicht bestätigt',
     'shareFailed': 'Es wurde keine App zum Teilen gefunden.',
     'addTitle': 'Kontakt hinzufügen', 'idLabel': 'BitDM-ID', 'paste': 'Einfügen', 'scan': 'QR scannen', 'sendReq': 'Anfrage senden',
     'pending': 'Ausstehend', 'reqSentNote': 'Anfrage gesendet. Der Chat öffnet sich, sobald die Gegenseite bestätigt.',
+    'peerNeedsUpdate': 'Die Gegenseite muss BitDM aktualisieren (ab 2.0). Bis dahin warten deine Nachrichten hier und gehen danach von selbst hinaus.',
+    'reqWaitsNote': 'Gespeichert, aber nicht gesendet: mit „Nur in der Nähe“ '
+        'geht keine Kontaktanfrage hinaus. Sie geht von selbst, sobald du den '
+        'Schalter ausschaltest. Der Chat öffnet sich, sobald die Gegenseite '
+        'bestätigt.',
+    'reqKnownNote': 'Steht schon in deinen Kontakten — gesendet wurde nichts.',
 
     'addFoot': 'Vor der Bestätigung werden keine Nachrichten übertragen. Ein Kontakt kann jederzeit einseitig entfernt werden.',
     'chats': 'Chats', 'connOnline': 'verbunden', 'connConnecting': 'verbindet', 'connOffline': 'offline', 'connError': 'keine Verbindung', 'connGeraeteVoll': 'zu viele Geräte', 'wantsChat': 'Möchte einen verschlüsselten Chat mit dir beginnen.', 'accept': 'Annehmen', 'decline': 'Ablehnen',
@@ -735,6 +837,7 @@ const Map<String, Map<String, String>> strings = {
     'attachBroken': 'Diese Datei ist nicht heil angekommen. Bitte die Gegenstelle, sie noch einmal zu schicken.',
     'attachNet': 'Das ging nicht durch. Prüf die Verbindung und versuch es noch einmal.',
     'attachWeb': 'Dateien gehen im Browser nicht — dafür braucht es die App.',
+    'attachNoPicker': 'Auf diesem System gibt es keine Dateiauswahl — dafür braucht es die App für Android, Windows oder Linux.',
     'webOnboard': 'Browser-Fassung, eingeschränkt. Ohne App-Passwort bleibt deine '
         'Identität nur bis zum Neuladen der Seite — danach holst du sie mit den '
         '12 Wörtern zurück. Mit App-Passwort bleibt sie verschlüsselt in diesem '
@@ -850,6 +953,9 @@ const Map<String, Map<String, String>> strings = {
         'Standortzugriff — und das ist die eine Berechtigung, die BitDM nicht '
         'abfragt.',
     'nearbyNoHardware': 'Dieses Telefon hat kein Bluetooth LE.',
+    'nearbyNoExtended': 'Diesem Telefon fehlt Bluetooth 5 (erweiterte '
+        'Werbung). Der Nahbereich braucht es auf beiden Telefonen — ohne wird '
+        'dieses Telefon weder gefunden, noch findet es jemanden.',
     'nearbyBtOff': 'Bluetooth ist ausgeschaltet.',
     'nearbyNoPerm': 'BitDM darf Bluetooth noch nicht benutzen.',
     'nearbyAllow': 'Erlauben',
@@ -922,5 +1028,109 @@ const Map<String, Map<String, String>> strings = {
     'updateLater': 'Später',
     'updateNotif': 'BitDM {neu} ist verfügbar.',
     'keyArtLabel': 'Schlüsselbild',
+    'keyStoreTitle': 'Schlüssel nicht erreichbar',
+    'keyStoreLinux': 'Kein Schlüsselbund erreichbar, oder er ist gesperrt. BitDM legt den Schlüssel deiner Identität dort ab und kann ohne ihn nicht öffnen.\n\nGNOME Keyring oder KWallet starten bzw. entsperren, dann erneut versuchen.',
+    'keyStoreOther': 'Der Schlüsselspeicher dieses Geräts hat nicht geantwortet. BitDM legt den Schlüssel deiner Identität dort ab und kann ohne ihn nicht öffnen.\n\nGleich noch einmal versuchen. Klappt es dauerhaft nicht, das Gerät neu starten.',
+    'keyStoreSafe': 'Es wurde nichts gelöscht und keine neue Identität angelegt. Gibt es auf diesem Gerät eine Identität, ist sie noch da.',
+    'keyStoreRetry': 'Erneut versuchen',
+    'keyStoreTrying': 'Wird versucht …',
   },
 };
+
+/// Ob die Texte vom Telefon sprechen duerfen: nur in der Android-App.
+///
+/// Im Browser NICHT, auch auf einem Telefon nicht — dort weiss die App nicht,
+/// worauf sie laeuft, und "dieses Geraet" stimmt in beiden Faellen.
+bool get textAufTelefon =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
+
+/// Was auf Linux, Windows, macOS und im Browser in diesen Texten anders steht:
+/// "Geraet" statt "Telefon". Je Text eine Liste von Ersetzungen (alt, neu).
+///
+/// Gemeldet vom ersten echten Linux-Lauf (17.10.2026): auf einem Rechner
+/// stand "The identity on this phone is sealed".
+///
+/// ERSETZUNGEN UND KEINE ZWEITEN TEXTE, damit niemand einen Text an zwei
+/// Stellen pflegen muss. Aendert jemand oben einen Text so, dass ein `alt`
+/// darin nicht mehr vorkommt, faellt das im Test auf
+/// (test/oberflaeche/geraet_texte_test.dart) — und ebenso ein neuer Text, der
+/// "phone" oder "Telefon" sagt, ohne hier oder in der Liste der reinen
+/// Android-Texte dort zu stehen.
+const Map<String, Map<String, List<(String, String)>>> geraetErsetzungen = {
+  'en': {
+    'restoreLinkSub': [('your phone', 'your device')],
+    'restoreIntro': [('your old phone', 'your old device')],
+    'restoreNote': [('the old phone', 'the old device')],
+    'phraseSub': [('this phone', 'this device')],
+    'lockedSub': [
+      ('nowhere on this device', 'nowhere on it'),
+      ('on this phone', 'on this device'),
+    ],
+    'lockedNoFactor': [('on this phone', 'on this device')],
+    // Am Rechner gibt es keinen Sicherheitsschluessel (nur 'pw', siehe
+    // _faktorGehtHier in main.dart) — verwechselt wird dort das Passwort, mit
+    // dem man sich am Geraet anmeldet.
+    'pwUnlockHint': [
+      ('Not the phone PIN, not the security key PIN.',
+          'Not the password or PIN you use to sign in to this device.'),
+    ],
+    'wipeSub': [('your phone', 'your device')],
+    'wipeExplain': [
+      ('on this phone', 'on this device'),
+      ('A locked phone', 'A locked device'),
+    ],
+    'wipeAskText': [('their phone', 'their device')],
+    'cmd_wipe': [("contact's phone", "contact's device")],
+    // Aus der Geraeteabmeldung (feat/geraeteabmeldung), am Rechner ohne Telefon.
+    'geraeteWoerterHinweis': [
+      ('say the phone was stolen unlocked', 'say a device was stolen unlocked'),
+    ],
+    'beitrittZuruecksetzenFrage': [
+      ('if your phone is gone', 'if your other device is gone'),
+      ('if the phone was unlocked', 'if that device was unlocked'),
+    ],
+  },
+  'de': {
+    'restoreLinkSub': [('Telefon verloren', 'Gerät verloren')],
+    'restoreIntro': [('dein altes Telefon', 'dein altes Gerät')],
+    'restoreNote': [('dem alten Telefon', 'dem alten Gerät')],
+    'phraseSub': [('dieses Telefon', 'dieses Gerät')],
+    'lockedSub': [
+      ('liegt nirgends lesbar auf diesem Gerät', 'liegt hier nirgends lesbar'),
+      ('auf diesem Telefon', 'auf diesem Gerät'),
+    ],
+    'lockedNoFactor': [('auf diesem Telefon', 'auf diesem Gerät')],
+    'pwUnlockHint': [
+      ('Nicht die Telefon-PIN und nicht die PIN des Sicherheitsschlüssels.',
+          'Nicht das Passwort oder die PIN, mit der du dich an diesem Gerät anmeldest.'),
+    ],
+    'wipeSub': [('Ist dein Telefon weg', 'Ist dein Gerät weg')],
+    'wipeExplain': [
+      ('auf diesem Telefon', 'auf diesem Gerät'),
+      ('Ein gesperrtes Telefon', 'Ein gesperrtes Gerät'),
+    ],
+    'wipeAskText': [('das Telefon zu löschen', 'das Gerät zu löschen')],
+    'cmd_wipe': [('Telefon dieses Kontakts', 'Gerät dieses Kontakts')],
+    'geraeteWoerterHinweis': [
+      ('weil das Telefon entsperrt gestohlen wurde',
+          'weil ein Gerät entsperrt gestohlen wurde'),
+    ],
+    'beitrittZuruecksetzenFrage': [
+      ('wenn dein Telefon weg ist', 'wenn dein anderes Gerät weg ist'),
+      ('war das Telefon entsperrt', 'war das Gerät entsperrt'),
+    ],
+  },
+};
+
+/// Der Text [k] in [lang] — fuer die Plattform, auf der die App laeuft, oder
+/// fuer die in [telefon] genannte.
+String textFuer(String lang, String k, {bool? telefon}) {
+  var text = strings[lang]![k] ?? k;
+  if (telefon ?? textAufTelefon) return text;
+  for (final (alt, neu) in geraetErsetzungen[lang]?[k] ?? const <(String, String)>[]) {
+    text = text.replaceAll(alt, neu);
+  }
+  return text;
+}

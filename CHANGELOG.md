@@ -11,16 +11,33 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 - **Post-Quanten-Sitzungsaufbau (PQXDH, Kyber-1024).** Jede neue Sitzung nutzt ihn; ohne Kyber gibt es keine Sitzung.
 - **Adressen, Chats und Kontakte bleiben.** Dieselben zwölf Wörter ergeben dieselbe Adresse (nachgemessen). Beim ersten Start wird mit jedem Kontakt die Sitzung neu aufgebaut.
 - **Nicht mit 1.9.x verträglich.** Eine App vor 2.0.0 kann keine Sitzung mit 2.0.0 aufbauen und umgekehrt. Beide Seiten müssen aktualisieren.
+- **Der Chat sagt, wenn die Gegenseite aktualisieren muss.** Hat ein Kontakt nur eine App vor 2.0.0, warten deine Nachrichten an ihn. Sie gehen von selbst hinaus, sobald er aktualisiert hat. Bisher standen sie ohne Erklärung auf „wird gesendet“.
 - **Signierte Prekeys werden jetzt wöchentlich erneuert** (vorher nie, Audit LS-4).
 - **Über Bluetooth werden keine Einmalschlüssel mehr verschenkt.** Vorher konnte derselbe Schlüssel auch beim Relay ausgegeben werden, und eine Erstnachricht ging still verloren (Audit PR-4).
 - **Keine Nachricht geht mehr doppelt hinaus.** Kam während des Sendens jemand in Bluetooth-Reichweite oder stand die Verbindung wieder, schickte der Nachversand dieselbe Nachricht ein zweites Mal.
 - **Erst festschreiben, dann senden.** Der Sitzungsstand wird gespeichert, bevor eine Nachricht hinausgeht. Ein Absturz genau dazwischen konnte vorher dazu führen, dass ein Nachrichtenschlüssel zweimal benutzt wurde.
+
+**Anhänge am PC.** Bis 1.9.x stand „Datei anhängen“ unter Windows und Linux im Menü und tat auf Druck nichts — die Dateiauswahl gab es nur unter Android. Ebenso „Sicherung einspielen“; „Öffnen“ bei einem empfangenen Anhang meldete fälschlich, keine App könne die Datei öffnen.
+- Unter Windows und Linux öffnet sich jetzt der Dateidialog des Systems. Geschickt wird die Originaldatei, ohne Kopie.
+- Empfangene Anhänge lassen sich am PC öffnen. Unter Windows laufen sie vorher durch die Anhangprüfung des Systems (Markierung „aus dem Internet“, Virenscanner); dann fragt Windows bei Programmen und Skripten nach, und Office öffnet in der geschützten Ansicht. HTML, SVG und Skripte gehen wie unter Android als Text auf.
+- Im Browser ist der Menüpunkt ausgegraut und nennt den Grund, statt nichts zu tun.
+
+**Geräte abmelden.** Bis 1.9.x blieb ein verlorenes Telefon Teil der Identität und bekam weiter jede Nachricht — auch nachdem man sie mit den zwölf Wörtern auf einem neuen wiederhergestellt hatte. Ab 2.0.0 führt jede Identität eine signierte Geräteliste. Bedrohungsmodell und Protokoll: [`secure-messenger/docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md).
+- **Abmelden** unter Einstellungen › Meine ID › Geräte verwalten. Das abgemeldete Gerät bekommt sofort nichts mehr, kommt beim Relay nicht wieder hinein und vergisst die zwölf Wörter; seine Unterhaltungen bleiben verschlüsselt darauf.
+- **Ein weiteres Gerät** braucht jetzt zusätzlich zu den Wörtern einen Code vom vorhandenen Gerät. Wer kein Gerät mehr hat, meldet auf dem neuen alle anderen ab.
+- **Kontakte prüfen die Liste selbst** und verschlüsseln nur an Geräte darin — auch dann, wenn ein Relay etwas anderes behauptet.
+- **Die Grenze bleibt benannt:** Wer die zwölf Wörter kennt, kann alle Geräte abmelden und übernehmen. Dann hilft nur eine neue Identität.
+- **Beim Update** legt das erste aktualisierte Gerät die Liste an; jedes weitere tritt einmal per Code bei. Der Relay muss vorher aktualisiert sein.
 
 **Weitere Behebungen aus dem Audit vom 16.10.2026**
 - Eine „Absage“ oder „Zusage“ eines Kontakts wird nur noch als Antwort auf eine eigene Anfrage angenommen. Vorher konnte jeder Kontakt damit die ganze Unterhaltung löschen bzw. sich ein Fremder selbst zum Kontakt machen (PR-1, PR-2).
 - Unbeantwortete Anfragen von Fremden bekommen keine Bluetooth-Leuchtfeuer mehr (PR-3).
 - Die Anmeldung beim Relay signiert nur noch eine Challenge von genau 32 Byte (KR-2, App-Teil).
 - Linux- und F-Droid-Workflow setzen Werte aus dem Bau-Schritt nicht mehr ungeprüft in Skripte ein (PL-1).
+
+**Linux und Rechner** (aus dem ersten echten Linux-Lauf am 17.10.2026)
+- Ohne erreichbaren oder entsperrten Schlüsselbund (GNOME Keyring, KWallet) blieb das Fenster unter Linux leer. Jetzt steht dort eine Meldung mit „Erneut versuchen“. Gelöscht oder neu angelegt wird dabei nichts.
+- Am Rechner und im Browser ist in Sperrbildschirm, 12-Wörter-Seite, Startseite, Wiederherstellen und Fernlöschung von „diesem Gerät“ die Rede statt vom Telefon. In der Android-App bleibt es beim Telefon.
 
 ## 1.9.1 — veröffentlicht am 15.10.2026
 
@@ -34,6 +51,12 @@ in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE
 - Die Einstellungen der Passwort-Ableitung (Argon2id) aus der Fachdatei werden vor dem Entsperren geprüft. Eine manipulierte Datei konnte die App vorher abstürzen oder minutenlang hängen lassen.
 - Der Wiederherstellen-Bildschirm sagt jetzt, dass ein anderes Gerät mit denselben 12 Wörtern angemeldet bleibt und weiter Nachrichten bekommt.
 - Die Anleitung „Nur in der Nähe“ behauptete, die Zustellung über Funk sei noch nicht gebaut, und verlangte den Standortzugriff, den BitDM gar nicht anfordert. Sie beschreibt jetzt, was der Nahbereich tatsächlich kann: Bluetooth 5 und Android 12 auf beiden Seiten, rund zwei Meter gemessen, und die Kontaktanfrage geht erst über den Relay hinaus.
+
+- Fügten sich zwei Leute gegenseitig hinzu (beide scannen den Code des anderen), standen beide für immer auf „Anfrage gesendet“ — auch mit Internet. Jetzt gilt das auf beiden Seiten als Zusage. Wer eine Anfrage schon hat und den anderen selbst hinzufügt, nimmt damit an, und der Chat geht auf.
+- Eine Zusage oder Absage ohne Verbindung (oder mit „Nur in der Nähe“, während die Gegenseite nicht in Reichweite war) ging verloren, und die Gegenseite wartete für immer. Sie wartet jetzt und geht beim nächsten Verbinden hinaus, mit „Nur in der Nähe“ auch über Bluetooth, sobald die Gegenseite da ist. Wer schon so festhängt, kommt los, sobald beide Seiten diese Fassung haben und die wartende Seite verbindet.
+- Eine veränderte App konnte sich mit einer eigenen Zusage selbst zum bestätigten Kontakt machen und mit einer „Absage“ einen bestehenden Kontakt samt Verlauf auf dem anderen Telefon löschen. Zu- und Absage gelten jetzt nur noch als Antwort auf eine eigene, offene Anfrage.
+- Der Hinzufügen-Bildschirm sagte auch mit „Nur in der Nähe“ „Anfrage gesendet“, obwohl dort keine Anfrage hinausgeht — und ebenso bei jemandem, der schon Kontakt war.
+- Ein Telefon ohne Bluetooth 5 bekam in den Einstellungen keinen Hinweis, dass der Nahbereich darauf nicht geht. Bei ausgeschaltetem Bluetooth konnte dort „kein Bluetooth LE“ stehen statt „Bluetooth ist ausgeschaltet“.
 
 **Behoben (Relay)**
 - Ein Fremder konnte die Anmeldung eines Geräts stören, indem er dessen Einmal-Nonce verdrängte. Die Plätze gehören jetzt der Herkunft der Anfrage; über Tor dem Circuit, sobald der Onion-Dienst die Circuit-Kennung weitergibt.

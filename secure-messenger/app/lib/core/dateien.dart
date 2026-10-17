@@ -20,9 +20,18 @@
 //     zurueck — sie kopieren also. Bei 3 GB heisst das 3 GB doppelt auf einem
 //     Telefon, plus die Zeit dafuer. Der eigene Kanal reicht stattdessen
 //     einen Zugang auf die ORIGINALDATEI durch.
+//
+// ═══════════════════════════════════════════════ UND AM PC (seit 17.10.2026)
+//
+// Derselbe Kanal, gebaut in den Startprogrammen: windows/runner/
+// datei_kanal.cpp und linux/runner/datei_kanal.cc. Bis dahin gab es ihn dort
+// nicht, und "Datei anhaengen" war am PC ein Knopf, der nichts tat. Im
+// Browser gibt es ihn weiterhin nicht — dort ist der Menuepunkt abgeschaltet
+// und sagt, warum ([DateiWahl.auswahlFehlt]).
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -83,6 +92,14 @@ abstract class DateiWahl {
   const DateiWahl();
 
   Future<GewaehlteDatei?> waehlen();
+
+  /// Null, wenn [waehlen] hier einen Dialog zeigen kann — sonst der Grund,
+  /// als Schluessel fuer die Oberflaeche: 'anhangWeb' im Browser,
+  /// 'anhangKeinDialog' auf einer Plattform ohne Kanal. Wo nicht, ist "Datei
+  /// anhaengen" abgeschaltet und sagt, warum, statt auf Druck still nichts zu
+  /// tun. Mit Rumpf: Attrappen in Tests bleiben unveraendert gueltig.
+  String? get auswahlFehlt => null;
+
   Future<void> gibFrei(String zettel);
   Future<bool> oeffne(String pfad, {String? name});
 
@@ -95,9 +112,16 @@ abstract class DateiWahl {
   Future<String?> speichere(String quelle, String name) async => null;
 }
 
-/// Die echte, ueber den Kanal in DateiKanal.kt.
+/// Die echte, ueber den Kanal in DateiKanal.kt (bzw. datei_kanal.cpp/.cc).
 class SystemDateiWahl extends DateiWahl {
-  const SystemDateiWahl();
+  /// [imBrowser] nur fuer Tests: kIsWeb laesst sich dort nicht umstellen.
+  const SystemDateiWahl({this.imBrowser = kIsWeb});
+
+  final bool imBrowser;
+
+  @override
+  String? get auswahlFehlt =>
+      Dateien.auswahlFehltAuf(defaultTargetPlatform, imBrowser: imBrowser);
 
   @override
   Future<GewaehlteDatei?> waehlen() => Dateien.waehlen();
@@ -113,6 +137,43 @@ class SystemDateiWahl extends DateiWahl {
 
 class Dateien {
   static const _kanal = MethodChannel('bitdm/dateien');
+
+  /// Wo es den Kanal gibt: in der Android-App und in den Startprogrammen fuer
+  /// Windows und Linux. Fuer macOS und iOS gibt es kein Startprogramm.
+  static const _mitKanal = {
+    TargetPlatform.android,
+    TargetPlatform.windows,
+    TargetPlatform.linux,
+  };
+
+  /// Warum es auf [plattform] keine Dateiauswahl gibt, oder null, wenn es
+  /// sie gibt (siehe [DateiWahl.auswahlFehlt]).
+  ///
+  /// [imBrowser] MUSS zuerst geprueft werden: im Browser auf einem Android-
+  /// Telefon meldet defaultTargetPlatform android, Kanaele gibt es dort aber
+  /// keine.
+  static String? auswahlFehltAuf(TargetPlatform plattform,
+      {bool imBrowser = kIsWeb}) {
+    if (imBrowser) return 'anhangWeb';
+    return _mitKanal.contains(plattform) ? null : 'anhangKeinDialog';
+  }
+
+  /// Endungen, die ein Betrachter AUSFUEHRT statt nur zeigt: HTML, SVG,
+  /// Skripte. Am PC gehen sie an das Programm fuer Text. Dieselbe Liste steht
+  /// fuer Android in DateiKanal.kt (AKTIVE_ENDUNGEN) — dort wird sie zu
+  /// text/plain. Bei einer Aenderung beide nachziehen.
+  static const _aktiveEndungen = {
+    'html', 'htm', 'xhtml', 'shtml', 'svg', 'svgz', 'mht', 'mhtml', 'js',
+    'xml', 'hta',
+  };
+
+  /// Ob [name] auf eine Endung aus [_aktiveEndungen] endet.
+  @visibleForTesting
+  static bool aktiverInhalt(String name) {
+    final punkt = name.lastIndexOf('.');
+    if (punkt < 0 || punkt >= name.length - 1) return false;
+    return _aktiveEndungen.contains(name.substring(punkt + 1).toLowerCase());
+  }
 
   /// Oeffnet die Dateiauswahl des Systems. Null, wenn abgebrochen wurde.
   ///
@@ -132,8 +193,8 @@ class Dateien {
         kopiert: a['kopiert'] as bool? ?? false,
       );
     } on MissingPluginException {
-      // Auf dem Entwicklungsrechner gibt es diesen Kanal nicht. Kein Absturz —
-      // die Oberflaeche zeigt dann einfach nichts an.
+      // Im Browser und in Widget-Tests. Die Oberflaeche fragt vorher
+      // [DateiWahl.auswahlFehlt] und bietet die Auswahl dort gar nicht an.
       return null;
     } on PlatformException {
       return null;
@@ -144,7 +205,8 @@ class Dateien {
   ///
   /// ANDROID: der "Speichern unter"-Dialog des Systems (ACTION_CREATE_DOCUMENT)
   /// — wieder ohne Berechtigung, der Nutzer waehlt genau diesen einen Ort.
-  /// AM RECHNER gibt es diesen Kanal nicht; die Datei landet dann im
+  /// AM RECHNER beantworten die Startprogramme 'speichern' nicht (das kommt
+  /// als MissingPluginException an); die Datei landet dann im
   /// Download-Ordner, und die Rueckgabe sagt, wo.
   static Future<String?> speichere(String quelle, String name) async {
     try {
@@ -180,10 +242,19 @@ class Dateien {
   /// Rueckgabe: false, wenn keine App sie oeffnen kann. Das ist kein Fehler,
   /// sondern eine Antwort — und die Oberflaeche kann dann sagen, dass nichts
   /// da ist, statt einen leeren Dialog zu zeigen.
+  ///
+  /// AM PC geht die Datei durch die Anhangpruefung des Systems (Windows) und
+  /// aktive Inhalte als Text auf ('alsText'); Android entscheidet das selbst
+  /// und uebergeht den Schalter.
   static Future<bool> oeffne(String pfad, {String? name}) async {
     try {
-      return await _kanal
-              .invokeMethod<bool>('oeffne', {'pfad': pfad, 'name': name}) ??
+      return await _kanal.invokeMethod<bool>('oeffne', {
+            'pfad': pfad,
+            'name': name,
+            // Beide: der Name kommt vom Absender, die Endung auf der Platte
+            // entscheidet, welches Programm Windows nimmt.
+            'alsText': aktiverInhalt(pfad) || aktiverInhalt(name ?? ''),
+          }) ??
           false;
     } catch (_) {
       return false;

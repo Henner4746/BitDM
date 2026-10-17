@@ -57,6 +57,11 @@ import 'store/sicherung.dart';
 import 'store/signal_store_repository.dart';
 import 'store/sqlite_zugang.dart';
 import 'verbindungstest.dart';
+import 'net/geraeteliste.dart';
+
+export 'net/geraeteliste.dart' show ListenStand, GeraetAnzeige;
+
+part 'geraeteverwaltung.dart';
 
 class RealMessengerCore implements MessengerCore {
   RealMessengerCore({
@@ -303,6 +308,9 @@ class RealMessengerCore implements MessengerCore {
   /// Was der Nachversand uebersprungen hat, weil es gerade hinausging.
   final _uebersprungen = <String>{};
 
+  /// EIN LIBSIGNAL-VORGANG ZUR ZEIT. Siehe [_signalExklusiv].
+  Future<void> _signalLauf = Future<void>.value();
+
   /// Die Kennung DIESES Geraets an dieser Adresse. Null = noch nicht ermittelt.
   ///
   /// Sie haengt am [databasePath] und ist damit je Installation eine eigene —
@@ -333,7 +341,43 @@ class RealMessengerCore implements MessengerCore {
   /// Ewigkeit gegen eine Antwort, die sich nie aendert.
   bool _abgewiesen = false;
 
+  /// Ob `_ermittleGeraetId` in DIESEM Verbindungsversuch schon gefragt hat und
+  /// der Relay Geraete kennt. Nur, damit die Geraeteliste nicht dieselbe
+  /// Frage noch einmal stellt (jede kostet eine Marke der Herkunftsbremse).
+  bool _relayKenntGeraete = false;
+
   bool get abgewiesen => _abgewiesen;
+
+  // ═══════════════════════════ Geraeteliste (geraeteverwaltung.dart)
+  //
+  // Der Zustand der Geraeteabmeldung (docs/GERAETEABMELDUNG.md). Die Logik
+  // steht in der Erweiterung `Geraeteverwaltung`; hier nur, was sie sich
+  // merken muss.
+
+  /// Der Geraeteschluessel dieser Installation (meta `geraeteschluessel`).
+  PrivateKey? _geraeteSchluessel;
+
+  /// Schluessel fuer die verschluesselte Info je Geraet (aus den Woertern).
+  Uint8List? _infoSchluessel;
+
+  /// Die gepruefte Geraeteliste je Adresse, null = keine. Spiegel von meta
+  /// `geraeteliste:<adresse>`.
+  final _listen = <String, Geraeteliste?>{};
+
+  /// Wann die Liste einer Gegenstelle zuletzt nachgeladen wurde, weil Post
+  /// von einem unbekannten Geraet kam.
+  final _listeGefragt = <String, DateTime>{};
+
+  var _geraeteStand = ListenStand.unbekannt;
+  final _geraeteCtl = StreamController<ListenStand>.broadcast();
+  Uint8List? _hinzufuegeCode;
+  DateTime? _hinzufuegeBis;
+  Timer? _hinzufuegeTakt;
+  int? _zuletztHinzugefuegt;
+  bool _pruefeLaeuft = false;
+  Timer? _beitrittsTimer;
+  DateTime? _beitrittBis;
+  ({DateTime zeit, String? von})? _abmeldung;
 
   var _conn = ConnectionState.disconnected;
 
@@ -547,6 +591,8 @@ class RealMessengerCore implements MessengerCore {
     if (_store != null || await secretStore.read() != null) {
       throw StateError('es gibt bereits eine Identitaet');
     }
+    _abmeldung = null;
+    _abgewiesen = false;
     final woerter = Bip39.generate();
     final entropie = Bip39.mnemonicToEntropy(woerter);
     // NUR IM BROWSER (verwaisteDatenbankMoeglich): dort kann eine
@@ -559,7 +605,16 @@ class RealMessengerCore implements MessengerCore {
     if (verwaisteDatenbankMoeglich) await loescheDatenbank(databasePath);
     await secretStore.write(entropie);
     _hatIdentitaet = true;
-    await _oeffne(entropie);
+    try {
+      await _oeffne(entropie);
+    } on DatabaseUnlockException {
+      // EIN ABGEMELDETES GERAET (geraeteverwaltung.dart): seine Datenbank
+      // liegt noch da, verschluesselt mit den ALTEN Woertern. Frische
+      // Entropie oeffnet sie nie; wer hier eine neue Identitaet anlegt, hat
+      // sich gegen die alte entschieden.
+      await loescheDatenbank(databasePath);
+      await _oeffne(entropie);
+    }
     return woerter;
   }
 
@@ -570,6 +625,8 @@ class RealMessengerCore implements MessengerCore {
     }
     if (!Bip39.validate(words)) throw const InvalidRecoveryPhraseException();
     final entropie = Bip39.mnemonicToEntropy(words);
+    _abmeldung = null;
+    _abgewiesen = false;
     await secretStore.write(entropie);
     _hatIdentitaet = true;
     try {
@@ -608,6 +665,14 @@ class RealMessengerCore implements MessengerCore {
     await sqliteVorbereiten();
     final db = EncryptedDatabase.open(databasePath, keys.databaseKey);
     _ruheSchluessel = Uint8List.fromList(keys.attachmentKey);
+    _infoSchluessel = Uint8List.fromList(keys.deviceInfoKey);
+    _listen.clear();
+    _geraeteSchluessel = null;
+    // Wer zuletzt in der Liste stand, ist bis zum naechsten Verbinden
+    // Mitglied; ob es noch stimmt, sagt die Liste beim Relay.
+    _geraeteStand = db.meta('geraeteliste_mitglied') != null
+        ? ListenStand.mitglied
+        : ListenStand.unbekannt;
     // DIE NATIVE SIGNAL-BIBLIOTHEK LADEN, bevor irgendein Schluessel
     // angefasst wird (offizielle libsignal seit 2.0.0, ueber Rust). Einmal je
     // Isolate genuegt; ein zweiter Aufruf tut nichts. Im Browser laedt das
@@ -910,6 +975,7 @@ class RealMessengerCore implements MessengerCore {
     }
 
     _setzeVerbindung(ConnectionState.connecting);
+    _relayKenntGeraete = false;
     // JEDER AUSDRUECKLICHE VERSUCH BEKOMMT EIN FRISCHES URTEIL. Wer die App in
     // den Vordergrund holt, nachdem er ein anderes Geraet aufgegeben hat, soll
     // nicht an einem alten 507 haengenbleiben.
@@ -950,6 +1016,20 @@ class RealMessengerCore implements MessengerCore {
       if (ueberholt()) return _gibAuf(relay);
       if (geraetId != 1) relay.geraeteKennung = geraetId;
 
+      // DIE GERAETELISTE VOR DER ANMELDUNG (geraeteverwaltung.dart). Steht
+      // dieses Geraet nicht darin, meldet es sich gar nicht erst an — der
+      // Relay liesse es ohnehin nicht herein, und ein abgemeldetes Geraet
+      // soll nicht klopfen.
+      if (!await _pruefeEigeneListe(relay)) {
+        if (ueberholt()) return _gibAuf(relay);
+        await _raeumeVerbindungAb();
+        if (_geraeteStand != ListenStand.abgemeldet) {
+          _setzeVerbindung(ConnectionState.error);
+        }
+        return;
+      }
+      if (ueberholt()) return _gibAuf(relay);
+
       await _meldeAnWennNoetig(relay);
       if (ueberholt()) return _gibAuf(relay);
 
@@ -988,6 +1068,9 @@ class RealMessengerCore implements MessengerCore {
       // schon abgebaut, und ein zweiter Anlauf mitten im Abraeumen stiesse
       // mit dem Wiederverbindungszeitgeber zusammen.
       if (fehler is RelayUnbekannt) _vergissAnmeldung();
+      // 4410: NICHT neu anmelden, sondern die signierte Liste ansehen. Ob
+      // dieses Geraet wirklich abgemeldet ist, entscheidet nur sie.
+      if (fehler is RelayAbgemeldetFehler) unawaited(_frischeEigeneListeAuf());
       // VOR dem Zustandswechsel: an ihm haengt der Wiederverbindungszeitgeber
       // (app_state `_planeWiederverbindung`), und der liest [abgewiesen].
       _abgewiesen = fehler is RelayException && fehler.statusCode == 507;
@@ -1143,11 +1226,15 @@ class RealMessengerCore implements MessengerCore {
     List<int>? liste;
     try {
       liste = await relay.geraeteliste(myId);
+      // Die Geraeteliste (geraeteverwaltung.dart) braucht diese Antwort
+      // gleich noch einmal — so fragt sie nicht ein zweites Mal.
+      _relayKenntGeraete = liste != null;
     } on RelayException catch (e) {
       // 404 heisst "diese Adresse hat noch kein Geraet" — der Normalfall bei
       // einer Erstanlage. Nur das gilt als Antwort.
       if (e.statusCode != 404) rethrow;
       liste = null;
+      _relayKenntGeraete = true;
     }
     _merkeGeraeteZahl(liste);
     _setzeGeraetId(liste == null || (liste.isEmpty && !umzug)
@@ -1352,6 +1439,13 @@ class RealMessengerCore implements MessengerCore {
       case RelayNeuesteFassung(:final fassung):
         _neuesteFassung = fassung;
         if (!_fassungCtl.isClosed) _fassungCtl.add(fassung);
+      // Die Geraeteliste: der Relay gibt nur Hinweise, die Liste selbst
+      // wird geholt und geprueft (geraeteverwaltung.dart).
+      case RelayAbgemeldet():
+      case RelayGeraetelisteNeu():
+        unawaited(_frischeEigeneListeAuf());
+      case RelayBeitritt():
+        unawaited(_pruefeBeitritte());
     }
   }
 
@@ -1813,14 +1907,26 @@ class RealMessengerCore implements MessengerCore {
     if (antwort.userId != von) {
       throw StateError('Buendel von $von gehoert zu ${antwort.userId}');
     }
-    final vorher = store.schnappschuss();
+    // EINE ALTE APP ANTWORTET OHNE KYBER — derselbe Vermerk wie beim Relay
+    // ([_bauSitzungen]). Ohne ihn stuende die Nachricht im Modus "nur in der
+    // Naehe" stumm auf "wird gesendet", obwohl die Gegenstelle daneben steht.
+    final PreKeyBundle buendel;
     try {
-      await _sitzungsBauer(store)
-          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(antwort));
-    } catch (_) {
-      store.stelleWiederHer(vorher);
+      buendel = PreKeyBundleBridge.fromRelay(antwort);
+    } on GegenstelleOhneKyberException {
+      _merkeAppFassung(von, veraltet: true);
       rethrow;
     }
+    await _signalExklusiv(() async {
+      final vorher = store.schnappschuss();
+      try {
+        await _sitzungsBauer(store).processPreKeyBundle(ziel, buendel);
+      } catch (_) {
+        store.stelleWiederHer(vorher);
+        rethrow;
+      }
+    });
+    _merkeAppFassung(von, veraltet: false);
     // Und sofort nachholen, was darauf gewartet hat.
     _stosseNachversandAn();
   }
@@ -1894,7 +2000,20 @@ class RealMessengerCore implements MessengerCore {
     // einem unawaited-Ablauf, den niemand faengt.
     if (store == null || chats == null) return;
 
+    // STUFE 2: Post von einem Geraet, das nicht in der signierten Liste des
+    // Absenders steht, wird nicht einmal entschluesselt — auch nicht, wenn
+    // es die eigene Adresse ist (ein abgemeldetes Zweitgeraet, ein vom Relay
+    // erfundenes). Quittiert, damit sie nicht bei jedem Verbinden wiederkommt.
+    final darf = _darfEmpfangenSofort(von, vonGeraet) ??
+        await _darfEmpfangen(von, vonGeraet);
+    if (!darf) {
+      _bestaetigeEmpfang(nachweisFuer);
+      return;
+    }
+    if (_store == null) return;
+
     final Payload payload;
+    var neueSitzung = false;
     try {
       final huelle = Envelope.fromBytes(umschlag);
       // VOR LIBSIGNAL: passt der Schluessel einer Erstnachricht zum Absender?
@@ -1921,24 +2040,39 @@ class RealMessengerCore implements MessengerCore {
       // wiederholen koennte: `_behandleEingangsfehler` schreibt den
       // Ratchet-Fortschritt auch beim Fehlschlag fest, und danach ist genau
       // diese Nachricht dauerhaft unentschluesselbar.
-      final wiederholungenVorher = store.kyberWiederholungen;
-      final vorher = huelle.startetSitzung ? store.schnappschuss() : null;
-      final klar = await huelle.decrypt(
-        _chiffre(store),
-        ProtocolAddress(name: von, deviceId: vonGeraet),
-      );
-      // ERNEUT EINGESPIELTE ERSTNACHRICHT gegen den Last-Resort-Kyber-Prekey
-      // (signal_store.dart, Abschnitt KyberPreKeyStore). libsignal hat den
-      // Klartext schon erzeugt, bevor der Speicher die Wiederholung bemerken
-      // kann; deshalb hier verwerfen, wie ein Duplikat.
-      if (store.kyberWiederholungen != wiederholungenVorher) {
-        // Was libsignal dabei angelegt hat, darf nicht festgeschrieben werden
-        // — siehe BitdmSignalStore.schnappschuss.
-        if (vorher != null) store.stelleWiederHer(vorher);
-        throw const ErneutEingespielt();
-      }
+      final klar = await _signalExklusiv(() async {
+        final wiederholungenVorher = store.kyberWiederholungen;
+        final vorher = huelle.startetSitzung ? store.schnappschuss() : null;
+        final klar = await huelle.decrypt(
+          _chiffre(store),
+          ProtocolAddress(name: von, deviceId: vonGeraet),
+        );
+        // ERNEUT EINGESPIELTE ERSTNACHRICHT gegen den Last-Resort-Kyber-Prekey
+        // (signal_store.dart, Abschnitt KyberPreKeyStore). libsignal hat den
+        // Klartext schon erzeugt, bevor der Speicher die Wiederholung bemerken
+        // kann; deshalb hier verwerfen, wie ein Duplikat.
+        if (store.kyberWiederholungen != wiederholungenVorher) {
+          // Was libsignal dabei angelegt hat, darf nicht festgeschrieben werden
+          // — siehe BitdmSignalStore.schnappschuss.
+          if (vorher != null) store.stelleWiederHer(vorher);
+          throw const ErneutEingespielt();
+        }
+        return klar;
+      });
+      // GESPERRT, GELOESCHT ODER GESCHLOSSEN, WAEHREND LIBSIGNAL RECHNETE.
+      // Dann gehoert dieser Ablauf zu einem Speicher, den es nicht mehr gibt:
+      // nichts festschreiben, nichts bestaetigen. Der Relay behaelt die
+      // Zeile und liefert sie beim naechsten Verbinden wieder, und weil der
+      // Sitzungsfortschritt nie auf die Platte kam, entschluesselt sie dann
+      // noch. Ohne diese Zeile las der Ablauf danach `myId` und warf
+      // "call initialize() first" aus einem Stream-Listener (Gesamtlauf vom
+      // 17.10.2026, test/net/schliessen_beim_empfang_test.dart).
+      if (!identical(_store, store)) return;
       payload = Payload.fromBytes(klar);
+      neueSitzung = huelle.startetSitzung;
     } catch (fehler) {
+      // Dasselbe fuer den Fehlerweg: `_behandleEingangsfehler` schreibt fest.
+      if (!identical(_store, store)) return;
       _behandleEingangsfehler(fehler, von);
       // AUCH HIER bestaetigen. _behandleEingangsfehler schreibt den
       // Sitzungsfortschritt fest; ab da laesst sich dieser Umschlag nie
@@ -2002,7 +2136,7 @@ class RealMessengerCore implements MessengerCore {
               _legeEingangAb(von, payload, ueberNaehe);
             }
           case PayloadKind.contactRequest:
-            _legeEingangAb(von, payload, ueberNaehe);
+            _nimmAnfrage(von, payload, ueberNaehe);
           case PayloadKind.anhang:
             _legeAnhangAb(von, payload, ueberNaehe);
           case PayloadKind.contactAccept:
@@ -2061,6 +2195,15 @@ class RealMessengerCore implements MessengerCore {
     // Steuernachrichten legen nichts in den Verlauf, veraendern aber trotzdem
     // den Ratchet. Ohne diese Zeile bliebe der Fortschritt im Arbeitsspeicher.
     chats.speichereNurSitzung(store);
+
+    // EINE ERSTNACHRICHT HAT GERADE EINE SITZUNG GEBAUT, und zwar mit Kyber:
+    // ohne PQXDH haette libsignal sie nicht entschluesselt. Wer so schreibt,
+    // hat aktualisiert. Der Vermerk [Contact.brauchtNeuereApp] faellt, und
+    // was an ihn wartet, geht jetzt los statt erst beim naechsten Verbinden —
+    // ueber die neue Sitzung, ohne neues Buendel ([_bekannteGeraete]).
+    if (neueSitzung && _merkeAppFassung(von, veraltet: false)) {
+      _stosseNachversandAn();
+    }
 
     // HIER KANN EIN KONTAKT ENTSTANDEN ODER VERSCHWUNDEN SEIN, und das geht
     // den Nahbereich an: die erste Nachricht von jemand Unbekanntem legt ihn
@@ -2895,6 +3038,39 @@ class RealMessengerCore implements MessengerCore {
             refs: [messageId]));
   }
 
+  /// Eine Kontaktanfrage. Was sie heisst, haengt davon ab, wo der Absender
+  /// bei uns steht.
+  ///
+  /// UNBEKANNT ODER SCHON MIT KARTE: der Nutzer entscheidet
+  /// ([_legeEingangAb]); eine Wiederholung legt keine zweite Karte an.
+  ///
+  /// SELBST ANGEFRAGT: beide wollen dasselbe. Das ist der Normalfall beim
+  /// Treffen — beide scannen den Code des anderen. Bis 15.10.2026 fiel die
+  /// Anfrage hier als "bekannter Absender" durch: nur die Sitzung gespeichert,
+  /// kein Zustandswechsel, keine Karte. Beide standen fuer immer auf
+  /// "Anfrage gesendet", mit Internet genauso wie ohne. Jetzt gilt sie als
+  /// Zusage, und wir sagen zurueck zu — die eigene Anfrage kann bei der
+  /// Gegenseite ja verloren gegangen sein.
+  ///
+  /// SCHON AKTIV: die Gegenseite fragt nur, solange sie wartet (bei jedem
+  /// Verbinden, [_wiederholeKontaktanfragen]). Kommt ihre Anfrage bei einem
+  /// aktiven Kontakt an, fehlt ihr also unsere Zusage — wir schicken sie noch
+  /// einmal. Das heilt auch jede Zusage, die vor dem Ausgang verloren ging.
+  /// Der Nutzer hat hier nichts mehr zu entscheiden: er hat den Kontakt
+  /// angenommen und nie entfernt.
+  void _nimmAnfrage(String von, Payload p, bool ueberNaehe) {
+    switch (_chats!.kontakt(von)?.state) {
+      case null:
+      case ContactState.incomingPending:
+        _legeEingangAb(von, p, ueberNaehe);
+      case ContactState.outgoingPending:
+        _bestaetigeKontakt(von);
+        unawaited(_antworte(von, PayloadKind.contactAccept));
+      case ContactState.active:
+        unawaited(_antworte(von, PayloadKind.contactAccept));
+    }
+  }
+
   /// Die Gegenstelle sagt zu: aus UNSERER Anfrage wird ein aktiver Kontakt.
   ///
   /// NUR AUS `outgoingPending`. Vorher stand hier „alles ausser active“, und
@@ -2908,6 +3084,9 @@ class RealMessengerCore implements MessengerCore {
   ///
   /// Der Uebergang `incomingPending → active` gehoert allein dem Nutzer und
   /// passiert ausschliesslich in [acceptRequest].
+  ///
+  /// Dass eine Zusage bei einem schon aktiven Kontakt nichts tut, macht sie
+  /// wiederholbar — Voraussetzung dafuer, dass sie im Ausgang warten darf.
   void _bestaetigeKontakt(String von) {
     final chats = _chats!;
     final k = chats.kontakt(von);
@@ -2944,10 +3123,45 @@ class RealMessengerCore implements MessengerCore {
     // Bis hierher wurde die Rueckgabe verworfen, und die (ruhend
     // verschluesselten) Dateien blieben verwaist liegen.
     unawaited(_loescheDateien(weg.dateien));
+    _nahGeheimnisse.remove(von);
     _contacts.add(ContactEvent(
         type: ContactEventType.requestDeclined,
         contactId: von,
         at: DateTime.now().toUtc()));
+  }
+
+  /// Zu- oder Absage auf eine Anfrage — UEBER DEN AUSGANG.
+  ///
+  /// Bis 15.10.2026 ging sie einmal hinaus oder nie: gescheitert (kein Netz,
+  /// "nur in der Naehe" ohne Gegenseite in Reichweite), war sie weg. Die
+  /// Gegenseite stand fuer immer auf "ausstehend", und ihre wiederholte
+  /// Anfrage fiel bei uns als Wiederholung durch. Im Ausgang wartet sie jetzt
+  /// wie eine Quittung, bis ein Weg offen ist — beim Verbinden ODER wenn die
+  /// Gegenseite in Reichweite kommt ([_sendeUnversandtes]).
+  ///
+  /// NUR DIE LETZTE ANTWORT ZAEHLT. Wartet noch eine Absage und der Nutzer
+  /// nimmt eine neue Anfrage derselben Adresse an, ginge sonst erst die
+  /// Absage hinaus — die Gegenseite entfernte den Kontakt, und die Zusage
+  /// danach traefe auf nichts mehr. Hoechstens eine Antwort je Adresse haelt
+  /// den Ausgang ausserdem klein, egal wie oft jemand fragt.
+  Future<void> _antworte(String an, PayloadKind art) async {
+    final chats = _chats;
+    if (chats == null) return;
+    for (final a in chats.ausgang()) {
+      if (a.chatId != an) continue;
+      final PayloadKind alt;
+      try {
+        alt = Payload.fromBytes(a.nutzlast).kind;
+      } on PayloadFormatException {
+        continue;
+      }
+      if (alt == PayloadKind.contactAccept ||
+          alt == PayloadKind.contactDecline) {
+        chats.trageAusDemAusgang(a.seq);
+      }
+    }
+    await _sendeSteuerung(
+        an, Payload.control(art, _neueId(), DateTime.now().toUtc()));
   }
 
   void _quittiere(String von, List<String> refs, MessageStatus status) {
@@ -3006,6 +3220,12 @@ class RealMessengerCore implements MessengerCore {
   /// Der Nachversand fuer Nachrichten gibt es laengst; hier ist sein
   /// Gegenstueck. Ausgeloest beim Verbinden, denn genau dann ist der Grund
   /// weggefallen, an dem es beim ersten Mal lag.
+  ///
+  /// NUR BEIM VERBINDEN, nicht wenn jemand in Reichweite kommt: mit "nur in
+  /// der Naehe" geht eine Anfrage deshalb nie hinaus (nahweg_test "EIN NEUER
+  /// KONTAKT ENTSTEHT NICHT UEBER FUNK", an dem die Anleitung haengt). Die
+  /// ANTWORT darauf wartet dagegen im Ausgang und geht auch ueber Funk
+  /// ([_antworte]).
   void _wiederholeKontaktanfragen() {
     final chats = _chats;
     if (chats == null) return;
@@ -3030,6 +3250,17 @@ class RealMessengerCore implements MessengerCore {
     }
 
     final vorhanden = _chats!.kontakt(adresse);
+    // WER SCHON ANGEFRAGT HAT UND JETZT HINZUGEFUEGT WIRD, IST ANGENOMMEN.
+    // Dieselbe Absicht wie beim gegenseitigen Hinzufuegen ([_nimmAnfrage]),
+    // nur kam die Anfrage hier zuerst an. Bis 15.10.2026 gab `addContact`
+    // den Kontakt einfach zurueck: nichts ging hinaus, und der Bildschirm
+    // sagte trotzdem "Anfrage gesendet".
+    if (vorhanden?.state == ContactState.incomingPending) {
+      final aktiv = _nimmAn(vorhanden!, displayName: displayName);
+      // Wie in [acceptRequest]: der Nahbereich nimmt nur aktive Kontakte.
+      unawaited(_richteNaheEin());
+      return aktiv;
+    }
     if (vorhanden != null) return vorhanden;
 
     final kontakt = Contact(
@@ -3051,11 +3282,7 @@ class RealMessengerCore implements MessengerCore {
 
   @override
   Future<void> acceptRequest(String contactId) async {
-    final k = _fordereKontakt(contactId);
-    _chats!.speichereKontakt(k.copyWith(state: ContactState.active));
-    unawaited(_versucheZuSenden(contactId,
-        Payload.control(PayloadKind.contactAccept, _neueId(),
-            DateTime.now().toUtc())));
+    _nimmAn(_fordereKontakt(contactId));
     // DER NAHBEREICH MUSS HIER NEU AUFSETZEN, seit er nur noch aktive
     // Kontakte nimmt (siehe [_nahKontakte]). Vorher war ein Kontakt schon
     // als offene Anfrage dabei, und die Annahme aenderte am Funk nichts.
@@ -3064,13 +3291,26 @@ class RealMessengerCore implements MessengerCore {
     await _richteNaheEin();
   }
 
+  /// Nimmt [k] an: aktiv, und die Zusage geht in den Ausgang ([_antworte]).
+  Contact _nimmAn(Contact k, {String? displayName}) {
+    final aktiv = k.copyWith(
+        state: ContactState.active, displayName: k.displayName ?? displayName);
+    _chats!.speichereKontakt(aktiv);
+    unawaited(_antworte(k.id, PayloadKind.contactAccept));
+    return aktiv;
+  }
+
   @override
   Future<void> declineRequest(String contactId) async {
     _fordereKontakt(contactId);
-    unawaited(_versucheZuSenden(contactId,
-        Payload.control(PayloadKind.contactDecline, _neueId(),
-            DateTime.now().toUtc())));
-    _chats!.entferneKontakt(contactId);
+    // ERST ENTFERNEN, DANN DIE ABSAGE IN DEN AUSGANG: `entferneKontakt` leert
+    // den Ausgang dieser Adresse, andersherum naehme es die Absage gleich
+    // mit. Die Sitzung bleibt stehen (anders als in removeContact) — ohne sie
+    // liesse sich die Absage nicht verschluesseln.
+    final weg = _chats!.entferneKontakt(contactId);
+    unawaited(_antworte(contactId, PayloadKind.contactDecline));
+    // Was er vor der Entscheidung geschickt hat, kann ein Anhang sein.
+    await _loescheDateien(weg.dateien);
     // DASSELBE AUFRAEUMEN WIE IN removeContact, und aus demselben Grund.
     //
     // Eine Absage ist eine Entfernung — nur eine, die man nie bestaetigt hat.
@@ -3723,15 +3963,19 @@ class RealMessengerCore implements MessengerCore {
         Payload.tippt(_neueId(), tippt, DateTime.now().toUtc()).toBytes();
     try {
       for (final g in ziele) {
-        final ct = await _chiffre(store)
-            .encrypt(ProtocolAddress(name: contactId, deviceId: g), klar);
+        final ct = await _signalExklusiv(() async {
+          final ct = await _chiffre(store)
+              .encrypt(ProtocolAddress(name: contactId, deviceId: g), klar);
+          _signalRepo!.commit(store);
+          return ct;
+        });
         // ERST FESTSCHREIBEN, DANN SENDEN. Der Ratchet ist mit dem
         // Verschluesseln weitergerueckt. Ginge der Chiffretext hinaus und die
         // App stuerzte vor dem Festschreiben ab, verschluesselte die naechste
         // Nachricht mit demselben Nachrichtenschluessel noch einmal
         // (Vertrag der Anbindung, stores/session_store.dart). Bis 1.9.x stand
-        // das Festschreiben erst nach dem Senden.
-        _signalRepo!.commit(store);
+        // das Festschreiben erst nach dem Senden. Es steht mit in der Sperre
+        // ([_signalExklusiv]), damit kein Schnappschuss dazwischenfaehrt.
         try {
           // Dieselbe Weiche wie in _RelayAusgang: Geraet 1 ohne `to_device`.
           await relay.sendeFluechtig(
@@ -3805,10 +4049,11 @@ class RealMessengerCore implements MessengerCore {
   ///
   /// ERST IN DEN AUSGANG, DANN SENDEN — dieselbe Reihenfolge wie bei einer
   /// Textnachricht. Stuerzt die App dazwischen ab, holt der Nachversand sie.
-  /// Alle drei Arten sind wiederholbar (eine Reaktion ersetzt sich selbst,
-  /// eine Bearbeitung mit demselben Zeitstempel wird nicht zweimal
-  /// uebernommen, ein Widerruf trifft kein zweites Mal), deshalb schadet es
-  /// nicht, wenn sie bei einem mehrdeutigen Fehlschlag doppelt hinausgeht.
+  /// Alle Arten sind wiederholbar (eine Reaktion ersetzt sich selbst, eine
+  /// Bearbeitung mit demselben Zeitstempel wird nicht zweimal uebernommen,
+  /// ein Widerruf trifft kein zweites Mal, eine Zu- oder Absage gilt nur fuer
+  /// eine offene eigene Anfrage — siehe [_bestaetigeKontakt]), deshalb schadet
+  /// es nicht, wenn sie bei einem mehrdeutigen Fehlschlag doppelt hinausgeht.
   Future<void> _sendeSteuerung(String an, Payload p) async {
     final chats = _chats;
     if (chats == null) return;
@@ -4420,6 +4665,33 @@ class RealMessengerCore implements MessengerCore {
         : _einAnlaufZurZeit('n:$an:$eigeneNachricht', versuch);
   }
 
+  /// EIN LIBSIGNAL-VORGANG ZUR ZEIT: Sitzungsaufbau, Entschluesseln und
+  /// Verschluesseln laufen nacheinander, nie verschraenkt.
+  ///
+  /// libsignal liest einen Sitzungsdatensatz ueber den Speicher, rechnet in
+  /// Rust und schreibt ihn zurueck. Laufen zwei Vorgaenge fuer dieselbe
+  /// Adresse gleichzeitig, schreibt der langsamere ueber den schnelleren
+  /// hinweg, und ein Sitzungsstand ist weg. Signal selbst reiht deshalb jeden
+  /// Zugriff je Adresse ein. Mit der Dart-Nachbildung war das Fenster winzig;
+  /// mit der Rust-Anbindung (seit 2.0.0) ist es breit genug. Gefunden am
+  /// 17.10.2026: Fuegen sich zwei gleichzeitig hinzu, baut jeder eine Sitzung
+  /// auf, waehrend die Anfrage des anderen hereinkommt — danach scheiterte
+  /// jede Nachricht der einen Richtung mit "decryption failed"
+  /// (real_core_test "GEGENSEITIG HINZUGEFUEGT").
+  ///
+  /// DIE SCHNAPPSCHUESSE GEHOEREN MIT HINEIN. [BitdmSignalStore.stelleWiederHer]
+  /// setzt den GANZEN Speicher zurueck. Liefe dazwischen ein Verschluesseln,
+  /// drehte ein gescheiterter Sitzungsaufbau dessen Ratchet zurueck, und die
+  /// naechste Nachricht benutzte denselben Nachrichtenschluessel noch einmal.
+  ///
+  /// Die Abschnitte enthalten keine Netzwege, nur Speicher und Rust: die
+  /// Sperre haelt Millisekunden. Kein Abschnitt ruft einen anderen auf.
+  Future<T> _signalExklusiv<T>(Future<T> Function() vorgang) {
+    final ergebnis = _signalLauf.then((_) => vorgang());
+    _signalLauf = ergebnis.then<void>((_) {}, onError: (Object _) {});
+    return ergebnis;
+  }
+
   /// EIN SENDEVERSUCH JE NACHRICHT ZUR ZEIT.
   ///
   /// Der erste Versand laeuft unabgewartet (`sendMessage`), und bis zu seinem
@@ -4570,12 +4842,15 @@ class RealMessengerCore implements MessengerCore {
   /// Nachricht an einen neuen Kontakt trotzdem eine Anfrage an den Server —
   /// hinter dem Ruecken eines Schalters, der genau das ausschliesst.
   ///
-  /// DIE LOESUNG IST DIE ZEILE UNTEN, und sie ist eine Absage, keine
-  /// Umgehung: gibt es keine Sitzung und darf kein Server gefragt werden,
-  /// bleibt die Nachricht liegen. Nicht "gescheitert" — sie geht hinaus,
-  /// sobald der Schalter wieder aus ist. Ein Schluesselaustausch ueber die
-  /// Naehe waere der ehrliche Ausweg; den gibt es noch nicht, und ihn hier
-  /// vorzutaeuschen waere schlimmer als die Wartezeit.
+  /// DIE LOESUNG IST DER ZWEIG UNTEN, und er fragt keinen Server: gibt es
+  /// keine Sitzung und darf kein Server gefragt werden, geht eine
+  /// Buendelanfrage UEBER FUNK hinaus (`Nahtyp.buendelAnfrage`), falls die
+  /// Gegenseite in Reichweite ist, und die Nachricht bleibt liegen. Nicht
+  /// "gescheitert" — kommt das Buendel zurueck ([_nimmBuendelUeberFunk]),
+  /// geht sie beim naechsten Anlauf hinaus, sonst sobald der Schalter wieder
+  /// aus ist. In Reichweite erkennt der Funk aber nur, wer einen schon als
+  /// Kontakt hat; und die Kontaktanfrage selbst schickt nur connect() nach
+  /// ([_wiederholeKontaktanfragen]).
   ///
   /// Wer schon einmal miteinander geschrieben hat, merkt davon nichts: die
   /// Sitzung steht, und ab da braucht kein Weg mehr einen Server.
@@ -4678,14 +4953,18 @@ class RealMessengerCore implements MessengerCore {
     try {
       for (final g in ziele) {
         final ziel = ProtocolAddress(name: an, deviceId: g);
-        final ct = await _chiffre(store).encrypt(ziel, klartext);
+        final ct = await _signalExklusiv(() async {
+          final ct = await _chiffre(store).encrypt(ziel, klartext);
+          _signalRepo!.commit(store);
+          return ct;
+        });
         // ERST FESTSCHREIBEN, DANN SENDEN. Der Ratchet ist mit dem
         // Verschluesseln weitergerueckt. Ginge der Chiffretext hinaus und die
         // App stuerzte vor dem Festschreiben ab, verschluesselte die naechste
         // Nachricht mit demselben Nachrichtenschluessel noch einmal
         // (Vertrag der Anbindung, stores/session_store.dart). Bis 1.9.x stand
-        // das Festschreiben erst nach dem Senden.
-        _signalRepo!.commit(store);
+        // das Festschreiben erst nach dem Senden. Es steht mit in der Sperre
+        // ([_signalExklusiv]), damit kein Schnappschuss dazwischenfaehrt.
         final bescheid =
             await Wegwahl(
               relay: _RelayAusgang(_relay, g),
@@ -4888,6 +5167,15 @@ class RealMessengerCore implements MessengerCore {
   List<int> _bekannteGeraete(BitdmSignalStore store, String an) {
     final g = store.geraeteVon(an);
     if (an == myId) g.remove(geraetId);
+    // STUFE 2 DER GERAETEABMELDUNG: hat die Adresse eine signierte Liste,
+    // nur an Geraete darin. Hier und nicht an jeder Versandstelle, weil ALLE
+    // Wege hier ihre Ziele holen — Text, Quittung, Gruppe, Spiegel. Eine
+    // Sitzung zu einem abgemeldeten Geraet bleibt damit ungenutzt, selbst
+    // wenn der Relay es weiter beliefern wollte. Fuer die EIGENE Adresse
+    // schliesst das die Reflexion (MEHRGERAETE.md §12.1): ein erfundenes
+    // Geraet 7 steht in keiner Liste, die der Relay faelschen koennte.
+    final liste = _listeVon(an);
+    if (liste != null) g.removeWhere((x) => !liste.kennungen.contains(x));
     return g;
   }
 
@@ -4909,7 +5197,9 @@ class RealMessengerCore implements MessengerCore {
   /// auf; ein einzelnes altes Zweitgeraet darf aber nicht dazu fuehren, dass
   /// das aktuelle Hauptgeraet nichts mehr bekommt. Hat KEIN Geraet Kyber,
   /// fliegt [GegenstelleOhneKyberException] — dann muss die Gegenstelle
-  /// aktualisieren, und das soll die Oberflaeche sagen koennen.
+  /// aktualisieren, und das sagt die Oberflaeche: der Kontakt bekommt
+  /// [Contact.brauchtNeuereApp], siehe [_merkeAppFassung]. Steht danach mit
+  /// mindestens einem Geraet eine Sitzung, faellt der Vermerk wieder.
   ///
   /// MEHR ALS EINE ZAHL WIRD BEI DER EIGENEN ADRESSE GEPRUEFT — siehe
   /// [_istEigenesBuendel]. Ein feindlicher Relay kann sonst ein Geraet
@@ -4928,13 +5218,47 @@ class RealMessengerCore implements MessengerCore {
     // ALLES ODER NICHTS: scheitert ein Aufbau, darf keine halb angelegte
     // Sitzung im Speicher bleiben und beim naechsten Festschreiben in die
     // Datei wandern.
-    final vorher = store.schnappschuss();
+    final List<int> ziele;
     try {
-      return await _bauSitzungenOhneRiegel(store, an, antwort);
-    } catch (_) {
-      store.stelleWiederHer(vorher);
+      ziele = await _signalExklusiv(() async {
+        final vorher = store.schnappschuss();
+        try {
+          return await _bauSitzungenOhneRiegel(store, an, antwort);
+        } catch (_) {
+          store.stelleWiederHer(vorher);
+          rethrow;
+        }
+      });
+    } catch (e) {
+      if (e is GegenstelleOhneKyberException) {
+        _merkeAppFassung(an, veraltet: true);
+      }
       rethrow;
     }
+    // JEDE SITZUNG IST SEIT 2.0.0 EINE MIT KYBER: die alten hat Stufe 15
+    // geloescht (encrypted_database.dart), und neue ohne PQXDH baut libsignal
+    // nicht. Ein Ziel genuegt also als Beleg, dass die Gegenstelle mitkommt.
+    if (ziele.isNotEmpty) _merkeAppFassung(an, veraltet: false);
+    return ziele;
+  }
+
+  /// Haelt am Kontakt fest, ob er erst BitDM aktualisieren muss, und meldet
+  /// es der Oberflaeche — aber nur, wenn sich etwas aendert.
+  ///
+  /// NUR FUER KONTAKTE. Die eigene Adresse (alte Zweitgeraete) und
+  /// Gruppenmitglieder ohne Kontakt aendern nichts; fuer sie gibt es keinen
+  /// Chat, in dem der Hinweis stehen koennte.
+  ///
+  /// Rueckgabe: ob der Vermerk umgesprungen ist.
+  bool _merkeAppFassung(String an, {required bool veraltet}) {
+    if (an == myId) return false;
+    if (!(_chats?.setzeBrauchtNeuereApp(an, veraltet) ?? false)) return false;
+    _contacts.add(ContactEvent(
+      type: ContactEventType.needsUpdateChanged,
+      contactId: an,
+      at: DateTime.now().toUtc(),
+    ));
+    return true;
   }
 
   Future<List<int>> _bauSitzungenOhneRiegel(
@@ -4944,6 +5268,9 @@ class RealMessengerCore implements MessengerCore {
   ) async {
     final ziele = <int>[];
     GegenstelleOhneKyberException? veraltet;
+    // Die Geraeteliste, die der Relay mitschickt — geprueft und gemerkt
+    // (geraeteverwaltung.dart). Gibt es eine, zaehlen nur Geraete darin.
+    final liste = _nimmListe(an, antwort.geraeteliste);
     // GEDECKELT, siehe [geraeteMax]. `alleGeraete` kommt vom Relay und ist
     // damit fremde Eingabe wie jede andere.
     final alle = antwort.alleGeraete;
@@ -4952,6 +5279,7 @@ class RealMessengerCore implements MessengerCore {
         : (alle.toList()..sort((x, y) => x.deviceId.compareTo(y.deviceId)))
             .take(geraeteMax)) {
       if (an == myId && b.deviceId == geraetId) continue;
+      if (liste != null && !liste.kennungen.contains(b.deviceId)) continue;
       // KENNUNG AUSSERHALB 1..127: ein Geraet mit einer App vor 2.0.0.
       // libsignal nimmt die Kennung nicht; ueberspringen wie ein Geraet ohne
       // Kyber, statt den Versand an alle anderen umzuwerfen.
@@ -5032,6 +5360,13 @@ class RealMessengerCore implements MessengerCore {
       // und zwar OHNE Vermerk — sonst gaelte die Liste sechs Stunden lang als
       // geprueft, obwohl niemand geprueft hat.
       if (liste == null) return bekannt;
+      // DIE SIGNIERTE GERAETELISTE DER GEGENSTELLE, wenn unser Relay Listen
+      // kennt. Erst sie verraet eine Abmeldung, die der Relay verschweigen
+      // wuerde — die Kennungen von oben kommen nur vom Relay.
+      if (hatGeraeteliste) {
+        _nimmListe(an, await relay.holeGeraeteliste(an));
+        bekannt = _bekannteGeraete(store, an);
+      }
       if (liste.toSet().difference(bekannt.toSet()).isEmpty) {
         _chats?.setzeGeraeteGeprueft(an, jetzt);
         return bekannt;
@@ -5074,10 +5409,23 @@ class RealMessengerCore implements MessengerCore {
     final relay = _relay;
     if (store == null || relay == null) return;
     try {
+      // MIT GERAETELISTE ERST NACHSEHEN, OB ES UEBERHAUPT ETWAS GIBT. Steht
+      // jedes Geraet der Liste schon mit einer Sitzung da (der Normalfall,
+      // und bei nur einem Geraet immer), braucht es keine Frage an den Relay.
+      final eigene = _listeVon(myId);
+      if (eigene != null) {
+        _geraeteZahl = eigene.geraete.length;
+        final offen = eigene.kennungen.where((g) => g != geraetId).toSet()
+            .difference(_bekannteGeraete(store, myId).toSet());
+        if (offen.isEmpty) return;
+      }
       final liste = await relay.geraeteliste(myId);
       if (liste == null) return;
-      _merkeGeraeteZahl(liste);
-      final fremd = liste.where((g) => g != geraetId).toSet();
+      if (eigene == null) _merkeGeraeteZahl(liste);
+      final fremd = liste
+          .where((g) => g != geraetId &&
+              (eigene == null || eigene.kennungen.contains(g)))
+          .toSet();
       if (fremd.difference(_bekannteGeraete(store, myId).toSet()).isEmpty) {
         return;
       }
@@ -5339,6 +5687,13 @@ class RealMessengerCore implements MessengerCore {
   /// sind, spielt deshalb keine Rolle: ohne den Schluessel sind sie Rauschen.
   @override
   Future<void> wipeEverything() async {
+    _beitrittsTimer?.cancel();
+    _beitrittsTimer = null;
+    beendeHinzufuegen();
+    _infoSchluessel = null;
+    _geraeteSchluessel = null;
+    _listen.clear();
+    _geraeteStand = ListenStand.unbekannt;
     await _raeumeVerbindungAb();
     await _haltNahe();
     // Die Geheimnisse sind aus der Identitaet gerechnet, die gleich faellt.
@@ -5439,6 +5794,14 @@ class RealMessengerCore implements MessengerCore {
   /// aussen, dass dieses Geraet gerade laeuft.
   @override
   Future<void> lock() async {
+    _beitrittsTimer?.cancel();
+    _beitrittsTimer = null;
+    beendeHinzufuegen();
+    final info = _infoSchluessel;
+    if (info != null) info.fillRange(0, info.length, 0);
+    _infoSchluessel = null;
+    _geraeteSchluessel = null;
+    _listen.clear();
     await _raeumeVerbindungAb();
     // Der Funk geht mit, aus demselben Grund wie die Verbindung: solange die
     // App zu ist, koennte niemand eine ankommende Nachricht entschluesseln,
@@ -5464,6 +5827,9 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<void> dispose() async {
     _geraeuschTakt?.cancel();
+    _beitrittsTimer?.cancel();
+    _hinzufuegeTakt?.cancel();
+    await _geraeteCtl.close();
     await _raeumeVerbindungAb();
     await _nahAbo?.cancel();
     _nahAbo = null;

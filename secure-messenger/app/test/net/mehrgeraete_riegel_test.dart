@@ -573,6 +573,10 @@ void main() {
       expect(sitzungen(), isNot(contains('${bob.adresse}:2')),
           reason: 'ohne Kyber darf keine Sitzung entstehen, auch keine '
               'schwaechere');
+      expect(kern.ablageFuerTest.kontakt(bob.adresse)!.brauchtNeuereApp,
+          isFalse,
+          reason: 'Bobs Telefon hat aktualisiert — ein altes Tablet daneben '
+              'ist kein Grund, ihn zum Aktualisieren aufzufordern');
       // IST-VERHALTEN: das uebersprungene Geraet zaehlt NICHT als
       // Fehlschlag. Die Nachricht steht auf "gesendet", obwohl das Tablet sie
       // nie bekommt — anders als ein Geraet, dessen Zustellung scheitert
@@ -620,8 +624,8 @@ void main() {
               'darf den Versand an Bobs uebrige Geraete nicht verhindern');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
-    test('HAT KEIN GERAET KYBER, BLEIBT DIE NACHRICHT LIEGEN — UND ZWAR STILL',
-        () async {
+    test('HAT KEIN GERAET KYBER, BLEIBT DIE NACHRICHT LIEGEN — MIT VERMERK '
+        'AM KONTAKT', () async {
       // Die Adresse hat nur Geraete mit alter App. Hier kommt
       // GegenstelleOhneKyberException aus `_bauSitzungen` heraus, durch
       // `_sendePayload` hindurch — und landet in `_versucheZuSenden` im
@@ -633,10 +637,10 @@ void main() {
       //  - Jeder Nachversand (jedes Verbinden) holt das Buendel erneut — und
       //    zieht damit beim Relay jedes Mal einen EC-Einmalschluessel des
       //    alten Geraets.
-      //  - Die Oberflaeche erfaehrt davon NICHTS. Die Ausnahme sagt "die
-      //    Gegenstelle muss aktualisieren" (prekey_bundle_bridge.dart), aber
-      //    kein Weg reicht das nach oben durch. Befund, siehe Schlussbericht
-      //    vom 16.10.2026.
+      //  - Seit 17.10.2026 traegt der Kontakt [Contact.brauchtNeuereApp], und
+      //    der Chat sagt, dass die Gegenseite aktualisieren muss. Bis dahin
+      //    erfuhr die Oberflaeche davon nichts (Befund vom 16.10.2026). Wann
+      //    der Vermerk wieder faellt: test/net/veraltete_app_test.dart.
       final alt = await Fremder.mitGeraeten([1, 2]);
       final karte = alsAlteApp(alt.karte());
       lage.buendel = (wen) => karte;
@@ -667,6 +671,9 @@ void main() {
           reason: 'liegengeblieben, nicht verloren — sobald die Gegenstelle '
               'aktualisiert, geht sie beim naechsten Nachversand hinaus');
       expect(kern.ablageFuerTest.geraeteGeprueft(alt.adresse), 0);
+      expect(kern.ablageFuerTest.kontakt(alt.adresse)!.brauchtNeuereApp, isTrue,
+          reason: 'sonst wartet die Nachricht stumm, und niemand erfaehrt, '
+              'dass die Gegenseite aktualisieren muss');
 
       // UND BEIM NAECHSTEN VERBINDEN DASSELBE NOCH EINMAL.
       final abrufe = lage.buendelAbrufe;
