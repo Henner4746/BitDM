@@ -1515,6 +1515,186 @@ void main() {
               'koennte das Telefon dauerhaft funken lassen');
     });
   });
+
+  group('Anfrage und Zusage', () {
+    // WOFUER DIESE GRUPPE DA IST
+    //
+    // Die Zusage war die einzige Steuernutzlast, die nach einem Fehlschlag
+    // weg war: Quittungen, Reaktionen und Bearbeitungen warten im Ausgang,
+    // Kontaktanfragen schickt connect() nach — eine Zusage ging einmal
+    // hinaus oder nie. Und Anna, die eine Gegenstelle ist und kein Kern, kann
+    // hier auch schicken, was eine ehrliche App nie schickt.
+
+    /// Anna schickt eine beliebige Nutzlast ueber den Relay.
+    Future<void> annaSchickt(Payload p) async {
+      relay!.herein(RelayMessage(
+        from: anna.adresse,
+        ciphertext:
+            await anna.umschlagAn(kern.myId, await unserBuendel(kern, woerter), p),
+        at: jetzt,
+      ));
+    }
+
+    Payload steuerung(PayloadKind art) =>
+        Payload.control(art, 'steuer-${art.name}', jetzt);
+
+    ContactState? annasZustand() =>
+        kern.ablageFuerTest.kontakt(anna.adresse)?.state;
+
+    /// Was ueber Funk an Anna hinausging, mit IHREM Schluessel geoeffnet.
+    ///
+    /// Erst das Oeffnen belegt etwas: ein Umschlag, der hinausgeht, kann
+    /// genauso gut eine Quittung sein.
+    Future<Payload> oeffneAlsAnna(Uint8List paket) async {
+      const kopf = leuchtfeuerLaenge + Nahtyp.laenge;
+      expect(paket[leuchtfeuerLaenge], Nahtyp.umschlag);
+      final klar = await Envelope.fromBytes(Uint8List.sublistView(paket, kopf))
+          .decrypt(SessionCipher.fromStore(
+              anna.store, SignalProtocolAddress(kern.myId, 1)));
+      return Payload.fromBytes(klar);
+    }
+
+    test('DIE ZUSAGE WARTET IM AUSGANG und geht ueber Funk, sobald Anna da ist',
+        () async {
+      // Annas Anfrage kam ueber den Relay; angenommen wird mit "nur in der
+      // Naehe", waehrend sie nicht in Reichweite ist. Bis 15.10.2026 ging
+      // die Zusage dabei einmal ins Leere und war weg: Anna stand fuer immer
+      // auf "ausstehend", und ihre wiederholte Anfrage traf bei uns auf einen
+      // Kontakt, der schon aktiv war — und wurde verworfen.
+      await funkAn();
+      await kern.connect();
+      await annaSchickt(steuerung(PayloadKind.contactRequest));
+      await warteBis(() => annasZustand() != null);
+      expect(annasZustand(), ContactState.incomingPending);
+
+      await kern.setPreferences(
+          const AppPreferences(naheAn: true, nurNahbereich: true));
+      await kern.nahRuhtFuerTest;
+      funk.gesendet.clear();
+
+      await kern.acceptRequest(anna.adresse);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(funk.gesendet, isEmpty,
+          reason: 'Anna ist nicht in Reichweite — sonst prueft der Test '
+              'darunter nichts');
+      expect(annasZustand(), ContactState.active);
+
+      await annaInReichweite();
+      await warteBis(() => funk.gesendet.any(
+          (g) => g.umschlag[leuchtfeuerLaenge] == Nahtyp.umschlag));
+      final umschlaege = funk.gesendet
+          .where((g) => g.umschlag[leuchtfeuerLaenge] == Nahtyp.umschlag)
+          .toList();
+      expect(umschlaege, isNotEmpty,
+          reason: 'die Zusage ging verloren: Anna wartet fuer immer, obwohl '
+              'sie danebensteht');
+      final p = await oeffneAlsAnna(umschlaege.first.umschlag);
+      expect(p.kind, PayloadKind.contactAccept);
+      expect(relaysGebaut, 1,
+          reason: 'der eine vom Verbinden — die Zusage selbst fragt keinen '
+              'Server');
+    });
+
+    test('KREUZT ANNAS ANFRAGE UNSERE, sind wir Kontakte — und sie erfaehrt es',
+        () async {
+      // Der gegenseitige Fall von einer Seite aus betrachtet. Beide Haelften
+      // zaehlen: aktiv werden, OHNE auf Annas Zusage zu warten, und Anna
+      // zusagen, falls unsere Anfrage bei ihr nie ankam. Zwischen zwei
+      // echten Kernen (real_core_test "GEGENSEITIG HINZUGEFUEGT") faellt
+      // jede Haelfte allein nicht auf — dort tut die jeweils andere Seite den
+      // fehlenden Schritt.
+      await kern.connect();
+      await kern.addContact(anna.adresse);
+      await warteBis(() => relay!.gesendet.isNotEmpty);
+      relay!.gesendet.clear();
+
+      await annaSchickt(steuerung(PayloadKind.contactRequest));
+      await warteBis(() => annasZustand() == ContactState.active);
+      expect(annasZustand(), ContactState.active,
+          reason: 'beide wollen den Kontakt, und wir warten trotzdem');
+
+      await warteBis(() => relay!.gesendet.isNotEmpty);
+      expect(relay!.gesendet, hasLength(1),
+          reason: 'Anna erfaehrt nie, dass wir zugestimmt haben');
+      final klar = await Envelope.fromBytes(relay!.gesendet.single.umschlag)
+          .decrypt(SessionCipher.fromStore(
+              anna.store, SignalProtocolAddress(kern.myId, 1)));
+      expect(Payload.fromBytes(klar).kind, PayloadKind.contactAccept);
+    });
+
+    test('NUR DIE LETZTE ANTWORT GEHT HINAUS', () async {
+      // Abgelehnt, waehrend der Relay nichts annahm; Anna fragt erneut, und
+      // diesmal wird angenommen. Warteten beide Antworten, ginge die Absage
+      // zuerst hinaus — Anna entfernte uns, und die Zusage danach traefe auf
+      // nichts mehr.
+      await kern.connect();
+      await annaSchickt(steuerung(PayloadKind.contactRequest));
+      await warteBis(() => annasZustand() != null);
+
+      relay!.sendenWirft = true;
+      await kern.declineRequest(anna.adresse);
+      expect(annasZustand(), isNull);
+
+      await annaSchickt(steuerung(PayloadKind.contactRequest));
+      await warteBis(() => annasZustand() != null);
+      await kern.acceptRequest(anna.adresse);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+          [
+            for (final a in kern.ablageFuerTest.ausgang())
+              Payload.fromBytes(a.nutzlast).kind
+          ],
+          [PayloadKind.contactAccept]);
+
+      // Der Relay traegt wieder: genau die Zusage geht hinaus.
+      await kern.disconnect();
+      await kern.connect();
+      await warteBis(() => relay!.gesendet.isNotEmpty);
+      expect(relay!.gesendet, hasLength(1));
+      final klar = await Envelope.fromBytes(relay!.gesendet.single.umschlag)
+          .decrypt(SessionCipher.fromStore(
+              anna.store, SignalProtocolAddress(kern.myId, 1)));
+      expect(Payload.fromBytes(klar).kind, PayloadKind.contactAccept);
+      expect(kern.ablageFuerTest.ausgang(), isEmpty);
+    });
+
+    test('EINE ZUSAGE, UM DIE NIEMAND GEBETEN HAT, macht niemanden zum Kontakt',
+        () async {
+      // Anna fragt an und sagt sich gleich selbst zu. Eine ehrliche App tut
+      // das nie — eine veraenderte schon, und dann stand sie ohne jedes
+      // Zutun des Nutzers als bestaetigter Kontakt in der Chatliste.
+      await kern.connect();
+      await annaSchickt(steuerung(PayloadKind.contactRequest));
+      await warteBis(() => annasZustand() != null);
+
+      await annaSchickt(steuerung(PayloadKind.contactAccept));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(annasZustand(), ContactState.incomingPending,
+          reason: 'die Entscheidung ueber eine Anfrage liegt beim Nutzer, '
+              'nicht beim Absender');
+    });
+
+    test('EINE ABSAGE VON EINEM BESTAETIGTEN KONTAKT loescht nichts', () async {
+      // Eine Absage beantwortet eine Anfrage. Kam sie von einem Kontakt, der
+      // laengst bestaetigt war, loeschte sie trotzdem den Kontakt und den
+      // ganzen Verlauf auf DIESEM Telefon — auf Zuruf der Gegenseite.
+      legeAnnaAn();
+      await kern.connect();
+      await annaSchreibtUeberRelay('m1', 'das soll bleiben');
+      await warteBis(() =>
+          kern.ablageFuerTest.verlauf(anna.adresse).isNotEmpty);
+      expect(kern.ablageFuerTest.verlauf(anna.adresse), hasLength(1));
+
+      await annaSchickt(steuerung(PayloadKind.contactDecline));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(annasZustand(), ContactState.active,
+          reason: 'einen Kontakt entfernt jeder nur fuer sich');
+      expect(kern.ablageFuerTest.verlauf(anna.adresse).single.text,
+          'das soll bleiben');
+    });
+  });
 }
 
 /// Eine ZWEITE Ansicht auf die Datenbank des Kerns.

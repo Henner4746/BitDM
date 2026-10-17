@@ -52,6 +52,12 @@ in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE
 - Der Wiederherstellen-Bildschirm sagt jetzt, dass ein anderes Gerät mit denselben 12 Wörtern angemeldet bleibt und weiter Nachrichten bekommt.
 - Die Anleitung „Nur in der Nähe“ behauptete, die Zustellung über Funk sei noch nicht gebaut, und verlangte den Standortzugriff, den BitDM gar nicht anfordert. Sie beschreibt jetzt, was der Nahbereich tatsächlich kann: Bluetooth 5 und Android 12 auf beiden Seiten, rund zwei Meter gemessen, und die Kontaktanfrage geht erst über den Relay hinaus.
 
+- Fügten sich zwei Leute gegenseitig hinzu (beide scannen den Code des anderen), standen beide für immer auf „Anfrage gesendet“ — auch mit Internet. Jetzt gilt das auf beiden Seiten als Zusage. Wer eine Anfrage schon hat und den anderen selbst hinzufügt, nimmt damit an, und der Chat geht auf.
+- Eine Zusage oder Absage ohne Verbindung (oder mit „Nur in der Nähe“, während die Gegenseite nicht in Reichweite war) ging verloren, und die Gegenseite wartete für immer. Sie wartet jetzt und geht beim nächsten Verbinden hinaus, mit „Nur in der Nähe“ auch über Bluetooth, sobald die Gegenseite da ist. Wer schon so festhängt, kommt los, sobald beide Seiten diese Fassung haben und die wartende Seite verbindet.
+- Eine veränderte App konnte sich mit einer eigenen Zusage selbst zum bestätigten Kontakt machen und mit einer „Absage“ einen bestehenden Kontakt samt Verlauf auf dem anderen Telefon löschen. Zu- und Absage gelten jetzt nur noch als Antwort auf eine eigene, offene Anfrage.
+- Der Hinzufügen-Bildschirm sagte auch mit „Nur in der Nähe“ „Anfrage gesendet“, obwohl dort keine Anfrage hinausgeht — und ebenso bei jemandem, der schon Kontakt war.
+- Ein Telefon ohne Bluetooth 5 bekam in den Einstellungen keinen Hinweis, dass der Nahbereich darauf nicht geht. Bei ausgeschaltetem Bluetooth konnte dort „kein Bluetooth LE“ stehen statt „Bluetooth ist ausgeschaltet“.
+
 **Behoben (Relay)**
 - Ein Fremder konnte die Anmeldung eines Geräts stören, indem er dessen Einmal-Nonce verdrängte. Die Plätze gehören jetzt der Herkunft der Anfrage; über Tor dem Circuit, sobald der Onion-Dienst die Circuit-Kennung weitergibt.
 - Jede Zwischenlager-Marke zählt mindestens 1 MiB gegen die Tagesmenge. Vorher ließen sich mit winzigen Marken beliebig viele Einträge und Dateien anlegen.

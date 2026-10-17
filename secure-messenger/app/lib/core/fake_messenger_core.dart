@@ -183,6 +183,14 @@ class FakeMessengerCore implements MessengerCore {
     if (!_init) throw const NotInitializedException();
     if (!isValidAddress(address)) throw InvalidAddressException(address);
     final id = address.trim();
+    // Derselbe Vertrag wie im echten Kern: eine wartende Anfrage wird
+    // angenommen, jeder andere bekannte Kontakt bleibt, wie er ist.
+    final vorhanden = _contacts[id];
+    if (vorhanden?.state == ContactState.incomingPending) {
+      await acceptRequest(id);
+      return _contacts[id]!;
+    }
+    if (vorhanden != null) return vorhanden;
     final c = Contact(id: id, addedAt: _now, displayName: displayName, state: ContactState.outgoingPending);
     _contacts[id] = c;
     _msgs.putIfAbsent(id, () => []);

@@ -252,9 +252,10 @@ void main() {
   });
 
   test('FALSCHE ADRESSE, DANN RICHTIGE: DIE ALTE MELDUNG VERSCHWINDET', () async {
-    expect(await st.kontaktHinzufuegen('zu-kurz'), isFalse);
+    expect((await st.kontaktHinzufuegen('zu-kurz')).art, Hinzugefuegt.ungueltig);
     expect(st.letzterFehler, 'adresseUngueltig');
-    expect(await st.kontaktHinzufuegen('abcdefghijklmnopqrstuvwxyz0123456789'), isTrue);
+    expect((await st.kontaktHinzufuegen('abcdefghijklmnopqrstuvwxyz0123456789')).art,
+        Hinzugefuegt.angefragt);
     expect(st.letzterFehler, isNull);
   });
 

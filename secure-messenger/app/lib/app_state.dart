@@ -48,6 +48,28 @@ import 'core/verbindungstest.dart';
 import 'data.dart' show shortId;
 import 'fassung.dart';
 
+/// Was "Kontakt hinzufuegen" wirklich bewirkt hat.
+///
+/// Bis 15.10.2026 gab es nur ja/nein, und "ja" hiess auf dem Bildschirm
+/// immer "Anfrage gesendet" — auch wenn nichts gesendet wurde.
+enum Hinzugefuegt {
+  /// Die Adresse taugt nicht.
+  ungueltig,
+
+  /// Die Anfrage ist unterwegs oder geht beim naechsten Verbinden.
+  angefragt,
+
+  /// Mit "nur in der Naehe" geht eine Kontaktanfrage nicht hinaus; sie
+  /// wartet, bis der Schalter aus ist.
+  wartet,
+
+  /// Die Gegenseite hatte schon angefragt — jetzt seid ihr Kontakte.
+  angenommen,
+
+  /// Schon ein bestaetigter Kontakt. Gesendet wurde nichts.
+  schonKontakt,
+}
+
 class AppState extends ChangeNotifier {
   AppState(this.core,
       {this.tresor,
@@ -1731,17 +1753,31 @@ class AppState extends ChangeNotifier {
 
   bool adresseGueltig(String a) => core.isValidAddress(a);
 
-  /// Gibt true zurueck, wenn die Anfrage rausging.
-  Future<bool> kontaktHinzufuegen(String adresse) async {
+  /// Fuegt hinzu und sagt, was daraus geworden ist — und mit welcher Kennung,
+  /// damit die Oberflaeche einen angenommenen Kontakt gleich oeffnen kann.
+  Future<({Hinzugefuegt art, String? id})> kontaktHinzufuegen(
+      String adresse) async {
     try {
-      await core.addContact(adresse);
+      final k = await core.addContact(adresse);
       if (letzterFehler == 'adresseUngueltig') letzterFehler = null;
+      // VOR dem Neuladen: danach steht der Kontakt schon im neuen Zustand da.
+      final warAktiv =
+          kontakte.any((c) => c.id == k.id && c.state == ContactState.active);
       await _ladeKontakteNeu();
-      return true;
+      final art = switch (k.state) {
+        ContactState.active =>
+          warAktiv ? Hinzugefuegt.schonKontakt : Hinzugefuegt.angenommen,
+        // Auch eine schon frueher gestellte Anfrage: wann sie hinausgeht,
+        // haengt am Schalter, nicht daran, wann sie gestellt wurde.
+        _ => einstellungen.nurNahbereich
+            ? Hinzugefuegt.wartet
+            : Hinzugefuegt.angefragt,
+      };
+      return (art: art, id: k.id);
     } on InvalidAddressException {
       letzterFehler = 'adresseUngueltig';
       notifyListeners();
-      return false;
+      return (art: Hinzugefuegt.ungueltig, id: null);
     }
   }
 

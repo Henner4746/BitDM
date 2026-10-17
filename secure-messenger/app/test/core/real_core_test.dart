@@ -308,6 +308,156 @@ void main() {
           isTrue);
       expect(await alice.core.getContacts(), isEmpty);
     }, timeout: const Timeout(Duration(minutes: 3)));
+
+    bool hat(Nutzer n, ContactEventType art) =>
+        n.kontaktEreignisse.any((e) => e.type == art);
+
+    Future<ContactState> zustand(Nutzer bei, Nutzer von) async =>
+        (await bei.core.getContacts())
+            .singleWhere((k) => k.id == von.core.myId)
+            .state;
+
+    test('GEGENSEITIG HINZUGEFUEGT, die Anfragen kreuzen sich: beide werden '
+        'Kontakte', () async {
+      // DER FALL BEIM TREFFEN: beide scannen den Code des anderen. Jede
+      // Anfrage traf dabei auf einen Kontakt, der beim Empfaenger schon als
+      // "ausstehend" stand — und wurde als Wiederholung verworfen: keine
+      // Karte, kein Zustandswechsel. Beide sahen fuer immer "Anfrage
+      // gesendet", mit Internet genauso wie ohne. Dasselbe Bild wie am
+      // 29.07.2026 (siehe "EINE KONTAKTANFRAGE IM FUNKLOCH"), nur mit einer
+      // Ursache, die der Nachversand nicht beheben konnte.
+      //
+      // Beide offline, damit sich die Anfragen wirklich kreuzen und nicht
+      // eine vor dem zweiten Hinzufuegen ankommt — den Fall gibt es darunter.
+      await beideBereit();
+      await alice.core.disconnect();
+      await bob.core.disconnect();
+      await alice.core.addContact(bob.core.myId);
+      await bob.core.addContact(alice.core.myId);
+      await alice.core.connect();
+      await bob.core.connect();
+
+      final gemeldet = await Nutzer.warteBis(() =>
+          hat(alice, ContactEventType.requestAccepted) &&
+          hat(bob, ContactEventType.requestAccepted));
+      expect(await zustand(alice, bob), ContactState.active,
+          reason: 'beide wollten den Kontakt, und beide warten fuer immer');
+      expect(await zustand(bob, alice), ContactState.active);
+      expect(gemeldet, isTrue,
+          reason: 'die Oberflaeche erfaehrt nichts davon');
+      expect(hat(alice, ContactEventType.incomingRequest), isFalse,
+          reason: 'wer selbst angefragt hat, muss nichts mehr annehmen');
+      expect(hat(bob, ContactEventType.incomingRequest), isFalse);
+
+      // Und es laeuft in beide Richtungen — die Sitzungen sind dabei von
+      // beiden Seiten zugleich entstanden, und genau das soll hier mit
+      // geprueft sein.
+      await alice.core.sendMessage(bob.core.myId, 'hin');
+      await bob.core.sendMessage(alice.core.myId, 'her');
+      expect(
+          await Nutzer.warteBis(
+              () => bob.eingang.isNotEmpty && alice.eingang.isNotEmpty),
+          isTrue,
+          reason: 'die gekreuzten Sitzungen tragen keine Nachricht');
+      expect(bob.eingang.single.text, 'hin');
+      expect(alice.eingang.single.text, 'her');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('WER EINE ANFRAGE HAT UND SELBST HINZUFUEGT, nimmt damit an',
+        () async {
+      // Dieselbe Absicht, andere Reihenfolge: Alices Anfrage ist schon da,
+      // Bob scannt ihren Code, statt die Karte anzutippen. `addContact` gab
+      // den vorhandenen Kontakt zurueck und tat sonst nichts — der
+      // Hinzufuegen-Bildschirm sagte "Anfrage gesendet", gesendet war nichts.
+      await beideBereit();
+      await alice.core.addContact(bob.core.myId);
+      await Nutzer.warteBis(
+          () => hat(bob, ContactEventType.incomingRequest));
+
+      final k = await bob.core.addContact(alice.core.myId);
+      expect(k.state, ContactState.active,
+          reason: 'Bob will den Kontakt — die Anfrage dazu liegt schon da');
+      expect(
+          await Nutzer.warteBis(
+              () => hat(alice, ContactEventType.requestAccepted)),
+          isTrue,
+          reason: 'Alice erfaehrt nie, dass Bob sie auch will');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('EINE ZUSAGE IM FUNKLOCH GEHT SPAETER RAUS', () async {
+      // Das Gegenstueck zur Kontaktanfrage im Funkloch. Die Zusage ging
+      // einmal hinaus oder nie: gescheitert, war sie weg, und Alice stand
+      // fuer immer auf "ausstehend", waehrend Bob schon schreiben konnte.
+      await beideBereit();
+      await alice.core.addContact(bob.core.myId);
+      await Nutzer.warteBis(
+          () => hat(bob, ContactEventType.incomingRequest));
+
+      await bob.core.disconnect();
+      await bob.core.acceptRequest(alice.core.myId);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(hat(alice, ContactEventType.requestAccepted), isFalse,
+          reason: 'ohne Verbindung kann sie nicht angekommen sein — sonst '
+              'prueft der Test darunter nichts');
+
+      await bob.core.connect();
+      expect(
+          await Nutzer.warteBis(
+              () => hat(alice, ContactEventType.requestAccepted)),
+          isTrue,
+          reason: 'die Zusage wurde nie nachgeschickt');
+      expect(await zustand(alice, bob), ContactState.active);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('WER SCHON ZUGESAGT HAT, sagt auf eine wiederholte Anfrage noch '
+        'einmal zu', () async {
+      // FUER DIE, DIE ES SCHON ERWISCHT HAT. Eine Zusage, die vor diesem
+      // Stand verloren ging, liegt in keinem Ausgang. Alice schickt ihre
+      // Anfrage aber bei jedem Verbinden erneut — und die traf bei Bob auf
+      // einen aktiven Kontakt und wurde verworfen. Ab jetzt ist sie genau
+      // das Zeichen, dass die Zusage fehlt.
+      await beideBereit();
+      await alice.core.addContact(bob.core.myId);
+      await Nutzer.warteBis(
+          () => hat(bob, ContactEventType.incomingRequest));
+
+      // Der Stand, den die alte Fassung hinterliess: Bob hat angenommen,
+      // hinausgegangen ist nichts.
+      final beiBob = (await bob.core.getContacts()).single;
+      bob.core.ablageFuerTest
+          .speichereKontakt(beiBob.copyWith(state: ContactState.active));
+
+      await alice.core.disconnect();
+      await alice.core.connect();
+      expect(
+          await Nutzer.warteBis(
+              () => hat(alice, ContactEventType.requestAccepted)),
+          isTrue,
+          reason: 'Alice fragt bei jedem Verbinden, und Bob schweigt');
+      expect(await zustand(alice, bob), ContactState.active);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('EINE ABSAGE IM FUNKLOCH GEHT SPAETER RAUS', () async {
+      await beideBereit();
+      await alice.core.addContact(bob.core.myId);
+      await Nutzer.warteBis(
+          () => hat(bob, ContactEventType.incomingRequest));
+
+      await bob.core.disconnect();
+      await bob.core.declineRequest(alice.core.myId);
+      expect(await bob.core.getContacts(), isEmpty);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(hat(alice, ContactEventType.requestDeclined), isFalse);
+
+      await bob.core.connect();
+      expect(
+          await Nutzer.warteBis(
+              () => hat(alice, ContactEventType.requestDeclined)),
+          isTrue,
+          reason: 'die Absage wurde nie nachgeschickt — Alice fragte bei '
+              'jedem Verbinden weiter, und Bob bekam jedes Mal eine neue Karte');
+      expect(await alice.core.getContacts(), isEmpty);
+    }, timeout: const Timeout(Duration(minutes: 3)));
   });
 
   group('Alles loeschen', () {

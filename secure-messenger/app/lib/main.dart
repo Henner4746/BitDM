@@ -560,7 +560,11 @@ const Map<String, UnlockFactorKind> zeilenArt = {
 class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProviderStateMixin {
   String screen = 'onboard';
   String? chat;
-  bool reqSent = false, sheet = false, panic = false, wiped = false, copied = false;
+  bool sheet = false, panic = false, wiped = false, copied = false;
+  /// Was das letzte "Anfrage senden" bewirkt hat; null, solange es nichts zu
+  /// sagen gibt. Bis 15.10.2026 ein bool, und "wahr" hiess immer "Anfrage
+  /// gesendet" — siehe [Hinzugefuegt].
+  Hinzugefuegt? reqErgebnis;
 
   /// Die Bildlaufsteuerung der offenen Unterhaltung.
   final _chatScroll = ScrollController();
@@ -3573,9 +3577,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   Future<void> sendReq() async {
     final eingabe = addCtl.text.replaceAll(RegExp(r'[\s\-]'), '');
     if (eingabe.isEmpty) return;
-    final ok = await st.kontaktHinzufuegen(eingabe);
+    final r = await st.kontaktHinzufuegen(eingabe);
     if (!mounted) return;
-    setState(() => reqSent = ok);
+    // HATTE DIE GEGENSEITE SCHON ANGEFRAGT, war das ein Annehmen — und dann
+    // geht der Chat auf, genau wie beim Annehmen auf der Karte ([acceptReq]).
+    final id = r.id;
+    if (r.art == Hinzugefuegt.angenommen && id != null) {
+      await Benachrichtigungen.instanz.frageErlaubnis();
+      if (!mounted) return;
+      await st.unterhaltungOeffnen(id);
+      if (!mounted) return;
+      setState(() { reqErgebnis = null; screen = 'chat'; chat = id; });
+      return;
+    }
+    setState(() =>
+        reqErgebnis = r.art == Hinzugefuegt.ungueltig ? null : r.art);
   }
 
   Future<void> acceptReq(String id) async {
@@ -3604,7 +3620,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     if (!mounted) return;
     setState(() {
       final l = lang;
-      screen = 'onboard'; chat = null; reqSent = false; sheet = false;
+      screen = 'onboard'; chat = null; reqErgebnis = null; sheet = false;
       wiped = true; copied = false;
       enroll = null;
       lang = l;
@@ -5492,26 +5508,35 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ]),
         const SizedBox(height: 16),
         _knopfBreite(outlineBtn(t('sendReq'), sendReq, padding: const EdgeInsets.all(13))),
-        if (reqSent) ...[
+        if (reqErgebnis case final erg?) ...[
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(color: p.surf, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(4)),
-                  child: Text(t('pending').toUpperCase(), style: mono(size: 10, weight: FontWeight.w500, color: p.tintInk, spacing: 1.2)),
-                ),
-                const SizedBox(width: 8),
+                // "Ausstehend" nur, wo etwas aussteht.
+                if (erg != Hinzugefuegt.schonKontakt) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(4)),
+                    child: Text(t('pending').toUpperCase(), style: mono(size: 10, weight: FontWeight.w500, color: p.tintInk, spacing: 1.2)),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Text(
                     shortId(adresseFormatiert(
                         addCtl.text.replaceAll(RegExp(r'[\s\-]'), ''))),
                     style: doto(size: 13, weight: FontWeight.w600, color: p.muted, spacing: 0.8)),
               ]),
               const SizedBox(height: 6),
-              Text(t('reqSentNote'), style: mono(size: 12, color: p.muted, height: 1.4)),
+              Text(
+                  t(switch (erg) {
+                    Hinzugefuegt.wartet => 'reqWaitsNote',
+                    Hinzugefuegt.schonKontakt => 'reqKnownNote',
+                    _ => 'reqSentNote',
+                  }),
+                  style: mono(size: 12, color: p.muted, height: 1.4)),
             ]),
           ),
         ],
@@ -5523,7 +5548,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         // den unteren Fensterrand, mit mehreren hundert Pixeln Leere darueber.
         // Und weil Spacer und Scrollview nicht zusammengehen, war der
         // Bildschirm gleichzeitig nicht scrollbar — mit eingeblendetem
-        // reqSent-Kasten lief er in einem niedrigen Fenster ueber.
+        // Ergebnis-Kasten lief er in einem niedrigen Fenster ueber.
         if (_imFenster) const SizedBox(height: 22) else const Spacer(),
         Text(t('addFoot'), style: mono(size: 11, color: p.dim, height: 1.5)),
       ]),
@@ -5604,7 +5629,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// Was das '+' in der Kopfzeile tut. Als Methode, weil [_Bedienbar] die
   /// Handlung zweimal braucht — fuer den Zeiger und fuer den Tipp.
   void _zumHinzufuegen() =>
-      setState(() { screen = 'add'; addCtl.clear(); reqSent = false; });
+      setState(() { screen = 'add'; addCtl.clear(); reqErgebnis = null; });
 
   Widget chatsScreen() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -7445,15 +7470,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     // Die Reihenfolge ist nicht beliebig: die fehlende Berechtigung steht vor
     // dem ausgeschalteten Bluetooth, weil sie sich mit einem Tipp in der App
     // erledigen laesst und das andere einen Weg in die Systemleiste braucht.
+    //
+    // NICHT NUR BEI `!z.geht`: `geht` enthaelt `erweitert` nicht. Bis
+    // 15.10.2026 stand die ganze Kette in `if (!z.geht)`, und ein Telefon mit
+    // Bluetooth 4.2 bekam gar keinen Hinweis — der Schalter ging an, und es
+    // war fuer niemanden sichtbar.
     String? hindernis;
     Widget? ausweg;
-    if (z != null && !z.geht) {
+    if (z != null) {
       if (z.zuAlt) {
         hindernis = t('nearbyTooOld');
-      } else if (!z.vorhanden || !z.erweitert) {
-        // Beides heisst fuer den Nutzer dasselbe: dieses Telefon kann es
-        // nicht. Ob die Hardware ganz fehlt oder nur die erweiterte Werbung,
-        // aendert nichts daran, was er tun kann — naemlich nichts.
+      } else if (!z.vorhanden) {
         hindernis = t('nearbyNoHardware');
       } else if (!z.rechte) {
         // Der Knopf aus den Anleitungen, links eingerueckt wie die Zeile
@@ -7473,6 +7500,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         }
       } else if (!z.an) {
         hindernis = t('nearbyBtOff');
+      } else if (!z.erweitert) {
+        // ERST NACH `an`, und das ist keine Geschmackssache: Android meldet
+        // `isLeExtendedAdvertisingSupported()` bei ausgeschaltetem Bluetooth
+        // als false (BluetoothAdapter `getLeAccess`). Davor gefragt, stuende
+        // bei jedem, der nur Bluetooth aus hat, "dieses Telefon kann es
+        // nicht" — so war es bis 15.10.2026, mit "kein Bluetooth LE".
+        hindernis = t('nearbyNoExtended');
       }
     }
 
@@ -7495,7 +7529,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       // weg vom naechsten Feld. Mit gleichem Abstand nach beiden Seiten las
       // sich der Satz wie eine Anmerkung zu "nur in der Naehe" — also zu dem
       // Schalter, um den es dabei gerade nicht geht.
-      if (prefs.naheAn && (z?.geht ?? false)) ...[
+      // Nicht neben einem Hindernis: "kostet Akku" unter "kein Bluetooth 5"
+      // laese sich, als funke das Telefon trotzdem.
+      if (prefs.naheAn && hindernis == null && (z?.geht ?? false)) ...[
         const SizedBox(height: 4),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 11),
