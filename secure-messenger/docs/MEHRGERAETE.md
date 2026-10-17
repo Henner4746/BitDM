@@ -1292,3 +1292,73 @@ py -c "print(250000*50*2141/1024**3)"    -> 24.92...
 py -c "print(500000*2141/1024**3)"       -> 0.997...
 py -c "print(250000*200*192/1024**3)"    -> 8.94...
 ```
+
+---
+
+## 16. Geraeteabmeldung — Entscheidung, verworfene Wege, Detailentscheidungen (17.10.2026)
+
+Der Vertrag und das ganze Bedrohungsmodell stehen in `GERAETEABMELDUNG.md`.
+Hier steht, WAS entschieden wurde und WARUM, damit es sich pruefen und
+umentscheiden laesst.
+
+### 16.1 Henriks Entscheidung
+
+**Option B, beide Stufen, plus ehrlicher Hinweis; Option C spaeter.** Jedes
+Geraet hat einen eigenen Geraeteschluessel, die Identitaet fuehrt beim Relay
+eine Geraeteliste mit Epoche, unterschrieben vom Identitaetsschluessel UND vom
+Geraeteschluessel eines Mitglieds. Der Relay laesst nur gelistete Geraete
+herein (Stufe 1); jede Gegenstelle prueft die Liste selbst und verschluesselt
+nur an gelistete Geraete (Stufe 2).
+
+### 16.2 Verworfen
+
+| Weg | Warum nicht |
+|---|---|
+| **A — Sperrliste am Relay, signiert vom Identitaetsschluessel** | Haelt nur Telefone auf, die niemand bedient. Wer die Woerter hat, meldet sich unter einer neuen Kennung wieder an und liest still weiter mit — genau der Satz aus §6. Ein boeser Relay kann die Sperrliste ignorieren. |
+| **C — Identitaetsrotation mit Uebergabe** (als Ersatz fuer B) | Die einzige echte Heilung, wenn die Woerter in fremder Hand sind — aber die Uebergabe ist mit genau dem Schluessel unterschrieben, den der Angreifer auch hat; ohne Abgleich ausserhalb der App ist sie selbst angreifbar. Fuer ein Telefon in der Schublade voellig ueberzogen (alle Kontakte muessten neu pruefen). Bleibt als eigenes Vorhaben, ergaenzt B. |
+| **Nur ein Hinweis** ("entsperrt gestohlen → neue Identitaet") | Ehrlich, aber keine Abhilfe fuer den haeufigen Fall. Steht jetzt zusaetzlich in der App. |
+
+### 16.3 Detailentscheidungen, die beim Bau faellig waren
+
+Alle nach der Regel "technisch staerkste Loesung", alle umkehrbar:
+
+1. **Beitritt per Code des bestaetigenden Geraets statt Vergleichscode.** Der
+   erste Entwurf zeigte auf beiden Geraeten einen sechsstelligen Code aus der
+   Anfrage. Anfragen sind oeffentlich; wer die Woerter hat, rechnet sich in
+   Sekunden eine eigene Anfrage mit demselben Code, verdraengt die echte (3 je
+   Adresse) und bekommt sein Geraet vom Besitzer bestaetigt — still. Jetzt:
+   80 Bit Zufall, nur auf dem bestaetigenden Geraet, das neue bindet seine
+   Anfrage per HMAC daran. Preis: 16 Zeichen abtippen.
+2. **Abgemeldet heisst: Woerter weg, Datenbank bleibt verschluesselt.** Nicht
+   "alles loeschen" — sonst koennte ein Dieb mit einem entsperrten Zweitgeraet
+   den Verlauf des Besitzers vernichten, indem er dessen Geraet abmeldet. Mit
+   den Woertern kommt der Verlauf zurueck; das Geraet tritt dann neu bei.
+3. **Abgemeldet nur nach einer GEPRUEFTEN Liste,** nie auf den Schlusscode 4410
+   allein. Ein Relay kann damit niemanden aussperren.
+4. **Zuruecksetzen mit den Woertern bleibt moeglich** (sonst waere der
+   Besitzer ohne anderes Geraet ausgesperrt) — aber nur auf sich allein, also
+   laut: jedes andere Geraet faellt sichtbar heraus.
+5. **Ein Geraet kann sich selbst abmelden** (vor dem Verkauf). Der Relay prueft
+   die Unterschrift dann gegen den Schluessel aus der vorigen Fassung.
+6. **Nie zurueck hinter eine gesehene Epoche,** und eine einmal gesehene Liste
+   gilt fuer diese Adresse auch dann weiter, wenn der Relay ploetzlich keine
+   mehr kennt. Sonst koennte er sich als alt ausgeben.
+7. **Neuer Schluessel unter alter Kennung verwirft die alte Sitzung.** Der
+   Filter nach Kennung allein saehe ein ersetztes Geraet nicht.
+8. **Bei Fremden, die zum ersten Mal schreiben, fragt die App die Liste nicht
+   nach.** Stufe 2 schuetzt Kontakte und eigene Geraete; jede erste Nachricht
+   kostete sonst eine Anfrage beim Relay.
+9. **Eigene Bremsfamilien** fuer POST /geraeteliste (`liste`, 2) und Beitritte
+   (`beitritt`, 5). In der Familie der Anmeldung verdoppelte die Anlage der
+   Liste die Kosten jeder Erstanmeldung.
+10. **Kein QR-Code fuer den Beitritt in dieser Fassung.** Der vorhandene Leser
+    haengt privat in `main.dart`, das gerade aufgeteilt wird. Nachruesten.
+11. **Bei der Anlage der Liste fallen Geraete mit alter App heraus** (sie stehen
+    in keiner Liste und koennten mit 2.0.0 ohnehin nicht reden); jedes weitere
+    aktualisierte Geraet tritt einmal per Code bei.
+
+### 16.4 Was damit oben nicht mehr stimmt
+
+§0 ("der Besitz der zwoelf Woerter IST die Kopplung"), §6 ("kein Widerruf"),
+§9 ("keine Geraeteverwaltung"), §12.1 (jetzt strukturell geschlossen), §12.5 —
+jeweils dort markiert.
