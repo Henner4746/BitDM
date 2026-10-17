@@ -36,6 +36,7 @@ import 'core/qr_bild.dart';
 import 'core/verbindungstest.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'data.dart';
+import 'geraete_seite.dart';
 import 'formatierung.dart';
 import 'core/crypto/teilgeheimnis.dart';
 import 'schluesselbild.dart';
@@ -4296,6 +4297,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
                     const SizedBox(height: 12),
                     webHinweis(t('webOnboard')),
                   ],
+                  // Gerade abgemeldet (geraete_seite.dart): warum die App
+                  // aussieht wie frisch installiert, und wie es zurueckgeht.
+                  if (st.abgemeldetHinweis) ...[
+                    const SizedBox(height: 12),
+                    _hinweisKasten(abgemeldetText(st, t)),
+                  ],
                   if (wiped) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -5337,31 +5344,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         ]),
         const SizedBox(height: 16),
 
-        // WIE VIELE GERAETE AUF DIESER IDENTITAET SITZEN.
-        //
-        // Verpflichtend und keine Kuer. Wer die zwoelf Woerter hat, kann
-        // vollstaendig als man selbst auftreten — das war schon immer so.
-        // Seit dem Mehrgeraetebetrieb bekommt er zusaetzlich von JEDEM
-        // Absender eine eigene Kopie jeder Nachricht, ohne dass irgendwo
-        // etwas auffiele. Und es gibt keinen Widerruf: ein Geraet abzumelden
-        // ist unmoeglich, weil kein Geraet mehr Recht auf die Adresse hat als
-        // ein anderes; die einzige Abhilfe ist eine neue Identitaet.
-        //
-        // Diese Zeile macht aus einem unsichtbaren Mitleser eine sichtbare
-        // Zahl, die nicht stimmt. KEINE VERWALTUNGSMASKE — es gaebe nichts zu
-        // verwalten, und ein Knopf "abmelden", der nichts abmeldet, waere
-        // schlimmer als keine Zahl.
-        //
-        // Nichts steht da, solange niemand gefragt hat (kein Relay erreicht,
-        // nur in der Naehe): eine erfundene 1 waere genau die Halbwahrheit,
-        // gegen die diese Zeile gebaut ist.
-        if (st.geraeteZahl != null) ...[
-          _hinweisKasten(
-            st.geraeteZahl! <= 1
-                ? t('geraeteEins')
-                : t('geraeteViele').replaceFirst('{n}', '${st.geraeteZahl}'),
-            warnend: st.geraeteZahl! > 1,
-          ),
+        // WIE VIELE GERAETE AUF DIESER IDENTITAET SITZEN — und seit der
+        // Geraeteabmeldung (docs/GERAETEABMELDUNG.md) der Weg, eines davon
+        // abzumelden. Die Zahl bleibt verpflichtend: aus einem unsichtbaren
+        // Mitleser wird eine sichtbare Zahl, die nicht stimmt. Ohne
+        // Geraeteliste (alter Relay) bleibt es bei der Warnung, dass Abmelden
+        // nicht geht. Nichts steht da, solange niemand gefragt hat. Alles
+        // Weitere in geraete_seite.dart.
+        if (st.geraeteZahl != null || st.hatGeraeteliste) ...[
+          GeraeteKachel(st: st, stil: _geraeteStil),
           const SizedBox(height: 16),
         ],
 
@@ -5516,7 +5507,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       // Verbindung" liest, sucht den Fehler bei seinem WLAN.
       ConnectionState.error => (
           p.dim,
-          st.abgewiesen ? t('connGeraeteVoll') : t('connError'),
+          st.geraeteStand == ListenStand.beitrittNoetig ||
+                  st.geraeteStand == ListenStand.wartetAufBestaetigung
+              ? t('connBeitritt')
+              : st.abgewiesen
+              ? t('connGeraeteVoll')
+              : t('connError'),
           false
         ),
       ConnectionState.disconnected => (p.dim, t('connOffline'), false),
@@ -5593,6 +5589,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       Container(height: 1, color: p.lineSoft),
       if (st.fernloeschung.faellig != null) fernBanner(),
       if (st.updateHinweis != null) updateKarte(st.updateHinweis!),
+      // NICHT IN DER GERAETELISTE: Code eingeben oder alle anderen abmelden
+      // (geraete_seite.dart). Ohne das stuende hier nur "keine Verbindung".
+      if (st.geraeteStand == ListenStand.beitrittNoetig ||
+          st.geraeteStand == ListenStand.wartetAufBestaetigung)
+        BeitrittsKarte(st: st, stil: _geraeteStil),
       // SOLANGE ES KEIN APP-PASSWORT GIBT, steht das hier, und zwar ohne
       // Knopf zum Wegklicken: die Identitaet ist in dem Zustand beim
       // naechsten Neuladen weg, und das ist keine Meldung, die man einmal
@@ -8184,6 +8185,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// Der Akzent bleibt dem vorbehalten, was schiefging oder Aufmerksamkeit
   /// braucht. Ruhige Hinweise bekommen die gewoehnliche Umrandung — sie
   /// stehen da, ohne zu rufen.
+  /// Die Bausteine fuer die Oberflaeche der Geraeteabmeldung
+  /// (geraete_seite.dart).
+  GeraeteStil get _geraeteStil => GeraeteStil(
+        p: p,
+        t: t,
+        text: (g, f, {fett = false}) => mono(
+            size: g, color: f, weight: fett ? FontWeight.w600 : FontWeight.w400),
+        titel: (g, f) => doto(size: g, color: f, weight: FontWeight.w700),
+        hinweis: (s, {warnend = true}) => _hinweisKasten(s, warnend: warnend),
+      );
+
   Widget _hinweisKasten(String text, {bool warnend = true}) => Container(
         width: double.infinity,
         padding: const EdgeInsets.all(Masse.innen),
