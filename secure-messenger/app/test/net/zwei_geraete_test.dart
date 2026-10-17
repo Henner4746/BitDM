@@ -97,7 +97,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:libsignal/libsignal.dart';
 import 'package:sqlite3/sqlite3.dart';
 
-import 'package:bitdm/core/real_messenger_core.dart';
 
 import '../support/geraete_koppeln.dart';
 import '../support/nutzer.dart';
