@@ -1062,6 +1062,14 @@ const Map<String, Map<String, List<(String, String)>>> geraetErsetzungen = {
     ],
     'wipeAskText': [('their phone', 'their device')],
     'cmd_wipe': [("contact's phone", "contact's device")],
+    // Aus der Geraeteabmeldung (feat/geraeteabmeldung), am Rechner ohne Telefon.
+    'geraeteWoerterHinweis': [
+      ('say the phone was stolen unlocked', 'say a device was stolen unlocked'),
+    ],
+    'beitrittZuruecksetzenFrage': [
+      ('if your phone is gone', 'if your other device is gone'),
+      ('if the phone was unlocked', 'if that device was unlocked'),
+    ],
   },
   'de': {
     'restoreLinkSub': [('Telefon verloren', 'Gerät verloren')],
@@ -1084,6 +1092,14 @@ const Map<String, Map<String, List<(String, String)>>> geraetErsetzungen = {
     ],
     'wipeAskText': [('das Telefon zu löschen', 'das Gerät zu löschen')],
     'cmd_wipe': [('Telefon dieses Kontakts', 'Gerät dieses Kontakts')],
+    'geraeteWoerterHinweis': [
+      ('weil das Telefon entsperrt gestohlen wurde',
+          'weil ein Gerät entsperrt gestohlen wurde'),
+    ],
+    'beitrittZuruecksetzenFrage': [
+      ('wenn dein Telefon weg ist', 'wenn dein anderes Gerät weg ist'),
+      ('war das Telefon entsperrt', 'war das Gerät entsperrt'),
+    ],
   },
 };
 
