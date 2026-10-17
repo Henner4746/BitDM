@@ -1927,6 +1927,15 @@ class RealMessengerCore implements MessengerCore {
         _chiffre(store),
         ProtocolAddress(name: von, deviceId: vonGeraet),
       );
+      // GESPERRT, GELOESCHT ODER GESCHLOSSEN, WAEHREND LIBSIGNAL RECHNETE.
+      // Dann gehoert dieser Ablauf zu einem Speicher, den es nicht mehr gibt:
+      // nichts festschreiben, nichts bestaetigen. Der Relay behaelt die
+      // Zeile und liefert sie beim naechsten Verbinden wieder, und weil der
+      // Sitzungsfortschritt nie auf die Platte kam, entschluesselt sie dann
+      // noch. Ohne diese Zeile las der Ablauf danach `myId` und warf
+      // "call initialize() first" aus einem Stream-Listener (Gesamtlauf vom
+      // 17.10.2026, test/net/schliessen_beim_empfang_test.dart).
+      if (!identical(_store, store)) return;
       // ERNEUT EINGESPIELTE ERSTNACHRICHT gegen den Last-Resort-Kyber-Prekey
       // (signal_store.dart, Abschnitt KyberPreKeyStore). libsignal hat den
       // Klartext schon erzeugt, bevor der Speicher die Wiederholung bemerken
@@ -1939,6 +1948,8 @@ class RealMessengerCore implements MessengerCore {
       }
       payload = Payload.fromBytes(klar);
     } catch (fehler) {
+      // Dasselbe fuer den Fehlerweg: `_behandleEingangsfehler` schreibt fest.
+      if (!identical(_store, store)) return;
       _behandleEingangsfehler(fehler, von);
       // AUCH HIER bestaetigen. _behandleEingangsfehler schreibt den
       // Sitzungsfortschritt fest; ab da laesst sich dieser Umschlag nie
