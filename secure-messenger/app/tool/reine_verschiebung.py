@@ -4,7 +4,7 @@
 Gate G2 der Aufteilung von main.dart (docs/MAIN-DART-AUFTEILUNG.md): Jede
 hinzugefuegte Zeile ist eine entfernte Zeile, zeichengleich, und umgekehrt.
 Ausgenommen sind nur Geruestzeilen:
-  import / export / part / part of / library,
+  import / export / part / part of / library (samt show/hide-Fortsetzung),
   extension _X on _HomeState {   und die schliessende }
   der Kopfkommentar einer NEUEN Datei (die // -Zeilen vor dem ersten Code)
   Leerzeilen.
@@ -22,7 +22,9 @@ import subprocess
 import sys
 
 GERUEST = re.compile(
-    r"^(import |export |part |part of |library |extension _\w+ on _HomeState \{$|\}$)")
+    r"^(import |export |part |part of |library |extension _\w+ on _HomeState \{$|\}$"
+    # Fortsetzungszeilen mehrzeiliger import-/export-Direktiven
+    r"|\s+(show|hide|as|deferred) )")
 
 
 def diff(bereich):
