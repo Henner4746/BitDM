@@ -433,15 +433,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     super.dispose();
   }
 
-  /// Die Frist als Text — jetzt aus der ECHTEN Einstellung, nicht aus einer
-  /// Anzeigevariablen.
-  String ephLabel() => fristText(st.einstellungen.messageLifetime);
-
-  String nowHm() {
-    final n = DateTime.now();
-    return '${n.hour.toString().padLeft(2, '0')}:${n.minute.toString().padLeft(2, '0')}';
-  }
-
   /// Seit wann aufgenommen wird, oder null.
   DateTime? _aufnahmeSeit;
   Timer? _aufnahmeTakt;
