@@ -515,4 +515,7 @@ extension _Einstellungen on _HomeState {
       ]),
     );
   }
+
+  String _uhr(int minuten) =>
+      '${(minuten ~/ 60).toString().padLeft(2, '0')}:${(minuten % 60).toString().padLeft(2, '0')}';
 }

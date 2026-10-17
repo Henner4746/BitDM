@@ -586,4 +586,20 @@ extension _Zugriff on _HomeState {
       ]),
     );
   }
+
+  /// Die Zeilen samt Fehlerkasten.
+  ///
+  /// DER KASTEN IST DER PUNKT: bis zum 25.07.2026 wurden Fehler beim
+  /// Einrichten zwar gesetzt, aber auf diesem Bildschirm nie angezeigt. Wer
+  /// tippte, sah nichts — weder Dialog noch Grund.
+  List<Widget> zugriffsBlock({required bool statusMode}) => [
+        for (final k in zugriffsZeilen.where(_faktorGehtHier)) ...[
+          methodRow(k, statusMode: statusMode),
+          const SizedBox(height: 3),
+        ],
+        if (lockFehler != null) ...[
+          const SizedBox(height: 6),
+          _hinweisKasten(lockFehler!),
+        ],
+      ];
 }

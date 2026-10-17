@@ -462,9 +462,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// bis zur Loeschung da.
   Timer? _fernAnzeigeTakt;
 
-  String _uhr(int minuten) =>
-      '${(minuten ~/ 60).toString().padLeft(2, '0')}:${(minuten % 60).toString().padLeft(2, '0')}';
-
   // ---- build ----
   @override
   Widget build(BuildContext context) {
@@ -674,22 +671,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// In welche Richtung zuletzt gewechselt wurde. Steuert, von welcher Seite
   /// der neue Bildschirm hereinkommt.
   int _richtung = 1;
-
-  /// Die Zeilen samt Fehlerkasten.
-  ///
-  /// DER KASTEN IST DER PUNKT: bis zum 25.07.2026 wurden Fehler beim
-  /// Einrichten zwar gesetzt, aber auf diesem Bildschirm nie angezeigt. Wer
-  /// tippte, sah nichts — weder Dialog noch Grund.
-  List<Widget> zugriffsBlock({required bool statusMode}) => [
-        for (final k in zugriffsZeilen.where(_faktorGehtHier)) ...[
-          methodRow(k, statusMode: statusMode),
-          const SizedBox(height: 3),
-        ],
-        if (lockFehler != null) ...[
-          const SizedBox(height: 6),
-          _hinweisKasten(lockFehler!),
-        ],
-      ];
 
   /// Fragt, ob ein Bild oder Video hinausgehen soll, obwohl seine Metadaten
   /// (Ort, Kamera, Zeit) nicht entfernt werden konnten.
