@@ -303,6 +303,9 @@ class RealMessengerCore implements MessengerCore {
   /// Was der Nachversand uebersprungen hat, weil es gerade hinausging.
   final _uebersprungen = <String>{};
 
+  /// EIN LIBSIGNAL-VORGANG ZUR ZEIT. Siehe [_signalExklusiv].
+  Future<void> _signalLauf = Future<void>.value();
+
   /// Die Kennung DIESES Geraets an dieser Adresse. Null = noch nicht ermittelt.
   ///
   /// Sie haengt am [databasePath] und ist damit je Installation eine eigene —
@@ -1813,14 +1816,16 @@ class RealMessengerCore implements MessengerCore {
     if (antwort.userId != von) {
       throw StateError('Buendel von $von gehoert zu ${antwort.userId}');
     }
-    final vorher = store.schnappschuss();
-    try {
-      await _sitzungsBauer(store)
-          .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(antwort));
-    } catch (_) {
-      store.stelleWiederHer(vorher);
-      rethrow;
-    }
+    await _signalExklusiv(() async {
+      final vorher = store.schnappschuss();
+      try {
+        await _sitzungsBauer(store)
+            .processPreKeyBundle(ziel, PreKeyBundleBridge.fromRelay(antwort));
+      } catch (_) {
+        store.stelleWiederHer(vorher);
+        rethrow;
+      }
+    });
     // Und sofort nachholen, was darauf gewartet hat.
     _stosseNachversandAn();
   }
@@ -1921,12 +1926,25 @@ class RealMessengerCore implements MessengerCore {
       // wiederholen koennte: `_behandleEingangsfehler` schreibt den
       // Ratchet-Fortschritt auch beim Fehlschlag fest, und danach ist genau
       // diese Nachricht dauerhaft unentschluesselbar.
-      final wiederholungenVorher = store.kyberWiederholungen;
-      final vorher = huelle.startetSitzung ? store.schnappschuss() : null;
-      final klar = await huelle.decrypt(
-        _chiffre(store),
-        ProtocolAddress(name: von, deviceId: vonGeraet),
-      );
+      final klar = await _signalExklusiv(() async {
+        final wiederholungenVorher = store.kyberWiederholungen;
+        final vorher = huelle.startetSitzung ? store.schnappschuss() : null;
+        final klar = await huelle.decrypt(
+          _chiffre(store),
+          ProtocolAddress(name: von, deviceId: vonGeraet),
+        );
+        // ERNEUT EINGESPIELTE ERSTNACHRICHT gegen den Last-Resort-Kyber-Prekey
+        // (signal_store.dart, Abschnitt KyberPreKeyStore). libsignal hat den
+        // Klartext schon erzeugt, bevor der Speicher die Wiederholung bemerken
+        // kann; deshalb hier verwerfen, wie ein Duplikat.
+        if (store.kyberWiederholungen != wiederholungenVorher) {
+          // Was libsignal dabei angelegt hat, darf nicht festgeschrieben werden
+          // — siehe BitdmSignalStore.schnappschuss.
+          if (vorher != null) store.stelleWiederHer(vorher);
+          throw const ErneutEingespielt();
+        }
+        return klar;
+      });
       // GESPERRT, GELOESCHT ODER GESCHLOSSEN, WAEHREND LIBSIGNAL RECHNETE.
       // Dann gehoert dieser Ablauf zu einem Speicher, den es nicht mehr gibt:
       // nichts festschreiben, nichts bestaetigen. Der Relay behaelt die
@@ -1936,16 +1954,6 @@ class RealMessengerCore implements MessengerCore {
       // "call initialize() first" aus einem Stream-Listener (Gesamtlauf vom
       // 17.10.2026, test/net/schliessen_beim_empfang_test.dart).
       if (!identical(_store, store)) return;
-      // ERNEUT EINGESPIELTE ERSTNACHRICHT gegen den Last-Resort-Kyber-Prekey
-      // (signal_store.dart, Abschnitt KyberPreKeyStore). libsignal hat den
-      // Klartext schon erzeugt, bevor der Speicher die Wiederholung bemerken
-      // kann; deshalb hier verwerfen, wie ein Duplikat.
-      if (store.kyberWiederholungen != wiederholungenVorher) {
-        // Was libsignal dabei angelegt hat, darf nicht festgeschrieben werden
-        // — siehe BitdmSignalStore.schnappschuss.
-        if (vorher != null) store.stelleWiederHer(vorher);
-        throw const ErneutEingespielt();
-      }
       payload = Payload.fromBytes(klar);
     } catch (fehler) {
       // Dasselbe fuer den Fehlerweg: `_behandleEingangsfehler` schreibt fest.
@@ -3734,15 +3742,19 @@ class RealMessengerCore implements MessengerCore {
         Payload.tippt(_neueId(), tippt, DateTime.now().toUtc()).toBytes();
     try {
       for (final g in ziele) {
-        final ct = await _chiffre(store)
-            .encrypt(ProtocolAddress(name: contactId, deviceId: g), klar);
+        final ct = await _signalExklusiv(() async {
+          final ct = await _chiffre(store)
+              .encrypt(ProtocolAddress(name: contactId, deviceId: g), klar);
+          _signalRepo!.commit(store);
+          return ct;
+        });
         // ERST FESTSCHREIBEN, DANN SENDEN. Der Ratchet ist mit dem
         // Verschluesseln weitergerueckt. Ginge der Chiffretext hinaus und die
         // App stuerzte vor dem Festschreiben ab, verschluesselte die naechste
         // Nachricht mit demselben Nachrichtenschluessel noch einmal
         // (Vertrag der Anbindung, stores/session_store.dart). Bis 1.9.x stand
-        // das Festschreiben erst nach dem Senden.
-        _signalRepo!.commit(store);
+        // das Festschreiben erst nach dem Senden. Es steht mit in der Sperre
+        // ([_signalExklusiv]), damit kein Schnappschuss dazwischenfaehrt.
         try {
           // Dieselbe Weiche wie in _RelayAusgang: Geraet 1 ohne `to_device`.
           await relay.sendeFluechtig(
@@ -4431,6 +4443,33 @@ class RealMessengerCore implements MessengerCore {
         : _einAnlaufZurZeit('n:$an:$eigeneNachricht', versuch);
   }
 
+  /// EIN LIBSIGNAL-VORGANG ZUR ZEIT: Sitzungsaufbau, Entschluesseln und
+  /// Verschluesseln laufen nacheinander, nie verschraenkt.
+  ///
+  /// libsignal liest einen Sitzungsdatensatz ueber den Speicher, rechnet in
+  /// Rust und schreibt ihn zurueck. Laufen zwei Vorgaenge fuer dieselbe
+  /// Adresse gleichzeitig, schreibt der langsamere ueber den schnelleren
+  /// hinweg, und ein Sitzungsstand ist weg. Signal selbst reiht deshalb jeden
+  /// Zugriff je Adresse ein. Mit der Dart-Nachbildung war das Fenster winzig;
+  /// mit der Rust-Anbindung (seit 2.0.0) ist es breit genug. Gefunden am
+  /// 17.10.2026: Fuegen sich zwei gleichzeitig hinzu, baut jeder eine Sitzung
+  /// auf, waehrend die Anfrage des anderen hereinkommt — danach scheiterte
+  /// jede Nachricht der einen Richtung mit "decryption failed"
+  /// (real_core_test "GEGENSEITIG HINZUGEFUEGT").
+  ///
+  /// DIE SCHNAPPSCHUESSE GEHOEREN MIT HINEIN. [BitdmSignalStore.stelleWiederHer]
+  /// setzt den GANZEN Speicher zurueck. Liefe dazwischen ein Verschluesseln,
+  /// drehte ein gescheiterter Sitzungsaufbau dessen Ratchet zurueck, und die
+  /// naechste Nachricht benutzte denselben Nachrichtenschluessel noch einmal.
+  ///
+  /// Die Abschnitte enthalten keine Netzwege, nur Speicher und Rust: die
+  /// Sperre haelt Millisekunden. Kein Abschnitt ruft einen anderen auf.
+  Future<T> _signalExklusiv<T>(Future<T> Function() vorgang) {
+    final ergebnis = _signalLauf.then((_) => vorgang());
+    _signalLauf = ergebnis.then<void>((_) {}, onError: (Object _) {});
+    return ergebnis;
+  }
+
   /// EIN SENDEVERSUCH JE NACHRICHT ZUR ZEIT.
   ///
   /// Der erste Versand laeuft unabgewartet (`sendMessage`), und bis zu seinem
@@ -4689,14 +4728,18 @@ class RealMessengerCore implements MessengerCore {
     try {
       for (final g in ziele) {
         final ziel = ProtocolAddress(name: an, deviceId: g);
-        final ct = await _chiffre(store).encrypt(ziel, klartext);
+        final ct = await _signalExklusiv(() async {
+          final ct = await _chiffre(store).encrypt(ziel, klartext);
+          _signalRepo!.commit(store);
+          return ct;
+        });
         // ERST FESTSCHREIBEN, DANN SENDEN. Der Ratchet ist mit dem
         // Verschluesseln weitergerueckt. Ginge der Chiffretext hinaus und die
         // App stuerzte vor dem Festschreiben ab, verschluesselte die naechste
         // Nachricht mit demselben Nachrichtenschluessel noch einmal
         // (Vertrag der Anbindung, stores/session_store.dart). Bis 1.9.x stand
-        // das Festschreiben erst nach dem Senden.
-        _signalRepo!.commit(store);
+        // das Festschreiben erst nach dem Senden. Es steht mit in der Sperre
+        // ([_signalExklusiv]), damit kein Schnappschuss dazwischenfaehrt.
         final bescheid =
             await Wegwahl(
               relay: _RelayAusgang(_relay, g),
@@ -4939,13 +4982,15 @@ class RealMessengerCore implements MessengerCore {
     // ALLES ODER NICHTS: scheitert ein Aufbau, darf keine halb angelegte
     // Sitzung im Speicher bleiben und beim naechsten Festschreiben in die
     // Datei wandern.
-    final vorher = store.schnappschuss();
-    try {
-      return await _bauSitzungenOhneRiegel(store, an, antwort);
-    } catch (_) {
-      store.stelleWiederHer(vorher);
-      rethrow;
-    }
+    return _signalExklusiv(() async {
+      final vorher = store.schnappschuss();
+      try {
+        return await _bauSitzungenOhneRiegel(store, an, antwort);
+      } catch (_) {
+        store.stelleWiederHer(vorher);
+        rethrow;
+      }
+    });
   }
 
   Future<List<int>> _bauSitzungenOhneRiegel(
