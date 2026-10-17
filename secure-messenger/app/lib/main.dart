@@ -8287,17 +8287,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     );
   }
 
-  /// Ein Kasten fuer etwas, das der Nutzer wissen muss.
-  ///
-  /// ZWEI BEDEUTUNGEN, ZWEI AUSSEHEN. Bis zum 25.07.2026 sah beides gleich
-  /// aus: "dein Fingerabdruck wurde nicht erkannt" und "so richtest du ntfy
-  /// ein" hatten dieselbe Farbe. Wer eine Oberflaeche schnell ueberfliegt —
-  /// und das tut jeder — liest Farbe vor Text. Zwei Dinge in derselben Farbe
-  /// sind fuer ihn dasselbe Ding.
-  ///
-  /// Der Akzent bleibt dem vorbehalten, was schiefging oder Aufmerksamkeit
-  /// braucht. Ruhige Hinweise bekommen die gewoehnliche Umrandung — sie
-  /// stehen da, ohne zu rufen.
   /// Die Bausteine fuer die Oberflaeche der Geraeteabmeldung
   /// (geraete_seite.dart).
   GeraeteStil get _geraeteStil => GeraeteStil(
@@ -8309,6 +8298,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         hinweis: (s, {warnend = true}) => _hinweisKasten(s, warnend: warnend),
       );
 
+  /// Ein Kasten fuer etwas, das der Nutzer wissen muss.
+  ///
+  /// ZWEI BEDEUTUNGEN, ZWEI AUSSEHEN. Bis zum 25.07.2026 sah beides gleich
+  /// aus: "dein Fingerabdruck wurde nicht erkannt" und "so richtest du ntfy
+  /// ein" hatten dieselbe Farbe. Wer eine Oberflaeche schnell ueberfliegt —
+  /// und das tut jeder — liest Farbe vor Text. Zwei Dinge in derselben Farbe
+  /// sind fuer ihn dasselbe Ding.
+  ///
+  /// Der Akzent bleibt dem vorbehalten, was schiefging oder Aufmerksamkeit
+  /// braucht. Ruhige Hinweise bekommen die gewoehnliche Umrandung — sie
+  /// stehen da, ohne zu rufen.
   Widget _hinweisKasten(String text, {bool warnend = true}) => Container(
         width: double.infinity,
         padding: const EdgeInsets.all(Masse.innen),
