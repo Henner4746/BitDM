@@ -5999,6 +5999,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       befehlsLeiste(),
       erwaehnungsLeiste(),
       eingabeBezug(),
+      // DIE GEGENSTELLE HAT NUR EINE APP VOR 2.0.0. Ruhig, nicht als Fehler:
+      // hier ist nichts schiefgegangen, und nichts geht verloren — die
+      // Nachrichten warten im Nachversand. Ohne diesen Kasten standen sie
+      // stumm auf "wird gesendet", und niemand erfuhr, warum.
+      if (st.brauchtNeuereApp(cid))
+        Padding(
+          key: const ValueKey('hinweis-neuere-app'),
+          padding: const EdgeInsets.fromLTRB(17, 0, 17, 8),
+          child: _hinweisKasten(t('peerNeedsUpdate'), warnend: false),
+        ),
       if (chatFehlerText() != null)
         Container(
           width: double.infinity,

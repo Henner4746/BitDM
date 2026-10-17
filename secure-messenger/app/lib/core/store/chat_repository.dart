@@ -96,6 +96,26 @@ class ChatRepository {
         [wann, adresse]));
   }
 
+  /// Haelt fest, ob dieser Kontakt erst BitDM aktualisieren muss
+  /// ([Contact.brauchtNeuereApp]).
+  ///
+  /// Rueckgabe: ob sich etwas geaendert hat. ERST LESEN, DANN SCHREIBEN:
+  /// geloescht wird bei jedem gelungenen Sitzungsaufbau, und fast immer steht
+  /// dort schon die 0. Eine Transaktion je Sitzungsaufbau, die nichts
+  /// aendert, waere ein Schreibvorgang ohne Inhalt. Eine Adresse, die kein
+  /// Kontakt ist (die eigene, ein Gruppenmitglied ohne Kontakt), aendert
+  /// nichts.
+  bool setzeBrauchtNeuereApp(String adresse, bool braucht) {
+    final r = db.raw.select(
+        'SELECT braucht_neuere_app FROM contacts WHERE address = ?', [adresse]);
+    if (r.isEmpty) return false;
+    if (((r.first['braucht_neuere_app'] as int) != 0) == braucht) return false;
+    db.transaction((raw) => raw.execute(
+        'UPDATE contacts SET braucht_neuere_app = ? WHERE address = ?',
+        [braucht ? 1 : 0, adresse]));
+    return true;
+  }
+
   void speichereKontakt(Contact c) {
     db.transaction((raw) => _schreibeKontakt(raw, c));
   }
@@ -104,17 +124,18 @@ class ChatRepository {
     raw.execute(
       'INSERT INTO contacts '
       '(address, display_name, added_at, state, verified, zeigt_anwesenheit, '
-      ' angeheftet, archiviert, stumm, frist) '
-      'VALUES (?,?,?,?,?,?,?,?,?,?) '
+      ' angeheftet, archiviert, stumm, frist, braucht_neuere_app) '
+      'VALUES (?,?,?,?,?,?,?,?,?,?,?) '
       'ON CONFLICT(address) DO UPDATE SET '
-      '  display_name      = excluded.display_name,'
-      '  state             = excluded.state,'
-      '  verified          = excluded.verified,'
-      '  zeigt_anwesenheit = excluded.zeigt_anwesenheit,'
-      '  angeheftet        = excluded.angeheftet,'
-      '  archiviert        = excluded.archiviert,'
-      '  stumm             = excluded.stumm,'
-      '  frist             = excluded.frist',
+      '  display_name       = excluded.display_name,'
+      '  state              = excluded.state,'
+      '  verified           = excluded.verified,'
+      '  zeigt_anwesenheit  = excluded.zeigt_anwesenheit,'
+      '  angeheftet         = excluded.angeheftet,'
+      '  archiviert         = excluded.archiviert,'
+      '  stumm              = excluded.stumm,'
+      '  frist              = excluded.frist,'
+      '  braucht_neuere_app = excluded.braucht_neuere_app',
       [
         c.id,
         c.displayName,
@@ -126,6 +147,7 @@ class ChatRepository {
         c.archiviert ? 1 : 0,
         c.stumm ? 1 : 0,
         c.fristSekunden,
+        c.brauchtNeuereApp ? 1 : 0,
       ],
     );
   }
@@ -191,6 +213,7 @@ class ChatRepository {
         archiviert: (r['archiviert'] as int) != 0,
         stumm: (r['stumm'] as int) != 0,
         fristSekunden: r['frist'] as int?,
+        brauchtNeuereApp: (r['braucht_neuere_app'] as int) != 0,
       );
 
   // ═══════════════════════════════════════════════════════════ Nachrichten

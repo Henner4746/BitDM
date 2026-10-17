@@ -1994,6 +1994,15 @@ class AppState extends ChangeNotifier {
     return eigen == 0 ? null : Duration(seconds: eigen);
   }
 
+  /// Muss die Gegenstelle dieses Chats erst BitDM aktualisieren?
+  ///
+  /// Nur bei einem Kontakt; eine Gruppe und die Notizen haben keine eigene
+  /// Gegenstelle. Der Kern setzt den Vermerk und meldet jeden Wechsel als
+  /// [ContactEventType.needsUpdateChanged] — das laedt [kontakte] neu.
+  bool brauchtNeuereApp(String chatId) =>
+      kontakte.where((k) => k.id == chatId).firstOrNull?.brauchtNeuereApp ??
+      false;
+
   Future<void> setzeChatFrist(String chatId, Duration? frist) async {
     await core.setzeChatFrist(chatId, frist);
     await _ladeKontakteNeu();

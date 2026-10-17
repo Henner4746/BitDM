@@ -11,6 +11,7 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 - **Post-Quanten-Sitzungsaufbau (PQXDH, Kyber-1024).** Jede neue Sitzung nutzt ihn; ohne Kyber gibt es keine Sitzung.
 - **Adressen, Chats und Kontakte bleiben.** Dieselben zwölf Wörter ergeben dieselbe Adresse (nachgemessen). Beim ersten Start wird mit jedem Kontakt die Sitzung neu aufgebaut.
 - **Nicht mit 1.9.x verträglich.** Eine App vor 2.0.0 kann keine Sitzung mit 2.0.0 aufbauen und umgekehrt. Beide Seiten müssen aktualisieren.
+- **Der Chat sagt, wenn die Gegenseite aktualisieren muss.** Hat ein Kontakt nur eine App vor 2.0.0, warten deine Nachrichten an ihn. Sie gehen von selbst hinaus, sobald er aktualisiert hat. Bisher standen sie ohne Erklärung auf „wird gesendet“.
 - **Signierte Prekeys werden jetzt wöchentlich erneuert** (vorher nie, Audit LS-4).
 - **Über Bluetooth werden keine Einmalschlüssel mehr verschenkt.** Vorher konnte derselbe Schlüssel auch beim Relay ausgegeben werden, und eine Erstnachricht ging still verloren (Audit PR-4).
 - **Keine Nachricht geht mehr doppelt hinaus.** Kam während des Sendens jemand in Bluetooth-Reichweite oder stand die Verbindung wieder, schickte der Nachversand dieselbe Nachricht ein zweites Mal.

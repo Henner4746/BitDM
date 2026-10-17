@@ -90,6 +90,9 @@ void main() {
       raw.execute('DROP TABLE kyber_pre_keys');
       raw.execute('DROP TABLE kyber_benutzt');
       raw.execute("DELETE FROM meta WHERE key = 'signal_bibliothek'");
+      // UND WAS NACH STUFE 15 KAM: eine 1.9.x-Datei kennt auch Stufe 16 nicht.
+      // Wer eine weitere Stufe mit neuer Spalte anlegt, zieht hier nach.
+      raw.execute('ALTER TABLE contacts DROP COLUMN braucht_neuere_app');
 
       // Was die alte Bibliothek hinterlassen hat.
       raw.execute('INSERT INTO sessions (address, record) VALUES (?, ?)',
@@ -180,7 +183,9 @@ void main() {
     addTearDown(db.close);
     final raw = db.raw;
 
-    expect(db.meta('schema_version'), '15');
+    // Ueber Stufe 15 hinaus bis zur aktuellen; was danach kommt, misst die
+    // jeweilige Stufe selbst (schema16_test.dart).
+    expect(db.meta('schema_version'), '${EncryptedDatabase.schemaVersion}');
 
     // Weg: alles aus der alten Bibliothek.
     expect(_zahl(raw, 'sessions'), 0);
@@ -189,7 +194,9 @@ void main() {
 
     // Unveraendert: Byte fuer Byte, Spalte fuer Spalte.
     expect(_zeilen(raw, 'identities', 'address'), identitaeten);
-    expect(_zeilen(raw, 'contacts', 'address'), kontakte);
+    // Bei den Kontakten kommt genau die Spalte von Stufe 16 dazu, mit der 0.
+    expect(_zeilen(raw, 'contacts', 'address'),
+        [for (final k in kontakte) {...k, 'braucht_neuere_app': 0}]);
     expect(_zeilen(raw, 'messages', 'seq'), nachrichten);
 
     // Meta: die Zaehlung weg, damit neu angemeldet wird; der Vermerk der
@@ -285,7 +292,7 @@ void main() {
     db.execute('DROP TRIGGER sperre');
     final wieder = EncryptedDatabase.open(pfad, ich.databaseKey);
     addTearDown(wieder.close);
-    expect(wieder.meta('schema_version'), '15');
+    expect(wieder.meta('schema_version'), '${EncryptedDatabase.schemaVersion}');
     expect(_zahl(wieder.raw, 'sessions'), 0);
   });
 

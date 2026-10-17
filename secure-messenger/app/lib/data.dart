@@ -220,6 +220,7 @@ const Map<String, Map<String, String>> strings = {
     'shareFailed': 'No app to share with was found.',
     'addTitle': 'Add contact', 'idLabel': 'BitDM ID', 'paste': 'Paste', 'scan': 'Scan QR', 'sendReq': 'Send request',
     'pending': 'Pending', 'reqSentNote': 'Request sent. The chat opens once the other side confirms.',
+    'peerNeedsUpdate': 'The other side has to update BitDM (2.0 or newer). Until then your messages wait here and go out on their own afterwards.',
 
     'addFoot': 'No messages are transmitted before confirmation. A contact can be removed unilaterally at any time.',
     'chats': 'Chats', 'connOnline': 'connected', 'connConnecting': 'connecting', 'connOffline': 'offline', 'connError': 'no connection', 'connGeraeteVoll': 'too many devices', 'wantsChat': 'Wants to start an encrypted chat with you.', 'accept': 'Accept', 'decline': 'Decline',
@@ -686,6 +687,7 @@ const Map<String, Map<String, String>> strings = {
     'shareFailed': 'Es wurde keine App zum Teilen gefunden.',
     'addTitle': 'Kontakt hinzufügen', 'idLabel': 'BitDM-ID', 'paste': 'Einfügen', 'scan': 'QR scannen', 'sendReq': 'Anfrage senden',
     'pending': 'Ausstehend', 'reqSentNote': 'Anfrage gesendet. Der Chat öffnet sich, sobald die Gegenseite bestätigt.',
+    'peerNeedsUpdate': 'Die Gegenseite muss BitDM aktualisieren (ab 2.0). Bis dahin warten deine Nachrichten hier und gehen danach von selbst hinaus.',
 
     'addFoot': 'Vor der Bestätigung werden keine Nachrichten übertragen. Ein Kontakt kann jederzeit einseitig entfernt werden.',
     'chats': 'Chats', 'connOnline': 'verbunden', 'connConnecting': 'verbindet', 'connOffline': 'offline', 'connError': 'keine Verbindung', 'connGeraeteVoll': 'zu viele Geräte', 'wantsChat': 'Möchte einen verschlüsselten Chat mit dir beginnen.', 'accept': 'Annehmen', 'decline': 'Ablehnen',

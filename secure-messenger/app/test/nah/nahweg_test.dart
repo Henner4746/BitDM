@@ -1442,6 +1442,11 @@ void main() {
       // der richtigen Karte baut die Sitzung sehr wohl. Ohne die Gegenprobe
       // bliebe der Test auch dann gruen, wenn der Wurf den ganzen Empfang
       // lahmgelegt haette.
+      //
+      // DAZU DER VERMERK AM KONTAKT (seit 17.10.2026): nach der Karte ohne
+      // Kyber traegt Anna [Contact.brauchtNeuereApp], nach der richtigen
+      // nicht mehr. Ohne ihn stuende die Nachricht im Modus "nur in der Naehe"
+      // stumm auf "wird gesendet", obwohl Anna daneben steht.
       legeAnnaAn();
       await funkAn(nurNahbereich: true);
       await annaInReichweite();
@@ -1464,6 +1469,9 @@ void main() {
           reason: 'ohne Kyber darf keine Sitzung entstehen — auch keine '
               'schwaechere');
       expect(kern.ablageFuerTest.unversandt(), isNotEmpty);
+      expect(kern.ablageFuerTest.kontakt(anna.adresse)!.brauchtNeuereApp,
+          isTrue,
+          reason: 'der Chat soll sagen, dass Anna aktualisieren muss');
 
       // DIE GEGENPROBE: dieselbe Gegenstelle mit Kyber kommt durch.
       await annaAntwortet(anna.funkKarte());
@@ -1472,6 +1480,9 @@ void main() {
       expect(kern.ablageFuerTest.unversandt(), isEmpty,
           reason: 'nach dem gescheiterten Buendel muss der Funkweg weiter '
               'tragen');
+      expect(kern.ablageFuerTest.kontakt(anna.adresse)!.brauchtNeuereApp,
+          isFalse,
+          reason: 'mit der Sitzung stimmt der Hinweis nicht mehr');
       expect(relaysGebaut, 0);
     });
 
