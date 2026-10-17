@@ -136,6 +136,102 @@ class AppState extends ChangeNotifier {
     return c is RealMessengerCore && c.abgewiesen;
   }
 
+  // ═══════════════════════════════ Geraeteliste (docs/GERAETEABMELDUNG.md)
+  //
+  // Dieselbe Typpruefung wie bei [geraeteZahl]: die Geraeteverwaltung gibt es
+  // nur im echten Kern, die Attrappe kennt keinen Relay.
+
+  RealMessengerCore? get _echt {
+    final c = core;
+    return c is RealMessengerCore ? c : null;
+  }
+
+  /// Wo dieses Geraet in der Liste seiner Identitaet steht.
+  ListenStand get geraeteStand => _echt?.geraeteStand ?? ListenStand.unbekannt;
+
+  /// Ob die eigene Adresse eine Geraeteliste hat. Ohne (alter Relay) laesst
+  /// sich kein Geraet abmelden — das muss die Oberflaeche sagen.
+  bool get hatGeraeteliste => _echt?.hatGeraeteliste ?? false;
+
+  List<GeraetAnzeige> get eigeneGeraete => _echt?.eigeneGeraete ?? const [];
+
+  /// Der Code, den dieses Geraet gerade fuer ein neues zeigt — oder null.
+  String? get beitrittscode => _echt?.beitrittscode;
+
+  /// Die Kennung des Geraets, das zuletzt ueber einen Code hinzukam.
+  int? get zuletztHinzugefuegt => _echt?.zuletztHinzugefuegt;
+
+  /// Ob dieses Geraet in diesem Lauf abgemeldet wurde — fuer den Hinweis auf
+  /// dem Startbildschirm. Nach einem Neustart ist er weg: die Woerter, und mit
+  /// ihnen alles, was es darueber wusste, sind dann nicht mehr da.
+  bool abgemeldetHinweis = false;
+
+  /// Wann und von welchem Geraet dieses abgemeldet wurde.
+  ({DateTime zeit, String? von})? abmeldung;
+
+  Future<void> meldeGeraetAb(int id) async {
+    await _echt?.meldeGeraetAb(id);
+    notifyListeners();
+  }
+
+  Future<void> meldeAlleAnderenAb() async {
+    await _echt?.meldeAlleAnderenAb();
+    notifyListeners();
+  }
+
+  Future<void> meldeDiesesGeraetAb() async {
+    await _echt?.meldeDiesesGeraetAb();
+  }
+
+  Future<String?> starteHinzufuegen() async {
+    final c = _echt;
+    if (c == null) return null;
+    final code = await c.starteHinzufuegen();
+    notifyListeners();
+    return code;
+  }
+
+  void beendeHinzufuegen() {
+    _echt?.beendeHinzufuegen();
+    notifyListeners();
+  }
+
+  /// Bittet mit dem Code eines anderen Geraets um Aufnahme. false: kein Code.
+  Future<bool> trittBei(String code) async {
+    final c = _echt;
+    if (c == null) return false;
+    try {
+      await c.trittBei(code);
+    } on FormatException {
+      return false;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  void brichBeitrittAb() {
+    _echt?.brichBeitrittAb();
+    notifyListeners();
+  }
+
+  /// "Alle anderen Geraete abmelden" auf einem Geraet ausserhalb der Liste.
+  Future<void> setzeZurueck() async {
+    await _echt?.setzeZurueck();
+    notifyListeners();
+  }
+
+  /// Der Kern meldet: dieses Geraet ist abgemeldet, die Woerter sind weg.
+  /// Danach sieht die App aus wie vor dem Anlegen einer Identitaet — mit
+  /// einem Hinweis, warum. Die Datenbank bleibt (der Kern loescht sie nicht).
+  Future<void> _nachAbmeldung() async {
+    _wiederverbindung?.cancel();
+    _wiederverbindung = null;
+    _fehlversuche = 0;
+    abmeldung = _echt?.abmeldung;
+    abgemeldetHinweis = true;
+    await _vergissIdentitaet();
+  }
+
   /// Ob [boot] durch ist. Vorher zeigt die App nichts an.
   bool bereit = false;
 
@@ -1206,6 +1302,17 @@ class AppState extends ChangeNotifier {
         _planeFernloeschung();
       }))
       ..add(core.neuesteFassungGemeldet.listen(_nimmNeuesteFassung))
+      // Die Geraeteliste: Stand, Liste, laufender Beitritt. Eine Abmeldung
+      // raeumt die Oberflaeche ab wie "alles loeschen", nur ohne die
+      // Datenbank anzufassen.
+      ..add((_echt?.geraeteGeaendert ?? const Stream<ListenStand>.empty())
+          .listen((s) {
+        if (s == ListenStand.abgemeldet && hatIdentitaet) {
+          unawaited(_nachAbmeldung());
+        } else {
+          notifyListeners();
+        }
+      }))
       ..add(core.messageStatusUpdates.listen(_uebernehmeStatus))
       ..add(core.anhangAenderungen.listen((a) {
         anhaenge.putIfAbsent(a.chatId, () => {})[a.messageId] = a;
@@ -1574,6 +1681,7 @@ class AppState extends ChangeNotifier {
   Future<void> identitaetAnlegen() async {
     frischePhrase = await core.createIdentity();
     hatIdentitaet = true;
+    abgemeldetHinweis = false;
     await _nachIdentitaet();
     notifyListeners();
   }
@@ -1587,6 +1695,7 @@ class AppState extends ChangeNotifier {
     try {
       await core.restoreIdentity(woerter);
       hatIdentitaet = true;
+      abgemeldetHinweis = false;
       // Eine alte Meldung vom Fehlversuch davor gehoert nicht mehr hierher.
       if (letzterFehler == 'phraseUngueltig') letzterFehler = null;
       await _nachIdentitaet();
@@ -2741,6 +2850,12 @@ class AppState extends ChangeNotifier {
     unawaited(Benachrichtigungen.instanz.nimmWarnungWeg());
 
     await core.wipeEverything();
+    await _vergissIdentitaet();
+  }
+
+  /// Was nach dem Ende der Identitaet auf diesem Geraet geschieht — nach
+  /// "alles loeschen" und nach einer Abmeldung (docs/GERAETEABMELDUNG.md).
+  Future<void> _vergissIdentitaet() async {
     // DIE FACHDATEI AUCH HIER, nicht nur im Kern. Der echte Kern loescht sie
     // ueber seinen Schluesselspeicher mit — aber "alles loeschen" ist genau
     // die Stelle, an der ein vergessener Rest am teuersten ist: eine Fachdatei

@@ -20,7 +20,9 @@ import 'dart:typed_data';
 import 'package:bitdm/core/crypto/bip39.dart';
 import 'package:bitdm/core/crypto/key_derivation.dart';
 import 'package:bitdm/core/crypto/signal_identity.dart';
+import 'package:bitdm/core/net/geraeteliste.dart';
 import 'package:bitdm/core/net/relay_client.dart';
+import 'package:libsignal/libsignal.dart' show PrivateKey;
 import 'package:bitdm/core/net/relay_protocol.dart';
 import 'package:bitdm/core/secret_store.dart';
 import 'package:bitdm/core/store/signal_store.dart';
@@ -80,6 +82,16 @@ class Relaylage {
   Duration umlauf = Duration.zero;
 
   final gebaut = <RelayAttrappe>[];
+
+  /// DIE GERAETELISTE (docs/GERAETEABMELDUNG.md). Per Vorgabe kennt diese
+  /// Attrappe keine — wie ein Relay vor der Geraeteabmeldung: Abruf 404,
+  /// Anlegen 404. Dann bleibt der Kern beim bisherigen Verhalten.
+  ///
+  /// Mit [kenntListen] fuehrt sie je Adresse eine Liste, ohne die Regeln des
+  /// Relays (die prueft relay_server.py) — nur Ablage und Ausgabe.
+  bool kenntListen = false;
+  final listen = <String, Map<String, Object?>>{};
+  final beitritte = <String, List<Map<String, Object?>>>{};
 }
 
 class RelayAttrappe implements RelayClient {
@@ -101,6 +113,34 @@ class RelayAttrappe implements RelayClient {
   String get address => identity.address;
   @override
   int? geraeteKennung;
+
+  @override
+  PrivateKey? geraeteSchluessel;
+
+  @override
+  Future<Map<String, Object?>?> holeGeraeteliste(String userId) async =>
+      lage.kenntListen ? lage.listen[userId] : null;
+
+  @override
+  Future<int> setzeGeraeteliste(Geraeteliste liste) async {
+    if (!lage.kenntListen) {
+      throw const RelayException('Not Found', statusCode: 404);
+    }
+    lage.listen[liste.adresse] = liste.alsJson();
+    return liste.epoche;
+  }
+
+  @override
+  Future<void> beantrageBeitritt(Beitrittsanfrage a) async {
+    if (!lage.kenntListen) {
+      throw const RelayException('Not Found', statusCode: 404);
+    }
+    (lage.beitritte[a.adresse] ??= []).add(a.alsJson());
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> holeBeitritte(String userId) async =>
+      lage.beitritte[userId] ?? const [];
 
   /// Etwas kommt vom Relay herein — der Weg jedes Umschlags.
   void herein(RelayEvent e) => _ereignisse.add(e);

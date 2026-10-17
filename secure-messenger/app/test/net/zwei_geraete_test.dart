@@ -97,6 +97,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:libsignal/libsignal.dart';
 import 'package:sqlite3/sqlite3.dart';
 
+import 'package:bitdm/core/real_messenger_core.dart';
+
+import '../support/geraete_koppeln.dart';
 import '../support/nutzer.dart';
 import '../support/relay_process.dart';
 import '../support/signal_hilfe.dart';
@@ -227,7 +230,8 @@ void main() {
   /// alphabetisch, wie Pythons `sort_keys`). Nimmt der Relay sie an, ist auch
   /// gezeigt, dass er alte Apps bis zum Stichtag weiter anmeldet
   /// (`kyber_pflicht()`).
-  Future<String> meldeAlteAppAn(List<String> woerter, {int? geraet}) async {
+  Future<String> meldeAlteAppAn(List<String> woerter,
+      {int? geraet, int erwartet = 200}) async {
     final id = SignalIdentityBridge.fromDerived(
         await KeyDerivation.fromMnemonic(woerter),
         registrationId: SignalIdentityBridge.newRegistrationId());
@@ -282,9 +286,11 @@ void main() {
         'signature': base64
             .encode(id.keyPair.sign(message: [...nonce, ...hash])),
       });
-      expect(status, 200,
-          reason: 'der Relay muss eine alte App bis zum Stichtag weiter '
-              'anmelden — Antwort: $text');
+      expect(status, erwartet,
+          reason: erwartet == 200
+              ? 'der Relay muss eine alte App bis zum Stichtag weiter '
+                  'anmelden — Antwort: $text'
+              : 'erwartet $erwartet — Antwort: $text');
     } finally {
       client.close();
     }
@@ -323,12 +329,14 @@ void main() {
       await handy.core.connect();
 
       // DASSELBE, WAS HENRIK TUT: zwoelf Woerter auf dem zweiten Geraet
-      // eintippen. Kein Kopplungsschritt, kein QR-Code, kein Hauptgeraet.
+      // eintippen — und seit der Geraeteabmeldung (docs/GERAETEABMELDUNG.md)
+      // den Code vom Handy dazu. Die Woerter allein reichen nicht mehr.
       await tablet.starten();
       expect(await tablet.core.restoreIdentity(woerter), bobsAdresse,
           reason: 'dieselben Woerter muessen dieselbe Adresse ergeben — '
               'sonst ist es gar keine Kopplung');
       await tablet.core.connect();
+      await koppele(handy, tablet);
 
       // DAS HANDY MUSS NOCH EINMAL VERBINDEN. Als es sich anmeldete, gab es
       // das Tablet noch nicht; die eigenen Geraete lernt der Kern bei JEDEM
@@ -391,6 +399,7 @@ void main() {
           reason: 'dieselben Woerter muessen dieselbe Adresse ergeben — '
               'sonst ist es gar keine Kopplung');
       await tablet.core.connect();
+      await koppele(handy, tablet);
 
       expect(handy.core.connectionState, ConnectionState.online);
       expect(tablet.core.connectionState, ConnectionState.online,
@@ -591,6 +600,7 @@ void main() {
       await tablet.starten();
       await tablet.core.restoreIdentity(woerter);
       await tablet.core.connect();
+      await koppele(handy, tablet);
       await handy.core.disconnect();
       await handy.core.connect();
       await kenntEigeneGeraete(handy, 2);
@@ -632,7 +642,10 @@ void main() {
 
       // KEIN WURF. Vertragsregel des Kerns: Netzprobleme werden gemeldet,
       // nicht geworfen (real_core_test.dart "ein unerreichbarer Relay wirft
-      // NICHT"). Die Absage kommt als 507 und landet damit im Fehlerzustand.
+      // NICHT"). SEIT DER GERAETEABMELDUNG scheitert es schon frueher: es
+      // steht nicht in der Geraeteliste, und die nimmt hoechstens GERAETE_MAX
+      // Eintraege auf (relay_server.py `lies_liste`) — ein Beitritt ueber den
+      // Code kaeme also auch nicht durch.
       await zuviel.core.connect();
       expect(zuviel.core.connectionState, ConnectionState.error,
           reason: 'das Geraet ueber der Grenze darf nicht online gehen');
@@ -823,28 +836,38 @@ void main() {
       await handy.starten();
       final woerter = await handy.core.createIdentity();
       final bob = handy.core.myId;
-      await handy.core.connect();
 
-      // DAS ALTE TABLET: dieselben zwoelf Woerter, App vor 2.0.0.
+      // DAS ALTE TABLET: dieselben zwoelf Woerter, App vor 2.0.0 — angemeldet,
+      // BEVOR das neue Telefon die Geraeteliste anlegt. Danach ginge es gar
+      // nicht mehr (siehe unten).
       expect(await meldeAlteAppAn(woerter, geraet: 5), bob);
-      expect(await geraeteAmRelay(bob), [1, 5]);
+      expect(await geraeteAmRelay(bob), [5]);
 
-      // DIE VORAUSSETZUNG, beim Relay nachgesehen: das Telefon hat Kyber, das
-      // Tablet nicht — die Felder fehlen GANZ (relay_server.py `/prekey`).
+      // DIE VORAUSSETZUNG, beim Relay nachgesehen: das Tablet hat kein Kyber —
+      // die Felder fehlen GANZ (relay_server.py `/prekey`).
       final roh = await prekeyRoh(bob);
       final geraete = [
         for (final g in roh['geraete']! as List)
           (g as Map).cast<String, Object?>(),
       ];
-      expect(geraete.firstWhere((g) => g['device_id'] == 1)['kyber_prekey'],
-          isNotNull);
       expect(
           geraete.firstWhere((g) => g['device_id'] == 5).containsKey(
               'kyber_prekey'),
           isFalse);
 
-      // Annas erste Nachricht an Bob ist die Kontaktanfrage — und die holt
-      // das Buendel MIT dem alten Tablet darin.
+      // DAS NEUE TELEFON verbindet und legt die Geraeteliste an — mit sich
+      // allein. Das alte Tablet steht in keiner Liste und faellt dabei heraus
+      // (docs/GERAETEABMELDUNG.md §10): reden koennte es mit 2.0.0 ohnehin
+      // nicht mehr, und Post laege fuer immer bei ihm.
+      await handy.core.connect();
+      expect(handy.core.connectionState, ConnectionState.online);
+      expect(await geraeteAmRelay(bob), [handy.core.geraetId]);
+      // Und es kommt auch nicht wieder: eine alte App unterschreibt nicht mit
+      // einem Geraeteschluessel und steht in keiner Liste.
+      await meldeAlteAppAn(woerter, geraet: 5, erwartet: 403);
+
+      // Annas erste Nachricht an Bob ist die Kontaktanfrage. Das Buendel, das
+      // sie holt, enthaelt das alte Tablet nicht mehr.
       await anna.core.addContact(bob, displayName: 'Bob');
       expect(await Nutzer.warteBis(() => handy.kontaktEreignisse.isNotEmpty),
           isTrue,

@@ -1,0 +1,30 @@
+{
+  "_hinweis": "Erzeugt von server/tools/write_geraeteliste_fixtures.py",
+  "adresse": "g3ucwbxcu7bil2x4ayxeyd3ishaqgerz7p5tkurt4h32rfz53ilgwcse",
+  "geraet_1": "X7U/tVJqV4yw4VoWon6CS35YJAvsV5eV4DYLuewSfiE=",
+  "geraet_37": "Eq0iQwcqIqz9QKLvB9A1xhpCARif5R2zGyskXTJGsi0=",
+  "info_37": "a2VpbiBlY2h0ZXIgTmFtZSwgbnVyIFJhdXNjaGVuIGZ1ZXIgZGVuIFRlc3Q=",
+  "liste_1": {
+    "liste": "{\"adresse\":\"g3ucwbxcu7bil2x4ayxeyd3ishaqgerz7p5tkurt4h32rfz53ilgwcse\",\"epoche\":1,\"geraete\":[[1,\"X7U/tVJqV4yw4VoWon6CS35YJAvsV5eV4DYLuewSfiE=\",\"\"]],\"unterzeichner\":1,\"v\":1,\"zeit\":1760700000}",
+    "sig_identitaet": "W640NOIPmuQgEoJ4q7fehqmdwlfe7KgA/LhtJh0/k1IMnhtMHb/nVk5c4xdjyv9wnmuAI6GxaOLKFHNK/GAqDw==",
+    "sig_geraet": "i/ICTpr2r/o78lhiLyMJnCcqyFatqxRy55shVrgtyXEsX86zOiib4vt4Vba8l+dS8UCJrCz+/Y/IQ3KH3qfAAA=="
+  },
+  "liste_2_mitglied_fuegt_hinzu": {
+    "liste": "{\"adresse\":\"g3ucwbxcu7bil2x4ayxeyd3ishaqgerz7p5tkurt4h32rfz53ilgwcse\",\"epoche\":2,\"geraete\":[[1,\"X7U/tVJqV4yw4VoWon6CS35YJAvsV5eV4DYLuewSfiE=\",\"\"],[37,\"Eq0iQwcqIqz9QKLvB9A1xhpCARif5R2zGyskXTJGsi0=\",\"a2VpbiBlY2h0ZXIgTmFtZSwgbnVyIFJhdXNjaGVuIGZ1ZXIgZGVuIFRlc3Q=\"]],\"unterzeichner\":1,\"v\":1,\"zeit\":1760700100}",
+    "sig_identitaet": "7tsdAp06WgOa8VaJVlb6e4IJwDuh8cWcbZSFsLbjAayEWlP2XIzBv2wZJ5CVNDqgBXlsmcwQA7dN2i28mu6KBw==",
+    "sig_geraet": "xxTV4hrZ/8TKEJeROug4uK7HG4vNVjpamtb5c5IH/LlZiWFCOMZzEScj25a89sVFPMjvGiFt1E/zvM7t87reAw=="
+  },
+  "liste_3_selbst_abgemeldet": {
+    "liste": "{\"adresse\":\"g3ucwbxcu7bil2x4ayxeyd3ishaqgerz7p5tkurt4h32rfz53ilgwcse\",\"epoche\":3,\"geraete\":[[1,\"X7U/tVJqV4yw4VoWon6CS35YJAvsV5eV4DYLuewSfiE=\",\"\"]],\"unterzeichner\":37,\"v\":1,\"zeit\":1760700200}",
+    "sig_identitaet": "mupVG7M+mSzCyRX7RKnUgAgnT4tsu1NiSHCu3po3VX+Ar5wUu0MUkMcnsfbiW0vUUpgl4y1Wl0k4AMP/GbolBQ==",
+    "sig_geraet": "7Om/gqB4Dmw2BVkpfDFi8jnO+jAZfGtogmWscKknbtbOHAUBSbcDY9GsTur2UB/ZBAFuhvg1hAziTvj1ib4XCg=="
+  },
+  "beitritt": {
+    "anfrage": "{\"adresse\":\"g3ucwbxcu7bil2x4ayxeyd3ishaqgerz7p5tkurt4h32rfz53ilgwcse\",\"device_id\":37,\"info\":\"a2VpbiBlY2h0ZXIgTmFtZSwgbnVyIFJhdXNjaGVuIGZ1ZXIgZGVuIFRlc3Q=\",\"nachweis\":\"tSyJfViExunbHY0+uychAFpzBqav12WRe0Ww+s0tPpQ=\",\"schluessel\":\"Eq0iQwcqIqz9QKLvB9A1xhpCARif5R2zGyskXTJGsi0=\",\"v\":1,\"zeit\":1760700050}",
+    "sig_identitaet": "Mkn2ZakljOzVXuuleLIjeIh2Iw0oO691II2aNLxZ5j/6I0KIxwqLfkXesmuRjYjp1Pl5+/4mTLyfoKxN/AnfDA==",
+    "sig_geraet": "UN7R83imQTzqH5KtE+0kuLmg6WmXbob4vhvsc+ELeyhu24kYRa+Lp4A/qdRk3N3H7dlvSzod8IEGlmsAbtjXAg=="
+  },
+  "beitritt_code": "AQIDBAUGBwgJCg==",
+  "beitritt_code_angezeigt": "AEBA-GBAF-AYDQ-QCIK",
+  "nachweis": "tSyJfViExunbHY0+uychAFpzBqav12WRe0Ww+s0tPpQ="
+}

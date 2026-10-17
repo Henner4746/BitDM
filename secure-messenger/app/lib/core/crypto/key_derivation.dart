@@ -7,8 +7,15 @@
 //        ├── HKDF-SHA256, info="bitdm identity key v1" ──▶ Identitaetsschluessel
 //        │                                                  └─▶ Adresse
 //        ├── HKDF-SHA256, info="bitdm database key v1" ──▶ Datenbankschluessel
-//        └── HKDF-SHA256, info="bitdm attachments at rest v1"
-//                                                   ──▶ Ablageschluessel
+//        ├── HKDF-SHA256, info="bitdm attachments at rest v1"
+//        │                                          ──▶ Ablageschluessel
+//        └── HKDF-SHA256, info="bitdm device info v1"
+//                                                   ──▶ Geraeteinfo-Schluessel
+//
+// Der Geraeteinfo-Schluessel (seit 17.10.2026) verschluesselt Name und
+// Einrichtungszeit jedes Geraets in der Geraeteliste beim Relay
+// (net/geraeteliste.dart). Jedes Geraet mit den Woertern liest sie, der Relay
+// nicht.
 //
 // Der Ablageschluessel (seit 25.09.2026) verschluesselt die Anhangdateien
 // auf dem Geraet (anhang/ruhe_datei.dart). Er liegt, wie der
@@ -54,11 +61,16 @@ class DerivedKeys {
   /// ("attachments at rest", siehe anhang/ruhe_datei.dart).
   final Uint8List attachmentKey;
 
+  /// 32-Byte-Schluessel fuer die Info je Geraet in der Geraeteliste
+  /// (net/geraeteliste.dart, `GeraeteInfo`).
+  final Uint8List deviceInfoKey;
+
   const DerivedKeys({
     required this.identityPrivateKey,
     required this.identityPublicKey,
     required this.databaseKey,
     required this.attachmentKey,
+    required this.deviceInfoKey,
   });
 
   /// Die "lange Nummer", die der Nutzer weitergibt.
@@ -83,6 +95,11 @@ class KeyDerivation {
   /// abgelegten Anhangdateien werden unlesbar.
   static const String attachmentInfo = 'bitdm attachments at rest v1';
 
+  /// HKDF-Label des Geraeteinfo-Schluessels. Aenderung = die Namen in allen
+  /// bestehenden Geraetelisten werden unlesbar (die Listen selbst gelten
+  /// weiter, sie sind nicht damit verschluesselt).
+  static const String deviceInfoInfo = 'bitdm device info v1';
+
   static const int _keyLength = 32;
 
   /// Zwoelf Woerter -> alle Schluessel. Wirft [MnemonicException] bei falscher
@@ -100,6 +117,7 @@ class KeyDerivation {
     final identityRaw = await _hkdf(seed, identityInfo);
     final databaseKey = await _hkdf(seed, databaseInfo);
     final attachmentKey = await _hkdf(seed, attachmentInfo);
+    final deviceInfoKey = await _hkdf(seed, deviceInfoInfo);
 
     // Explizites Clamping: Manche Bibliotheken clampen beim Erzeugen, andere
     // erst bei der Verwendung. Wird der Schluessel hier kanonisiert, liefern
@@ -116,6 +134,7 @@ class KeyDerivation {
       identityPublicKey: Uint8List.fromList(publicKey.bytes),
       databaseKey: databaseKey,
       attachmentKey: attachmentKey,
+      deviceInfoKey: deviceInfoKey,
     );
   }
 

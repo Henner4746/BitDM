@@ -57,6 +57,11 @@ import 'store/sicherung.dart';
 import 'store/signal_store_repository.dart';
 import 'store/sqlite_zugang.dart';
 import 'verbindungstest.dart';
+import 'net/geraeteliste.dart';
+
+export 'net/geraeteliste.dart' show ListenStand, GeraetAnzeige;
+
+part 'geraeteverwaltung.dart';
 
 class RealMessengerCore implements MessengerCore {
   RealMessengerCore({
@@ -333,7 +338,43 @@ class RealMessengerCore implements MessengerCore {
   /// Ewigkeit gegen eine Antwort, die sich nie aendert.
   bool _abgewiesen = false;
 
+  /// Ob `_ermittleGeraetId` in DIESEM Verbindungsversuch schon gefragt hat und
+  /// der Relay Geraete kennt. Nur, damit die Geraeteliste nicht dieselbe
+  /// Frage noch einmal stellt (jede kostet eine Marke der Herkunftsbremse).
+  bool _relayKenntGeraete = false;
+
   bool get abgewiesen => _abgewiesen;
+
+  // ═══════════════════════════ Geraeteliste (geraeteverwaltung.dart)
+  //
+  // Der Zustand der Geraeteabmeldung (docs/GERAETEABMELDUNG.md). Die Logik
+  // steht in der Erweiterung `Geraeteverwaltung`; hier nur, was sie sich
+  // merken muss.
+
+  /// Der Geraeteschluessel dieser Installation (meta `geraeteschluessel`).
+  PrivateKey? _geraeteSchluessel;
+
+  /// Schluessel fuer die verschluesselte Info je Geraet (aus den Woertern).
+  Uint8List? _infoSchluessel;
+
+  /// Die gepruefte Geraeteliste je Adresse, null = keine. Spiegel von meta
+  /// `geraeteliste:<adresse>`.
+  final _listen = <String, Geraeteliste?>{};
+
+  /// Wann die Liste einer Gegenstelle zuletzt nachgeladen wurde, weil Post
+  /// von einem unbekannten Geraet kam.
+  final _listeGefragt = <String, DateTime>{};
+
+  var _geraeteStand = ListenStand.unbekannt;
+  final _geraeteCtl = StreamController<ListenStand>.broadcast();
+  Uint8List? _hinzufuegeCode;
+  DateTime? _hinzufuegeBis;
+  Timer? _hinzufuegeTakt;
+  int? _zuletztHinzugefuegt;
+  bool _pruefeLaeuft = false;
+  Timer? _beitrittsTimer;
+  DateTime? _beitrittBis;
+  ({DateTime zeit, String? von})? _abmeldung;
 
   var _conn = ConnectionState.disconnected;
 
@@ -547,6 +588,8 @@ class RealMessengerCore implements MessengerCore {
     if (_store != null || await secretStore.read() != null) {
       throw StateError('es gibt bereits eine Identitaet');
     }
+    _abmeldung = null;
+    _abgewiesen = false;
     final woerter = Bip39.generate();
     final entropie = Bip39.mnemonicToEntropy(woerter);
     // NUR IM BROWSER (verwaisteDatenbankMoeglich): dort kann eine
@@ -559,7 +602,16 @@ class RealMessengerCore implements MessengerCore {
     if (verwaisteDatenbankMoeglich) await loescheDatenbank(databasePath);
     await secretStore.write(entropie);
     _hatIdentitaet = true;
-    await _oeffne(entropie);
+    try {
+      await _oeffne(entropie);
+    } on DatabaseUnlockException {
+      // EIN ABGEMELDETES GERAET (geraeteverwaltung.dart): seine Datenbank
+      // liegt noch da, verschluesselt mit den ALTEN Woertern. Frische
+      // Entropie oeffnet sie nie; wer hier eine neue Identitaet anlegt, hat
+      // sich gegen die alte entschieden.
+      await loescheDatenbank(databasePath);
+      await _oeffne(entropie);
+    }
     return woerter;
   }
 
@@ -570,6 +622,8 @@ class RealMessengerCore implements MessengerCore {
     }
     if (!Bip39.validate(words)) throw const InvalidRecoveryPhraseException();
     final entropie = Bip39.mnemonicToEntropy(words);
+    _abmeldung = null;
+    _abgewiesen = false;
     await secretStore.write(entropie);
     _hatIdentitaet = true;
     try {
@@ -608,6 +662,14 @@ class RealMessengerCore implements MessengerCore {
     await sqliteVorbereiten();
     final db = EncryptedDatabase.open(databasePath, keys.databaseKey);
     _ruheSchluessel = Uint8List.fromList(keys.attachmentKey);
+    _infoSchluessel = Uint8List.fromList(keys.deviceInfoKey);
+    _listen.clear();
+    _geraeteSchluessel = null;
+    // Wer zuletzt in der Liste stand, ist bis zum naechsten Verbinden
+    // Mitglied; ob es noch stimmt, sagt die Liste beim Relay.
+    _geraeteStand = db.meta('geraeteliste_mitglied') != null
+        ? ListenStand.mitglied
+        : ListenStand.unbekannt;
     // DIE NATIVE SIGNAL-BIBLIOTHEK LADEN, bevor irgendein Schluessel
     // angefasst wird (offizielle libsignal seit 2.0.0, ueber Rust). Einmal je
     // Isolate genuegt; ein zweiter Aufruf tut nichts. Im Browser laedt das
@@ -910,6 +972,7 @@ class RealMessengerCore implements MessengerCore {
     }
 
     _setzeVerbindung(ConnectionState.connecting);
+    _relayKenntGeraete = false;
     // JEDER AUSDRUECKLICHE VERSUCH BEKOMMT EIN FRISCHES URTEIL. Wer die App in
     // den Vordergrund holt, nachdem er ein anderes Geraet aufgegeben hat, soll
     // nicht an einem alten 507 haengenbleiben.
@@ -950,6 +1013,20 @@ class RealMessengerCore implements MessengerCore {
       if (ueberholt()) return _gibAuf(relay);
       if (geraetId != 1) relay.geraeteKennung = geraetId;
 
+      // DIE GERAETELISTE VOR DER ANMELDUNG (geraeteverwaltung.dart). Steht
+      // dieses Geraet nicht darin, meldet es sich gar nicht erst an — der
+      // Relay liesse es ohnehin nicht herein, und ein abgemeldetes Geraet
+      // soll nicht klopfen.
+      if (!await _pruefeEigeneListe(relay)) {
+        if (ueberholt()) return _gibAuf(relay);
+        await _raeumeVerbindungAb();
+        if (_geraeteStand != ListenStand.abgemeldet) {
+          _setzeVerbindung(ConnectionState.error);
+        }
+        return;
+      }
+      if (ueberholt()) return _gibAuf(relay);
+
       await _meldeAnWennNoetig(relay);
       if (ueberholt()) return _gibAuf(relay);
 
@@ -988,6 +1065,9 @@ class RealMessengerCore implements MessengerCore {
       // schon abgebaut, und ein zweiter Anlauf mitten im Abraeumen stiesse
       // mit dem Wiederverbindungszeitgeber zusammen.
       if (fehler is RelayUnbekannt) _vergissAnmeldung();
+      // 4410: NICHT neu anmelden, sondern die signierte Liste ansehen. Ob
+      // dieses Geraet wirklich abgemeldet ist, entscheidet nur sie.
+      if (fehler is RelayAbgemeldetFehler) unawaited(_frischeEigeneListeAuf());
       // VOR dem Zustandswechsel: an ihm haengt der Wiederverbindungszeitgeber
       // (app_state `_planeWiederverbindung`), und der liest [abgewiesen].
       _abgewiesen = fehler is RelayException && fehler.statusCode == 507;
@@ -1143,11 +1223,15 @@ class RealMessengerCore implements MessengerCore {
     List<int>? liste;
     try {
       liste = await relay.geraeteliste(myId);
+      // Die Geraeteliste (geraeteverwaltung.dart) braucht diese Antwort
+      // gleich noch einmal — so fragt sie nicht ein zweites Mal.
+      _relayKenntGeraete = liste != null;
     } on RelayException catch (e) {
       // 404 heisst "diese Adresse hat noch kein Geraet" — der Normalfall bei
       // einer Erstanlage. Nur das gilt als Antwort.
       if (e.statusCode != 404) rethrow;
       liste = null;
+      _relayKenntGeraete = true;
     }
     _merkeGeraeteZahl(liste);
     _setzeGeraetId(liste == null || (liste.isEmpty && !umzug)
@@ -1352,6 +1436,13 @@ class RealMessengerCore implements MessengerCore {
       case RelayNeuesteFassung(:final fassung):
         _neuesteFassung = fassung;
         if (!_fassungCtl.isClosed) _fassungCtl.add(fassung);
+      // Die Geraeteliste: der Relay gibt nur Hinweise, die Liste selbst
+      // wird geholt und geprueft (geraeteverwaltung.dart).
+      case RelayAbgemeldet():
+      case RelayGeraetelisteNeu():
+        unawaited(_frischeEigeneListeAuf());
+      case RelayBeitritt():
+        unawaited(_pruefeBeitritte());
     }
   }
 
@@ -1893,6 +1984,18 @@ class RealMessengerCore implements MessengerCore {
     // wird. Ohne diese Zeile waere es ein Absturz aus einem `!` heraus, in
     // einem unawaited-Ablauf, den niemand faengt.
     if (store == null || chats == null) return;
+
+    // STUFE 2: Post von einem Geraet, das nicht in der signierten Liste des
+    // Absenders steht, wird nicht einmal entschluesselt — auch nicht, wenn
+    // es die eigene Adresse ist (ein abgemeldetes Zweitgeraet, ein vom Relay
+    // erfundenes). Quittiert, damit sie nicht bei jedem Verbinden wiederkommt.
+    final darf = _darfEmpfangenSofort(von, vonGeraet) ??
+        await _darfEmpfangen(von, vonGeraet);
+    if (!darf) {
+      _bestaetigeEmpfang(nachweisFuer);
+      return;
+    }
+    if (_store == null) return;
 
     final Payload payload;
     try {
@@ -4899,6 +5002,15 @@ class RealMessengerCore implements MessengerCore {
   List<int> _bekannteGeraete(BitdmSignalStore store, String an) {
     final g = store.geraeteVon(an);
     if (an == myId) g.remove(geraetId);
+    // STUFE 2 DER GERAETEABMELDUNG: hat die Adresse eine signierte Liste,
+    // nur an Geraete darin. Hier und nicht an jeder Versandstelle, weil ALLE
+    // Wege hier ihre Ziele holen — Text, Quittung, Gruppe, Spiegel. Eine
+    // Sitzung zu einem abgemeldeten Geraet bleibt damit ungenutzt, selbst
+    // wenn der Relay es weiter beliefern wollte. Fuer die EIGENE Adresse
+    // schliesst das die Reflexion (MEHRGERAETE.md §12.1): ein erfundenes
+    // Geraet 7 steht in keiner Liste, die der Relay faelschen koennte.
+    final liste = _listeVon(an);
+    if (liste != null) g.removeWhere((x) => !liste.kennungen.contains(x));
     return g;
   }
 
@@ -4955,6 +5067,9 @@ class RealMessengerCore implements MessengerCore {
   ) async {
     final ziele = <int>[];
     GegenstelleOhneKyberException? veraltet;
+    // Die Geraeteliste, die der Relay mitschickt — geprueft und gemerkt
+    // (geraeteverwaltung.dart). Gibt es eine, zaehlen nur Geraete darin.
+    final liste = _nimmListe(an, antwort.geraeteliste);
     // GEDECKELT, siehe [geraeteMax]. `alleGeraete` kommt vom Relay und ist
     // damit fremde Eingabe wie jede andere.
     final alle = antwort.alleGeraete;
@@ -4963,6 +5078,7 @@ class RealMessengerCore implements MessengerCore {
         : (alle.toList()..sort((x, y) => x.deviceId.compareTo(y.deviceId)))
             .take(geraeteMax)) {
       if (an == myId && b.deviceId == geraetId) continue;
+      if (liste != null && !liste.kennungen.contains(b.deviceId)) continue;
       // KENNUNG AUSSERHALB 1..127: ein Geraet mit einer App vor 2.0.0.
       // libsignal nimmt die Kennung nicht; ueberspringen wie ein Geraet ohne
       // Kyber, statt den Versand an alle anderen umzuwerfen.
@@ -5043,6 +5159,13 @@ class RealMessengerCore implements MessengerCore {
       // und zwar OHNE Vermerk — sonst gaelte die Liste sechs Stunden lang als
       // geprueft, obwohl niemand geprueft hat.
       if (liste == null) return bekannt;
+      // DIE SIGNIERTE GERAETELISTE DER GEGENSTELLE, wenn unser Relay Listen
+      // kennt. Erst sie verraet eine Abmeldung, die der Relay verschweigen
+      // wuerde — die Kennungen von oben kommen nur vom Relay.
+      if (hatGeraeteliste) {
+        _nimmListe(an, await relay.holeGeraeteliste(an));
+        bekannt = _bekannteGeraete(store, an);
+      }
       if (liste.toSet().difference(bekannt.toSet()).isEmpty) {
         _chats?.setzeGeraeteGeprueft(an, jetzt);
         return bekannt;
@@ -5085,10 +5208,23 @@ class RealMessengerCore implements MessengerCore {
     final relay = _relay;
     if (store == null || relay == null) return;
     try {
+      // MIT GERAETELISTE ERST NACHSEHEN, OB ES UEBERHAUPT ETWAS GIBT. Steht
+      // jedes Geraet der Liste schon mit einer Sitzung da (der Normalfall,
+      // und bei nur einem Geraet immer), braucht es keine Frage an den Relay.
+      final eigene = _listeVon(myId);
+      if (eigene != null) {
+        _geraeteZahl = eigene.geraete.length;
+        final offen = eigene.kennungen.where((g) => g != geraetId).toSet()
+            .difference(_bekannteGeraete(store, myId).toSet());
+        if (offen.isEmpty) return;
+      }
       final liste = await relay.geraeteliste(myId);
       if (liste == null) return;
-      _merkeGeraeteZahl(liste);
-      final fremd = liste.where((g) => g != geraetId).toSet();
+      if (eigene == null) _merkeGeraeteZahl(liste);
+      final fremd = liste
+          .where((g) => g != geraetId &&
+              (eigene == null || eigene.kennungen.contains(g)))
+          .toSet();
       if (fremd.difference(_bekannteGeraete(store, myId).toSet()).isEmpty) {
         return;
       }
@@ -5350,6 +5486,13 @@ class RealMessengerCore implements MessengerCore {
   /// sind, spielt deshalb keine Rolle: ohne den Schluessel sind sie Rauschen.
   @override
   Future<void> wipeEverything() async {
+    _beitrittsTimer?.cancel();
+    _beitrittsTimer = null;
+    beendeHinzufuegen();
+    _infoSchluessel = null;
+    _geraeteSchluessel = null;
+    _listen.clear();
+    _geraeteStand = ListenStand.unbekannt;
     await _raeumeVerbindungAb();
     await _haltNahe();
     // Die Geheimnisse sind aus der Identitaet gerechnet, die gleich faellt.
@@ -5450,6 +5593,14 @@ class RealMessengerCore implements MessengerCore {
   /// aussen, dass dieses Geraet gerade laeuft.
   @override
   Future<void> lock() async {
+    _beitrittsTimer?.cancel();
+    _beitrittsTimer = null;
+    beendeHinzufuegen();
+    final info = _infoSchluessel;
+    if (info != null) info.fillRange(0, info.length, 0);
+    _infoSchluessel = null;
+    _geraeteSchluessel = null;
+    _listen.clear();
     await _raeumeVerbindungAb();
     // Der Funk geht mit, aus demselben Grund wie die Verbindung: solange die
     // App zu ist, koennte niemand eine ankommende Nachricht entschluesseln,
@@ -5475,6 +5626,9 @@ class RealMessengerCore implements MessengerCore {
   @override
   Future<void> dispose() async {
     _geraeuschTakt?.cancel();
+    _beitrittsTimer?.cancel();
+    _hinzufuegeTakt?.cancel();
+    await _geraeteCtl.close();
     await _raeumeVerbindungAb();
     await _nahAbo?.cancel();
     _nahAbo = null;

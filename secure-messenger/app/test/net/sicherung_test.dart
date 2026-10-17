@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:bitdm/core/messenger_core.dart';
+import 'package:bitdm/core/real_messenger_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/nutzer.dart';
@@ -91,6 +92,16 @@ void main() {
     await neu.starten();
     expect(await neu.core.restoreIdentity(woerter), alice.core.myId);
     await neu.core.connect();
+    // SEIT DER GERAETEABMELDUNG (docs/GERAETEABMELDUNG.md) steht das neue
+    // Telefon nicht von selbst in der Geraeteliste — die Woerter allein
+    // reichen nicht mehr. Das alte ist weg, also bleibt der Weg, den ein
+    // Mensch hier nimmt: "Alle anderen Geraete abmelden".
+    expect(neu.core.geraeteStand, ListenStand.beitrittNoetig);
+    await neu.core.setzeZurueck();
+    expect(
+        await Nutzer.warteBis(
+            () => neu.core.connectionState == ConnectionState.online),
+        isTrue);
 
     final hinzu = await neu.core.spieleSicherungEin(sicherung);
     expect(hinzu, 2, reason: 'beide Nachrichten sollten zurueck sein');

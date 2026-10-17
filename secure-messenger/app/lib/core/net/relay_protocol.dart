@@ -274,6 +274,12 @@ class RelayBundleResponse {
   /// macht daraus einen Fall statt zweier.
   final List<RelayBundleResponse> geraete;
 
+  /// Die signierte Geraeteliste der Adresse, wie der Relay sie mitschickt
+  /// (`{"liste","sig_identitaet","sig_geraet"}`), UNGEPRUEFT. Null bei einer
+  /// Adresse ohne Liste oder einem Relay, der keine kennt. Pruefen tut der
+  /// Kern mit `Geraeteliste.pruefe` (docs/GERAETEABMELDUNG.md §8.7).
+  final Map<String, Object?>? geraeteliste;
+
   const RelayBundleResponse({
     required this.userId,
     required this.identityKey,
@@ -287,6 +293,7 @@ class RelayBundleResponse {
     this.kyberPreKeySignature,
     this.deviceId = 1,
     this.geraete = const [],
+    this.geraeteliste,
   });
 
   /// Alle Geraete der Adresse, immer mindestens eines.
@@ -301,7 +308,9 @@ class RelayBundleResponse {
   static RelayBundleResponse fromJson(Map<String, Object?> j) {
     final otk = j['one_time_prekey'];
     final rohGeraete = j['geraete'];
+    final rohListe = j['geraeteliste'];
     return RelayBundleResponse(
+      geraeteliste: rohListe is Map ? rohListe.cast<String, Object?>() : null,
       userId: j['user_id']! as String,
       identityKey: j['identity_key']! as String,
       registrationId: j['registration_id'] as int? ?? 0,
