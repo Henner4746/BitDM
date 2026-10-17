@@ -31,17 +31,26 @@ Abweichungen vom Plan:
   Aufteilung grün. Damit ist derselbe Nachweis erbracht. C2, C4 und C6 fehlen;
   teils decken `sprachnachricht_test`, `zurueck_test` und
   `fernloeschung_ui_test` das ab.
-- **Vier unbenutzte Mitglieder bleiben in der Klasse:** `ephLabel`, `nowHm`,
-  `zugriffsBlock`, `_uhr`. In einer privaten Extension meldete der Analyzer
-  sie als unbenutzt; toten Code zu löschen ist keine Verschiebung. Eigener
-  Aufräum-Commit.
+- **Vier Mitglieder hielt das Werkzeug für unbenutzt.** Zwei waren es nur
+  scheinbar: Die Bezugserkennung übersah Aufrufe hinter dem Spread-Operator
+  (`...zugriffsBlock(`) und in String-Interpolationen (`${_uhr(...)}`). Sie
+  sind nachträglich in `zugriff.dart` und `einstellungen.dart` gezogen
+  (reine Verschiebung). `ephLabel` und `nowHm` waren wirklich tot und sind in
+  einem eigenen Commit gelöscht (`6c31007`).
 - **Neue Mitglieder seit dem Plan:** `reqErgebnis` und `_starte` in die
   Klasse, `schluesselspeicherScreen` nach `sperre.dart`, `_geraeteStil` nach
   `bausteine.dart`. Vorher stand `_geraeteStil` zwischen Kommentar und
   Methode von `_hinweisKasten` (`6aef266` stellt das richtig).
-- **Schritt 27 (Felder nach Modul ordnen) ist offen.**
-- **Offen am Gerät:** eine Windows-Fassung starten und Anlegen, Sperren,
-  Entsperren, Chat und Einstellungen durchklicken; dazu der Emulatorlauf.
+- **Schritt 27 umgesetzt:** Die Felder stehen in Abschnitten je Teil; die
+  vier Felder mit Geheimnissen stehen direkt vor `_raeumeOberflaecheAuf`.
+  Neu sind nur die 13 Überschriftzeilen (G2 zeigt genau diese).
+- **Am Gerät:** `integration_test/windows_plattform_test.dart` lief auf dem
+  echten Windows mit dem aufgeteilten Code gegen einen lokalen Relay mit
+  Kyber-Pflicht, 5 von 5 grün: Screenshot-Sperre, Schlüsselspeicher, zwei
+  Kerne mit Nachricht/Quittung/Anhang/Gruppe, Codewort und Update-Hinweis mit
+  drei Kernen, Oberfläche mit Anlegen und Passwortsperre. Den
+  Android-Durchstich (zwei Emulatoren) hatte am selben Tag der 2.0.0-Stand vor
+  der Aufteilung bestanden.
 
 ## Ausgangslage
 
