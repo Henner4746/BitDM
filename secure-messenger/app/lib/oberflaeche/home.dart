@@ -81,30 +81,123 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProviderStateMixin {
-  // setState IST @protected. Die Bildschirme und Bausteine stehen als
-  // `extension on _HomeState` in home/*.dart (part); jeder Aufruf von dort
-  // gaebe die Warnung invalid_use_of_protected_member, und die CI bricht bei
-  // Warnungen ab. Dieser Override tut nichts anderes als State.setState.
-  @override
-  void setState(VoidCallback fn) => super.setState(fn);
+  // ── Felder des Kerns: Bildschirm, Lebenszyklus, Zustand (home.dart)
+
+  /// Ob der Schutz fuer den Woerter-Bildschirm gerade angemeldet ist.
+  bool _phraseGeschuetzt = false;
+
+  /// Was beim letzten Horchen galt — um den WECHSEL zu erkennen, nicht den
+  /// Zustand.
+  bool _warGesperrt = false;
+
+  bool _hatteIdentitaet = false;
+
+  // ── Felder von home/tastatur.dart
+
+  /// Faengt den Tastaturfokus ein, wenn ihn sonst niemand hat.
+  ///
+  /// WARUM DAS NOETIG IST. Tastenereignisse laufen vom fokussierten Knoten nach
+  /// OBEN. Hat in der App nichts den Fokus, liegt er auf dem FocusScope der
+  /// Route — und das ist ueber [_mitTasten]. Escape und Eingabe kamen dort nie
+  /// an, solange niemand vorher geklickt oder getabbt hatte, also genau in dem
+  /// Moment, in dem man sie zuerst probiert.
+  ///
+  /// `skipTraversal`, damit Tab nicht auf diesem unsichtbaren Knoten anfaengt,
+  /// sondern beim ersten echten Bedienelement.
+  final _tastenFokus =
+      FocusNode(debugLabel: 'Tastenfang', skipTraversal: true);
+
+  /// Fuer welchen Bildschirm [_sorgeFuerFokus] den Fokus schon gesetzt hat.
+  String? _zuletztFokussiert;
+
+  // ── Felder von home/navigation.dart
+
+  /// In welche Richtung zuletzt gewechselt wurde. Steuert, von welcher Seite
+  /// der neue Bildschirm hereinkommt.
+  int _richtung = 1;
+
+  // ── Felder von home/thema.dart
+
+  /// Das Thema, VON dem gerade gewechselt wird, oder null.
+  Thema? _vonThema;
+
+  // In initState angelegt, NICHT faul: ein `late final` mit Initialisierer
+  // entstuende sonst erst in dispose() — und wollte dort einen Ticker von
+  // einem Baum, den es nicht mehr gibt.
+  late final AnimationController _wechsel;
+
+  Timer? _wanderTakt;
+
+  String? _gemeldetesThema;
+
+  int? _gemeldetesWandern;
+
+  // ── Felder von home/zugriff.dart
+
+  /// Welche Zeile im Zugriffs-Bildschirm gerade arbeitet.
+  ///
+  /// Ohne diese Anzeige sieht ein Antippen aus wie ein Antippen ins Leere —
+  /// und genau so wurde es am 25.07.2026 gemeldet.
+  String? laeuftZeile;
+
+  // ── Felder von home/notfall.dart
+
+  final codeCtl = TextEditingController();
+
+  /// Zeichnet den Balken nach, solange eine Fernloeschung laeuft — einmal je
+  /// Minute, in der letzten Minute jede Sekunde. Ohne Wecker stand "10 Min."
+  /// bis zur Loeschung da.
+  Timer? _fernAnzeigeTakt;
+
+  // ── Felder von home/verschluesselung.dart
+
+  /// Die Pruefnummer der offenen Unterhaltung. Wird beim Oeffnen des
+  /// Verschluesselungs-Blatts geladen — sie zu berechnen kostet 5200 Runden
+  /// SHA-512 und lohnt nicht auf Vorrat.
+  SafetyNumber? pruefnummer;
+
+  String? pruefnummerFehler;
+
+  // ── Felder von home/unterhaltung.dart
+
+  /// Die Bildlaufsteuerung der offenen Unterhaltung.
+  final _chatScroll = ScrollController();
+
+  int _scrollAnzahl = 0;
+
+  /// Ob die Schreibzeile beim letzten Tastendruck mit "/" begann.
+  bool _warBefehl = false;
+
+  /// Welche der angehefteten Nachrichten die Leiste gerade zeigt.
+  int _angeheftetStelle = 0;
+
+  // ── Felder von home/nachricht.dart
+
+  /// Wann eine eintreffende Nachricht sich zu entschluesseln begann.
+  final Map<String, DateTime> _entschluesseltSeit = {};
+
+  // ── Felder von home/anhaenge.dart
+
+  Timer? _aufnahmeTakt;
+
+  // ── Felder, die mehrere Teile benutzen
 
   String screen = 'onboard';
+
   String? chat;
+
   bool sheet = false, panic = false, wiped = false, copied = false;
+
   /// Was das letzte "Anfrage senden" bewirkt hat; null, solange es nichts zu
   /// sagen gibt. Bis 15.10.2026 ein bool, und "wahr" hiess immer "Anfrage
   /// gesendet" — siehe [Hinzugefuegt].
   Hinzugefuegt? reqErgebnis;
-
-  /// Die Bildlaufsteuerung der offenen Unterhaltung.
-  final _chatScroll = ScrollController();
 
   /// Woran [_haltUnten] erkennt, dass sich etwas geaendert hat. Ohne dieses
   /// Gedaechtnis wuerde bei JEDEM Neubauen gescrollt — und neu gebaut wird
   /// auch beim Tippen, beim Eintreffen eines Lesehakens, beim Wechsel der
   /// Verbindungsanzeige.
   String? _scrollChat;
-  int _scrollAnzahl = 0;
 
   /// Ob der Nutzer gerade selbst etwas abgeschickt hat.
   ///
@@ -115,13 +208,78 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   /// zwei statt um eins, und daran war es zu sehen.
   bool _selbstGeschrieben = false;
 
-  AppState get st => widget.state;
+  /// Die Sprache: gewaehlt (in den Einstellungen gespeichert) oder die des
+  /// Systems. Bis 25.09.2026 stand hier fest 'en', und nichts davon ueberlebte
+  /// einen Neustart — wer Deutsch wollte, stellte es jedes Mal neu ein.
+  String lang =
+      WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'de' ? 'de' : 'en';
 
-  /// Die Pruefnummer der offenen Unterhaltung. Wird beim Oeffnen des
-  /// Verschluesselungs-Blatts geladen — sie zu berechnen kostet 5200 Runden
-  /// SHA-512 und lohnt nicht auf Vorrat.
-  SafetyNumber? pruefnummer;
-  String? pruefnummerFehler;
+  // ═════════════════════════════════════════════════════════════ Themen
+  //
+  // Siehe lib/themen.dart. Hier liegt nur, welches gerade gilt und wie weit
+  // ein Wechsel ist.
+
+  List<Thema> _themen = bauThemen();
+
+  late Thema _thema = _themen.first;
+
+  String? enroll;
+
+  /// Was beim Sperren zuletzt schiefging, im Klartext fuer den Nutzer.
+  String? lockFehler;
+
+  /// Was bei der Wiederherstellung schiefging, im Klartext.
+  String? restoreFehler;
+
+  /// Wie der Stick angeschlossen ist. Einstecken ist der Standard: der Kontakt
+  /// kann dabei nicht abreissen, und beim Anlegen sind zwei Beruehrungen
+  /// noetig — bei NFC ist das die haeufigste Fehlerquelle.
+  StickWeg stickWeg = StickWeg.usb;
+
+  /// Woran gerade gearbeitet wird. Null heisst: nichts laeuft.
+  String? stickSchritt;
+
+  final draftCtl = TextEditingController();
+
+  /// Worauf die naechste Nachricht antwortet, oder welche gerade bearbeitet
+  /// wird. Hoechstens eines von beiden: eine Bearbeitung antwortet nicht neu.
+  Message? _antwortZiel;
+
+  Message? _bearbeitungsZiel;
+
+  /// Zeigt die Chatliste das Archiv statt der gewoehnlichen Unterhaltungen?
+  bool _zeigeArchiv = false;
+
+  final suchCtl = TextEditingController();
+
+  final addCtl = TextEditingController();
+
+  /// Nur fuer den sichtbaren Fokusrahmen der beiden mehrzeiligen Felder.
+  ///
+  /// Beide liegen in einem Container, der den Rahmen zeichnet und vom Feld
+  /// darin nichts weiss. Ohne diese Knoten sah man auf einem leeren Feld
+  /// nicht, dass es am Zug ist — mit Tab-Bedienung ist das der Unterschied
+  /// zwischen bedienbar und nicht.
+  final _phraseFokus = FocusNode();
+
+  final _addFokus = FocusNode();
+
+  /// Seit wann aufgenommen wird, oder null.
+  DateTime? _aufnahmeSeit;
+
+  /// Ob die laufende Aufnahme als Einmal-Ansicht hinausgeht (Schalter "1×").
+  bool _spracheEinmal = false;
+
+  String _filter = 'alle';
+
+  // setState IST @protected. Die Bildschirme und Bausteine stehen als
+  // `extension on _HomeState` in home/*.dart (part); jeder Aufruf von dort
+  // gaebe die Warnung invalid_use_of_protected_member, und die CI bricht bei
+  // Warnungen ab. Dieser Override tut nichts anderes als State.setState.
+  @override
+  void setState(VoidCallback fn) => super.setState(fn);
+
+  AppState get st => widget.state;
 
   @override
   void initState() {
@@ -181,14 +339,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     });
   }
 
-  /// Ob der Schutz fuer den Woerter-Bildschirm gerade angemeldet ist.
-  bool _phraseGeschuetzt = false;
-
-  /// Was beim letzten Horchen galt — um den WECHSEL zu erkennen, nicht den
-  /// Zustand.
-  bool _warGesperrt = false;
-  bool _hatteIdentitaet = false;
-
   void _aktualisiere() {
     if (!mounted) return;
     // GERADE ZUGESPERRT ODER GELOESCHT: alles, was UEBER dem Bildschirm liegt,
@@ -220,6 +370,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     _uebernimmEinstellungen();
     setState(() {});
   }
+
+  // ── Felder mit Geheimnissen: _raeumeOberflaecheAuf (gleich darunter) leert
+  //    sie beim Sperren und Loeschen.
+
+  final stickPinCtl = TextEditingController();
+
+  final pwCtl = TextEditingController();
+
+  final pwCtl2 = TextEditingController();
+
+  final phraseCtl = TextEditingController();
 
   /// Schliesst alles, was ueber dem Bildschirm liegt, und vergisst, was
   /// eingetippt oder angezeigt war — beim Sperren und beim Loeschen.
@@ -290,33 +451,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     }
   }
 
-  /// Die Sprache: gewaehlt (in den Einstellungen gespeichert) oder die des
-  /// Systems. Bis 25.09.2026 stand hier fest 'en', und nichts davon ueberlebte
-  /// einen Neustart — wer Deutsch wollte, stellte es jedes Mal neu ein.
-  String lang =
-      WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'de' ? 'de' : 'en';
-
-  // ═════════════════════════════════════════════════════════════ Themen
-  //
-  // Siehe lib/themen.dart. Hier liegt nur, welches gerade gilt und wie weit
-  // ein Wechsel ist.
-
-  List<Thema> _themen = bauThemen();
-  late Thema _thema = _themen.first;
-
-  /// Das Thema, VON dem gerade gewechselt wird, oder null.
-  Thema? _vonThema;
-  // In initState angelegt, NICHT faul: ein `late final` mit Initialisierer
-  // entstuende sonst erst in dispose() — und wollte dort einen Ticker von
-  // einem Baum, den es nicht mehr gibt.
-  late final AnimationController _wechsel;
-  Timer? _wanderTakt;
-  String? _gemeldetesThema;
-  int? _gemeldetesWandern;
-
-  /// Wann eine eintreffende Nachricht sich zu entschluesseln begann.
-  final Map<String, DateTime> _entschluesseltSeit = {};
-
   void _wechselTakt() {
     if (!mounted) return;
     // Die Schrift wechselt in der Mitte, wenn der Schleier am dichtesten ist.
@@ -325,70 +459,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     }
     setState(() {});
   }
-
-  String? enroll;
-
-  /// Was beim Sperren zuletzt schiefging, im Klartext fuer den Nutzer.
-  String? lockFehler;
-
-  /// Was bei der Wiederherstellung schiefging, im Klartext.
-  String? restoreFehler;
-
-  /// Wie der Stick angeschlossen ist. Einstecken ist der Standard: der Kontakt
-  /// kann dabei nicht abreissen, und beim Anlegen sind zwei Beruehrungen
-  /// noetig — bei NFC ist das die haeufigste Fehlerquelle.
-  StickWeg stickWeg = StickWeg.usb;
-
-  /// Woran gerade gearbeitet wird. Null heisst: nichts laeuft.
-  String? stickSchritt;
-
-  /// Welche Zeile im Zugriffs-Bildschirm gerade arbeitet.
-  ///
-  /// Ohne diese Anzeige sieht ein Antippen aus wie ein Antippen ins Leere —
-  /// und genau so wurde es am 25.07.2026 gemeldet.
-  String? laeuftZeile;
-
-  final draftCtl = TextEditingController();
-
-  /// Worauf die naechste Nachricht antwortet, oder welche gerade bearbeitet
-  /// wird. Hoechstens eines von beiden: eine Bearbeitung antwortet nicht neu.
-  Message? _antwortZiel;
-  Message? _bearbeitungsZiel;
-
-  /// Zeigt die Chatliste das Archiv statt der gewoehnlichen Unterhaltungen?
-  bool _zeigeArchiv = false;
-  final suchCtl = TextEditingController();
-  final addCtl = TextEditingController();
-  final codeCtl = TextEditingController();
-  final stickPinCtl = TextEditingController();
-  final pwCtl = TextEditingController();
-  final pwCtl2 = TextEditingController();
-  final phraseCtl = TextEditingController();
-
-  /// Nur fuer den sichtbaren Fokusrahmen der beiden mehrzeiligen Felder.
-  ///
-  /// Beide liegen in einem Container, der den Rahmen zeichnet und vom Feld
-  /// darin nichts weiss. Ohne diese Knoten sah man auf einem leeren Feld
-  /// nicht, dass es am Zug ist — mit Tab-Bedienung ist das der Unterschied
-  /// zwischen bedienbar und nicht.
-  final _phraseFokus = FocusNode();
-  final _addFokus = FocusNode();
-
-  /// Faengt den Tastaturfokus ein, wenn ihn sonst niemand hat.
-  ///
-  /// WARUM DAS NOETIG IST. Tastenereignisse laufen vom fokussierten Knoten nach
-  /// OBEN. Hat in der App nichts den Fokus, liegt er auf dem FocusScope der
-  /// Route — und das ist ueber [_mitTasten]. Escape und Eingabe kamen dort nie
-  /// an, solange niemand vorher geklickt oder getabbt hatte, also genau in dem
-  /// Moment, in dem man sie zuerst probiert.
-  ///
-  /// `skipTraversal`, damit Tab nicht auf diesem unsichtbaren Knoten anfaengt,
-  /// sondern beim ersten echten Bedienelement.
-  final _tastenFokus =
-      FocusNode(debugLabel: 'Tastenfang', skipTraversal: true);
-
-  /// Fuer welchen Bildschirm [_sorgeFuerFokus] den Fokus schon gesetzt hat.
-  String? _zuletztFokussiert;
 
   /// Am Rechner und im Browser "Geraet" statt "Telefon" — siehe
   /// [geraetErsetzungen] in data.dart.
@@ -432,26 +502,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     _tastenFokus.dispose();
     super.dispose();
   }
-
-  /// Seit wann aufgenommen wird, oder null.
-  DateTime? _aufnahmeSeit;
-  Timer? _aufnahmeTakt;
-
-  /// Ob die laufende Aufnahme als Einmal-Ansicht hinausgeht (Schalter "1×").
-  bool _spracheEinmal = false;
-
-  /// Ob die Schreibzeile beim letzten Tastendruck mit "/" begann.
-  bool _warBefehl = false;
-
-  /// Welche der angehefteten Nachrichten die Leiste gerade zeigt.
-  int _angeheftetStelle = 0;
-
-  String _filter = 'alle';
-
-  /// Zeichnet den Balken nach, solange eine Fernloeschung laeuft — einmal je
-  /// Minute, in der letzten Minute jede Sekunde. Ohne Wecker stand "10 Min."
-  /// bis zur Loeschung da.
-  Timer? _fernAnzeigeTakt;
 
   // ---- build ----
   @override
@@ -659,10 +709,6 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     _sorgeFuerFokus();
   }
 
-  /// In welche Richtung zuletzt gewechselt wurde. Steuert, von welcher Seite
-  /// der neue Bildschirm hereinkommt.
-  int _richtung = 1;
-
   /// Fragt, ob ein Bild oder Video hinausgehen soll, obwohl seine Metadaten
   /// (Ort, Kamera, Zeit) nicht entfernt werden konnten.
   Future<bool> _frageMetadaten(String grund) async {
@@ -682,5 +728,4 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     );
     return ok == true;
   }
-
 }
