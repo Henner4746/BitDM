@@ -1549,8 +1549,7 @@ void main() {
       const kopf = leuchtfeuerLaenge + Nahtyp.laenge;
       expect(paket[leuchtfeuerLaenge], Nahtyp.umschlag);
       final klar = await Envelope.fromBytes(Uint8List.sublistView(paket, kopf))
-          .decrypt(SessionCipher.fromStore(
-              anna.store, SignalProtocolAddress(kern.myId, 1)));
+          .decrypt(chiffreVon(anna.store), adr(kern.myId));
       return Payload.fromBytes(klar);
     }
 
@@ -1617,8 +1616,7 @@ void main() {
       expect(relay!.gesendet, hasLength(1),
           reason: 'Anna erfaehrt nie, dass wir zugestimmt haben');
       final klar = await Envelope.fromBytes(relay!.gesendet.single.umschlag)
-          .decrypt(SessionCipher.fromStore(
-              anna.store, SignalProtocolAddress(kern.myId, 1)));
+          .decrypt(chiffreVon(anna.store), adr(kern.myId));
       expect(Payload.fromBytes(klar).kind, PayloadKind.contactAccept);
     });
 
@@ -1652,8 +1650,7 @@ void main() {
       await warteBis(() => relay!.gesendet.isNotEmpty);
       expect(relay!.gesendet, hasLength(1));
       final klar = await Envelope.fromBytes(relay!.gesendet.single.umschlag)
-          .decrypt(SessionCipher.fromStore(
-              anna.store, SignalProtocolAddress(kern.myId, 1)));
+          .decrypt(chiffreVon(anna.store), adr(kern.myId));
       expect(Payload.fromBytes(klar).kind, PayloadKind.contactAccept);
       expect(kern.ablageFuerTest.ausgang(), isEmpty);
     });
