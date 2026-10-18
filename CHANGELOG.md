@@ -4,6 +4,12 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
+## 2.0.1 (unveröffentlicht)
+
+**App-Sperre: zwei Lücken aus der Sicherheitsprüfung vom 18.10.2026.**
+- **Einen Faktor hinzufügen verlangt jetzt eine frische Anmeldung**, genau wie das Entfernen. Bis 2.0.0 konnte jemand mit dem kurz entsperrten Telefon ein eigenes App-Passwort anlegen und sich damit ausweisen: für die zwölf Wörter, die Sperrfrist, die Fernlöschung und die Teilgeheimnisse. Dasselbe gilt für das Panik-Wort. Ein neu angelegter Faktor zählt erst nach dem nächsten Entsperren als Ausweis.
+- **Die Sperre greift jetzt auch im Hintergrund.** Bis 2.0.0 ging die App erst beim Zurückkommen zu. Bei „Sofort“ blieben die Schlüssel offen, solange sie im Hintergrund lag. Jetzt sperrt sie bei „Sofort“ beim Weglegen und sonst, sobald die Frist um ist. **Der Hintergrundempfang verlängert die Frist nicht:** Bei 1 oder 5 Minuten empfängt die App nur in dieser Zeit. Dauerhaft geht es nur mit „Nie“. Die Einstellungen sagen das jetzt dazu.
+
 ## 2.0.0 (18.10.2026)
 
 **Signals offizielle libsignal statt der Dart-Nachbildung.** Bis 1.9.x lief die Verschlüsselung über `libsignal_protocol_dart`, eine nie geprüfte Nachbildung in reinem Dart. Das Sicherheitsaudit vom 16.10.2026 fand darin zwei schwere Fehler in der Zustandsverwaltung. Ab 2.0.0 rechnet Signals eigene Bibliothek (Rust, libsignal 0.105, über das Paket `libsignal` 8.0.0). Plan und Nachweise: [`secure-messenger/docs/LIBSIGNAL-UMSTIEG.md`](secure-messenger/docs/LIBSIGNAL-UMSTIEG.md).

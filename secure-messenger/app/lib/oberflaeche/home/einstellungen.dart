@@ -189,6 +189,13 @@ extension _Einstellungen on _HomeState {
             if (st.empfangsTakt.an && !st.empfangMoeglich) ...[
               const SizedBox(height: 10),
               _hinweisKasten(t('bgConflict'), warnend: false),
+            ]
+            // Und die mildere Form davon: bei 1 oder 5 Minuten empfaengt die
+            // App nur, bis die Frist um ist — sie verlaengert sich dafuer
+            // nicht (AppState, "Sperren im Hintergrund").
+            else if (st.empfangEndetMitFrist) ...[
+              const SizedBox(height: 10),
+              _hinweisKasten(t('bgUntilLock'), warnend: false),
             ],
           ])),
         ],

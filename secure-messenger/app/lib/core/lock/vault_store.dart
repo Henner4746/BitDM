@@ -41,6 +41,15 @@
 //   - Die offene Entropie wird beim Sperren ueberschrieben, und [read] gibt
 //     eine Kopie heraus.
 //   - Das Panik-Loeschen nimmt die Fachschluessel im Geraet mit.
+//
+// SEIT 18.10.2026 (Sicherheitspruefung des ganzen Codes)
+//   - Einen Faktor HINZUZUFUEGEN verlangt ebenfalls einen frischen Nachweis,
+//     sobald es schon Faecher gibt ([fuegeHinzu], [fuegePanikHinzu]). Vorher
+//     konnte jemand mit dem entsperrten Telefon ein eigenes Passwort anlegen
+//     und sich damit ausweisen — fuer die zwoelf Woerter, die Sperrfrist, die
+//     Fernloeschung.
+//   - Ein Fach, das seit dem letzten Entsperren dazukam, ist kein Nachweis
+//     ([weiseNach], [taugtAlsNachweis]).
 
 import 'dart:convert';
 import 'dart:io';
@@ -65,15 +74,16 @@ class PanikAusgeloestException implements Exception {
   String toString() => 'PanikAusgeloestException';
 }
 
-/// Das letzte Fach sollte entfernt werden, ohne dass gerade ein Faktor
-/// vorgelegt wurde.
+/// Etwas, das die Sperre aendert, sollte ohne frisch vorgelegten Faktor
+/// passieren: das letzte Fach entfernen, ein weiteres hinzufuegen, ein
+/// Panik-Passwort anlegen.
 ///
 /// Die Oberflaeche reagiert darauf, indem sie einen Faktor abfragt
 /// ([VaultSecretStore.weiseNach]) und es mit dem Nachweis erneut versucht.
 class NachweisNoetigException implements Exception {
   const NachweisNoetigException();
   @override
-  String toString() => 'NachweisNoetigException: zum Abschalten der Sperre '
+  String toString() => 'NachweisNoetigException: zum Aendern der Sperre '
       'muss ein Faktor frisch vorgelegt werden';
 }
 
@@ -85,6 +95,12 @@ class NachweisNoetigException implements Exception {
 /// in die Hand bekam (Sperrfrist "nie", oder einfach im richtigen Moment),
 /// konnte die Sperre mit zwei Tipps dauerhaft abschalten und spaeter in Ruhe
 /// wiederkommen.
+///
+/// Seit 18.10.2026 verlangt auch das HINZUFUEGEN eines Faktors einen
+/// Nachweis (sobald es schon Faecher gibt). Ein neuer Faktor ist ein neuer
+/// Ausweis: wer ihn ohne Nachweis anlegen kann, kann sich danach mit ihm
+/// ausweisen — und alles tun, wofuer die Oberflaeche eine frische Anmeldung
+/// verlangt.
 ///
 /// Nur [VaultSecretStore.weiseNach] stellt ihn aus. Er gilt fuer diesen
 /// Tresor, EINMAL, hoechstens [VaultSecretStore.nachweisGueltigkeit] lang
@@ -162,6 +178,16 @@ class VaultSecretStore implements SecretStore {
   /// Zaehlt jedes Sperren mit. Ein [FrischerNachweis] aus einer frueheren
   /// Epoche gilt nicht mehr.
   int _epoche = 0;
+
+  /// Die Faecher, die seit dem letzten Oeffnen dazukamen (Kennungen).
+  /// Beim Sperren vergessen — nach dem naechsten Entsperren zaehlen sie wie
+  /// jedes andere. Siehe [taugtAlsNachweis].
+  final Set<String> _neueFaecher = {};
+
+  /// Ob der Tresor in dieser Epoche mit einem Faktor geoeffnet wurde
+  /// ([entsperreMit]) — und nicht, weil gerade erst der erste Faktor
+  /// eingerichtet wurde ([fuegeHinzu]).
+  bool _mitFaktorGeoeffnet = false;
 
   /// Ob die Faecher schon eingelesen wurden.
   bool _geladen = false;
@@ -298,6 +324,7 @@ class VaultSecretStore implements SecretStore {
     final (slot, oeffnung) = await _oeffneMit(faktor, slotId: slotId);
     _vergiss();
     _offen = oeffnung.geheimnis;
+    _mitFaktorGeoeffnet = true;
     await _pflegeNachDemOeffnen(slot, oeffnung);
     return Uint8List.fromList(oeffnung.geheimnis);
   }
@@ -309,19 +336,38 @@ class VaultSecretStore implements SecretStore {
   /// enthalten. Das Panik-Passwort loest auch hier [PanikAusgeloestException]
   /// aus: wer unter Zwang "zum Abschalten bitte das Passwort" hoert, soll
   /// genau das eingeben koennen.
+  ///
+  /// EIN FACH AUS DIESER SITZUNG ZAEHLT NICHT ([taugtAlsNachweis]) — es
+  /// endet in [UnlockFailedException], wie ein falsches Passwort.
   Future<FrischerNachweis> weiseNach(UnlockFactor faktor,
       {String? slotId}) async {
     if (_offen == null) throw const LockedException();
     final epoche = _epoche;
-    final (_, oeffnung) = await _oeffneMit(faktor, slotId: slotId);
+    final (slot, oeffnung) = await _oeffneMit(faktor, slotId: slotId);
     final offen = _offen;
     final passt = offen != null &&
         epoche == _epoche &&
+        taugtAlsNachweis(slot.id) &&
         gleichInKonstanterZeit(oeffnung.geheimnis, offen);
     _ueberschreibe(oeffnung.geheimnis);
     if (!passt) throw const UnlockFailedException();
     return FrischerNachweis._(this, _epoche, jetzt());
   }
+
+  /// Ob das Fach [slotId] gerade als Nachweis ([weiseNach]) taugt.
+  ///
+  /// NICHT, wenn es seit dem letzten Entsperren dazukam. Sonst waere der
+  /// Nachweis beim Hinzufuegen die einzige Huerde: wer sie einmal nimmt (oder
+  /// an ihr vorbeikommt), haette danach einen Ausweis, den er selbst
+  /// ausgestellt hat. Nach dem naechsten Sperren und Entsperren zaehlt das
+  /// Fach wie jedes andere.
+  ///
+  /// AUSNAHME: die Sperre entstand erst in dieser Sitzung (der Tresor wurde
+  /// nicht mit einem Faktor geoeffnet, sondern durch den ersten Faktor).
+  /// Dann gibt es kein aelteres Fach, das ein Nachweis sein koennte — und
+  /// vorher war die App ungesperrt, ein Ausweis also gar nicht zu verlangen.
+  bool taugtAlsNachweis(String slotId) =>
+      !_mitFaktorGeoeffnet || !_neueFaecher.contains(slotId);
 
   /// Probiert die Faecher, die zu [faktor] passen.
   ///
@@ -448,14 +494,24 @@ class VaultSecretStore implements SecretStore {
   /// der Liste, derselbe Anlagezeitpunkt. Wer die Datei vorher und nachher
   /// nebeneinanderlegt, sieht an Reihenfolge und Zeitstempel nicht, dass sich
   /// etwas an der Bedeutung geaendert hat.
-  Future<KeySlot> fuegePanikHinzu(UnlockFactor faktor) async {
-    final alt = await _roh();
-    if (alt == null || alt.isEmpty) {
+  ///
+  /// Verlangt einen [nachweis] wie [fuegeHinzu] — sonst koennte jemand mit
+  /// dem entsperrten Telefon dem Besitzer ein Wort unterschieben, das beim
+  /// naechsten Vertippen alles loescht.
+  Future<KeySlot> fuegePanikHinzu(UnlockFactor faktor,
+      {FrischerNachweis? nachweis}) async {
+    final vorher = await _roh();
+    if (vorher == null || vorher.isEmpty) {
       throw StateError('Ein Panik-Passwort braucht eine eingerichtete Sperre');
     }
-    final e = _offen;
-    if (e == null) throw const LockedException();
+    if (_offen == null) throw const LockedException();
+    _pruefeNachweis(nachweis);
     var slot = await faktor.createSlot(panikMarke, createdAt: jetzt());
+    _loeseEin(nachweis);
+    // Nach dem Einloesen ist sicher, dass seit dem Nachweis nicht gesperrt
+    // wurde (die Epoche stimmt) — der Tresor ist also noch offen.
+    final e = _offen!;
+    final alt = (await _roh())!;
 
     final liste = [...alt.slots];
     var stelle = -1;
@@ -474,6 +530,7 @@ class VaultSecretStore implements SecretStore {
       liste.add(slot);
     }
     await _schreibe(await _gleicheAttrappenAus(alt.mitSlots(liste), e), e);
+    _neueFaecher.add(slot.id);
     return slot;
   }
 
@@ -490,6 +547,8 @@ class VaultSecretStore implements SecretStore {
     if (o != null) _ueberschreibe(o);
     _offen = null;
     _epoche++;
+    _neueFaecher.clear();
+    _mitFaktorGeoeffnet = false;
   }
 
   static void _ueberschreibe(Uint8List b) => b.fillRange(0, b.length, 0);
@@ -498,20 +557,64 @@ class VaultSecretStore implements SecretStore {
   ///
   /// Beim ERSTEN Faktor wandert die Entropie aus dem Schluesselspeicher in das
   /// Fach und wird dort entfernt. Ab da ist die App gesperrt.
-  Future<KeySlot> fuegeHinzu(UnlockFactor faktor) async {
+  ///
+  /// GIBT ES SCHON FAECHER, gelten dieselben Regeln wie beim Entfernen des
+  /// letzten ([entferne]): offener Tresor (sonst [LockedException]) und ein
+  /// [nachweis] aus [weiseNach] (sonst [NachweisNoetigException]). Ein
+  /// offener Tresor allein genuegt nicht — offen ist er auch, wenn jemand
+  /// anderes das entsperrte Telefon in der Hand haelt, und mit einem eigenen
+  /// Passwort koennte der sich danach als Besitzer ausweisen.
+  ///
+  /// Der Nachweis wird VOR dem Anlegen geprueft (niemand soll umsonst den
+  /// Stick beruehren) und erst DANACH eingeloest: scheitert das Anlegen — zu
+  /// schwaches Passwort, Stick abgezogen —, gilt er fuer den naechsten
+  /// Versuch weiter. Wurde dazwischen gesperrt, gilt er nicht mehr, und das
+  /// neue Fach wird verworfen.
+  Future<KeySlot> fuegeHinzu(UnlockFactor faktor,
+      {FrischerNachweis? nachweis}) async {
+    final vorher = await _roh();
+    final ersterFaktor = vorher == null || vorher.isEmpty;
     final offen = _offen;
-    final entropie =
-        offen != null ? Uint8List.fromList(offen) : await basis.read();
+    final Uint8List? entropie;
+    if (ersterFaktor) {
+      entropie = offen != null ? Uint8List.fromList(offen) : await basis.read();
+    } else {
+      if (offen == null) throw const LockedException();
+      _pruefeNachweis(nachweis);
+      entropie = Uint8List.fromList(offen);
+    }
     if (entropie == null) {
       throw StateError('Ohne Identitaet gibt es nichts zu verschliessen');
     }
 
     final slot = await faktor.createSlot(entropie, createdAt: jetzt());
+    if (!ersterFaktor) {
+      try {
+        _loeseEin(nachweis);
+      } on NachweisNoetigException {
+        _ueberschreibe(entropie);
+        if (faktor is KeystoreFactor) {
+          try {
+            await faktor.entferne(slot.id);
+          } catch (_) {
+            // Ein uebrig gebliebener Fachschluessel oeffnet ohne Fach nichts.
+          }
+        }
+        rethrow;
+      }
+    }
     final alt = await _roh();
     final neu = await _gleicheAttrappenAus(
         (alt ?? const KeyVault(slots: [])).mitSlot(slot), entropie);
     await _schreibe(neu, entropie);
+    if (ersterFaktor) {
+      // Die Sperre entsteht gerade erst. Es gibt kein aelteres Fach, also ist
+      // dieses der Ausweis — siehe [taugtAlsNachweis].
+      _neueFaecher.clear();
+      _mitFaktorGeoeffnet = false;
+    }
     _offen ??= Uint8List.fromList(entropie);
+    _neueFaecher.add(slot.id);
 
     if (alt == null || alt.isEmpty) {
       // Der Punkt ohne Rueckweg — ab jetzt gibt es die Entropie nur noch im
@@ -583,7 +686,24 @@ class VaultSecretStore implements SecretStore {
   /// [NachweisNoetigException].
   void loeseNachweisEin(FrischerNachweis? n) => _loeseEin(n);
 
+  /// Ob [n] gerade gilt — ohne ihn zu verbrauchen. Fuer Pruefungen, die
+  /// VOR der eigentlichen Aenderung stehen sollen.
+  bool nachweisGilt(FrischerNachweis? n) {
+    try {
+      _pruefeNachweis(n);
+      return true;
+    } on NachweisNoetigException {
+      return false;
+    }
+  }
+
   void _loeseEin(FrischerNachweis? n) {
+    _pruefeNachweis(n);
+    n!._verbraucht = true;
+  }
+
+  /// Prueft [n], OHNE ihn zu verbrauchen. Wirft [NachweisNoetigException].
+  void _pruefeNachweis(FrischerNachweis? n) {
     if (n == null ||
         !identical(n._aussteller, this) ||
         n._verbraucht ||
@@ -594,7 +714,6 @@ class VaultSecretStore implements SecretStore {
     if (alter < 0 || alter > nachweisGueltigkeit.inMilliseconds) {
       throw const NachweisNoetigException();
     }
-    n._verbraucht = true;
   }
 
   /// Wie lange die App im Hintergrund offen bleiben darf.
