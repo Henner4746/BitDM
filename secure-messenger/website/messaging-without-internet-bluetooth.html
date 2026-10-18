@@ -33,8 +33,8 @@
 })();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Messaging without internet over Bluetooth — BitDM</title>
-<meta name="description" content="How BitDM sends encrypted messages between nearby phones over Bluetooth LE, with no Wi-Fi, no mobile data and no server: what it needs, how far it reaches, measured times, and its limits.">
+<title>Messaging without internet over Bluetooth | BitDM</title>
+<meta name="description" content="Send encrypted messages to nearby phones over Bluetooth LE, without Wi-Fi, mobile data or a server. What BitDM needs, its range, measured times, limits.">
 <link rel="canonical" href="https://bitdm.net/messaging-without-internet-bluetooth.html">
 <meta name="theme-color" content="#0b0c12">
 <meta name="color-scheme" content="dark">
@@ -44,7 +44,7 @@
 <meta property="og:site_name" content="BitDM">
 <meta property="og:url" content="https://bitdm.net/messaging-without-internet-bluetooth.html">
 <meta property="og:title" content="Messaging without internet over Bluetooth">
-<meta property="og:description" content="Encrypted messages between nearby phones over Bluetooth LE — no Wi-Fi, no mobile data, no server. What it needs, how far it reaches, and where it ends.">
+<meta property="og:description" content="Encrypted messages between nearby phones over Bluetooth LE, without Wi-Fi, mobile data or a server. What it needs, how far it reaches and where it stops.">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="de_DE">
 <!-- Datenblock, kein Skript. FAQ-Antworten = die englischen Antworten unten. -->
@@ -56,7 +56,7 @@
       "@type": "Article",
       "@id": "https://bitdm.net/messaging-without-internet-bluetooth.html#article",
       "headline": "Messaging without internet over Bluetooth",
-      "description": "How BitDM sends encrypted messages between nearby phones over Bluetooth LE, with no Wi-Fi, no mobile data and no server: what it needs, how far it reaches, measured times, and its limits.",
+      "description": "Send encrypted messages to nearby phones over Bluetooth LE, without Wi-Fi, mobile data or a server. What BitDM needs, its range, measured times, limits.",
       "inLanguage": ["en", "de"],
       "datePublished": "2026-10-14",
       "dateModified": "2026-10-14",
@@ -72,17 +72,17 @@
         {
           "@type": "Question",
           "name": "Can I send messages without internet?",
-          "acceptedAnswer": {"@type": "Answer", "text": "With BitDM, yes: between phones within Bluetooth range, about ten metres indoors. Both need Android 12 or newer and Bluetooth 5.0. Text messages only; attachments need a server."}
+          "acceptedAnswer": {"@type": "Answer", "text": "With BitDM, yes, between phones in Bluetooth range (about ten metres indoors). Both need Android 12 or newer and Bluetooth 5.0. It only sends text; attachments need a server."}
         },
         {
           "@type": "Question",
           "name": "Does messaging over Bluetooth need location access?",
-          "acceptedAnswer": {"@type": "Answer", "text": "Not in BitDM. Nearby mode needs Android 12 because from there a Bluetooth scan works without location access. On older Android versions BitDM refuses nearby mode instead of asking for your location."}
+          "acceptedAnswer": {"@type": "Answer", "text": "Not with BitDM. Nearby mode needs Android 12, since that's where a Bluetooth scan stops requiring location access. On older Android versions BitDM refuses nearby mode rather than ask for your location."}
         },
         {
           "@type": "Question",
           "name": "Is it a mesh network?",
-          "acceptedAnswer": {"@type": "Answer", "text": "No. BitDM delivers directly from one phone to the other. It does not pass messages on through other people's phones."}
+          "acceptedAnswer": {"@type": "Answer", "text": "No. BitDM delivers straight from one phone to the other and doesn't pass messages on through anyone else's phone."}
         }
       ]
     }
@@ -213,19 +213,19 @@ footer a{color:var(--muted)}
     <span class="screen screen-lit en">Guide</span>
     <h1><span class="de">Nachrichten ohne Internet, über Bluetooth</span><span class="en">Messaging without internet, over Bluetooth</span></h1>
     <p class="stamp">
-      <span class="de">Wie der Nahbereich von BitDM funktioniert, was er braucht und wo er aufhört. Stand: 14.&nbsp;Oktober 2026.</span>
-      <span class="en">How BitDM's nearby mode works, what it needs and where it ends. As of 14&nbsp;October 2026.</span>
+      <span class="de">Wie der Nahbereich von BitDM funktioniert, mit seinen Voraussetzungen und Grenzen. Stand: 14.&nbsp;Oktober 2026.</span>
+      <span class="en">How BitDM's nearby mode works, plus what it needs and where it stops. As of 14&nbsp;October 2026.</span>
     </p>
   </header>
 
   <section>
     <h2><span class="de">Was es ist</span><span class="en">What it is</span></h2>
     <div class="headline-claim">
-      <p class="de">Zwei Telefone nebeneinander tauschen BitDM-Nachrichten über Bluetooth LE aus — <strong>ohne WLAN, ohne Mobilfunk, ohne Server</strong>. Gedacht ist das für denselben Raum, nicht für dieselbe Stadt.</p>
-      <p class="en">Two phones next to each other exchange BitDM messages over Bluetooth LE — <strong>no Wi-Fi, no mobile data, no server</strong>. It is meant for the same room, not the same city.</p>
+      <p class="de">Zwei Telefone, die nah beieinander liegen, tauschen BitDM-Nachrichten über Bluetooth LE aus, <strong>ohne WLAN, Mobilfunk oder Server</strong>. Gedacht ist das für Leute im selben Raum.</p>
+      <p class="en">Two phones close together can swap BitDM messages over Bluetooth LE <strong>without Wi-Fi, mobile data or a server</strong>. It's meant for people in the same room.</p>
     </div>
-    <p class="de">Es hilft, wenn das Netz fehlt oder versagt: im Funkloch, im Keller, wenn das Mobilfunknetz bei vielen Menschen an einem Ort überlastet ist oder ganz ausfällt. Und es hilft, wenn man schlicht keinen Server beteiligen will. Die Nachrichten sind dabei genauso Ende-zu-Ende-verschlüsselt wie über den Relay — es ist derselbe Chat mit denselben Schlüsseln, nur ein anderer Weg.</p>
-    <p class="en">It helps when the network is missing or fails: in a dead zone, in a basement, when the mobile network is overloaded by many people in one place or goes down altogether. And it helps when you simply do not want any server involved. The messages are end-to-end encrypted exactly as over the relay — it is the same chat with the same keys, just a different path.</p>
+    <p class="de">Nützlich ist das im Funkloch oder im Keller, aber auch, wenn viele Menschen an einem Ort das Mobilfunknetz überlasten oder das Netz ganz ausfällt. Und es passt, wenn du überhaupt keinen Server beteiligen willst. Die Nachrichten sind dabei genauso Ende-zu-Ende-verschlüsselt wie über den Relay, weil es derselbe Chat mit denselben Schlüsseln ist.</p>
+    <p class="en">It's useful in a dead zone or a basement, when lots of people in one place overload the mobile network, or when the network goes down completely. It also fits if you don't want any server involved at all. Messages are end-to-end encrypted the same way as over the relay, because it's the same chat with the same keys.</p>
   </section>
 
   <section>
@@ -234,77 +234,77 @@ footer a{color:var(--muted)}
       <li>
         <span class="way-name de">Bluetooth benutzen</span>
         <span class="way-name en">Use Bluetooth</span>
-        <span class="de">Die Ausfallsicherung: Ist der Relay nicht erreichbar, erreicht BitDM Kontakte in Reichweite direkt. Sonst bleibt alles beim gewohnten Weg.</span>
-        <span class="en">The fallback: when the relay cannot be reached, BitDM reaches contacts in range directly. Otherwise everything stays on the usual path.</span>
+        <span class="de">Ist der Relay nicht erreichbar, erreicht BitDM Kontakte in Reichweite direkt, sonst bleibt alles wie gewohnt.</span>
+        <span class="en">If the relay can't be reached, BitDM talks to contacts in range directly; otherwise nothing changes.</span>
       </li>
       <li>
         <span class="way-name de">Nur in der Nähe</span>
         <span class="way-name en">Nearby only</span>
-        <span class="de">BitDM spricht überhaupt keinen Server mehr an — auch nicht zum Verbinden. Nachrichten gehen direkt an Kontakte in Bluetooth-Reichweite; alles andere wartet und geht beim Ausschalten auf einmal raus, in der Reihenfolge, in der es geschrieben wurde.</span>
-        <span class="en">BitDM contacts no server at all — not even to connect. Messages go straight to contacts in Bluetooth range; everything else waits and goes out at once when you switch it off, in the order you wrote it.</span>
+        <span class="de">BitDM spricht keinen Server mehr an, auch nicht zum Verbinden. Kontakte in Bluetooth-Reichweite bekommen Nachrichten direkt. Alles andere wartet bis zum Ausschalten und geht dann gesammelt raus, in der Reihenfolge, in der du es geschrieben hast.</span>
+        <span class="en">BitDM doesn't contact any server, not even to connect. Contacts in Bluetooth range get messages directly. Everything else waits until you switch it off, then goes out in one go, in the order you wrote it.</span>
       </li>
     </ul>
-    <p class="de">Jede Nachricht nimmt genau einen Weg, nie zwei: Zwei Wege wären zwei Verschlüsselungen desselben Textes. „Nur in der Nähe“ ist auch kein Flugmodus — andere Apps und die Internetverbindung des Telefons bleiben unberührt, nur BitDM hört auf, sie zu benutzen.</p>
-    <p class="en">Each message takes exactly one path, never two: two paths would be two encryptions of the same text. “Nearby only” is not a flight mode either — other apps and the phone's internet connection are unaffected; only BitDM stops using it.</p>
+    <p class="de">Jede Nachricht nimmt nur einen Weg, sonst müsste derselbe Text zweimal verschlüsselt werden. „Nur in der Nähe“ ist auch kein Flugmodus. Andere Apps und die Internetverbindung des Telefons laufen weiter, nur BitDM benutzt sie nicht mehr.</p>
+    <p class="en">Each message takes only one path; two would mean encrypting the same text twice. “Nearby only” isn't flight mode either. Other apps and the phone's internet connection keep working, and only BitDM stops using it.</p>
   </section>
 
   <section>
     <h2><span class="de">Was es braucht</span><span class="en">What it needs</span></h2>
     <ul class="de">
-      <li><strong>Android 12 oder neuer, auf beiden Telefonen.</strong> Darunter hält Android eine Bluetooth-Suche für eine Standortbestimmung und verlangt den Standortzugriff — und um den bittet BitDM nicht. Die App lehnt den Nahbereich dort mit klarem Grund ab.</li>
-      <li><strong>Bluetooth LE 5.0 auf beiden Seiten.</strong> Mit einem ESP32-Prüfstand gemessen: Bluetooth 4.2 kann die erweiterte Werbung, die BitDM benutzt, nicht empfangen.</li>
-      <li><strong>Die andere Person als Kontakt.</strong> Man findet nur Leute, die man schon als Kontakt hat. Auch die allererste Nachricht an einen neuen Kontakt geht über Funk — die Schlüssel dafür reisen mit, die andere Seite muss dafür kurz in Reichweite sein.</li>
-      <li><strong>Nur Text.</strong> Anhänge brauchen den Speicherserver; solange „Nur in der Nähe“ an ist, lehnt die App sie gleich mit einem Hinweis ab.</li>
-      <li><strong>Die Android-App.</strong> Unter Windows, Linux und im Browser gibt es den Nahbereich nicht.</li>
+      <li><strong>Android 12 oder neuer auf beiden Telefonen.</strong> Ältere Versionen behandeln eine Bluetooth-Suche wie eine Ortung und verlangen dafür den Standortzugriff, um den BitDM nicht bittet. Dort lehnt die App den Nahbereich ab und nennt den Grund.</li>
+      <li><strong>Bluetooth LE 5.0 auf beiden Seiten.</strong> Bluetooth 4.2 empfängt die erweiterte Werbung nicht, die BitDM benutzt; gemessen an einem ESP32-Prüfstand.</li>
+      <li><strong>Die andere Person als Kontakt.</strong> Du findest nur Leute, die schon in deinen Kontakten sind. Sogar die erste Nachricht an einen neuen Kontakt geht über Funk, weil die nötigen Schlüssel mitgeschickt werden; dafür muss die andere Seite kurz in Reichweite sein.</li>
+      <li><strong>Nur Text.</strong> Anhänge brauchen den Speicherserver, deshalb lehnt die App sie bei „Nur in der Nähe“ sofort mit einem Hinweis ab.</li>
+      <li><strong>Die Android-App.</strong> Unter Windows, Linux und im Browser gibt es keinen Nahbereich.</li>
     </ul>
     <ul class="en">
-      <li><strong>Android 12 or newer, on both phones.</strong> Below that, Android counts a Bluetooth scan as locating you and demands location access — and that is one permission BitDM does not ask for. The app refuses nearby mode there and says why.</li>
-      <li><strong>Bluetooth LE 5.0 on both sides.</strong> Measured with an ESP32 test rig: Bluetooth 4.2 cannot receive the extended advertising BitDM uses.</li>
-      <li><strong>The other person as a contact.</strong> You only find people you already have as contacts. Even the very first message to a new contact goes over the air — its keys travel along, so the other side has to be in range for a moment.</li>
-      <li><strong>Text only.</strong> Attachments need the storage server; while “nearby only” is on, the app refuses them straight away and says so.</li>
-      <li><strong>The Android app.</strong> Windows, Linux and the browser have no nearby mode.</li>
+      <li><strong>Android 12 or newer on both phones.</strong> Older versions treat a Bluetooth scan as locating you and demand location access, which BitDM doesn't ask for. On those, the app refuses nearby mode and tells you why.</li>
+      <li><strong>Bluetooth LE 5.0 on both sides.</strong> Bluetooth 4.2 can't receive the extended advertising BitDM uses (measured on an ESP32 test rig).</li>
+      <li><strong>The other person as a contact.</strong> You'll only find people who are already in your contacts. Even the first message to a new contact goes over the air, with its keys sent along, so the other side needs to be in range for a moment.</li>
+      <li><strong>Text only.</strong> Attachments need the storage server, so in “nearby only” the app turns them down right away and tells you.</li>
+      <li><strong>The Android app.</strong> Windows, Linux and the browser don't have nearby mode.</li>
     </ul>
   </section>
 
   <section>
     <h2><span class="de">Wie sich Telefone finden, ohne sich zu verraten</span><span class="en">How phones find each other without giving themselves away</span></h2>
-    <p class="de">Die eigene Adresse auszusenden wäre der schlechteste Weg: Wer sie einmal gesehen hat, könnte das Telefon überall wiedererkennen. BitDM sendet stattdessen <strong>Leuchtfeuer</strong> — sechs Byte je Kontakt, berechnet aus dem gemeinsamen Geheimnis mit genau diesem Kontakt und dem aktuellen 15-Minuten-Fenster.</p>
-    <p class="en">Broadcasting your own address would be the worst way: anyone who saw it once could recognise the phone anywhere. BitDM sends <strong>beacons</strong> instead — six bytes per contact, computed from the secret shared with exactly that contact and the current 15-minute window.</p>
-    <p class="de">Wer das Geheimnis hat, erkennt seinen Kontakt. Alle anderen sehen sechs Byte Rauschen, die sich jede Viertelstunde ändern. Geprüft werden drei Fenster statt einem, weil zwei Telefone nie dieselbe Uhrzeit haben. Fremde sind dadurch unsichtbar — nicht aus Versehen, sondern von Bauart.</p>
-    <p class="en">Whoever holds the secret recognises their contact. Everyone else sees six bytes of noise that change every quarter hour. Three windows are checked rather than one, because two phones never share a clock. Strangers are invisible as a result — not by accident, but by design.</p>
-    <p class="de">Es gibt keine Anwesenheitsanzeige: Eine Nachricht zeigt, wie sie gereist ist, nie, wer gerade in der Nähe war. Und man kann für einzelne Kontakte unsichtbar werden — dann wird ihnen kein Leuchtfeuer gesendet und keines von ihnen erwartet, und Nachrichten an sie nehmen immer den Relay.</p>
-    <p class="en">There is no presence display: a message shows how it travelled, never who was around. And you can go invisible to individual contacts — no beacon is then sent to them and none expected from them, and messages to them always take the relay.</p>
+    <p class="de">Würde ein Telefon seine eigene Adresse aussenden, könnte jeder, der sie einmal gesehen hat, es überall wiedererkennen. BitDM sendet deshalb <strong>Leuchtfeuer</strong>, sechs Byte je Kontakt, jeweils berechnet aus dem Geheimnis, das du mit genau diesem Kontakt teilst, und dem aktuellen 15-Minuten-Fenster.</p>
+    <p class="en">If a phone broadcast its own address, anyone who saw it once could recognise that phone anywhere. BitDM sends <strong>beacons</strong> instead, six bytes per contact, each computed from the secret you share with that one contact and the current 15-minute window.</p>
+    <p class="de">Nur wer das Geheimnis kennt, erkennt darin seinen Kontakt. Alle anderen sehen sechs Byte Rauschen, die sich jede Viertelstunde ändern; Fremde bleiben dadurch mit Absicht unsichtbar. Weil zwei Telefone nie genau dieselbe Uhrzeit haben, prüft die App drei Fenster statt einem.</p>
+    <p class="en">Only someone holding the secret can pick out their contact. Everyone else sees six bytes of noise that change every quarter hour, which keeps strangers invisible by design. Since two phones never have exactly the same time, the app checks three windows instead of one.</p>
+    <p class="de">Eine Anwesenheitsanzeige gibt es nicht. Eine Nachricht zeigt, wie sie gereist ist, aber nie, wer gerade in der Nähe war. Für einzelne Kontakte kannst du auch unsichtbar werden. Dann bekommen sie kein Leuchtfeuer, von ihnen wird keins erwartet, und Nachrichten an sie gehen immer über den Relay.</p>
+    <p class="en">There's no presence indicator. A message shows how it travelled, never who was nearby. You can also go invisible to individual contacts; then no beacon is sent to them, none is expected from them, and messages to them always go via the relay.</p>
   </section>
 
   <section>
-    <h2><span class="de">Gemessen, nicht versprochen</span><span class="en">Measured, not promised</span></h2>
+    <h2><span class="de">Was wir gemessen haben</span><span class="en">What we measured</span></h2>
     <ul class="de">
-      <li><strong>325 Byte in 1,35 Sekunden</strong> zwischen zwei Telefonen, beide ohne WLAN und ohne Mobilfunk. Das ist die eine Zahl, zu der im Repository kein Protokoll liegt.</li>
-      <li><strong>120 ms</strong>, bis ein Telefon das andere findet, und <strong>700 Byte in 202 ms</strong> hin und zurück über eine Bluetooth-Verbindung (GATT) — ohne Systemdialog auf einem der beiden Geräte. Aufgeschrieben in <a href="https://github.com/Henner4746/BitDM/blob/main/secure-messenger/docs/NAHBEREICH.md" rel="noopener">docs/NAHBEREICH.md</a>.</li>
-      <li><strong>Die Gegenrichtung</strong> am 26.09.2026: Ein Galaxy S25 Ultra in „Nur in der Nähe“ schickte verschlüsselte Nachrichten über Bluetooth 5.4 an einen PC mit dem echten BitDM-Kern; der PC antwortete auf demselben Weg, Zustell- und Lesebestätigungen kamen zurück.</li>
-      <li><strong>Ehrlich dazu:</strong> Zwei aktuelle Telefone gegeneinander sind seit Version 1.8 nicht neu gemessen worden.</li>
+      <li><strong>325 Byte in 1,35 Sekunden</strong> zwischen zwei Telefonen, beide ohne WLAN und Mobilfunk. Als einzige dieser Zahlen hat sie kein Protokoll im Repository.</li>
+      <li><strong>120 ms</strong>, bis ein Telefon das andere findet, und <strong>700 Byte in 202 ms</strong> hin und zurück über eine Bluetooth-Verbindung (GATT), ohne Systemdialog auf einem der Geräte. Beides steht in <a href="https://github.com/Henner4746/BitDM/blob/main/secure-messenger/docs/NAHBEREICH.md" rel="noopener">docs/NAHBEREICH.md</a>.</li>
+      <li><strong>Die Gegenrichtung</strong> am 26.09.2026: Ein Galaxy S25 Ultra in „Nur in der Nähe“ schickte verschlüsselte Nachrichten über Bluetooth 5.4 an einen PC mit dem echten BitDM-Kern. Der PC antwortete auf demselben Weg, Zustell- und Lesebestätigungen kamen zurück.</li>
+      <li><strong>Noch offen:</strong> Seit Version 1.8 haben wir zwei aktuelle Telefone nicht mehr gegeneinander gemessen.</li>
     </ul>
     <ul class="en">
-      <li><strong>325 bytes in 1.35 seconds</strong> between two phones, both with Wi-Fi and mobile data off. That is the one figure for which there is no log in the repository.</li>
-      <li><strong>120 ms</strong> for one phone to find the other, and <strong>700 bytes in 202 ms</strong> there and back over a Bluetooth connection (GATT) — with no system dialog on either device. Written down in <a href="https://github.com/Henner4746/BitDM/blob/main/secure-messenger/docs/NAHBEREICH.md" rel="noopener">docs/NAHBEREICH.md</a>.</li>
-      <li><strong>The other direction</strong> on 26.09.2026: a Galaxy S25 Ultra in “nearby only” sent encrypted messages over Bluetooth 5.4 to a PC running the real BitDM core; the PC replied the same way, and delivery and read receipts came back.</li>
-      <li><strong>To be fair:</strong> two current phones against each other have not been measured again since version 1.8.</li>
+      <li><strong>325 bytes in 1.35 seconds</strong> between two phones, both with Wi-Fi and mobile data off. It's the only one of these figures with no log in the repository.</li>
+      <li><strong>120 ms</strong> for one phone to find the other, and <strong>700 bytes in 202 ms</strong> there and back over a Bluetooth connection (GATT), with no system dialog on either device. Both are documented in <a href="https://github.com/Henner4746/BitDM/blob/main/secure-messenger/docs/NAHBEREICH.md" rel="noopener">docs/NAHBEREICH.md</a>.</li>
+      <li><strong>The other direction</strong> on 26.09.2026: a Galaxy S25 Ultra in “nearby only” sent encrypted messages over Bluetooth 5.4 to a PC running the real BitDM core. The PC answered the same way, and delivery and read receipts made it back.</li>
+      <li><strong>Still open:</strong> we haven't measured two current phones against each other since version 1.8.</li>
     </ul>
   </section>
 
   <section>
-    <h2><span class="de">Wo es aufhört</span><span class="en">Where it ends</span></h2>
+    <h2><span class="de">Grenzen</span><span class="en">Limits</span></h2>
     <ul class="de">
-      <li><strong>Reichweite:</strong> etwa zehn Meter in Räumen, durch Wände weniger. BitDM reicht Nachrichten nicht über fremde Telefone weiter — ist der Kontakt nicht in Reichweite, wartet die Nachricht.</li>
-      <li><strong>Sichtbar funkt man trotzdem:</strong> Wer in Reichweite ist, sieht, dass da ein Gerät sendet, und an den festen Dienstkennungen, dass jemand BitDM benutzt. Dass du es bist, erkennen nur deine Kontakte.</li>
+      <li><strong>Reichweite:</strong> etwa zehn Meter in Räumen, durch Wände weniger. Über fremde Telefone reicht BitDM keine Nachrichten weiter, und wenn der Kontakt außer Reichweite ist, wartet die Nachricht.</li>
+      <li><strong>Dein Signal bleibt sichtbar:</strong> Jeder in Reichweite sieht, dass ein Gerät sendet, und an den festen Dienstkennungen auch, dass jemand BitDM benutzt. Nur deine Kontakte erkennen, dass du das bist.</li>
       <li><strong>Es kostet Akku.</strong></li>
-      <li><strong>Kein externes Audit:</strong> Weder der Nahbereich noch der Rest von BitDM ist bisher unabhängig geprüft worden.</li>
+      <li><strong>Kein externes Audit:</strong> Bisher hat niemand den Nahbereich oder den Rest von BitDM unabhängig geprüft.</li>
     </ul>
     <ul class="en">
-      <li><strong>Range:</strong> about ten metres indoors, less through walls. BitDM does not pass messages on through other people's phones — if the contact is out of range, the message waits.</li>
-      <li><strong>You are still visibly transmitting:</strong> anyone in range can tell that some device is broadcasting, and from the fixed service identifiers that someone is using BitDM. Only your contacts can tell it is you.</li>
-      <li><strong>It costs battery.</strong></li>
-      <li><strong>No external audit:</strong> neither nearby mode nor the rest of BitDM has been reviewed independently yet.</li>
+      <li><strong>Range:</strong> about ten metres indoors, less through walls. BitDM doesn't pass messages on through other people's phones, so if your contact is out of range, the message waits.</li>
+      <li><strong>Your signal is still visible:</strong> anyone in range can see that some device is broadcasting, and can tell from the fixed service identifiers that someone is using BitDM. Only your contacts can tell it's you.</li>
+      <li><strong>It costs battery life.</strong></li>
+      <li><strong>No external audit:</strong> there's been no independent review of nearby mode or the rest of BitDM yet.</li>
     </ul>
   </section>
 
@@ -312,33 +312,33 @@ footer a{color:var(--muted)}
     <h2><span class="de">Kurze Antworten</span><span class="en">Short answers</span></h2>
     <dl class="qa de">
       <dt>Kann ich Nachrichten ohne Internet verschicken?</dt>
-      <dd>Mit BitDM ja: zwischen Telefonen in Bluetooth-Reichweite, in Räumen etwa zehn Meter. Beide brauchen Android 12 oder neuer und Bluetooth 5.0. Nur Text; Anhänge brauchen einen Server.</dd>
+      <dd>Mit BitDM ja, zwischen Telefonen in Bluetooth-Reichweite (in Räumen etwa zehn Meter). Beide brauchen Android 12 oder neuer und Bluetooth 5.0. Es geht nur Text, Anhänge brauchen einen Server.</dd>
       <dt>Braucht Bluetooth-Messaging den Standortzugriff?</dt>
-      <dd>Bei BitDM nicht. Der Nahbereich verlangt Android 12, weil eine Bluetooth-Suche ab dort ohne Standortzugriff geht. Auf älteren Android-Versionen lehnt BitDM den Nahbereich ab, statt nach deinem Standort zu fragen.</dd>
+      <dd>Bei BitDM nicht. Der Nahbereich verlangt Android 12, denn erst ab dort geht eine Bluetooth-Suche ohne Standortzugriff. Auf älteren Android-Versionen lehnt BitDM den Nahbereich ab, statt nach deinem Standort zu fragen.</dd>
       <dt>Ist das ein Mesh-Netz?</dt>
-      <dd>Nein. BitDM stellt direkt von einem Telefon zum anderen zu. Über die Telefone anderer Leute werden keine Nachrichten weitergereicht.</dd>
+      <dd>Nein. BitDM stellt direkt von Telefon zu Telefon zu und reicht keine Nachrichten über die Geräte anderer Leute weiter.</dd>
     </dl>
     <dl class="qa en">
       <dt>Can I send messages without internet?</dt>
-      <dd>With BitDM, yes: between phones within Bluetooth range, about ten metres indoors. Both need Android 12 or newer and Bluetooth 5.0. Text messages only; attachments need a server.</dd>
+      <dd>With BitDM, yes, between phones in Bluetooth range (about ten metres indoors). Both need Android 12 or newer and Bluetooth 5.0. It only sends text; attachments need a server.</dd>
       <dt>Does messaging over Bluetooth need location access?</dt>
-      <dd>Not in BitDM. Nearby mode needs Android 12 because from there a Bluetooth scan works without location access. On older Android versions BitDM refuses nearby mode instead of asking for your location.</dd>
+      <dd>Not with BitDM. Nearby mode needs Android 12, since that's where a Bluetooth scan stops requiring location access. On older Android versions BitDM refuses nearby mode rather than ask for your location.</dd>
       <dt>Is it a mesh network?</dt>
-      <dd>No. BitDM delivers directly from one phone to the other. It does not pass messages on through other people's phones.</dd>
+      <dd>No. BitDM delivers straight from one phone to the other and doesn't pass messages on through anyone else's phone.</dd>
     </dl>
   </section>
 
   <section>
     <h2><span class="de">Weiterlesen</span><span class="en">Read on</span></h2>
     <ul class="de">
-      <li><a href="messenger-without-phone-number.html">Messenger ohne Telefonnummer</a> — welche Wege es gibt</li>
-      <li><a href="anonymous-messenger-without-account.html">Anonymer Messenger ohne Konto</a> — was der Server trotzdem sieht</li>
-      <li><a href="vs.html">BitDM neben anderen Messengern</a> — die Tabelle</li>
+      <li><a href="messenger-without-phone-number.html">Messenger ohne Telefonnummer</a>: welche Wege es gibt</li>
+      <li><a href="anonymous-messenger-without-account.html">Anonymer Messenger ohne Konto</a>: was der Server trotzdem sieht</li>
+      <li><a href="vs.html">BitDM neben anderen Messengern</a>, als Tabelle</li>
     </ul>
     <ul class="en">
-      <li><a href="messenger-without-phone-number.html">Messenger without a phone number</a> — which ways exist</li>
-      <li><a href="anonymous-messenger-without-account.html">Anonymous messenger without an account</a> — what the server still sees</li>
-      <li><a href="vs.html">BitDM next to other messengers</a> — the table</li>
+      <li><a href="messenger-without-phone-number.html">Messenger without a phone number</a>: the options that exist</li>
+      <li><a href="anonymous-messenger-without-account.html">Anonymous messenger without an account</a>: what the server still sees</li>
+      <li><a href="vs.html">BitDM next to other messengers</a>, as a table</li>
     </ul>
   </section>
 
@@ -346,13 +346,13 @@ footer a{color:var(--muted)}
 
 <footer class="wrap">
   <p>
-    <span class="de">BitDM ist quelloffen unter AGPL-3.0 —
-      <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>.
+    <span class="de">BitDM ist quelloffen unter AGPL-3.0
+      (<a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>).
       Ein unabhängiges Sicherheitsaudit steht noch aus.
       Alle genannten Namen und Produkte sind Marken ihrer jeweiligen Inhaber.</span>
-    <span class="en">BitDM is open source under AGPL-3.0 —
-      <a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>.
-      An independent security audit is still pending.
+    <span class="en">BitDM is open source under AGPL-3.0
+      (<a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>).
+      An independent security audit hasn't happened yet.
       All names and products mentioned are trademarks of their respective owners.</span>
   </p>
 </footer>

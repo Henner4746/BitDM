@@ -1,0 +1,47 @@
+# security.txt (RFC 9116) traegt ein Ablaufdatum. Ist es vorbei, gilt die
+# Datei als ungueltig, und Melder finden keinen Kontakt mehr. Dieser Lauf wird
+# rot, sobald es naeher als 30 Tage rueckt; GitHub meldet fehlgeschlagene
+# geplante Laeufe per Mail. Seit 18.10.2026.
+name: security.txt
+
+on:
+  push:
+    branches: [main]
+    paths: [secure-messenger/website/security.txt, .github/workflows/security-txt.yml]
+  schedule:
+    - cron: '23 6 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ablauf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Ablaufdatum pruefen
+        run: |
+          set -euo pipefail
+          datei=secure-messenger/website/security.txt
+          ablauf=$(sed -n 's/^Expires: *//p' "$datei" | tr -d '\r')
+          test -n "$ablauf" || { echo "::error file=$datei::kein Expires"; exit 1; }
+          rest=$(( ( $(date -d "$ablauf" +%s) - $(date +%s) ) / 86400 ))
+          echo "Expires $ablauf, noch $rest Tage"
+          if [ "$rest" -gt 366 ]; then
+            echo "::error file=$datei::Expires liegt mehr als ein Jahr voraus (RFC 9116 empfiehlt weniger)"; exit 1
+          fi
+          if [ "$rest" -lt 30 ]; then
+            echo "::error file=$datei::laeuft in $rest Tagen ab: Expires verlaengern und neu ausrollen"; exit 1
+          fi
+      - name: Live-Fassung vergleichen
+        # Nur Warnung: Cloudflare kann Anfragen aus Rechenzentren abweisen.
+        run: |
+          if curl -fsS https://bitdm.net/.well-known/security.txt -o live.txt; then
+            cmp -s live.txt secure-messenger/website/security.txt \
+              || echo "::warning::bitdm.net liefert eine andere security.txt als main (nicht ausgerollt?)"
+          else
+            echo "::warning::bitdm.net/.well-known/security.txt nicht abrufbar"
+          fi

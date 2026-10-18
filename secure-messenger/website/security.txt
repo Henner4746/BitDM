@@ -1,0 +1,8 @@
+# Schwachstellen in BitDM bitte vertraulich melden, nicht als öffentliches Issue.
+# Please report vulnerabilities in BitDM privately, not as a public issue.
+Contact: mailto:kontakt@bitdm.net
+Contact: https://github.com/Henner4746/BitDM/security/advisories/new
+Expires: 2027-10-01T00:00:00.000Z
+Preferred-Languages: de, en
+Canonical: https://bitdm.net/.well-known/security.txt
+Policy: https://github.com/Henner4746/BitDM/blob/main/SECURITY.md

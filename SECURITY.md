@@ -28,8 +28,8 @@ Sicherheitskorrekturen. / Only the latest release receives security fixes.
 
 ## Im Umfang / In scope
 
-- Die App (Android, Windows, Linux, Web unter bitdm.net/app/) — `secure-messenger/app`
-- Relay und Zwischenlager — `secure-messenger/server`
+- Die App (Android, Windows, Linux, Web unter bitdm.net/app/): `secure-messenger/app`
+- Relay und Zwischenlager: `secure-messenger/server`
 - Die Auslieferung unter bitdm.net, relay.bitdm.net und dem Onion-Dienst des Relays
 
 Besonders interessiert uns alles, was dem **Bedrohungsmodell** widerspricht:

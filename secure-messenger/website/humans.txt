@@ -1,0 +1,12 @@
+/* TEAM */
+Entwicklung / Development: Henner4746
+GitHub: https://github.com/Henner4746
+Kontakt / Contact: kontakt@bitdm.net
+Ort / Location: Deutschland / Germany
+
+/* SITE */
+Sprachen / Languages: Deutsch, English
+Bauweise / Built with: eine HTML-Datei je Seite, kein Framework, kein Build-Schritt, keine Anfragen an Dritte / one HTML file per page, no framework, no build step, no third-party requests
+Schriften / Fonts: lokal ausgeliefert / served locally
+Quelltext / Source: https://github.com/Henner4746/BitDM/tree/main/secure-messenger/website
+Lizenz / Licence: AGPL-3.0

@@ -1,0 +1,12 @@
+# ai.txt für bitdm.net / for bitdm.net
+#
+# KI-Modelle dürfen mit allen Texten dieser Seite trainiert werden, auch von
+# großen Firmen. Eine Kurzfassung für Sprachmodelle liegt in
+# https://bitdm.net/llms.txt.
+#
+# AI models may be trained on everything on this site, by anyone, including
+# large companies. A short summary for language models is at
+# https://bitdm.net/llms.txt.
+
+User-Agent: *
+Allow: /

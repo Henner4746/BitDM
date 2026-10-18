@@ -1,0 +1,5 @@
+# bitdm.net zeigt keine Werbung und erlaubt niemandem, hier Werbeplätze zu verkaufen.
+# bitdm.net shows no ads and authorises no one to sell ad space on it.
+# Der Platzhalter-Eintrag nach IAB ads.txt 1.1 sagt genau das.
+# The placeholder record from IAB ads.txt 1.1 says exactly that.
+placeholder.example.com, placeholder, DIRECT, placeholder
