@@ -36,13 +36,13 @@ jobs:
         with:
           python-version: '3.12'
       - name: Relay-Abhaengigkeiten (die Tests starten echte Server)
-        run: py -m pip install --require-hashes -r ../server/requirements.txt
+        run: 'py -m pip install --only-binary :all: --require-hashes -r ../server/requirements.txt'
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: '3.44.8'
           channel: stable
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - name: flutter analyze
         run: flutter analyze --no-fatal-infos
       - name: flutter test
@@ -63,5 +63,9 @@ jobs:
           python-version: '3.12'
       - name: libsodium fuer XEdDSA
         run: sudo apt-get update && sudo apt-get install -y libsodium23
-      - run: pip install --require-hashes -r requirements.txt
+      # --only-binary: nur fertige Wheels, kein Setup-Skript eines Pakets
+      # laeuft beim Installieren (SonarQube Cloud, githubactions:S8541,
+      # 18.10.2026). Fuer alle Relay-Pakete gibt es Wheels (3.10, 3.12,
+      # Linux und Windows, nachgeprueft); die Hashes pruefen sie weiter.
+      - run: 'pip install --only-binary :all: --require-hashes -r requirements.txt'
       - run: python -m pytest -q

@@ -150,7 +150,12 @@
          Wiederverbinden nicht ins Leere zu funken, wenn ohnehin kein Netz da
          ist. -->
 
+    <!-- usesCleartextTraffic="false": ab minSdk 28 ohnehin die Vorgabe der
+         Plattform; hier ausdruecklich, damit es auch gilt, falls minSdk je
+         sinkt (SonarQube Cloud, xml:S5332, 18.10.2026). Der Relay-Verkehr
+         laeuft ueber dart:io und ist davon nicht beruehrt. -->
     <application
+        android:usesCleartextTraffic="false"
         android:label="BitDM"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"

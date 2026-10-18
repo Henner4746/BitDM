@@ -47,7 +47,10 @@ jobs:
           channel: stable
           cache: true
       - run: flutter config --enable-linux-desktop
-      - run: flutter pub get
+      # --enforce-lockfile: der veroeffentlichte Bau nimmt GENAU die Fassungen
+      # aus pubspec.lock und bricht ab, wenn sie nicht passen, statt still
+      # neuere aufzuloesen (SonarQube Cloud, githubactions:S8550, 18.10.2026).
+      - run: flutter pub get --enforce-lockfile
       - run: flutter build linux --release
       - name: Paket schnueren
         id: schnueren

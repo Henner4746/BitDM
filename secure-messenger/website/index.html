@@ -2429,7 +2429,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              je leer, auch nicht für ein Bild. */
           continue;
         }
-        var schritt = (lokal / SCHRITT_MS) | 0;
+        var schritt = Math.trunc(lokal / SCHRITT_MS);
         if (schritt >= SCHRITTE){
           if (cells[i].textContent !== addr[i]) cells[i].textContent = addr[i];
           cells[i].classList.remove('scramble');
@@ -2645,7 +2645,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         var nochOffen = false;
         for (var c = 0; c < pk.laenge; c++){
           var lokal = t - c * pk.versatz;
-          var schritt = lokal < 0 ? 0 : (lokal / SEITE_SCHRITT_MS) | 0;
+          var schritt = lokal < 0 ? 0 : Math.trunc(lokal / SEITE_SCHRITT_MS);
           if (schritt >= SEITE_SCHRITTE){
             aus += pk.ziel[c];
           } else {

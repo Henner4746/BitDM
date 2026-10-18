@@ -151,7 +151,7 @@ unset BITDM_FDROID_PASS
 if (( HOCHLADEN )); then
   "$FDROID" deploy
   ENTRY_HIER=$(sha256sum repo/entry.jar | cut -d' ' -f1)
-  ENTRY_DORT=$(curl -fsSL -H 'Cache-Control: no-cache' https://bitdm.net/fdroid/repo/entry.jar | sha256sum | cut -d' ' -f1)
+  ENTRY_DORT=$(curl -fsSL --proto '=https' --tlsv1.2 -H 'Cache-Control: no-cache' https://bitdm.net/fdroid/repo/entry.jar | sha256sum | cut -d' ' -f1)
   [[ $ENTRY_HIER == "$ENTRY_DORT" ]] \
     || { echo "WARNUNG: bitdm.net liefert ein anderes entry.jar aus (Cache?)" >&2; exit 1; }
   echo "   hochgeladen, bitdm.net liefert das neue entry.jar aus"

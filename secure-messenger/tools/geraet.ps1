@@ -40,13 +40,15 @@ function AdbStill {
 }
 
 function Starte-Emulator([string]$Avd, [int]$Port, [switch]$OhneDns) {
-  $args = @('-avd', $Avd, '-port', "$Port", '-no-window', '-no-audio',
+  # NICHT $args: das ist eine automatische Variable von PowerShell
+  # (SonarQube Cloud, powershelldre:S8626, 18.10.2026).
+  $emuArgs = @('-avd', $Avd, '-port', "$Port", '-no-window', '-no-audio',
             '-no-boot-anim', '-no-snapshot', '-gpu', 'swiftshader_indirect',
             '-memory', '2048')
   # Ohne Namensaufloesung erreicht die App den echten Relay nicht. Nur
   # sinnvoll, wenn ein Server auf 10.0.2.2 antwortet.
-  if ($OhneDns) { $args += @('-dns-server', '127.0.0.1') }
-  Start-Process -FilePath $script:Emu -ArgumentList $args -WindowStyle Hidden
+  if ($OhneDns) { $emuArgs += @('-dns-server', '127.0.0.1') }
+  Start-Process -FilePath $script:Emu -ArgumentList $emuArgs -WindowStyle Hidden
 }
 
 # DREI PRUEFUNGEN. `adb wait-for-device` kehrt zurueck, bevor init durch ist;
