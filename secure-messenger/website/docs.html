@@ -162,99 +162,99 @@ footer a{color:var(--muted)}
     <span class="screen screen-lit en">Operations</span>
     <h1><span class="de">Den Server selbst betreiben</span><span class="en">Run the server yourself</span></h1>
     <p class="stamp">
-      <span class="de">BitDM braucht zwei Dienste: einen <strong>Relay</strong> und ein <strong>Zwischenlager</strong>. Beide liegen im Quelltext, beide laufen auf einer eigenen Maschine. Stand: 29.&nbsp;Juli 2026.</span>
-      <span class="en">BitDM needs two services: a <strong>relay</strong> and a <strong>blob store</strong>. Both are in the source, both run on a machine of your own. Last updated: 29&nbsp;July 2026.</span>
+      <span class="de">BitDM braucht zwei Dienste, einen <strong>Relay</strong> und ein <strong>Zwischenlager</strong>. Beide gehören zum Quelltext und lassen sich auf einer eigenen Maschine betreiben. Stand: 29.&nbsp;Juli 2026.</span>
+      <span class="en">BitDM needs two services, a <strong>relay</strong> and a <strong>blob store</strong>. Both are part of the source code, and you can run them on your own machine. Last updated: 29&nbsp;July 2026.</span>
     </p>
   </header>
 
   <section>
-    <h2><span class="de">Das Wichtigste zuerst</span><span class="en">First things first</span></h2>
+    <h2><span class="de">Vorab</span><span class="en">Read this first</span></h2>
     <div class="headline-claim">
-      <p class="de"><strong>Alle Beteiligten brauchen denselben Relay.</strong> Zwei Leute auf verschiedenen Servern können sich nicht schreiben — es gibt keine Weiterleitung zwischen Instanzen. Wer umsteigt, muss die Gegenseite mitnehmen.</p>
-      <p class="en"><strong>Everyone involved needs the same relay.</strong> Two people on different servers cannot message each other — there is no federation between instances. If you switch, the other side has to switch with you.</p>
+      <p class="de"><strong>Alle Beteiligten brauchen denselben Relay.</strong> Zwischen Instanzen gibt es keine Weiterleitung, zwei Leute auf verschiedenen Servern können sich deshalb nicht schreiben. Steigst du um, muss die Gegenseite mit.</p>
+      <p class="en"><strong>Everyone involved needs the same relay.</strong> There's no federation between instances, so two people on different servers can't message each other. If you switch, the people you write to have to switch with you.</p>
     </div>
     <p>
-      <span class="de">Das ist die häufigste Enttäuschung bei dieser Einstellung, deshalb steht sie hier oben und nicht in einer Fußnote.</span>
-      <span class="en">This is the most common disappointment with this setting, which is why it is up here and not in a footnote.</span>
+      <span class="de">Wir haben das nach oben gestellt, weil es bei dieser Einstellung am häufigsten enttäuscht.</span>
+      <span class="en">We put this at the top because it's the most common letdown with this setting.</span>
     </p>
   </section>
 
   <section>
     <h2><span class="de">Ein Befehl</span><span class="en">One command</span></h2>
     <p>
-      <span class="de">Auf einem frischen Debian oder Ubuntu genügt das. Das Skript fragt nach dem Namen und einer E-Mail, prüft ob der Name wirklich auf die Maschine zeigt, installiert was fehlt und richtet Zertifikat, nginx und Dienst ein. Es ist keine Konfigurationsdatei anzufassen.</span>
-      <span class="en">On a fresh Debian or Ubuntu this is all it takes. The script asks for the domain and an email, checks that the domain really points at the machine, installs what is missing and sets up the certificate, nginx and the service. There is no config file to touch.</span>
+      <span class="de">Auf einem frischen Debian oder Ubuntu reicht dieser Befehl. Das Skript fragt nach dem Namen und einer E-Mail-Adresse, prüft, ob der Name auf die Maschine zeigt, installiert, was fehlt, und richtet Zertifikat, nginx und den Dienst ein. Eine Konfigurationsdatei musst du nicht anfassen.</span>
+      <span class="en">On a fresh Debian or Ubuntu install, that's all you need. The script asks for the domain and an email address, checks that the domain points at this machine, installs whatever is missing, and sets up the certificate, nginx and the service. You don't have to touch a config file.</span>
     </p>
     <pre><code>curl -fsSL https://bitdm.net/install.sh | sudo bash</code></pre>
     <p>
-      <span class="de">Ein Skript ungelesen in eine Shell zu leiten ist eine Vertrauensfrage, und die richtige Antwort darauf ist Misstrauen. Wer erst lesen will:</span>
-      <span class="en">Piping an unread script into a shell is a question of trust, and the right answer to it is suspicion. To read it first:</span>
+      <span class="de">Wer ein ungelesenes Skript direkt in die Shell leitet, muss ihm blind vertrauen, und Misstrauen ist da berechtigt. Wenn du es vorher lesen willst:</span>
+      <span class="en">Piping a script you haven't read into a shell means trusting it blindly, and you're right to be wary of that. To read it first:</span>
     </p>
     <pre><code>curl -fsSLO https://bitdm.net/install.sh
 less install.sh &amp;&amp; sudo bash install.sh</code></pre>
     <p>
-      <span class="de">Wiederholtes Ausführen ist gefahrlos: das Skript ändert nichts an bestehenden Diensten und öffnet keinen Port ausser 80 und 443, die nginx ohnehin hat.</span>
-      <span class="en">Running it again is safe: it touches no existing service and opens no port beyond 80 and 443, which nginx already has.</span>
+      <span class="de">Du kannst das Skript gefahrlos mehrmals ausführen. Bestehende Dienste lässt es in Ruhe, und es öffnet keine Ports außer 80 und 443, die nginx ohnehin belegt.</span>
+      <span class="en">It's safe to run it again. It leaves existing services alone and opens no ports except 80 and 443, which nginx already uses.</span>
     </p>
   </section>
 
   <section>
     <h2><span class="de">Wozu das gut ist</span><span class="en">What this buys you</span></h2>
     <p>
-      <span class="de">Um <em>Inhalte</em> geht es nicht — die sind Ende-zu-Ende verschlüsselt, und kein Server kann sie lesen, auch unser eigener nicht. Es geht um <strong>Verkehrsdaten</strong>: wer wann online war, wie viele Umschläge in welche Richtung gingen, wie groß sie waren. Der Relay sieht das zwangsläufig. Wer ihn selbst betreibt, teilt es mit niemandem.</span>
-      <span class="en">This is not about <em>content</em> — that is end-to-end encrypted, and no server can read it, not even ours. It is about <strong>traffic data</strong>: who was online when, how many envelopes went which way, how large they were. The relay necessarily sees this. Run it yourself and you share it with nobody.</span>
+      <span class="de">Die <em>Inhalte</em> sind Ende-zu-Ende verschlüsselt und für keinen Server lesbar, auch nicht für unseren. Die <strong>Verkehrsdaten</strong> sieht der Relay aber zwangsläufig, also wer wann online war und wie viele Umschläge welcher Größe in welche Richtung gingen. Betreibst du ihn selbst, gibst du diese Daten an niemanden weiter.</span>
+      <span class="en">Message <em>content</em> is end-to-end encrypted, and no server can read it, ours included. The relay can't avoid seeing <strong>traffic data</strong>, though: who was online when, and how many envelopes of what size went which way. Run it yourself and you don't share that with anyone.</span>
     </p>
   </section>
 
   <section>
     <h2><span class="de">Was du brauchst</span><span class="en">What you need</span></h2>
     <ul>
-      <li><span class="de">Einen Rechner, der ständig läuft und aus dem Netz erreichbar ist. Ein kleiner virtueller Server genügt.</span>
-        <span class="en">A machine that runs continuously and is reachable from the internet. A small virtual server is enough.</span></li>
-      <li><span class="de">Einen Namen darauf und ein Zertifikat. BitDM spricht <code>wss://</code>, und dafür braucht es TLS.</span>
-        <span class="en">A domain name pointing at it and a certificate. BitDM speaks <code>wss://</code>, which needs TLS.</span></li>
-      <li><span class="de">Python. Der Relay ist eine einzelne Datei plus ein systemd-Dienst.</span>
-        <span class="en">Python. The relay is a single file plus a systemd unit.</span></li>
+      <li><span class="de">Einen Rechner, der rund um die Uhr läuft und aus dem Internet erreichbar ist. Ein kleiner virtueller Server reicht.</span>
+        <span class="en">A machine that's on around the clock and reachable from the internet. A small virtual server will do.</span></li>
+      <li><span class="de">Einen Namen, der darauf zeigt, und ein Zertifikat. BitDM spricht <code>wss://</code>, und das geht nur mit TLS.</span>
+        <span class="en">A domain name pointing at it, plus a certificate. BitDM talks <code>wss://</code>, which needs TLS.</span></li>
+      <li><span class="de">Python. Der Relay besteht aus einer einzigen Datei und einem systemd-Dienst.</span>
+        <span class="en">Python. The relay is one file plus a systemd unit.</span></li>
     </ul>
     <p>
-      <span class="de">Die technischen Schritte stehen in <code>deploy/README.md</code> im Quelltext, samt Installationsskript. Diese Seite erklärt, was du entscheidest — nicht, welchen Befehl du tippst.</span>
-      <span class="en">The technical steps live in <code>deploy/README.md</code> in the source, with an install script. This page explains what you decide — not which command to type.</span>
+      <span class="de">Die technischen Schritte samt Installationsskript stehen in <code>deploy/README.md</code> im Quelltext. Hier geht es eher um die Entscheidungen, die du triffst.</span>
+      <span class="en">The technical steps, along with an install script, are in <code>deploy/README.md</code> in the source. This page is more about the decisions you'll make.</span>
     </p>
   </section>
 
   <section>
-    <h2><span class="de">Das Zwischenlager nicht vergessen</span><span class="en">Do not forget the blob store</span></h2>
+    <h2><span class="de">Das Zwischenlager nicht vergessen</span><span class="en">Don't forget the blob store</span></h2>
     <p>
-      <span class="de">Anhänge gehen <strong>nicht</strong> über den Relay. Sie werden verschlüsselt in ein zweites, getrenntes Zwischenlager gelegt; der Relay trägt nur die Anleitung zum Abholen. Wer den Relay aufsetzt und das Lager vergisst, hat einen Messenger, in dem Anhänge scheitern — mit einer Meldung, die nach einem Netzproblem aussieht.</span>
-      <span class="en">Attachments do <strong>not</strong> go through the relay. They are stored encrypted in a second, separate blob store; the relay only carries the instructions to fetch them. Set up the relay and forget the store, and you get a messenger where attachments fail — with an error that looks like a network problem.</span>
+      <span class="de">Anhänge laufen <strong>nicht</strong> über den Relay. Sie landen verschlüsselt in einem zweiten, getrennten Zwischenlager, und der Relay transportiert nur die Angaben zum Abholen. Setzt du den Relay auf und vergisst das Lager, schlagen Anhänge fehl, und zwar mit einer Meldung, die nach einem Netzproblem aussieht.</span>
+      <span class="en">Attachments do <strong>not</strong> go through the relay. They're stored encrypted in a second, separate blob store, and the relay only carries what's needed to fetch them. If you set up the relay but forget the store, attachments fail with an error that looks like a network problem.</span>
     </p>
   </section>
 
   <section>
     <h2><span class="de">In der App eintragen</span><span class="en">Point the app at it</span></h2>
     <p>
-      <span class="de">Einstellungen &rsaquo; Empfangen &rsaquo; Serveradresse. Das Feld nimmt <code>wss://</code> für den Relay; das Lager wird daneben eingetragen. Leeres Feld und übernehmen bringt dich jederzeit zur Voreinstellung zurück.</span>
-      <span class="en">Settings &rsaquo; Receiving &rsaquo; server address. The field takes <code>wss://</code> for the relay; the store goes next to it. Clearing the field and applying returns you to the default at any time.</span>
+      <span class="de">Einstellungen &rsaquo; Empfangen &rsaquo; Serveradresse. Dort trägst du den Relay mit <code>wss://</code> ein, das Lager daneben. Wenn du das Feld leerst und übernimmst, bist du jederzeit wieder bei der Voreinstellung.</span>
+      <span class="en">Settings &rsaquo; Receiving &rsaquo; server address. Enter the relay there as a <code>wss://</code> address, with the store next to it. To go back to the default at any point, clear the field and apply.</span>
     </p>
     <p>
-      <span class="de"><code>http://</code> und <code>ws://</code> lässt die App nur im eigenen Netz zu. Nicht aus Bevormundung: ohne TLS liest jeder auf dem Weg mit, wer wann mit wem spricht — und genau das wolltest du ja vermeiden.</span>
-      <span class="en">The app allows <code>http://</code> and <code>ws://</code> only on your own network. Not to be paternalistic: without TLS anyone on the path can read who talks to whom and when — which is the very thing you wanted to avoid.</span>
+      <span class="de"><code>http://</code> und <code>ws://</code> lässt die App nur im eigenen Netz zu. Ohne TLS kann jeder auf dem Weg mitlesen, wer wann mit wem spricht, und genau das willst du ja vermeiden.</span>
+      <span class="en">The app accepts <code>http://</code> and <code>ws://</code> only on your own network. Without TLS, anyone along the way can see who talks to whom and when, which is what you set out to avoid.</span>
     </p>
   </section>
 
   <section>
     <h2><span class="de">Die Umzugsfalle</span><span class="en">The migration trap</span></h2>
     <p>
-      <span class="de">Bestehende Unterhaltungen laufen nach einem Wechsel weiter — die Schlüssel liegen auf den Geräten, nicht auf dem Server. Aber ein <em>neuer</em> Kontakt findet dich nur, wenn er beim selben Relay ist. Wer umzieht, sollte das mit allen abstimmen, mit denen er noch schreiben will.</span>
-      <span class="en">Existing conversations keep working after a switch — the keys live on the devices, not on the server. But a <em>new</em> contact can only find you if they are on the same relay. If you migrate, agree it with everyone you still want to message.</span>
+      <span class="de">Die Schlüssel liegen auf den Geräten und nicht auf dem Server, deshalb laufen bestehende Unterhaltungen nach einem Wechsel weiter. Ein <em>neuer</em> Kontakt findet dich aber nur, wenn er beim selben Relay ist. Sprich einen Umzug also mit allen ab, mit denen du noch schreiben willst.</span>
+      <span class="en">Your keys are on your devices, not on the server, so existing conversations carry on after a switch. A <em>new</em> contact can only find you if they're on the same relay, though. Before you move, check with everyone you still want to message.</span>
     </p>
   </section>
 
   <section>
     <h2><span class="de">Warum wir das anbieten müssen</span><span class="en">Why we owe you this</span></h2>
     <p>
-      <span class="de">BitDM steht unter der AGPL-3.0. Deren Netzwerk-Klausel verlangt, dass jeder, der mit dem Server spricht, an dessen Quelltext kommt. Ein Messenger, der Metadaten vermeiden will, seine Nutzer aber praktisch auf einen fremden Server zwingt, verlangt genau das Vertrauen, das er zu ersparen verspricht.</span>
-      <span class="en">BitDM is licensed under AGPL-3.0. Its network clause requires that anyone talking to the server can get its source. A messenger that sets out to avoid metadata but in practice forces its users onto someone else’s server is asking for exactly the trust it promises to make unnecessary.</span>
+      <span class="de">BitDM steht unter der AGPL-3.0, und deren Netzwerk-Klausel verlangt, dass jeder, der mit dem Server spricht, an dessen Quelltext kommt. Außerdem darf ein Messenger, der Metadaten vermeiden will, dich nicht praktisch an einen fremden Server binden, sonst musst du dessen Betreiber doch wieder vertrauen.</span>
+      <span class="en">BitDM is licensed under AGPL-3.0, whose network clause says anyone who talks to the server has to be able to get its source. And a messenger meant to avoid metadata shouldn't tie you to someone else's server in practice, because then you're back to trusting whoever runs it.</span>
     </p>
   </section>
 
@@ -262,10 +262,10 @@ less install.sh &amp;&amp; sudo bash install.sh</code></pre>
 
 <footer class="wrap">
   <p>
-    <span class="de">BitDM ist quelloffen unter AGPL-3.0 —
-      <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>.
+    <span class="de">BitDM ist quelloffen unter AGPL-3.0, den
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode findest du auf GitHub</a>.
       Google Play und das Google-Play-Logo sind Marken von Google LLC.</span>
-    <span class="en">BitDM is open source under AGPL-3.0 —
+    <span class="en">BitDM is open source under AGPL-3.0, and you'll find the
       <a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>.
       Google Play and the Google Play logo are trademarks of Google LLC.</span>
   </p>

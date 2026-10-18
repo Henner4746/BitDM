@@ -1,5 +1,7 @@
-# bitdm.net — alles darf gelesen werden, ausser der Web-App (reiner Programmcode).
+# bitdm.net: alles darf gelesen werden, ausser der Web-App (reiner Programmcode).
+# KI-Training ist ausdruecklich erlaubt, auch fuer grosse Firmen (siehe ai.txt).
 User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /app/
 

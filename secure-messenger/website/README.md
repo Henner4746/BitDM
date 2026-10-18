@@ -180,14 +180,17 @@ server {
 |---|---|
 | `security.txt` | Meldeweg für Schwachstellen nach RFC 9116, ausgeliefert unter `/.well-known/security.txt`. **Läuft am 01.10.2027 ab**; der Workflow `security-txt.yml` wird 30 Tage vorher rot. Verlängern heißt: `Expires` höchstens ein Jahr nach vorn setzen und ausrollen. |
 | `llms.txt` | Kurzfassung für Sprachmodelle (llmstxt.org), auch unter `/llm.txt` |
-| `ai.txt` | Trainingsverbot für KI-Modelle, dieselbe Regel wie `ai-train=no` im Cloudflare-Teil der robots.txt. Wer das eine ändert, ändert das andere mit. |
+| `ai.txt` | KI-Training ausdrücklich erlaubt, auch für große Firmen (seit 18.10.2026, vorher verboten); dieselbe Erlaubnis steht als `Content-Signal` in der robots.txt. |
 | `humans.txt` | wer dahintersteht, nur mit GitHub-Namen |
 | `ads.txt` | Platzhalter nach IAB: keine Werbung, niemand darf Werbeplätze verkaufen |
 
-Die robots.txt, die Besucher sehen, ist länger als die Datei hier: Cloudflare
-setzt seinen verwalteten Block davor (Content-Signal und die gesperrten
-KI-Crawler). Eingestellt wird das im Cloudflare-Dashboard, nicht in diesem
-Ordner.
+Bis 18.10.2026 war die robots.txt, die Besucher sahen, länger als die Datei
+hier: Cloudflare setzte einen eigenen Block davor (`ai-train=no` und 32
+gesperrte KI-Crawler wie GPTBot und ClaudeBot). Eingestellt wird das im
+Cloudflare-Dashboard unter Security → Settings → Bot traffic → „Configure AI
+bot policies“: Search, Agent und **Training stehen auf Allow**, „Bot Preference
+Sync“ ist an und setzt dann nichts mehr davor. Taucht der Block wieder auf, hat
+dort jemand „Training“ auf Disallow gestellt.
 
 Der Ausschnitt zeigt die Website; der Block für die Web-App unter `/app/`
 steht in `../deploy/webapp/README.md`. Live liegt die Datei unter

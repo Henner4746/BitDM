@@ -83,7 +83,7 @@
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BitDM — Encrypted messenger, no phone number, no account</title>
-<meta name="description" content="Free end-to-end encrypted messenger without phone number, e-mail or username. Your address is your public key. Signal protocol via the community Dart port libsignal_protocol_dart: X3DH over Curve25519, Double Ratchet, AES-256, AES-256-GCM for attachments. Works over Bluetooth without internet. Open source under AGPL-3.0.">
+<meta name="description" content="No account, no phone number. An end-to-end encrypted messenger that also works over Bluetooth without internet. Free and open source.">
 <link rel="canonical" href="https://bitdm.net/">
 <!-- LINKVORSCHAU UND MASCHINENLESBARE BESCHREIBUNG (seit 27.09.2026).
      Ein Audit ("AI Visibility") fand: nichts im Code sagt einer Maschine, dass
@@ -96,7 +96,7 @@
 <meta property="og:site_name" content="BitDM">
 <meta property="og:url" content="https://bitdm.net/">
 <meta property="og:title" content="BitDM — Encrypted messenger, no phone number, no account">
-<meta property="og:description" content="End-to-end encrypted messenger without phone number, e-mail or username. Your address is your public key. Signal protocol, open source (AGPL-3.0), for Android, Windows, Linux and the browser.">
+<meta property="og:description" content="No account, no phone number. End-to-end encrypted, works over Bluetooth without internet. Free and open source (AGPL-3.0), for Android, Windows, Linux and the browser.">
 <meta property="og:image" content="https://bitdm.net/bilder/icon-180.png">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="de_DE">
@@ -163,7 +163,7 @@
    "name": "What is BitDM?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "A free, open-source messenger with end-to-end encryption. You need no phone number, no e-mail and no username: your address is your public key."
+    "text": "A free, open-source messenger with end-to-end encryption. You don't need a phone number, e-mail address or username; your address is your public key."
    }
   },
   {
@@ -171,7 +171,7 @@
    "name": "Is there a messenger that works without a phone number?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Yes. BitDM never asks for a number, e-mail or name and never uploads your address book. You add contacts by their address or a QR code."
+    "text": "Yes. BitDM never asks for your number, e-mail or name, and it doesn't upload your address book. You add contacts by their address or a QR code."
    }
   },
   {
@@ -179,7 +179,7 @@
    "name": "Is BitDM an alternative to WhatsApp, Signal or Threema?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "For everyday use, yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use, but through the community Dart port libsignal_protocol_dart, not Signal's own library. BitDM is a pre-release and has not been independently audited. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source."
+    "text": "For everyday use, yes. It uses the Signal protocol, like Signal and WhatsApp, but through libsignal_protocol_dart, a community Dart port, and not Signal's own library. BitDM is a pre-release and hasn't been independently audited. Signal and WhatsApp need your phone number and BitDM doesn't; compared with Threema, BitDM is free, and both app and server are open source."
    }
   },
   {
@@ -195,7 +195,7 @@
    "name": "How secure is BitDM?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), implemented with the community Dart port libsignal_protocol_dart, not Signal's own library; attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check."
+    "text": "Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256) through the community Dart port libsignal_protocol_dart, not Signal's own library. Attachments use AES-256-GCM, including when stored on the device. There's no independent security audit yet, but the source is open for anyone to check."
    }
   },
   {
@@ -203,7 +203,7 @@
    "name": "What can the server see?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No content and no names. It sees which address writes to which, when, the rough size and your IP address. Tor hides your IP address, but not who writes to whom. Only nearby mode over Bluetooth bypasses the server entirely."
+    "text": "No content and no names. It does see which address writes to which and when, the rough size and your IP address. Tor hides your IP address but not who writes to whom. Only nearby mode over Bluetooth skips the server entirely."
    }
   },
   {
@@ -211,7 +211,7 @@
    "name": "Does BitDM work without internet?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Yes, between nearby phones over Bluetooth (Android 12 or newer). With “Nearby only” the app never contacts a server at all."
+    "text": "Yes, between nearby phones over Bluetooth (Android 12 or newer). With “Nearby only” turned on, the app doesn't contact any server."
    }
   },
   {
@@ -219,7 +219,7 @@
    "name": "Which devices does BitDM run on?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Android, Windows, Linux and in the browser at bitdm.net/app. There is no iPhone or Mac version yet."
+    "text": "Android, Windows, Linux and in the browser at bitdm.net/app. There's no iPhone or Mac version yet."
    }
   },
   {
@@ -227,7 +227,7 @@
    "name": "What happens if I lose my phone?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Your twelve words bring your identity back on a new device. The old phone stays signed in: with the app lock on it receives nothing until someone unlocks it, without it it keeps receiving until trusted contacts you chose beforehand wipe it — with /wipe or a code word you pick yourself — or until the relay drops it after 30 days without a connection. If it was taken unlocked, a new identity is safer."
+    "text": "Your twelve words restore your identity on a new device. The old phone stays signed in, though. If the app lock is on, it receives nothing until someone unlocks it. If it's off, the phone keeps receiving until trusted contacts you picked beforehand wipe it (with /wipe or a code word you choose), or until the relay drops it after 30 days without a connection. If it was taken unlocked, a new identity is safer."
    }
   },
   {
@@ -235,7 +235,7 @@
    "name": "Can others see my chats when I share my screen?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No. With screenshot protection the BitDM window is missing from screenshots, recordings and streams, including Discord and OBS (Android and Windows). In the browser this is technically impossible."
+    "text": "Not with screenshot protection on. The BitDM window then won't appear in screenshots, recordings or streams, Discord and OBS included (Android and Windows). In the browser it's technically impossible."
    }
   },
   {
@@ -243,7 +243,7 @@
    "name": "What if someone forces me to unlock the app?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Set a panic word. Typed on the lock screen instead of your password, it silently wipes everything and the app looks freshly installed."
+    "text": "Set a panic word. Type it on the lock screen instead of your password and the app quietly wipes everything, then looks freshly installed."
    }
   },
   {
@@ -251,7 +251,7 @@
    "name": "Is BitDM open source?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Yes, app, server and tests under AGPL-3.0 on GitHub: github.com/Henner4746/BitDM."
+    "text": "Yes. App, server and tests are on GitHub under AGPL-3.0: github.com/Henner4746/BitDM."
    }
   },
   {
@@ -259,7 +259,7 @@
    "name": "Who is BitDM for?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "For anyone who wants to write privately without handing out a phone number: families, friends, teams. If your safety depends on the encryption holding, for example as a journalist or under surveillance, use Signal until BitDM has had an independent audit. BitDM is a messenger, not a commerce platform and not a subscription service."
+    "text": "Anyone who wants to write privately without handing out a phone number, such as families, friends or teams. If your safety depends on the encryption holding, for example as a journalist or under surveillance, use Signal until BitDM has had an independent audit. BitDM is only a messenger, not a commerce platform or a subscription service."
    }
   },
   {
@@ -267,7 +267,7 @@
    "name": "Is BitDM related to BiT DMS, BITE or Bitmanagement?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No. BitDM is an encrypted messenger from Germany. BiT DMS is American dealer-management software, BITE a German recruiting-software provider, Bitmanagement makes 3D software and Bite Investments software for wealth management. The names look alike; the companies are unrelated."
+    "text": "No. BitDM is an encrypted messenger from Germany. BiT DMS is American dealer-management software, BITE a German recruiting-software provider, Bitmanagement makes 3D software and Bite Investments software for wealth management. The names look alike, but the companies aren't related."
    }
   },
   {
@@ -275,7 +275,7 @@
    "name": "Who is behind BitDM?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "BitDM is an independent open-source project from Germany. The entire source code — app, server, tests — is open under AGPL-3.0 on github.com/Henner4746/BitDM."
+    "text": "BitDM is an independent open-source project from Germany. All of its source code (app, server and tests) is public under AGPL-3.0 at github.com/Henner4746/BitDM."
    }
   }
  ]
@@ -918,14 +918,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="en">Messaging without a phone number</span>
       </h1>
       <p class="held-lede">
-        <span class="de">BitDM fragt nicht nach Nummer, E-Mail oder Namen. Ihr
+        <span class="de">BitDM will weder Nummer noch E-Mail oder Namen. Ihr
           tauscht eine Adresse oder einen QR-Code, und jede Nachricht ist
-          Ende-zu-Ende verschlüsselt. Liegen zwei Telefone nah beieinander,
-          kommt sie auch ohne Internet an, über Bluetooth.</span>
-        <span class="en">BitDM does not ask for a number, an e-mail address or a
+          Ende-zu-Ende verschlüsselt. Sind die Telefone nah beieinander, geht
+          sie auch ohne Internet durch, per Bluetooth.</span>
+        <span class="en">BitDM doesn't ask for your number, e-mail address or
           name. You swap an address or a QR code, and every message is
-          end-to-end encrypted. When two phones are close together, it even
-          arrives without internet, over Bluetooth.</span>
+          end-to-end encrypted. If the phones are close together, it also gets
+          through over Bluetooth without internet.</span>
       </p>
       <ul class="held-fakten">
         <li><span class="de">Kostenlos</span><span class="en">Free</span></li>
@@ -954,7 +954,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <a class="held-andere" href="#download"><span class="de">Andere Geräte</span><span class="en">Other devices</span></a>
         <p class="held-meta">
           <span class="de">Installer, Version 1.9.1, 13 MB, x64. Braucht keine Adminrechte.</span>
-          <span class="en">Installer, version 1.9.1, 13 MB, x64. Needs no admin rights.</span>
+          <span class="en">Installer, version 1.9.1, 13 MB, x64. No admin rights needed.</span>
         </p>
       </div>
       <div class="held-dl" data-fuer="linux">
@@ -975,8 +975,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <p class="held-meta">
           <span class="held-nur" data-fuer="ios"><span class="de">Für das iPhone gibt es keine App. </span><span class="en">There is no iPhone app. </span></span>
           <span class="held-nur" data-fuer="mac"><span class="de">Für den Mac gibt es keine App. </span><span class="en">There is no Mac app. </span></span>
-          <span class="de">Ohne Installation. Anhänge und Nahbereich fehlen im Browser.</span>
-          <span class="en">Nothing to install. Attachments and nearby mode are missing in the browser.</span>
+          <span class="de">Ohne Installation, aber im Browser fehlen Anhänge und Nahbereich.</span>
+          <span class="en">Nothing to install, but no attachments or nearby mode in the browser.</span>
         </p>
       </div>
     </div>
@@ -1098,17 +1098,15 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
           </a>
         </div>
         <p class="dl-text">
-          <span class="de">Android warnt beim Installieren, weil Google das Zertifikat
-            nicht kennt. Ob du die echte Datei hast, zeigen dir die Prüfwerte.
-            Neue Fassungen kommen von selbst, über
-            <a href="https://f-droid.org" rel="noopener">F-Droid</a> mit unserem
-            eigenen Verzeichnis oder über
+          <span class="de">Beim Installieren warnt Android, weil Google das Zertifikat
+            nicht kennt. Ob du die echte Datei hast, zeigen die Prüfwerte. Updates
+            kommen von selbst, über unser eigenes Verzeichnis in
+            <a href="https://f-droid.org" rel="noopener">F-Droid</a> oder über
             <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>.</span>
-          <span class="en">Android warns you when installing because Google does not
-            know the certificate. The check values tell you whether you have the
-            real file. New versions arrive by themselves, through
-            <a href="https://f-droid.org" rel="noopener">F-Droid</a> with our own
-            repository or through
+          <span class="en">Android warns you during install because Google doesn't
+            know the certificate. The check values tell you whether the file is
+            genuine. For automatic updates, add our own repository to
+            <a href="https://f-droid.org" rel="noopener">F-Droid</a> or use
             <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>.</span>
         </p>
         <!-- QR-CODE: bilder/fdroid-repo.svg, aus genau der Adresse darunter
@@ -1125,8 +1123,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
               <p class="hint">
                 <span class="de">In F-Droid, Droid-ify oder Neo Store ein Repository
                   hinzufügen: den Code scannen oder diese Adresse einfügen.</span>
-                <span class="en">Add a repository in F-Droid, Droid-ify or Neo Store:
-                  scan the code or paste this address.</span>
+                <span class="en">In F-Droid, Droid-ify or Neo Store, add a repository
+                  by scanning the code or pasting this address.</span>
               </p>
               <code class="fd-adresse">https://bitdm.net/fdroid/repo?fingerprint=7C35B6517F5E4E2D35729C15EE9AC0839930E44C773D57ED60A959CD8F1D6B85</code>
               <button type="button" class="btn fd-kopier" hidden
@@ -1134,13 +1132,13 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
                 <span class="de">Adresse kopieren</span><span class="en">Copy address</span>
               </button>
               <p class="hint">
-                <span class="de">Der Fingerabdruck am Ende sorgt dafür, dass die App nur
-                  ein Verzeichnis annimmt, das mit unserem Schlüssel signiert ist. Es
-                  liefert dieselbe APK wie hier und auf GitHub. Wer BitDM schon hat,
-                  wechselt ohne Neuinstallation.</span>
-                <span class="en">The fingerprint at the end makes the app accept only a
-                  repository signed with our key. It serves the same APK as here and on
-                  GitHub. If you already have BitDM, you switch without reinstalling.</span>
+                <span class="de">Wegen des Fingerabdrucks am Ende nimmt die App nur ein
+                  Verzeichnis an, das mit unserem Schlüssel signiert ist. Darin liegt
+                  dieselbe APK wie hier und auf GitHub; ist BitDM schon installiert,
+                  wechselst du ohne Neuinstallation.</span>
+                <span class="en">The fingerprint at the end means the app only accepts a
+                  repository signed with our key. It has the same APK as here and on
+                  GitHub, and if you already have BitDM, you can switch without reinstalling.</span>
               </p>
             </div>
           </div>
@@ -1157,12 +1155,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
               <code class="befehl">apksigner verify --print-certs bitdm-1.9.1.apk</code></dd>
           </dl>
           <p class="hint">
-            <span class="de">Der erste Wert gilt für diese Datei, der zweite für alle
-              künftigen. Android nimmt ein Update nur mit demselben Schlüssel an.
-              Ändert sich dieser Wert, hast du eine andere App vor dir.</span>
-            <span class="en">The first value covers this file, the second covers every
-              future one. Android accepts an update only with the same key. If that
-              value changes, you are looking at a different app.</span>
+            <span class="de">Der erste Wert passt nur zu dieser Datei, der zweite auch zu
+              allen künftigen, weil Android ein Update nur mit demselben Schlüssel
+              annimmt. Ändert er sich, hast du eine andere App vor dir.</span>
+            <span class="en">The first value only fits this file; the second stays the
+              same for every future one, because Android only accepts updates signed
+              with the same key. If it changes, you're looking at a different app.</span>
           </p>
         </details>
       </article>
@@ -1193,14 +1191,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
           </a>
         </div>
         <p class="dl-text">
-          <span class="de">Der Installer braucht keine Adminrechte und richtet BitDM
-            nur für deinen Benutzer ein. Windows warnt beim ersten Start, weil die
-            Datei nicht signiert ist; ein Zertifikat dafür kostet jedes Jahr Geld.
-            Was am PC anders läuft als am Telefon, steht <a href="#desktop">weiter unten</a>.</span>
-          <span class="en">The installer needs no admin rights and sets BitDM up for
-            your user only. Windows warns on first start because the file is not
-            signed; a certificate for that costs money every year. What works
-            differently on a PC than on a phone is <a href="#desktop">further down</a>.</span>
+          <span class="de">Der Installer kommt ohne Adminrechte aus und richtet BitDM
+            nur für deinen Benutzer ein. Beim ersten Start warnt Windows, weil die
+            Datei nicht signiert ist (ein Zertifikat dafür kostet jedes Jahr Geld).
+            Die Unterschiede zwischen PC und Telefon stehen <a href="#desktop">weiter unten</a>.</span>
+          <span class="en">The installer doesn't need admin rights and only sets BitDM
+            up for your user account. Windows will warn you on first start because
+            the file isn't signed (a certificate for that costs money every year).
+            The differences between PC and phone are listed <a href="#desktop">further down</a>.</span>
         </p>
         <details class="pruef-auf">
           <summary><span class="de">Prüfwerte</span><span class="en">Check values</span></summary>
@@ -1213,11 +1211,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
               <code class="befehl">certutil -hashfile bitdm-windows-1.9.1.zip SHA256</code></dd>
           </dl>
           <p class="hint">
-            <span class="de">Jeder Wert gilt nur für seine eine Datei. Einen Wert, der
-              über alle Versionen gleich bleibt, gibt es unter Windows erst mit einer
-              Signatur.</span>
-            <span class="en">Each value covers its one file only. A value that stays
-              the same across versions needs a signature on Windows.</span>
+            <span class="de">Jeder Wert passt nur zu seiner Datei. Ein Wert, der über
+              alle Versionen gleich bleibt, braucht unter Windows eine Signatur.</span>
+            <span class="en">Each value only fits its own file. On Windows, a value that
+              stays the same across versions would need a signature.</span>
           </p>
         </details>
       </article>
@@ -1244,13 +1241,13 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         </div>
         <p class="dl-text">
           <span class="de">GitHub baut das Paket aus diesem Quellcode. Auspacken,
-            <code>./bitdm</code> starten. Ohne entsperrten Schlüsselbund bleibt das
-            Fenster leer. Getestet ist es bisher nur in einem Debian-Container;
-            selbst bauen erklärt <code>docs/LINUX.md</code>.</span>
+            <code>./bitdm</code> starten; ohne entsperrten Schlüsselbund bleibt das
+            Fenster leer. Getestet haben wir es bisher nur in einem Debian-Container.
+            Zum Selbstbauen siehe <code>docs/LINUX.md</code>.</span>
           <span class="en">GitHub builds the package from this source. Unpack
-            it and run <code>./bitdm</code>. Without an unlocked keyring the window
-            stays empty. So far it has only been tested in a Debian container; to
-            build it yourself, see <code>docs/LINUX.md</code>.</span>
+            it and run <code>./bitdm</code>; if your keyring isn't unlocked, the
+            window stays empty. We've only tested it in a Debian container so far.
+            To build it yourself, see <code>docs/LINUX.md</code>.</span>
         </p>
       </article>
 
@@ -1280,14 +1277,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
           </a>
         </div>
         <p class="dl-text">
-          <span class="de">Nachrichten, Gruppen und Kontakte gehen. Anhänge,
-            Sprachnachrichten und der Nahbereich fehlen, und bei geschlossenem Tab
-            kommt nichts an. Deine Identität übersteht das Neuladen nur mit
-            App-Passwort; sonst holst du sie mit den zwölf Wörtern zurück.</span>
-          <span class="en">Messages, groups and contacts work. Attachments, voice
-            messages and nearby mode are missing, and nothing arrives while the tab
-            is closed. Your identity survives a reload only with an app password;
-            otherwise the twelve words bring it back.</span>
+          <span class="de">Nachrichten, Gruppen und Kontakte gehen, Anhänge,
+            Sprachnachrichten und der Nahbereich nicht. Bei geschlossenem Tab kommt
+            nichts an. Ohne App-Passwort ist deine Identität nach dem Neuladen weg,
+            und du holst sie mit den zwölf Wörtern zurück.</span>
+          <span class="en">Messages, groups and contacts work; attachments, voice
+            messages and nearby mode don't. Nothing comes in while the tab is
+            closed. Without an app password your identity is gone after a reload,
+            and you'll need the twelve words again.</span>
         </p>
       </article>
 
@@ -1301,9 +1298,9 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <span class="de">BitDM ist noch nicht unabhängig geprüft. Hängt deine
         Sicherheit an der Verschlüsselung, etwa als Journalistin oder unter
         Überwachung, nimm bis dahin Signal. <a href="#grenzen">Was BitDM nicht kann</a></span>
-      <span class="en">BitDM has not been independently audited yet. If your
+      <span class="en">BitDM hasn't had an independent audit yet. If your
         safety depends on the encryption, for example as a journalist or under
-        surveillance, use Signal until then. <a href="#grenzen">What BitDM cannot do</a></span>
+        surveillance, use Signal until then. <a href="#grenzen">What BitDM can't do</a></span>
     </p>
 
     <p class="dl-fehlt">
@@ -1313,10 +1310,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
 
     <div class="dl-bescheid">
       <p>
-        <span class="de">Bescheid bekommen, wenn es eine neue Version gibt. Wir
-          führen keine Liste; deine Adresse liegt in einem Postfach und sonst nirgends.</span>
-        <span class="en">Get told when there is a new version. We keep no list;
-          your address sits in one mailbox and nowhere else.</span>
+        <span class="de">Wir sagen Bescheid, wenn eine neue Version da ist. Eine Liste
+          führen wir nicht; die Adresse liegt in einem Postfach und sonst nirgends.</span>
+        <span class="en">Leave your e-mail to hear about new versions. We don't keep
+          a mailing list; your address goes to one mailbox and nowhere else.</span>
       </p>
       <form class="field" id="notify">
         <label for="mail" class="screen" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">E-Mail</label>
@@ -1383,7 +1380,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <span class="screen screen-lit en">Module · address</span>
       <h2>
         <span class="de">Deine Identität passt in 56 Zeichen</span>
-        <span class="en">Your identity fits into 56 characters</span>
+        <span class="en">Your identity fits in 56 characters</span>
       </h2>
     </div>
     <div class="display">
@@ -1414,50 +1411,50 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
           <span class="de">Neu erzeugen</span><span class="en">Generate again</span>
         </button>
         <p class="hint" style="margin:0">
-          <span class="de">Kein Konto dahinter. Diese Zeichenkette <em>ist</em> der Schlüssel.
-            Die App erzeugt ihn auf dem Gerät, in einer Zehntelsekunde, ohne einen
-            Server zu fragen.</span>
-          <span class="en">There is no account behind it: this string <em>is</em> the
-            key. The app generates it on the device, in a fraction of a second,
-            without asking any server.</span>
+          <span class="de">Diese Zeichenkette <em>ist</em> der Schlüssel, ein Konto
+            steht nicht dahinter. Die App erzeugt sie in einer Zehntelsekunde auf
+            deinem Gerät und fragt dabei keinen Server.</span>
+          <span class="en">This string <em>is</em> the key; there's no account behind
+            it. The app creates it on your device in a fraction of a second,
+            without asking a server.</span>
         </p>
       </div>
     </div>
     <div class="adresse-text">
       <p class="de">
-        Die meisten Messenger fragen zuerst nach deiner Telefonnummer. BitDM
-        fragt nach gar nichts. Beim ersten Start erzeugt die App ein
-        Schlüsselpaar. Die Adresse oben ist der öffentliche Teil davon, lesbar
-        kodiert und mit einer Prüfsumme gegen Vertipper.
+        Die meisten Messenger wollen als Erstes deine Telefonnummer, BitDM will
+        gar nichts. Beim ersten Start erzeugt die App ein Schlüsselpaar; die Adresse
+        oben ist dessen öffentlicher Teil, lesbar kodiert und mit einer Prüfsumme
+        gegen Vertipper.
       </p>
       <p class="de">
-        Darum <strong>kann dir kein Server einen falschen Schlüssel
-        unterschieben:</strong> Er müsste die Adresse ändern, und die hast du schon.
+        <strong>Ein Server kann dir also keinen falschen Schlüssel
+        unterschieben</strong>, denn dafür müsste er eine Adresse ändern, die du schon hast.
       </p>
       <!-- BIS 17.10.2026 STAND HIER "libsignal, derselben Bibliothek, die
            Signal benutzt". Das hatte 25dd038 an dieser Stelle uebersehen.
            BitDM 1.9.x rechnet mit libsignal_protocol_dart. -->
       <p class="de">
-        Verschlüsselt wird mit dem <strong>Signal-Protokoll</strong>, umgesetzt
-        mit libsignal_protocol_dart, einer Dart-Portierung aus der Gemeinschaft,
-        nicht mit Signals eigener Bibliothek. Jede Nachricht bekommt einen
-        eigenen Schlüssel für <strong>AES mit 256 Bit</strong>. Was genau darin
-        steckt, steht weiter unten Zeile für Zeile.
+        Verschlüsselt wird mit dem <strong>Signal-Protokoll</strong> über
+        libsignal_protocol_dart, eine Dart-Portierung aus der Community,
+        nicht über Signals eigene Bibliothek. Jede Nachricht bekommt ihren
+        eigenen Schlüssel für <strong>AES mit 256 Bit</strong>. Weiter unten
+        stehen alle Verfahren Zeile für Zeile.
       </p>
       <p class="en">
-        Most messengers ask for your phone number first. BitDM asks for nothing
-        at all. On first launch the app generates a key pair. The address above
-        is its public half, readably encoded and carrying a checksum against typos.
+        Most messengers want your phone number first; BitDM doesn't ask for
+        anything. On first launch the app generates a key pair. The address above
+        is the public half, in a readable encoding with a checksum against typos.
       </p>
       <p class="en">
-        So <strong>no server can slip you the wrong key:</strong> it would have
-        to change the address, and you already have it.
+        <strong>A server can't slip you a fake key</strong>, since it would have
+        to change an address you already have.
       </p>
       <p class="en">
-        The encryption is the <strong>Signal protocol</strong>, implemented with
-        libsignal_protocol_dart, a community Dart port, not Signal's own
-        library. Every message gets its own key for <strong>256-bit
-        AES</strong>. What exactly is inside is listed line by line further down.
+        For encryption BitDM uses the <strong>Signal protocol</strong> through
+        libsignal_protocol_dart, a community Dart port, and not Signal's own
+        library. Every message gets its own <strong>256-bit
+        AES</strong> key. Further down you'll find each algorithm, line by line.
       </p>
     </div>
   </section>
@@ -1471,10 +1468,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="de">Was der Server sieht</span>
         <span class="en">What the server sees</span>
       </h2>
-      <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Inhalt. <em>Dass</em> du
-        geschrieben hast, sieht der Server trotzdem, und zwar das hier:</p>
-      <p class="en">End-to-end encryption protects the content. The server still sees
-        <em>that</em> you wrote, and this is what it sees:</p>
+      <p class="de">Ende-zu-Ende-Verschlüsselung verbirgt, was du schreibst. <em>Dass</em>
+        du geschrieben hast, merkt der Server trotzdem. Was er sieht, steht darunter.</p>
+      <p class="en">End-to-end encryption hides what you write, but the server still
+        sees <em>that</em> you wrote. Below is what it can see.</p>
     </div>
 
     <div class="split">
@@ -1523,51 +1520,51 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <span class="screen screen-lit en">Module · No network</span>
       <h2>
         <span class="de">Wenn es keinen Server gibt</span>
-        <span class="en">When there is no server</span>
+        <span class="en">When there's no server</span>
       </h2>
-      <p class="de">Liegen zwei Telefone nah beieinander, findet BitDM das andere über
-        Bluetooth und schickt die Nachricht direkt: ohne WLAN, ohne Mobilfunkdaten,
-        ohne Rechenzentrum. Solche Nachrichten tragen das Zeichen <strong>Direkt</strong>,
-        wie im Chat oben.</p>
-      <p class="en">When two phones are close together, BitDM finds the other over
-        Bluetooth and delivers the message directly: no Wi-Fi, no mobile data, no
-        data centre. Such messages carry the mark <strong>Direct</strong>, as in
+      <p class="de">Sind zwei Telefone nah beieinander, findet BitDM das andere über
+        Bluetooth und schickt die Nachricht direkt, ohne WLAN, Mobilfunkdaten oder
+        Rechenzentrum. Solche Nachrichten sind mit <strong>Direkt</strong>
+        markiert, wie im Chat oben.</p>
+      <p class="en">If two phones are close together, BitDM finds the other over
+        Bluetooth and sends the message directly, without Wi-Fi, mobile data or a
+        data centre. Those messages are labelled <strong>Direct</strong>, as in
         the chat at the top.</p>
     </div>
 
     <div class="fact">
-      <p class="de">Am 29. Juli 2026 auf zwei Geräten gemessen, beide im
+      <p class="de">Gemessen am 29. Juli 2026 mit zwei Geräten, beide im
         Flugmodus für Daten: <strong>325 Byte in 1,35 Sekunden</strong>.</p>
-      <p class="en">Measured on two devices on 29 July 2026, both with data
+      <p class="en">Measured on 29 July 2026 with two devices, both with data
         switched off: <strong>325 bytes in 1.35 seconds</strong>.</p>
     </div>
 
     <p>
-      <span class="de">Schwierig ist das <em>Finden</em>. Ein Gerät, das seine
-        Adresse in die Gegend ruft, verrät sie allen in Reichweite. Und eine
-        Adresse, die man über Tage wiedererkennt, ist ein Bewegungsprofil.</span>
-      <span class="en">The hard part is <em>finding</em> each other. A device that
-        broadcasts its address hands it to everyone in range. And an address you
-        can recognise across days is a movement profile.</span>
+      <span class="de">Knifflig ist das <em>Finden</em>. Sendet ein Telefon seine
+        Adresse aus, kennt sie jeder in Reichweite, und wer sie über Tage immer
+        wieder auffängt, kann verfolgen, wo du unterwegs bist.</span>
+      <span class="en">The tricky part is <em>finding</em> each other. If a phone
+        broadcast its address, everyone in range would learn it, and anyone who
+        caught it again over several days could follow your movements.</span>
     </p>
 
     <p>
-      <span class="de">BitDM sendet darum <strong>Leuchtfeuer</strong> statt einer
-        Adresse: sechs Byte je Kontakt, berechnet aus dem gemeinsamen Geheimnis und
-        der laufenden Viertelstunde. Wer das Geheimnis hat, erkennt seinen Kontakt.
-        Alle anderen sehen Rauschen, das sich alle fünfzehn Minuten ändert.</span>
-      <span class="en">So BitDM broadcasts <strong>beacons</strong> instead of an
-        address: six bytes per contact, computed from the shared secret and the
-        current quarter hour. Whoever holds the secret recognises their contact.
-        Everyone else sees noise that changes every fifteen minutes.</span>
+      <span class="de">BitDM sendet stattdessen <strong>Leuchtfeuer</strong>: sechs
+        Byte je Kontakt, berechnet aus eurem gemeinsamen Geheimnis und der
+        laufenden Viertelstunde. Dein Kontakt erkennt sie, weil er das Geheimnis
+        kennt; für alle anderen ist es Rauschen, das sich alle fünfzehn Minuten ändert.</span>
+      <span class="en">BitDM sends out <strong>beacons</strong> instead: six
+        bytes per contact, worked out from the secret you share and the current
+        quarter hour. Your contact knows the secret and can match them; to anyone
+        else they're noise that changes every fifteen minutes.</span>
     </p>
 
     <p>
       <span class="de">Die App <strong>zeigt nicht an, wer gerade in Reichweite
-        ist</strong>. Am Zeichen einer Nachricht siehst du nur, welchen Weg sie
-        genommen hat.</span>
-      <span class="en">The app <strong>does not show who is in range</strong>. The
-        mark on a message only tells you which way it travelled.</span>
+        ist</strong>. Du siehst nur an der Markierung einer Nachricht, auf welchem
+        Weg sie kam.</span>
+      <span class="en">The app <strong>doesn't show who's in range</strong>. The
+        label on a message only tells you how it got to you.</span>
     </p>
 
     <div class="schirme">
@@ -1578,10 +1575,10 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              data-en-alt="The nearby settings: two switches and a box that
                   says what currently applies.">
         <figcaption>
-          <span class="de">Es gibt zwei Schalter, und die App sagt geradeheraus, wenn
-            einer allein nichts bewirkt.</span>
-          <span class="en">There are two switches, and the app says plainly when one
-            alone achieves nothing.</span>
+          <span class="de">Es gibt zwei Schalter, und wenn einer allein nichts
+            bewirkt, sagt die App das.</span>
+          <span class="en">There are two switches; if one does nothing on its own,
+            the app says so.</span>
         </figcaption>
       </figure>
       <figure>
@@ -1591,23 +1588,23 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              data-en-alt="Your own ID: a QR code and the same address in
                   fourteen blocks to read out loud.">
         <figcaption>
-          <span class="de">Die Adresse ist der Schlüssel: als QR-Code und in
+          <span class="de">Deine Adresse, also dein Schlüssel, als QR-Code und in
             Blöcken zum Vorlesen.</span>
-          <span class="en">The address is the key: as a QR code and in blocks
-            to read out loud.</span>
+          <span class="en">Your address, which is your key, as a QR code and in
+            blocks to read out.</span>
         </figcaption>
       </figure>
     </div>
 
     <p class="hint">
-      <span class="de">Braucht Android 12 oder neuer und Bluetooth 5 auf beiden
-        Geräten. Die erste Nachricht an einen ganz neuen Kontakt tauscht die
-        Schlüssel ebenfalls über Funk; dazu muss die Gegenseite kurz in
-        Reichweite sein. Anhänge gehen diesen Weg nicht.</span>
-      <span class="en">Needs Android 12 or newer and Bluetooth 5 on both
-        devices. The first message to a brand new contact exchanges keys over
-        the air as well, so the other side has to be in range for a moment.
-        Attachments do not take this route.</span>
+      <span class="de">Beide Geräte brauchen Android 12 oder neuer und Bluetooth 5.
+        Bei einem ganz neuen Kontakt laufen mit der ersten Nachricht auch die
+        Schlüssel über Funk, die Gegenseite muss also kurz in Reichweite sein.
+        Anhänge lassen sich so nicht schicken.</span>
+      <span class="en">Both devices need Android 12 or newer and Bluetooth 5.
+        For a brand-new contact, keys are exchanged over the air with the first
+        message, so the other phone has to be in range for a moment.
+        Attachments can't be sent this way.</span>
     </p>
   </section>
 
@@ -1617,47 +1614,47 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <span class="screen screen-lit en">Module · signal path</span>
       <h2>
         <span class="de">Wie eine Nachricht entsteht</span>
-        <span class="en">How a message comes about</span>
+        <span class="en">How a message gets sent</span>
       </h2>
-      <p class="de">Signal-Protokoll: X3DH baut die Sitzung auf, der Double
-        Ratchet erneuert die Schlüssel bei jeder Nachricht. Wer sich heute einen
-        Schlüssel beschafft, kann damit nicht nachlesen, was gestern geschrieben wurde.</p>
-      <p class="en">Signal protocol: X3DH sets up the session, the Double
-        Ratchet renews keys with every message. Obtaining a key today does not unlock what
-        was written yesterday.</p>
+      <p class="de">Im Signal-Protokoll baut X3DH die Sitzung auf, und der Double
+        Ratchet erneuert die Schlüssel mit jeder Nachricht. Wer heute einen Schlüssel
+        erbeutet, kann damit nicht lesen, was du gestern geschrieben hast.</p>
+      <p class="en">In the Signal protocol, X3DH sets up the session and the Double
+        Ratchet renews the keys with every message. A key stolen today can't decrypt
+        what you wrote yesterday.</p>
     </div>
 
     <div class="path">
       <div class="step">
         <span class="screen de">Schritt 1</span><span class="screen en">Step 1</span>
-        <h3><span class="de">Adresse eintragen</span><span class="en">Enter address</span></h3>
-        <p class="de">Du fügst die 56 Zeichen deines Gegenübers ein. Die Prüfsumme
-          fängt Vertipper ab, bevor irgendetwas gesendet wird.</p>
-        <p class="en">You paste the other side's 56 characters. The checksum
-          catches typos before anything is sent.</p>
+        <h3><span class="de">Adresse eintragen</span><span class="en">Add the address</span></h3>
+        <p class="de">Du fügst die 56 Zeichen deines Gegenübers ein. Bei einem
+          Vertipper passt die Prüfsumme nicht, also wird nichts gesendet.</p>
+        <p class="en">Paste your contact's 56 characters. With a typo the checksum
+          won't match, so nothing gets sent.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
-        <h3><span class="de">Sitzung aufbauen</span><span class="en">Establish session</span></h3>
+        <h3><span class="de">Sitzung aufbauen</span><span class="en">Set up a session</span></h3>
         <p class="de">Die App holt ein Schlüsselpaket und rechnet daraus ein
-          gemeinsames Geheimnis aus, auch wenn das Gegenüber gerade offline ist.</p>
-        <p class="en">The app fetches a key bundle and derives a shared secret
-          from it, even while the other side is offline.</p>
+          gemeinsames Geheimnis aus. Dein Gegenüber muss dafür nicht online sein.</p>
+        <p class="en">The app fetches a key bundle and works out a shared secret
+          from it, even if your contact is offline.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
         <h3><span class="de">Schlüssel weiterdrehen</span><span class="en">Ratchet forward</span></h3>
-        <p class="de">Jede Nachricht bekommt ihren eigenen Schlüssel. Der
-          vorherige wird verworfen und ist nicht wiederherstellbar.</p>
-        <p class="en">Every message gets its own key. The previous one is
-          discarded and cannot be recovered.</p>
+        <p class="de">Jede Nachricht bekommt einen neuen Schlüssel, und der alte
+          ist danach unwiederbringlich weg.</p>
+        <p class="en">Each message gets a fresh key, and the old one is thrown
+          away for good.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 4</span><span class="screen en">Step 4</span>
         <h3><span class="de">Nachprüfen</span><span class="en">Verify</span></h3>
-        <p class="de">Eine 60-stellige Sicherheitsnummer, die beide Seiten
-          vergleichen können. Stimmt sie, sitzt niemand dazwischen.</p>
-        <p class="en">A 60-digit safety number both sides can compare. If it
+        <p class="de">Ihr könnt eine 60-stellige Sicherheitsnummer vergleichen.
+          Ist sie bei beiden gleich, sitzt niemand dazwischen.</p>
+        <p class="en">You can both compare a 60-digit safety number. If it
           matches, nobody is sitting in between.</p>
       </div>
     </div>
@@ -1673,11 +1670,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="en">Twelve words, written down once</span>
       </h2>
       <p class="de">Ohne Konto gibt es keinen Kundendienst, der dich wieder
-        hereinlässt. Beim ersten Start bekommst du deshalb zwölf Wörter. Sie sind
-        der einzige Weg zurück, auch wir haben keinen zweiten.</p>
-      <p class="en">Without an account there is no support desk to let you back in.
-        So on first launch you get twelve words. They are the only way back; we
-        have no second one either.</p>
+        hereinlässt. Stattdessen bekommst du beim ersten Start zwölf Wörter. Nur
+        mit ihnen kommst du zurück; einen anderen Weg haben auch wir nicht.</p>
+      <p class="en">No account also means no support desk to let you back in.
+        Instead you get twelve words on first launch. They're the only way back,
+        and we don't have another one either.</p>
     </div>
     <div class="words" aria-label="Beispiel einer Wiederherstellungsphrase" data-en-aria-label="Example of a recovery phrase">
       <div class="word"><i>01</i><span>village</span></div>
@@ -1708,24 +1705,24 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <span class="screen screen-lit en">Module · primitives</span>
       <h2>
         <span class="de">Womit genau</span>
-        <span class="en">With what, exactly</span>
+        <span class="en">Exactly what it uses</span>
       </h2>
       <!-- BIS 17.10.2026 STAND HIER "libsignal, der Bibliothek hinter Signal".
            25dd038 hatte die Stelle uebersehen. -->
-      <p class="de">Das Protokoll ist das von Signal. Gerechnet wird es mit
-        <strong>libsignal_protocol_dart</strong>, einer Dart-Portierung aus der
-        Gemeinschaft, nicht mit Signals eigener Bibliothek. Ein unabhängiges Audit
+      <p class="de">Das Protokoll stammt von Signal, den Code dafür liefert aber
+        <strong>libsignal_protocol_dart</strong>, eine Dart-Portierung aus der
+        Community, nicht Signals eigene Bibliothek. Ein unabhängiges Audit
         von BitDM gibt es noch nicht.</p>
-      <p class="en">The protocol is Signal's. It is computed with
-        <strong>libsignal_protocol_dart</strong>, a community Dart port, not with
-        Signal's own library. BitDM has not had an independent audit yet.</p>
+      <p class="en">The protocol is Signal's, but the code that runs it is
+        <strong>libsignal_protocol_dart</strong>, a community Dart port, and not
+        Signal's own library. BitDM hasn't had an independent audit yet.</p>
     </div>
 
     <dl class="plate">
       <div class="plate-row">
         <dt><span class="de">Sitzungsaufbau</span><span class="en">Session setup</span></dt>
-        <dd><span class="de">X3DH über Curve25519. Funktioniert auch, wenn das Gegenüber offline ist.</span>
-            <span class="en">X3DH over Curve25519. Works even while the other side is offline.</span></dd>
+        <dd><span class="de">X3DH über Curve25519. Geht auch, wenn dein Gegenüber offline ist.</span>
+            <span class="en">X3DH over Curve25519. Works even if your contact is offline.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Laufendes Gespräch</span><span class="en">Ongoing conversation</span></dt>
@@ -1734,8 +1731,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Die Nachricht selbst</span><span class="en">The message itself</span></dt>
-        <dd><span class="de"><strong>AES mit 256 Bit</strong> Schlüssellänge im CBC-Betrieb, beglaubigt mit HMAC-SHA256; diese Kombination ist Signals eigene Konstruktion. Der Schlüssel ist 32 Byte lang und gilt für genau eine Nachricht.</span>
-            <span class="en"><strong>AES with a 256-bit key</strong> in CBC mode, authenticated with HMAC-SHA256; that combination is Signal's own construction. The key is 32 bytes long and covers exactly one message.</span></dd>
+        <dd><span class="de"><strong>AES mit 256 Bit</strong> Schlüssellänge im CBC-Betrieb, beglaubigt mit HMAC-SHA256 (diese Kombination stammt von Signal). Jeder Schlüssel ist 32 Byte lang und gilt für genau eine Nachricht.</span>
+            <span class="en"><strong>AES with a 256-bit key</strong> in CBC mode, authenticated with HMAC-SHA256 (Signal came up with this combination). Each key is 32 bytes long and used for exactly one message.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Unterschriften</span><span class="en">Signatures</span></dt>
@@ -1744,18 +1741,18 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </div>
       <div class="plate-row">
         <dt><span class="de">Länge verschleiern</span><span class="en">Length hiding</span></dt>
-        <dd><span class="de">Jede Nachricht wird auf ein Vielfaches von 256 Byte aufgefüllt. Ein „ja“ und ein „nein“ sehen auf der Leitung gleich aus, und ein kurzer Satz wie ein langer.</span>
-            <span class="en">Every message is padded to a multiple of 256 bytes. A “yes” and a “no” look identical on the wire, and so do a short sentence and a long one.</span></dd>
+        <dd><span class="de">Jede Nachricht wird auf ein Vielfaches von 256 Byte aufgefüllt. Auf der Leitung sieht ein „ja“ deshalb aus wie ein „nein“, und ein kurzer Satz wie ein langer.</span>
+            <span class="en">Messages are padded to a multiple of 256 bytes, so on the wire a “yes” looks the same as a “no”, and a short sentence the same as a long one.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Aus den zwölf Wörtern</span><span class="en">From the twelve words</span></dt>
-        <dd><span class="de">BIP39 (PBKDF2-HMAC-SHA512, 2048 Runden) ergibt einen Seed; HKDF-SHA256 zieht daraus getrennte Schlüssel für Identität und Datenbank. Die Wörter sind das Original, nicht eine Abschrift des Schlüssels.</span>
-            <span class="en">BIP39 (PBKDF2-HMAC-SHA512, 2048 rounds) yields a seed; HKDF-SHA256 derives separate keys for identity and database from it. The words are the original, not a transcript of the key.</span></dd>
+        <dd><span class="de">BIP39 (PBKDF2-HMAC-SHA512, 2048 Runden) macht daraus einen Seed, aus dem HKDF-SHA256 getrennte Schlüssel für Identität und Datenbank ableitet. Die Wörter selbst sind also das Original.</span>
+            <span class="en">BIP39 (PBKDF2-HMAC-SHA512, 2048 rounds) turns them into a seed, from which HKDF-SHA256 derives separate keys for identity and database. The words themselves are the original.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Die Adresse</span><span class="en">The address</span></dt>
-        <dd><span class="de">32 Byte öffentlicher Schlüssel plus 3 Byte SHA-256-Prüfsumme, in Base32: zusammen 56 Zeichen. Wer sie hat, hat den Schlüssel selbst.</span>
-            <span class="en">32 bytes of public key plus 3 bytes of SHA-256 checksum, in Base32: 56 characters in all. Whoever has it has the key itself.</span></dd>
+        <dd><span class="de">32 Byte öffentlicher Schlüssel plus 3 Byte SHA-256-Prüfsumme in Base32, zusammen 56 Zeichen. Wer deine Adresse hat, hat damit deinen Schlüssel.</span>
+            <span class="en">32 bytes of public key plus a 3-byte SHA-256 checksum in Base32, 56 characters in total. If someone has your address, they have your key.</span></dd>
       </div>
     </dl>
   </section>
@@ -1769,32 +1766,32 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="de">Wenn das Telefon in fremde Hände fällt</span>
         <span class="en">If the phone falls into the wrong hands</span>
       </h2>
-      <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Weg. Was auf dem Gerät
-        liegt, schützen diese Schichten.</p>
-      <p class="en">End-to-end encryption protects the path. These layers protect
-        what sits on the device.</p>
+      <p class="de">Ende-zu-Ende-Verschlüsselung schützt Nachrichten unterwegs. Auf
+        dem Gerät übernehmen das diese Schichten.</p>
+      <p class="en">End-to-end encryption covers messages in transit. On the
+        device, these layers take over.</p>
     </div>
 
     <dl class="plate">
       <div class="plate-row">
         <dt><span class="de">Die Datenbank</span><span class="en">The database</span></dt>
-        <dd><span class="de">Als <em>ganze Datei</em> mit ChaCha20-Poly1305 verschlüsselt (SQLite3MultipleCiphers). Wer sie in die Hand bekommt, sieht nicht einmal, wie viele Kontakte es gibt.</span>
-            <span class="en">Encrypted as a <em>whole file</em> with ChaCha20-Poly1305 (SQLite3MultipleCiphers). Whoever obtains it cannot even tell how many contacts there are.</span></dd>
+        <dd><span class="de">Die <em>ganze Datei</em> ist mit ChaCha20-Poly1305 verschlüsselt (SQLite3MultipleCiphers). Wer sie in die Finger bekommt, sieht nicht einmal, wie viele Kontakte du hast.</span>
+            <span class="en">The <em>whole file</em> is encrypted with ChaCha20-Poly1305 (SQLite3MultipleCiphers). Someone who gets hold of it can't even tell how many contacts you have.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">App-Sperre</span><span class="en">App lock</span></dt>
-        <dd><span class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb. Beim App-Passwort entsteht der Schlüssel über Argon2id mit 19 MiB Speicher und 2 Durchgängen: die Empfehlung des OWASP. Raten kostet damit Speicher und Zeit, nicht nur Rechenschritte.</span>
-            <span class="en"><strong>AES with a 256-bit key</strong> in GCM mode. With the app password the key comes from Argon2id using 19 MiB of memory and 2 passes, the OWASP recommendation. Guessing therefore costs memory and time, not just cycles.</span></dd>
+        <dd><span class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb. Mit App-Passwort entsteht der Schlüssel über Argon2id mit 19 MiB Speicher und 2 Durchgängen, wie OWASP es empfiehlt. Jeder Rateversuch kostet so Speicher und Zeit.</span>
+            <span class="en"><strong>AES with a 256-bit key</strong> in GCM mode. With an app password, the key comes from Argon2id with 19 MiB of memory and 2 passes, as OWASP recommends. Each guess then costs memory as well as time.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Vier Wege hinein</span><span class="en">Four ways in</span></dt>
-        <dd><span class="de">Fingerabdruck, Gerätesperre, App-Passwort — oder ein Sicherheitsschlüssel per NFC oder Kabel (CTAP2 <code>hmac-secret</code>, etwa YubiKey). Ohne den Stick geht die App dann nicht auf, auch nicht mit dem richtigen Passwort.</span>
-            <span class="en">Fingerprint, device lock, app password — or a security key over NFC or cable (CTAP2 <code>hmac-secret</code>, e.g. YubiKey). Without the key the app stays shut, correct password or not.</span></dd>
+        <dd><span class="de">Fingerabdruck, Gerätesperre, App-Passwort oder ein Sicherheitsschlüssel per NFC oder Kabel (CTAP2 <code>hmac-secret</code>, etwa YubiKey). Ohne den Stick geht die App dann nicht auf, auch nicht mit dem richtigen Passwort.</span>
+            <span class="en">Fingerprint, device lock, app password, or a security key over NFC or cable (CTAP2 <code>hmac-secret</code>, e.g. YubiKey). Then the app won't open without the key, even with the right password.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Alles löschen</span><span class="en">Wipe</span></dt>
-        <dd><span class="de">Der Schlüssel der Datenbank stammt aus den zwölf Wörtern. Sind sie gelöscht, ist die Datei dauerhaft unlesbar: auch für uns, auch wenn die Bytes im Flash-Speicher überleben.</span>
-            <span class="en">The database key comes from the twelve words. Delete them and the file is permanently unreadable: to us as well, even if the bytes survive in flash.</span></dd>
+        <dd><span class="de">Der Datenbankschlüssel stammt aus den zwölf Wörtern. Sind die gelöscht, kann niemand die Datei mehr lesen, wir auch nicht, selbst wenn die Bytes noch im Flash-Speicher liegen.</span>
+            <span class="en">The database key comes from the twelve words. Once they're deleted, nobody can read the file again, us included, even if the bytes are still in flash memory.</span></dd>
       </div>
       <!-- SEIT 1.9.0 (26.09.2026). Unsichtbar in Aufnahmen: Android FLAG_SECURE,
            Windows SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) — vom Entwickler
@@ -1802,18 +1799,18 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
            das grundsaetzlich nicht; der Satz sagt es. -->
       <div class="plate-row">
         <dt><span class="de">Unsichtbar in Aufnahmen</span><span class="en">Invisible to capture</span></dt>
-        <dd><span class="de">Mit eingeschaltetem Screenshot-Schutz taucht das BitDM-Fenster in Bildschirmfotos, Bildschirmaufnahmen und beim Teilen des Bildschirms nicht auf — auch nicht im Discord-Stream, in OBS oder in Teams. Auf Android bleibt die Aufnahme schwarz, auf Windows fehlt das Fenster darin. Im Browser kann das keine Webseite.</span>
-            <span class="en">With screenshot protection on, the BitDM window does not appear in screenshots, screen recordings or screen sharing — not in a Discord stream, OBS or Teams either. On Android the capture stays black, on Windows the window is simply missing. No web page can do this in a browser.</span></dd>
+        <dd><span class="de">Ist der Screenshot-Schutz an, taucht das BitDM-Fenster in Bildschirmfotos, Aufnahmen und beim Teilen des Bildschirms nicht auf, auch nicht im Discord-Stream, in OBS oder in Teams. Auf Android bleibt die Aufnahme schwarz, auf Windows fehlt das Fenster darin. Eine Webseite im Browser kann das nicht.</span>
+            <span class="en">Turn on screenshot protection and the BitDM window won't show up in screenshots, screen recordings or screen sharing, including Discord streams, OBS and Teams. On Android the capture is black; on Windows the window isn't in it at all. A web page in a browser can't do this.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Panik-Wort</span><span class="en">Panic word</span></dt>
-        <dd><span class="de">Ein selbst gewähltes Wort oder ein Satz. Wer es statt des echten Passworts in die Sperre tippt, löscht in dem Moment alles auf dem Gerät — ohne Rückfrage und ohne sichtbare Meldung. Von außen ist nicht zu erkennen, ob es überhaupt ein Panik-Wort gibt.</span>
-            <span class="en">A word or sentence you choose. Typing it into the lock screen instead of the real password wipes everything on the device on the spot — no confirmation, no visible message. From the outside you cannot tell whether a panic word exists at all.</span></dd>
+        <dd><span class="de">Ein selbst gewähltes Wort oder ein Satz. Tippt jemand es statt des echten Passworts in die Sperre, ist sofort alles auf dem Gerät gelöscht, ohne Rückfrage und ohne sichtbare Meldung. Von außen lässt sich nicht erkennen, ob es überhaupt ein Panik-Wort gibt.</span>
+            <span class="en">A word or sentence you choose. If someone types it into the lock screen instead of the real password, everything on the device is wiped on the spot, with no confirmation or visible message. From the outside you can't tell if a panic word exists.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Löschen aus der Ferne</span><span class="en">Remote wipe</span></dt>
-        <dd><span class="de">Du wählst Vertrauenskontakte und legst fest, wie viele nötig sind (etwa 2 von 3). Sie lösen die Löschung mit <code>/wipe</code> aus — oder, unauffälliger, indem sie dir dein <strong>eigenes Codewort</strong> schreiben, das du ihnen persönlich gesagt hast. Die Nachricht erscheint bei dir nicht. Kommen genug Anfragen binnen 24 Stunden, läuft ein Countdown von 10 Minuten; abbrechen kannst nur du, mit deiner Entsperrung. Danach ist alles auf diesem Gerät weg — die zwölf Wörter holen die Identität anderswo zurück. Grenze: Das Telefon muss dafür entsperrt und online sein; ein gesperrtes Telefon kann die Anfrage nicht lesen.</span>
-            <span class="en">You pick trusted contacts and decide how many are needed (say 2 of 3). They trigger the wipe with <code>/wipe</code> — or, less conspicuously, by writing you <strong>your own code word</strong>, which you told them in person. The message does not show up on your side. If enough requests arrive within 24 hours, a 10-minute countdown starts; only you can cancel it, with your unlock. Then everything on this device is gone — the twelve words restore the identity elsewhere. Limit: the phone must be unlocked and online; a locked phone cannot read the request.</span></dd>
+        <dd><span class="de">Du wählst Vertrauenskontakte und legst fest, wie viele es braucht (etwa 2 von 3). Sie lösen die Löschung mit <code>/wipe</code> aus oder, unauffälliger, indem sie dir dein <strong>eigenes Codewort</strong> schicken, das du ihnen persönlich gesagt hast. Bei dir erscheint die Nachricht nicht. Kommen binnen 24 Stunden genug Anfragen, läuft ein Countdown von 10 Minuten; abbrechen kannst nur du, indem du entsperrst. Danach ist auf diesem Gerät alles weg, und mit den zwölf Wörtern holst du die Identität woanders zurück. Das geht nur, wenn das Telefon entsperrt und online ist; gesperrt kann es die Anfrage nicht lesen.</span>
+            <span class="en">You choose trusted contacts and how many it takes (say 2 of 3). They trigger the wipe with <code>/wipe</code> or, less obviously, by sending you <strong>your own code word</strong>, which you told them in person. The message doesn't show up on your side. If enough requests come in within 24 hours, a 10-minute countdown starts, and only you can stop it by unlocking. After that everything on this device is gone; the twelve words restore your identity elsewhere. It only works while the phone is unlocked and online, since a locked phone can't read the request.</span></dd>
       </div>
     </dl>
   </section>
@@ -1827,54 +1824,55 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="de">Große Dateien, ohne großen Server</span>
         <span class="en">Large files, without a large server</span>
       </h2>
-      <p class="de">Bis zu 5 GB je Datei. Sie geht nicht durch den Relay; der ist für
-        kurze Nachrichten gebaut. Sie liegt verschlüsselt in einem eigenen
-        Zwischenlager, in Stücken, und verschwindet nach 14 Tagen von selbst.</p>
-      <p class="en">Up to 5 GB per file. It does not pass through the relay; that one
-        is built for short messages. It rests encrypted in a separate holding store,
-        in pieces, and disappears by itself after 14 days.</p>
+      <p class="de">Bis zu 5 GB je Datei. Sie umgeht den Relay, der für
+        kurze Nachrichten gebaut ist, und liegt verschlüsselt und in Stücken in einem
+        eigenen Zwischenlager, das sie nach 14 Tagen von selbst löscht.</p>
+      <p class="en">Up to 5 GB per file. It skips the relay, which is built for
+        short messages, and sits encrypted and in pieces in separate temporary
+        storage, where it's deleted automatically after 14 days.</p>
     </div>
 
     <div class="path">
       <div class="step">
         <span class="screen de">Schritt 1</span><span class="screen en">Step 1</span>
         <h3><span class="de">In Stücke teilen</span><span class="en">Split into pieces</span></h3>
-        <p class="de">32 MiB je Stück. Reißt die Verbindung ab, bei drei Gigabyte über
-          Mobilfunk der Normalfall, kostet das ein Stück und nicht die ganze Datei.</p>
-        <p class="en">32 MiB each. If the connection drops, which is normal for three
-          gigabytes over mobile, you lose one piece and not the whole file.</p>
+        <p class="de">32 MiB je Stück. Bei drei Gigabyte über Mobilfunk reißt die
+          Verbindung meistens irgendwann ab, und dann fehlt nur ein Stück statt der
+          ganzen Datei.</p>
+        <p class="en">32 MiB each. Over mobile data a three-gigabyte transfer usually
+          drops at some point, and then you lose one piece rather than the whole file.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
         <h3><span class="de">Je Stück ein Schlüssel</span><span class="en">One key per piece</span></h3>
-        <p class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb, mit eigenem
-          Zufallsschlüssel je Stück. Mit <em>einem</em> Schlüssel für die ganze Datei
-          müsste ein Zähler über alle Stücke, Abbrüche und Wiederaufnahmen hinweg
-          stimmen, und ein einziger Fehler dabei bricht GCM.</p>
-        <p class="en"><strong>AES with a 256-bit key</strong> in GCM mode, with its own
-          random key per piece. With <em>one</em> key for the whole file a counter
-          would have to stay right across all pieces, aborts and resumptions, and a
-          single slip breaks GCM.</p>
+        <p class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb, und jedes Stück
+          bekommt einen eigenen Zufallsschlüssel. Bei <em>einem</em> Schlüssel für die
+          ganze Datei müsste ein Zähler über alle Stücke, Abbrüche und Wiederaufnahmen
+          hinweg stimmen, und schon ein Fehler dabei würde GCM brechen.</p>
+        <p class="en"><strong>AES with a 256-bit key</strong> in GCM mode, and every piece
+          gets its own random key. If <em>one</em> key covered the whole file, a counter
+          would have to stay correct through every piece, abort and resume, and one
+          mistake there would break GCM.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
-        <h3><span class="de">Die Nummer mitbeglaubigen</span><span class="en">Authenticate the number</span></h3>
-        <p class="de">Fälschen kann der Speicher nichts. Vertauschen schon: unter der
-          Kennung von Stück 3 die Bytes von Stück 5. Deshalb steckt die Stücknummer im
-          beglaubigten Zusatz; ein vertauschtes Stück geht dann gar nicht mehr auf.</p>
-        <p class="en">The store cannot forge anything. It could swap, though: serving
-          piece 5's bytes under piece 3's identifier. So the piece number sits in the
-          authenticated data; a swapped piece then fails to open at all.</p>
+        <h3><span class="de">Die Nummer mitbeglaubigen</span><span class="en">Authenticate the piece number</span></h3>
+        <p class="de">Fälschen kann der Speicher nichts, vertauschen schon, etwa unter
+          der Kennung von Stück 3 die Bytes von Stück 5 ausliefern. Deshalb steckt die
+          Stücknummer im beglaubigten Zusatz, und ein vertauschtes Stück geht nicht auf.</p>
+        <p class="en">The storage can't forge anything, but it could swap pieces, say
+          by serving piece 5's bytes under piece 3's identifier. The piece number is
+          therefore part of the authenticated data, and a swapped piece won't open.</p>
       </div>
       <div class="step">
         <span class="screen de">Schritt 4</span><span class="screen en">Step 4</span>
-        <h3><span class="de">Schlüssel gehen anders</span><span class="en">Keys travel elsewhere</span></h3>
-        <p class="de">Wo die Stücke liegen und womit sie aufgehen, reist als gewöhnliche
-          Nachricht durch die Signal-Sitzung. Der Speicher sieht die Schlüssel also
-          nie; er kennt Größe und Zeitpunkt, mehr nicht.</p>
-        <p class="en">Where the pieces are and what opens them travels as an ordinary
-          message through the Signal session. The store never sees the keys; it
-          knows size and timing, nothing else.</p>
+        <h3><span class="de">Schlüssel gehen anders</span><span class="en">Keys go another way</span></h3>
+        <p class="de">Wo die Stücke liegen und womit sie aufgehen, geht als normale
+          Nachricht durch die Signal-Sitzung. Der Speicher sieht die Schlüssel nie
+          und kennt nur Größe und Zeitpunkt.</p>
+        <p class="en">Where the pieces are and which keys open them goes as a normal
+          message through the Signal session. The storage never sees the keys and
+          only knows size and time.</p>
       </div>
     </div>
   </section>
@@ -1891,18 +1889,16 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <span class="screen screen-lit en">Module · desktop</span>
       <h2>
         <span class="de">Am PC fehlen drei Dinge</span>
-        <span class="en">Three things are missing on the PC</span>
+        <span class="en">Three things the PC version lacks</span>
       </h2>
-      <p class="de">Ein Teil von BitDM steckt vollständig in Android-Code und hat
-        auf Windows keine Gegenseite: der Nahbereich über Bluetooth, der
-        Weckdienst für Push und jede Sperre außer dem App-Passwort. Am PC werden
-        sie deshalb gar nicht erst angeboten. Lieber etwas weglassen, als es
-        anbieten und daran scheitern.</p>
-      <p class="en">Part of BitDM lives entirely in Android code and has no
-        counterpart on Windows: the nearby exchange over Bluetooth, the push
-        wake-up, and every lock factor except the app password. On the PC they
-        are not offered at all. Better to leave something out than to offer it
-        and fail at it.</p>
+      <p class="de">Einige Teile von BitDM stecken ganz im Android-Code und haben
+        unter Windows kein Gegenstück: der Nahbereich über Bluetooth, der
+        Weckdienst für Push und jede Sperre außer dem App-Passwort. Am PC fehlen
+        sie deshalb ganz, statt angeboten zu werden und zu scheitern.</p>
+      <p class="en">Some parts of BitDM are written entirely in Android code and
+        have no Windows counterpart: the nearby exchange over Bluetooth, the push
+        wake-up and every lock option except the app password. The PC version
+        leaves them out rather than offering something that would fail.</p>
     </div>
 
     <!-- HIER STAND BIS 17.10.2026 ein Absatz ueber den ersten Windows-Bau vom
@@ -1938,15 +1934,14 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     </ul>
 
     <p class="hint">
-      <span class="de">Ohne Push bleibt am PC die Verbindung offen, solange die
-        App läuft; ein Weckdienst von außen wird dort nicht gebraucht. Beim
-        Anhang ist die Lage unschöner: der Knopf ist noch zu sehen, und am PC
-        öffnet sich beim Druck darauf kein Auswahlfenster. Solange das so ist,
-        steht es hier.</span>
-      <span class="en">Without push, the connection on the PC stays open as long
-        as the app runs, so no external wake-up is needed there. Attachments are
-        the uglier case: the button is still visible, and on the PC pressing it
-        opens no file dialog. As long as that is true, it is stated here.</span>
+      <span class="de">Am PC bleibt die Verbindung offen, solange die App läuft,
+        also braucht es dort weder Push noch einen Weckdienst von außen. Bei
+        Anhängen ist es unschöner: Der Knopf ist noch zu sehen, aber am PC öffnet
+        sich beim Klick kein Auswahlfenster. Solange das so ist, steht es hier.</span>
+      <span class="en">On the PC the connection stays open while the app is
+        running, so it doesn't need push or any outside wake-up. Attachments are
+        messier. The button is still there, but clicking it on the PC doesn't open
+        a file dialog. We'll say so here as long as that's the case.</span>
     </p>
   </section>
 
@@ -1957,18 +1952,18 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <span class="screen screen-lit en">Module · limits</span>
       <h2>
         <span class="de">Was BitDM nicht kann</span>
-        <span class="en">What BitDM cannot do</span>
+        <span class="en">What BitDM can't do</span>
       </h2>
-      <p class="de">Ein Typenschild sagt, was ein Gerät aushält und was nicht.
-        Diese Liste wächst mit dem Programm mit.</p>
-      <p class="en">A rating plate states what a device withstands and what it does not. This list grows along with the product.</p>
+      <p class="de">Wie auf einem Typenschild steht hier, was BitDM aushält und
+        was nicht. Die Liste wächst mit der App mit.</p>
+      <p class="en">Like the rating plate on a machine, this lists what BitDM can and can't handle. It grows as the app does.</p>
     </div>
 
     <dl class="plate">
       <div class="plate-row">
         <dt><span class="de">Metadaten</span><span class="en">Metadata</span></dt>
-        <dd><span class="de">Der Relay sieht, wer wann mit wem schreibt; daran ändert die Verschlüsselung nichts.</span>
-            <span class="en">The relay sees who writes to whom and when, and encryption does not change that.</span></dd>
+        <dd><span class="de">Der Relay sieht, wer wann mit wem schreibt. Die Verschlüsselung ändert daran nichts.</span>
+            <span class="en">The relay sees who writes to whom and when. Encryption doesn't change that.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Geräte</span><span class="en">Devices</span></dt>
@@ -1976,8 +1971,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              legt das erste still". Falsch seit Mehrgeraete: der Relay fuehrt bis zu
              fuenf Geraete je Adresse, und abmelden laesst sich keines (Befund N1,
              docs/BEFUNDE-2026-10-14.md). -->
-        <dd><span class="de">Bis zu fünf Geräte je Identität. Eine Wiederherstellung legt das alte Gerät nicht still, und abmelden lässt sich keines.</span>
-            <span class="en">Up to five devices per identity. Restoring on a new one does not retire the old one, and none can be logged out.</span></dd>
+        <dd><span class="de">Bis zu fünf Geräte je Identität. Eine Wiederherstellung legt das alte Gerät nicht still, und abmelden lässt sich keins.</span>
+            <span class="en">Up to five devices per identity. Restoring on a new device leaves the old one active, and you can't log devices out.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Umfang</span><span class="en">Scope</span></dt>
@@ -1995,7 +1990,7 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              Gruppen bis 20 Mitglieder (docs/FUNKTIONSVERGLEICH.md) und
              Sprachnachrichten auf Android; Anrufe weiterhin nicht. -->
         <dd><span class="de">Einzelchats und Gruppen bis 20, mit Text, Sprachnachrichten und Anhängen bis 5 GB. Keine Anrufe.</span>
-            <span class="en">One-to-one chats and groups up to 20, with text, voice messages and attachments up to 5 GB. No calls.</span></dd>
+            <span class="en">One-to-one chats and groups of up to 20, with text, voice messages and attachments up to 5 GB. No calls.</span></dd>
       </div>
       <!-- SEIT 1.7.0, HEIC/AVIF/Video seit 1.8.0 (25.09.2026). Belegt durch app/test/anhang/metadaten_test.dart:
            echte Bilder mit GPS, Hersteller, Modell, Zeit und Kommentar; danach
@@ -2003,23 +1998,23 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
            Grenze steht mit dabei, weil sie stimmt. -->
       <div class="plate-row">
         <dt><span class="de">Fotos</span><span class="en">Photos</span></dt>
-        <dd><span class="de">Ort, Kamera und Aufnahmezeit werden vor dem Senden aus JPEG, PNG, WebP, HEIC und AVIF entfernt, aus MP4-, MOV- und 3GP-Videos ebenso; der Dateiname wird neutral. Andere Formate gehen unverändert hinaus.</span>
-            <span class="en">Location, camera and capture time are stripped from JPEG, PNG, WebP, HEIC and AVIF before sending, and from MP4, MOV and 3GP videos too; the file name is neutralised. Other formats go out unchanged.</span></dd>
+        <dd><span class="de">Vor dem Senden entfernt die App Ort, Kamera und Aufnahmezeit aus JPEG, PNG, WebP, HEIC und AVIF sowie aus MP4-, MOV- und 3GP-Videos; der Dateiname wird neutral. Andere Formate gehen unverändert hinaus.</span>
+            <span class="en">Before sending, the app strips location, camera and capture time from JPEG, PNG, WebP, HEIC and AVIF and from MP4, MOV and 3GP videos, and gives the file a neutral name. Other formats go out unchanged.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Aussehen</span><span class="en">Look</span></dt>
-        <dd><span class="de">Neun Themen, darunter Material mit der Akzentfarbe des Systems und drei Terminal-Themen. Sie wechseln langsam durch einen Schleier aus Chiffrezeichen, auf Wunsch von allein.</span>
-            <span class="en">Nine themes, including Material with the system accent colour and three terminal themes. They change slowly through a veil of cipher glyphs, on their own if you like.</span></dd>
+        <dd><span class="de">Neun Themen, darunter Material mit der Akzentfarbe des Systems und drei Terminal-Themen. Sie gehen langsam über Chiffrezeichen ineinander über und wechseln auf Wunsch von allein.</span>
+            <span class="en">Nine themes, including Material with your system's accent colour and three terminal themes. They cross-fade slowly through cipher characters and can switch by themselves if you like.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
-        <dd><span class="de">Sind die zwölf Wörter weg, ist die Identität weg, außer du hast sie vorher in Teilen an Vertrauenskontakte gegeben (etwa 2 von 3). Kein Zurücksetzen, keine Wiederherstellung per Mail.</span>
-            <span class="en">If the twelve words are gone, the identity is gone, unless you split them among trusted contacts beforehand (say 2 of 3). No reset, no recovery by email.</span></dd>
+        <dd><span class="de">Ohne die zwölf Wörter ist die Identität verloren, außer du hast sie vorher in Teilen an Vertrauenskontakte gegeben (etwa 2 von 3). Zurücksetzen oder per Mail wiederherstellen geht nicht.</span>
+            <span class="en">Lose the twelve words and you lose the identity, unless you split them among trusted contacts beforehand (say 2 of 3). There's no reset and no recovery by e-mail.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Prüfung</span><span class="en">Audit</span></dt>
-        <dd><span class="de">Kein externes Sicherheitsaudit. Eine eigene Prüfung am 25.09.2026 fand rund 80 Befunde, alle behoben (Fassung 1.8.1); ein unabhängiges Audit ersetzt sie nicht. Schwachstellen bitte vertraulich an <!--email_off-->kontakt@bitdm.net<!--/email_off-->.</span>
-            <span class="en">No external security audit. An internal review on 25.09.2026 found about 80 issues, all fixed (version 1.8.1); it does not replace an independent audit. Please report vulnerabilities privately to <!--email_off-->kontakt@bitdm.net<!--/email_off-->.</span></dd>
+        <dd><span class="de">Kein externes Sicherheitsaudit. Unsere eigene Prüfung am 25.09.2026 fand rund 80 Befunde, alle behoben (Fassung 1.8.1); sie ersetzt aber kein unabhängiges Audit. Schwachstellen bitte vertraulich an <!--email_off-->kontakt@bitdm.net<!--/email_off-->.</span>
+            <span class="en">No external security audit. Our own review on 25.09.2026 turned up about 80 issues, all fixed (version 1.8.1), but that's no substitute for an independent audit. Please report vulnerabilities privately to <!--email_off-->kontakt@bitdm.net<!--/email_off-->.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Reife</span><span class="en">Maturity</span></dt>
@@ -2030,8 +2025,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              Antrag (fdroiddata!52566) an dem Tag abgelehnt. Seit demselben Abend
              gibt es das eigene Verzeichnis bitdm.net/fdroid/repo — im
              offiziellen Katalog ist BitDM weiterhin nicht. -->
-        <dd><span class="de">Vorabversion. Als Download hier, auf GitHub und im eigenen F-Droid-Verzeichnis, nicht im offiziellen F-Droid-Katalog oder in Google Play, und noch nicht im Alltag erprobt.</span>
-            <span class="en">Pre-release. Available as a download here, on GitHub and in our own F-Droid repository, not in the official F-Droid catalogue or Google Play, and not yet proven in daily use.</span></dd>
+        <dd><span class="de">Vorabversion. Zu haben hier, auf GitHub und im eigenen F-Droid-Verzeichnis, nicht aber im offiziellen F-Droid-Katalog oder in Google Play. Im Alltag erprobt ist es noch nicht.</span>
+            <span class="en">Pre-release. Download it here, on GitHub or from our own F-Droid repository. It isn't in the official F-Droid catalogue or on Google Play and hasn't been proven in daily use yet.</span></dd>
       </div>
     </dl>
   </section>
@@ -2045,47 +2040,47 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="de">Der Quellcode liegt offen</span>
         <span class="en">The source is open</span>
       </h2>
-      <p class="de">Ein Sicherheitsversprechen, das niemand nachprüfen kann, ist wertlos. Der
-        vollständige Quellcode steht unter AGPL-3.0 offen: App, Server und Tests.</p>
-      <p class="en">A security promise nobody can check is worthless. The complete
-        source is open under AGPL-3.0: app, server and tests.</p>
+      <p class="de">Der vollständige Quellcode (App, Server und Tests) steht unter
+        AGPL-3.0 offen, damit du unsere Sicherheitsversprechen selbst nachprüfen kannst.</p>
+      <p class="en">The complete source (app, server and tests) is open under
+        AGPL-3.0, so you can check our security claims yourself.</p>
     </div>
 
     <div class="facts">
       <div class="fact">
         <span class="num">AES-256</span>
-        <p class="de">Schlüssellänge überall, wo AES benutzt wird: Nachrichten, App-Sperre, Anhänge. 256 Bit, also 32 Byte, nachlesbar im Quelltext.</p>
-        <p class="en">Key length everywhere AES is used: messages, app lock, attachments. 256 bits, i.e. 32 bytes, verifiable in the source.</p>
+        <p class="de">Schlüssellänge überall, wo AES vorkommt (Nachrichten, App-Sperre, Anhänge): 256 Bit oder 32 Byte, nachzulesen im Quelltext.</p>
+        <p class="en">Key length wherever AES is used (messages, app lock, attachments): 256 bits, or 32 bytes, as the source shows.</p>
       </div>
       <div class="fact">
         <span class="num">AGPL-3.0</span>
-        <p class="de">Quelloffen. Wer die App oder den Relay verteilt oder als Dienst betreibt, muss den Quellcode mitliefern.</p>
-        <p class="en">Open source. Anyone who distributes the app or the relay, or runs it as a service, must provide the source.</p>
+        <p class="de">Quelloffen. Wer die App oder den Relay weitergibt oder als Dienst betreibt, muss den Quellcode mitliefern.</p>
+        <p class="en">Open source. If you distribute the app or the relay, or run it as a service, you must share the source.</p>
       </div>
       <div class="fact">
         <span class="num">24</span>
-        <p class="de">Offizielle BIP39-Testvektoren, gegen die die Ableitung der zwölf Wörter geprüft ist.</p>
-        <p class="en">Official BIP39 test vectors the twelve-word derivation is checked against.</p>
+        <p class="de">Offizielle BIP39-Testvektoren, mit denen die Ableitung aus den zwölf Wörtern getestet ist.</p>
+        <p class="en">Official BIP39 test vectors that the twelve-word derivation is tested against.</p>
       </div>
       <div class="fact">
         <span class="num">56</span>
         <p class="de">Zeichen je Adresse, mit Prüfsumme. Jeder einzelne Vertipper fällt auf.</p>
-        <p class="en">Characters per address, with a checksum. Every single typo is caught.</p>
+        <p class="en">Characters per address, with a checksum, so a single typo won't go unnoticed.</p>
       </div>
       <div class="fact">
         <span class="num">0</span>
-        <p class="de">Anfragen an Dritte. Die App lädt weder Schriften noch Zählpixel nach, und diese Seite ebenso wenig.</p>
-        <p class="en">Third-party requests. The app loads neither fonts nor trackers, and the same holds for this page.</p>
+        <p class="de">Anfragen an Dritte. Weder die App noch diese Seite lädt Schriften oder Zählpixel nach.</p>
+        <p class="en">Third-party requests. Neither the app nor this page loads outside fonts or trackers.</p>
       </div>
       <div class="fact">
         <span class="num">256</span>
-        <p class="de">Byte je Block, auf den jede Nachricht aufgefüllt wird. Deshalb sieht ein „ja“ auf der Leitung aus wie ein Absatz.</p>
-        <p class="en">Bytes per block every message is padded to. That is why a “yes” looks like a paragraph on the wire.</p>
+        <p class="de">Byte je Block. Jede Nachricht wird auf volle Blöcke aufgefüllt, und auf der Leitung sieht ein „ja“ aus wie ein Absatz.</p>
+        <p class="en">Bytes per block. Every message is padded to whole blocks, so on the wire a “yes” looks like a paragraph.</p>
       </div>
       <div class="fact">
         <span class="num">5 GB</span>
-        <p class="de">Größte Datei je Anhang, in 32-MiB-Stücken, jedes mit eigenem Schlüssel.</p>
-        <p class="en">Largest file per attachment, in 32 MiB pieces, each with its own key.</p>
+        <p class="de">Höchstgröße eines Anhangs, verschickt in 32-MiB-Stücken mit je eigenem Schlüssel.</p>
+        <p class="en">Maximum attachment size, sent in 32 MiB pieces that each have their own key.</p>
       </div>
     </div>
   </section>
@@ -2107,18 +2102,18 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     <div class="faq">
       <details class="faq-item">
         <summary><span class="de">Was ist BitDM?</span><span class="en">What is BitDM?</span></summary>
-        <p class="de">Ein kostenloser, quelloffener Messenger mit Ende-zu-Ende-Verschlüsselung. Du brauchst keine Telefonnummer, keine E-Mail und keinen Benutzernamen: deine Adresse ist dein öffentlicher Schlüssel.</p>
-        <p class="en">A free, open-source messenger with end-to-end encryption. You need no phone number, no e-mail and no username: your address is your public key.</p>
+        <p class="de">Ein kostenloser, quelloffener Messenger mit Ende-zu-Ende-Verschlüsselung. Du brauchst weder Telefonnummer noch E-Mail oder Benutzernamen; deine Adresse ist dein öffentlicher Schlüssel.</p>
+        <p class="en">A free, open-source messenger with end-to-end encryption. You don't need a phone number, e-mail address or username; your address is your public key.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Gibt es einen Messenger ohne Telefonnummer?</span><span class="en">Is there a messenger that works without a phone number?</span></summary>
         <p class="de">Ja. BitDM fragt nie nach Nummer, E-Mail oder Namen und lädt kein Adressbuch hoch. Kontakte fügst du über ihre Adresse oder einen QR-Code hinzu.</p>
-        <p class="en">Yes. BitDM never asks for a number, e-mail or name and never uploads your address book. You add contacts by their address or a QR code.</p>
+        <p class="en">Yes. BitDM never asks for your number, e-mail or name, and it doesn't upload your address book. You add contacts by their address or a QR code.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Ist BitDM eine Alternative zu WhatsApp, Signal oder Threema?</span><span class="en">Is BitDM an alternative to WhatsApp, Signal or Threema?</span></summary>
-        <p class="de">Für den Alltag ja. Verschlüsselt wird mit dem Signal-Protokoll, das auch Signal und WhatsApp nutzen, allerdings über die Dart-Portierung libsignal_protocol_dart aus der Gemeinschaft, nicht Signals eigene Bibliothek. BitDM ist eine Vorabversion und noch nicht unabhängig geprüft. Anders als bei Signal und WhatsApp gibt es keine Telefonnummer; anders als Threema ist BitDM kostenlos, und App und Server sind beide quelloffen.</p>
-        <p class="en">For everyday use, yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use, but through the community Dart port libsignal_protocol_dart, not Signal's own library. BitDM is a pre-release and has not been independently audited. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source.</p>
+        <p class="de">Für den Alltag ja. Es nutzt das Signal-Protokoll wie Signal und WhatsApp, allerdings über libsignal_protocol_dart, eine Dart-Portierung aus der Community, und nicht über Signals eigene Bibliothek. BitDM ist eine Vorabversion und noch nicht unabhängig geprüft. Signal und WhatsApp wollen deine Telefonnummer, BitDM nicht; anders als Threema ist BitDM kostenlos, und App und Server sind beide quelloffen.</p>
+        <p class="en">For everyday use, yes. It uses the Signal protocol, like Signal and WhatsApp, but through libsignal_protocol_dart, a community Dart port, and not Signal's own library. BitDM is a pre-release and hasn't been independently audited. Signal and WhatsApp need your phone number and BitDM doesn't; compared with Threema, BitDM is free, and both app and server are open source.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Was kostet BitDM?</span><span class="en">How much does BitDM cost?</span></summary>
@@ -2127,58 +2122,58 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Wie sicher ist BitDM?</span><span class="en">How secure is BitDM?</span></summary>
-        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), umgesetzt mit der Dart-Portierung libsignal_protocol_dart aus der Gemeinschaft, nicht Signals eigene Bibliothek; Anhänge über AES-256-GCM, auch auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht; der Quellcode liegt offen, damit jeder nachsehen kann.</p>
-        <p class="en">Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), implemented with the community Dart port libsignal_protocol_dart, not Signal's own library; attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check.</p>
+        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), umgesetzt mit der Dart-Portierung libsignal_protocol_dart aus der Community, nicht mit Signals eigener Bibliothek. Anhänge über AES-256-GCM, auch gespeichert auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht, aber jeder kann im offenen Quellcode nachsehen.</p>
+        <p class="en">Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256) through the community Dart port libsignal_protocol_dart, not Signal's own library. Attachments use AES-256-GCM, including when stored on the device. There's no independent security audit yet, but the source is open for anyone to check.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Was sieht der Server?</span><span class="en">What can the server see?</span></summary>
-        <p class="de">Keinen Inhalt und keine Namen. Er sieht, welche Adresse wann an welche schreibt, die ungefähre Größe und deine IP-Adresse. Tor verbirgt die IP-Adresse, aber nicht, wer an wen schreibt. Ganz am Server vorbei geht nur der Nahbereich über Bluetooth.</p>
-        <p class="en">No content and no names. It sees which address writes to which, when, the rough size and your IP address. Tor hides your IP address, but not who writes to whom. Only nearby mode over Bluetooth bypasses the server entirely.</p>
+        <p class="de">Keinen Inhalt und keine Namen. Er sieht aber, welche Adresse wann an welche schreibt, die ungefähre Größe und deine IP-Adresse. Tor verbirgt die IP-Adresse, nicht aber, wer an wen schreibt. Ganz am Server vorbei geht nur der Nahbereich über Bluetooth.</p>
+        <p class="en">No content and no names. It does see which address writes to which and when, the rough size and your IP address. Tor hides your IP address but not who writes to whom. Only nearby mode over Bluetooth skips the server entirely.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Funktioniert BitDM ohne Internet?</span><span class="en">Does BitDM work without internet?</span></summary>
-        <p class="de">Ja, zwischen Telefonen in der Nähe über Bluetooth (Android 12 oder neuer). Mit „Nur in der Nähe“ spricht die App überhaupt keinen Server an.</p>
-        <p class="en">Yes, between nearby phones over Bluetooth (Android 12 or newer). With “Nearby only” the app never contacts a server at all.</p>
+        <p class="de">Ja, zwischen Telefonen in der Nähe über Bluetooth (Android 12 oder neuer). Mit „Nur in der Nähe“ spricht die App gar keinen Server an.</p>
+        <p class="en">Yes, between nearby phones over Bluetooth (Android 12 or newer). With “Nearby only” turned on, the app doesn't contact any server.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Auf welchen Geräten läuft BitDM?</span><span class="en">Which devices does BitDM run on?</span></summary>
         <p class="de">Android, Windows, Linux und im Browser unter bitdm.net/app. Für iPhone und Mac gibt es noch keine Version.</p>
-        <p class="en">Android, Windows, Linux and in the browser at bitdm.net/app. There is no iPhone or Mac version yet.</p>
+        <p class="en">Android, Windows, Linux and in the browser at bitdm.net/app. There's no iPhone or Mac version yet.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Was passiert, wenn mein Telefon weg ist?</span><span class="en">What happens if I lose my phone?</span></summary>
-        <p class="de">Mit deinen zwölf Wörtern holst du deine Identität auf einem neuen Gerät zurück. Das alte Telefon bleibt dabei angemeldet: Mit App-Sperre empfängt es nichts, solange niemand es entsperrt; ohne sie empfängt es weiter, bis Vertrauenskontakte, die du vorher festgelegt hast, es löschen — mit /wipe oder einem Codewort, das du selbst bestimmst — oder bis der Relay es nach 30 Tagen ohne Verbindung vergisst. Wurde es entsperrt mitgenommen, ist eine neue Identität sicherer.</p>
-        <p class="en">Your twelve words bring your identity back on a new device. The old phone stays signed in: with the app lock on it receives nothing until someone unlocks it, without it it keeps receiving until trusted contacts you chose beforehand wipe it — with /wipe or a code word you pick yourself — or until the relay drops it after 30 days without a connection. If it was taken unlocked, a new identity is safer.</p>
+        <p class="de">Mit deinen zwölf Wörtern holst du deine Identität auf ein neues Gerät zurück. Das alte Telefon bleibt aber angemeldet. Mit App-Sperre empfängt es nichts, bis jemand es entsperrt. Ohne Sperre empfängt es weiter, bis Vertrauenskontakte, die du vorher festgelegt hast, es löschen (mit /wipe oder einem Codewort, das du selbst bestimmst), oder bis der Relay es nach 30 Tagen ohne Verbindung vergisst. Wurde es entsperrt mitgenommen, fängst du besser mit einer neuen Identität an.</p>
+        <p class="en">Your twelve words restore your identity on a new device. The old phone stays signed in, though. If the app lock is on, it receives nothing until someone unlocks it. If it's off, the phone keeps receiving until trusted contacts you picked beforehand wipe it (with /wipe or a code word you choose), or until the relay drops it after 30 days without a connection. If it was taken unlocked, a new identity is safer.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Sieht man meine Chats, wenn ich den Bildschirm teile?</span><span class="en">Can others see my chats when I share my screen?</span></summary>
-        <p class="de">Nein. Mit Screenshot-Schutz fehlt das BitDM-Fenster in Bildschirmfotos, Aufnahmen und Streams, auch in Discord und OBS (Android und Windows). Im Browser geht das technisch nicht.</p>
-        <p class="en">No. With screenshot protection the BitDM window is missing from screenshots, recordings and streams, including Discord and OBS (Android and Windows). In the browser this is technically impossible.</p>
+        <p class="de">Nicht mit eingeschaltetem Screenshot-Schutz. Dann fehlt das BitDM-Fenster in Bildschirmfotos, Aufnahmen und Streams, auch in Discord und OBS (Android und Windows). Im Browser geht das technisch nicht.</p>
+        <p class="en">Not with screenshot protection on. The BitDM window then won't appear in screenshots, recordings or streams, Discord and OBS included (Android and Windows). In the browser it's technically impossible.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Und wenn mich jemand zwingt, die App zu öffnen?</span><span class="en">What if someone forces me to unlock the app?</span></summary>
-        <p class="de">Lege ein Panik-Wort fest. Am Sperrbildschirm statt des Passworts eingegeben, löscht es still alles, und die App sieht aus wie frisch installiert.</p>
-        <p class="en">Set a panic word. Typed on the lock screen instead of your password, it silently wipes everything and the app looks freshly installed.</p>
+        <p class="de">Leg ein Panik-Wort fest. Am Sperrbildschirm statt des Passworts getippt, löscht es still alles, und die App sieht aus wie frisch installiert.</p>
+        <p class="en">Set a panic word. Type it on the lock screen instead of your password and the app quietly wipes everything, then looks freshly installed.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Ist BitDM Open Source?</span><span class="en">Is BitDM open source?</span></summary>
-        <p class="de">Ja, App, Server und Tests unter AGPL-3.0 auf GitHub: github.com/Henner4746/BitDM.</p>
-        <p class="en">Yes, app, server and tests under AGPL-3.0 on GitHub: github.com/Henner4746/BitDM.</p>
+        <p class="de">Ja. App, Server und Tests liegen unter AGPL-3.0 auf GitHub: github.com/Henner4746/BitDM.</p>
+        <p class="en">Yes. App, server and tests are on GitHub under AGPL-3.0: github.com/Henner4746/BitDM.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Für wen ist BitDM?</span><span class="en">Who is BitDM for?</span></summary>
-        <p class="de">Für alle, die privat schreiben wollen, ohne eine Telefonnummer herauszugeben: Familien, Freundeskreise, Teams. Hängt deine Sicherheit davon ab, dass die Verschlüsselung hält, etwa als Journalistin oder unter Überwachung, dann nimm bis zu einer unabhängigen Prüfung von BitDM Signal. BitDM ist ein Messenger, keine Handelsplattform und kein Abo-Dienst.</p>
-        <p class="en">For anyone who wants to write privately without handing out a phone number: families, friends, teams. If your safety depends on the encryption holding, for example as a journalist or under surveillance, use Signal until BitDM has had an independent audit. BitDM is a messenger, not a commerce platform and not a subscription service.</p>
+        <p class="de">Für alle, die privat schreiben wollen, ohne ihre Telefonnummer herauszugeben, etwa Familien, Freundeskreise oder Teams. Hängt deine Sicherheit davon ab, dass die Verschlüsselung hält, zum Beispiel als Journalistin oder unter Überwachung, dann nimm Signal, bis BitDM unabhängig geprüft ist. BitDM ist nur ein Messenger, keine Handelsplattform und kein Abo-Dienst.</p>
+        <p class="en">Anyone who wants to write privately without handing out a phone number, such as families, friends or teams. If your safety depends on the encryption holding, for example as a journalist or under surveillance, use Signal until BitDM has had an independent audit. BitDM is only a messenger, not a commerce platform or a subscription service.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Hat BitDM etwas mit BiT DMS, BITE oder Bitmanagement zu tun?</span><span class="en">Is BitDM related to BiT DMS, BITE or Bitmanagement?</span></summary>
-        <p class="de">Nein. BitDM ist ein verschlüsselter Messenger aus Deutschland. BiT DMS ist eine amerikanische Händler-Software, BITE ein deutscher Anbieter für Bewerbermanagement, Bitmanagement macht 3D-Software und Bite Investments Software für Vermögensverwaltung. Die Namen ähneln sich, die Unternehmen haben nichts miteinander zu tun.</p>
-        <p class="en">No. BitDM is an encrypted messenger from Germany. BiT DMS is American dealer-management software, BITE a German recruiting-software provider, Bitmanagement makes 3D software and Bite Investments software for wealth management. The names look alike; the companies are unrelated.</p>
+        <p class="de">Nein. BitDM ist ein verschlüsselter Messenger aus Deutschland. BiT DMS ist eine amerikanische Händler-Software, BITE ein deutscher Anbieter für Bewerbermanagement, Bitmanagement macht 3D-Software und Bite Investments Software für Vermögensverwaltung. Die Namen ähneln sich, aber die Unternehmen haben nichts miteinander zu tun.</p>
+        <p class="en">No. BitDM is an encrypted messenger from Germany. BiT DMS is American dealer-management software, BITE a German recruiting-software provider, Bitmanagement makes 3D software and Bite Investments software for wealth management. The names look alike, but the companies aren't related.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Wer steckt hinter BitDM?</span><span class="en">Who is behind BitDM?</span></summary>
-        <p class="de">BitDM ist ein unabhängiges Open-Source-Projekt aus Deutschland. Der gesamte Quellcode — App, Server, Tests — steht unter AGPL-3.0 offen auf github.com/Henner4746/BitDM.</p>
-        <p class="en">BitDM is an independent open-source project from Germany. The entire source code — app, server, tests — is open under AGPL-3.0 on github.com/Henner4746/BitDM.</p>
+        <p class="de">BitDM ist ein unabhängiges Open-Source-Projekt aus Deutschland. Der gesamte Quellcode (App, Server und Tests) liegt unter AGPL-3.0 offen auf github.com/Henner4746/BitDM.</p>
+        <p class="en">BitDM is an independent open-source project from Germany. All of its source code (app, server and tests) is public under AGPL-3.0 at github.com/Henner4746/BitDM.</p>
       </details>
     </div>
   </section>
@@ -2244,12 +2239,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
   <p class="foot-note">
     <span class="de">BitDM ist eine Vorabversion. Adresse und zwölf Wörter oben sind
       Beispiele, keine echten Schlüssel. Der Chat ganz oben ist ein Nachbau der
-      Android-App mit erfundenen Inhalten; ein Bildschirmfoto bleibt dort wegen
-      des Screenshot-Schutzes schwarz.</span>
+      Android-App mit erfundenen Inhalten; ein Bildschirmfoto bleibt dort wegen des
+      Screenshot-Schutzes schwarz.</span>
     <span class="en">BitDM is a pre-release. The address and the twelve words above
-      are examples, not real keys. The chat at the very top is a replica of the
-      Android app with made-up content; a screenshot there stays black because of
-      the screenshot protection.</span>
+      are examples, not real keys. The chat at the very top is a replica of the Android app
+      with made-up content; a screenshot there stays black because of the
+      screenshot protection.</span>
   </p>
 </footer>
 

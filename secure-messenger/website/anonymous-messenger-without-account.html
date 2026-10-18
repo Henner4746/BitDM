@@ -34,7 +34,7 @@
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Anonymous messenger without an account — BitDM</title>
-<meta name="description" content="A messenger with no account, no phone number and no e-mail: your address is your public key and 12 words bring it back. What the server still sees, and how Tor, your own relay or nearby mode reduce it.">
+<meta name="description" content="No account, phone number or e-mail: your address is your public key and 12 words bring it back. What the server still sees and how to reduce it.">
 <link rel="canonical" href="https://bitdm.net/anonymous-messenger-without-account.html">
 <meta name="theme-color" content="#0b0c12">
 <meta name="color-scheme" content="dark">
@@ -44,7 +44,7 @@
 <meta property="og:site_name" content="BitDM">
 <meta property="og:url" content="https://bitdm.net/anonymous-messenger-without-account.html">
 <meta property="og:title" content="Anonymous messenger without an account">
-<meta property="og:description" content="No account, no number, no e-mail — your address is your public key. What the server still sees, and how to reduce it.">
+<meta property="og:description" content="No account, phone number or e-mail, since your address is your public key. What the server still sees and how to reduce it.">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="de_DE">
 <!-- Datenblock, kein Skript. FAQ-Antworten = die englischen Antworten unten. -->
@@ -56,7 +56,7 @@
       "@type": "Article",
       "@id": "https://bitdm.net/anonymous-messenger-without-account.html#article",
       "headline": "Anonymous messenger without an account",
-      "description": "A messenger with no account, no phone number and no e-mail: your address is your public key and 12 words bring it back. What the server still sees, and how Tor, your own relay or nearby mode reduce it.",
+      "description": "No account, phone number or e-mail: your address is your public key and 12 words bring it back. What the server still sees and how to reduce it.",
       "inLanguage": ["en", "de"],
       "datePublished": "2026-10-14",
       "dateModified": "2026-10-14",
@@ -72,17 +72,17 @@
         {
           "@type": "Question",
           "name": "Can I use a messenger without an account?",
-          "acceptedAnswer": {"@type": "Answer", "text": "Yes. BitDM has no sign-up: no phone number, no e-mail, no username, no password at a server. The app creates your key pair on the phone, and your address is the public key."}
+          "acceptedAnswer": {"@type": "Answer", "text": "Yes. BitDM has no sign-up, so you need no phone number, e-mail, username or password at a server. The app creates your key pair on your phone, and the public key is your address."}
         },
         {
           "@type": "Question",
           "name": "Is BitDM anonymous?",
-          "acceptedAnswer": {"@type": "Answer", "text": "Pseudonymous is the honest word. Your address contains nothing about you, but it is a permanent identifier. The relay cannot read messages, but it sees which address writes to which and when, and your IP address unless you connect through Tor."}
+          "acceptedAnswer": {"@type": "Answer", "text": "Pseudonymous fits better than anonymous. Your address contains nothing about you, but it's a permanent identifier. The relay can't read messages, though it does see which address writes to which and when, and also your IP address unless you connect through Tor."}
         },
         {
           "@type": "Question",
           "name": "How do I get my identity back without an account?",
-          "acceptedAnswer": {"@type": "Answer", "text": "With your 12 words, or with the parts you gave to trusted contacts. Old messages come back only from an encrypted backup."}
+          "acceptedAnswer": {"@type": "Answer", "text": "With your 12 words, or with the parts you gave to trusted contacts. Old messages only come back from an encrypted backup."}
         }
       ]
     }
@@ -213,90 +213,90 @@ footer a{color:var(--muted)}
     <span class="screen screen-lit en">Guide</span>
     <h1><span class="de">Anonymer Messenger ohne Konto</span><span class="en">Anonymous messenger without an account</span></h1>
     <p class="stamp">
-      <span class="de">Was „kein Konto“ bei BitDM heißt, was trotzdem sichtbar bleibt und wie man es kleiner macht. Stand: 14.&nbsp;Oktober 2026.</span>
-      <span class="en">What “no account” means in BitDM, what stays visible anyway, and how to make it smaller. As of 14&nbsp;October 2026.</span>
+      <span class="de">Was „kein Konto“ bei BitDM bedeutet und wie du das, was trotzdem sichtbar bleibt, kleiner machst. Stand: 14.&nbsp;Oktober 2026.</span>
+      <span class="en">What “no account” means in BitDM, and how to cut down what stays visible anyway. As of 14&nbsp;October 2026.</span>
     </p>
   </header>
 
   <section>
-    <h2><span class="de">Kein Konto — was es stattdessen gibt</span><span class="en">No account — what there is instead</span></h2>
+    <h2><span class="de">Was es statt eines Kontos gibt</span><span class="en">What you get instead of an account</span></h2>
     <div class="headline-claim">
-      <p class="de">BitDM hat keine Anmeldung: keine Telefonnummer, keine E-Mail, keinen Nutzernamen, kein Passwort bei einem Server. <strong>Die Identität ist ein Schlüsselpaar, das auf dem Telefon entsteht.</strong></p>
-      <p class="en">BitDM has no sign-up: no phone number, no e-mail, no username, no password at a server. <strong>Your identity is a key pair created on your phone.</strong></p>
+      <p class="de">BitDM kennt keine Anmeldung: Du brauchst weder Telefonnummer noch E-Mail, Nutzernamen oder Passwort bei einem Server. <strong>Deine Identität ist ein Schlüsselpaar, das auf deinem Telefon entsteht.</strong></p>
+      <p class="en">BitDM has no sign-up, so you need no phone number, e-mail, username or password at a server. <strong>Your identity is a key pair created on your phone.</strong></p>
     </div>
     <ul class="de">
-      <li><strong>Die Adresse ist der öffentliche Schlüssel.</strong> Beim ersten Start erzeugt die App das Schlüsselpaar; die 56 Zeichen lange Adresse ist die öffentliche Hälfte. Die privaten Schlüssel verlassen das Gerät nicht.</li>
-      <li><strong>Der Relay bekommt nur öffentliche Schlüssel.</strong> Damit andere ein verschlüsseltes Gespräch beginnen können, legt das Telefon ein Bündel öffentlicher Schlüssel beim Relay ab — mit einer Unterschrift, die beweist, dass es die Adresse besitzt. Über dich steht darin nichts.</li>
-      <li><strong>Kein Adressbuch, keine Namen.</strong> BitDM lädt kein Adressbuch hoch. Kontakte erscheinen als Adresse und Muster; Namen gibt es nicht, auch nicht lokal.</li>
-      <li><strong>Zwölf Wörter statt Passwort-Zurücksetzen.</strong> Sie holen die Identität auf ein neues Gerät zurück. Wahlweise lassen sie sich in Teile für Vertrauenspersonen zerlegen, von denen einige zusammen die Identität wiederherstellen und einer allein nichts verrät.</li>
+      <li><strong>Deine Adresse ist der öffentliche Schlüssel.</strong> Die App erzeugt das Schlüsselpaar beim ersten Start, und die 56 Zeichen lange Adresse ist seine öffentliche Hälfte. Die privaten Schlüssel bleiben auf dem Gerät.</li>
+      <li><strong>Der Relay bekommt nur öffentliche Schlüssel.</strong> Dein Telefon legt dort ein Bündel öffentlicher Schlüssel ab, damit andere ein verschlüsseltes Gespräch mit dir beginnen können. Eine Unterschrift belegt, dass das Telefon die Adresse besitzt; über dich steht darin nichts.</li>
+      <li><strong>Kein hochgeladenes Adressbuch, keine Namen.</strong> BitDM zeigt Kontakte als Adresse und Muster. Benennen kannst du sie nicht, auch nicht lokal.</li>
+      <li><strong>Zwölf Wörter statt Passwort-Zurücksetzen.</strong> Mit ihnen holst du deine Identität auf ein neues Gerät. Du kannst sie auch in Teile für Vertrauenspersonen zerlegen; mehrere zusammen stellen die Identität wieder her, ein einzelner verrät nichts.</li>
     </ul>
     <ul class="en">
-      <li><strong>The address is the public key.</strong> On first launch the app creates the key pair; the 56-character address is the public half. The private keys never leave the device.</li>
-      <li><strong>The relay only gets public keys.</strong> So that others can start an encrypted conversation, the phone leaves a bundle of public keys at the relay — with a signature proving that it holds the address. There is nothing about you in it.</li>
-      <li><strong>No address book, no names.</strong> BitDM uploads no address book. Contacts appear as an address and a pattern; there are no names, not even local ones.</li>
-      <li><strong>Twelve words instead of a password reset.</strong> They bring your identity back on a new device. Optionally they can be split into parts for people you trust: a few of them together restore your identity, and one alone reveals nothing.</li>
+      <li><strong>Your address is the public key.</strong> The app makes the key pair on first launch, and the 56-character address is its public half. The private keys stay on the device.</li>
+      <li><strong>The relay only gets public keys.</strong> Your phone puts a bundle of public keys on the relay so other people can start an encrypted conversation with you. It's signed to prove the phone holds the address, and it contains nothing about you.</li>
+      <li><strong>No uploaded address book, and no names.</strong> BitDM shows contacts as an address and a pattern. You can't name them, not even locally.</li>
+      <li><strong>Twelve words instead of a password reset.</strong> With them you restore your identity on a new device. You can also split them into parts for people you trust; a few together restore your identity, but one alone reveals nothing.</li>
     </ul>
-    <p class="de"><strong>Die Kehrseite:</strong> Wer die zwölf Wörter hat, ist du. Jede Installation mit ihnen wird ein weiteres Gerät deiner Adresse und bekommt jede neue Nachricht; ein Gerät abmelden geht nicht. Die Wörter gehören deshalb auf Papier, nicht in die Cloud.</p>
-    <p class="en"><strong>The flip side:</strong> whoever has the twelve words is you. Every installation with them becomes another device of your address and receives every new message; a device cannot be logged out. So the words belong on paper, not in a cloud.</p>
+    <p class="de"><strong>Der Haken</strong> ist, dass jeder mit den zwölf Wörtern als du gilt. Jede Installation mit ihnen wird ein weiteres Gerät deiner Adresse und bekommt jede neue Nachricht; ein Gerät abmelden kannst du nicht. Die Wörter gehören auf Papier und in keine Cloud.</p>
+    <p class="en"><strong>The catch</strong> is that anyone with the twelve words counts as you. Every install with them becomes another device on your address and gets every new message; you can't log a device out. Keep the words on paper and out of any cloud.</p>
   </section>
 
   <section>
     <h2><span class="de">Was der Server trotzdem sieht</span><span class="en">What the server still sees</span></h2>
-    <p class="de">Ein Relay trägt verschlüsselte Umschläge zwischen Geräten, die sich nicht direkt erreichen. Lesen kann er sie nicht — die Nachrichten sind mit dem Signal-Protokoll Ende-zu-Ende-verschlüsselt. Aber ein paar Dinge muss er sehen, um zustellen zu können:</p>
-    <p class="en">A relay carries encrypted envelopes between devices that cannot reach each other directly. It cannot read them — messages are end-to-end encrypted with the Signal protocol. But it has to see a few things in order to deliver:</p>
+    <p class="de">Wenn zwei Geräte sich nicht direkt erreichen, reicht ein Relay verschlüsselte Umschläge zwischen ihnen weiter. Die Nachrichten sind mit dem Signal-Protokoll Ende-zu-Ende-verschlüsselt, lesen kann er sie also nicht. Für die Zustellung muss er aber ein paar Dinge sehen:</p>
+    <p class="en">When two devices can't reach each other directly, a relay passes encrypted envelopes between them. Messages are end-to-end encrypted with the Signal protocol, so the relay can't read them. To deliver them, though, it has to see a few things:</p>
     <ul class="de">
-      <li><strong>Wer wem schreibt, wann, und ungefähr wie viel.</strong> Die Größe ist auf 256-Byte-Blöcke aufgefüllt, also nur grob erkennbar.</li>
-      <li><strong>Deine IP-Adresse</strong> — außer du verbindest dich über Tor.</li>
-      <li><strong>Nicht:</strong> Inhalte, Namen, Telefonnummern, Adressbücher. Das Zwischenlager für Anhänge sieht verschlüsselte Daten, Größe und Zeit, nie einen Schlüssel.</li>
+      <li><strong>Wer wem wann schreibt und ungefähr wie viel.</strong> Die Größen sind auf 256-Byte-Blöcke aufgefüllt und daher nur grob erkennbar.</li>
+      <li><strong>Deine IP-Adresse</strong>, außer du verbindest dich über Tor.</li>
+      <li><strong>Nicht:</strong> Inhalte, Namen, Telefonnummern oder Adressbücher. Das Zwischenlager für Anhänge sieht verschlüsselte Daten mit Größe und Zeit, aber keinen Schlüssel.</li>
     </ul>
     <ul class="en">
-      <li><strong>Who writes to whom, when, and roughly how much.</strong> Sizes are padded to 256-byte blocks, so they are only roughly visible.</li>
-      <li><strong>Your IP address</strong> — unless you connect through Tor.</li>
-      <li><strong>Not:</strong> content, names, phone numbers, address books. The attachment store sees encrypted data, size and time, never a key.</li>
+      <li><strong>Who writes to whom and when, and roughly how much.</strong> Sizes are padded to 256-byte blocks, so it only sees them roughly.</li>
+      <li><strong>Your IP address</strong>, unless you connect through Tor.</li>
+      <li><strong>Not:</strong> content, names, phone numbers or address books. The attachment store sees encrypted data with its size and time, but never a key.</li>
     </ul>
-    <p class="de">Nicht zugestellte Umschläge löscht der Relay spätestens nach 14 Tagen. Der öffentliche Relay schreibt kein Zugriffsprotokoll, und seine Datenbank ist von der Sicherung des Servers ausgenommen — sie soll vergessen, was sie nach ihrer eigenen Regel vergessen soll.</p>
-    <p class="en">The relay deletes undelivered envelopes after 14 days at the latest. The public relay writes no access log, and its database is excluded from the server's backup — it should forget what its own rules say it should forget.</p>
+    <p class="de">Nicht zugestellte Umschläge löscht der Relay spätestens nach 14 Tagen. Der öffentliche Relay führt kein Zugriffsprotokoll, und seine Datenbank ist von der Sicherung des Servers ausgenommen, damit keine Sicherungskopie aufbewahrt, was der Relay löschen soll.</p>
+    <p class="en">The relay deletes undelivered envelopes after 14 days at the latest. The public relay keeps no access log, and its database is left out of the server's backup so that no backup copy keeps what the relay is meant to delete.</p>
   </section>
 
   <section>
-    <h2><span class="de">Wie man es kleiner macht</span><span class="en">How to make it smaller</span></h2>
+    <h2><span class="de">Weniger preisgeben</span><span class="en">Giving away less</span></h2>
     <ul class="ways">
       <li>
         <span class="way-name de">Über Tor verbinden</span>
         <span class="way-name en">Connect via Tor</span>
-        <span class="de">Alles zum Relay und ins Zwischenlager geht über Orbot. Der Relay wird als Onion-Dienst erreicht — weder er noch ein Tor-Ausgang sieht deine IP-Adresse.</span>
-        <span class="en">Everything to the relay and the attachment store goes through Orbot. The relay is reached as an onion service — neither it nor a Tor exit sees your IP address.</span>
+        <span class="de">Alles zum Relay und ins Zwischenlager läuft über Orbot. Die App erreicht den Relay als Onion-Dienst, also sieht weder er noch ein Tor-Ausgang deine IP-Adresse.</span>
+        <span class="en">Traffic to the relay and the attachment store goes through Orbot. The app reaches the relay as an onion service, so neither it nor a Tor exit sees your IP address.</span>
       </li>
       <li>
         <span class="way-name de">Eigener Relay</span>
         <span class="way-name en">Your own relay</span>
-        <span class="de">Der Relay ist eine Python-Datei und ein Dienst; ein Befehl richtet ihn ein. Dann liegen die Metadaten bei dir statt bei uns. Weg sind sie damit nicht, und dein Hoster sieht die Verbindungen weiterhin. Alle Beteiligten brauchen allerdings denselben Relay — Relays verbinden sich nicht untereinander.</span>
-        <span class="en">The relay is one Python file and a service; one command sets it up. The metadata then sits with you instead of us. That does not make it disappear, and your hosting provider still sees the connections. Everyone involved needs the same relay, though — relays do not connect to each other.</span>
+        <span class="de">Der Relay ist eine Python-Datei plus ein Dienst und mit einem Befehl eingerichtet. Danach liegen die Metadaten bei dir statt bei uns. Weg sind sie damit nicht, und dein Hoster sieht die Verbindungen weiterhin. Alle Beteiligten brauchen aber denselben Relay, weil Relays sich nicht untereinander verbinden.</span>
+        <span class="en">The relay is one Python file plus a service, set up with one command. After that the metadata sits with you instead of us. That doesn't make it disappear, and your hosting provider still sees the connections. Everyone involved needs the same relay, though, since relays don't connect to each other.</span>
       </li>
       <li>
         <span class="way-name de">Nur in der Nähe</span>
         <span class="way-name en">Nearby only</span>
-        <span class="de">BitDM spricht gar keinen Server an; Nachrichten gehen per Bluetooth an Kontakte in Reichweite. Mehr dazu im <a href="messaging-without-internet-bluetooth.html">Ratgeber zum Nahbereich</a>.</span>
-        <span class="en">BitDM contacts no server at all; messages go over Bluetooth to contacts in range. More in the <a href="messaging-without-internet-bluetooth.html">guide to nearby mode</a>.</span>
+        <span class="de">Hier spricht BitDM überhaupt keinen Server an, Nachrichten gehen per Bluetooth an Kontakte in Reichweite. Mehr steht im <a href="messaging-without-internet-bluetooth.html">Ratgeber zum Nahbereich</a>.</span>
+        <span class="en">Here BitDM doesn't contact any server; messages go over Bluetooth to contacts in range. More in the <a href="messaging-without-internet-bluetooth.html">guide to nearby mode</a>.</span>
       </li>
     </ul>
-    <p class="de">Dazu kommen zwei Dinge, die ohne Zutun wirken oder sich zuschalten lassen: Lese- und Zustellbestätigungen gehen mit zufälliger Verzögerung von 0,3 bis 2,5 Sekunden raus, damit sich Nachrichten nicht über die Zeit einander zuordnen lassen. Und wahlweise erzeugt die App Tarnverkehr gegen jemanden, der die Leitung beobachtet.</p>
-    <p class="en">Two more things work on their own or can be switched on: read and delivery receipts go out with a random delay of 0.3 to 2.5 seconds, so messages cannot be paired up by their timing. And optionally the app generates cover traffic against someone watching the line.</p>
+    <p class="de">Zwei weitere Dinge helfen. Lese- und Zustellbestätigungen gehen von selbst mit einer zufälligen Verzögerung von 0,3 bis 2,5 Sekunden raus, damit sich Nachrichten nicht über ihre Zeit einander zuordnen lassen. Und wenn du es einschaltest, erzeugt die App Tarnverkehr gegen jemanden, der die Leitung beobachtet.</p>
+    <p class="en">Two more things help. Read and delivery receipts go out on their own with a random delay of 0.3 to 2.5 seconds, so messages can't be paired up by their timing. And if you switch it on, the app generates cover traffic against anyone watching the line.</p>
   </section>
 
   <section>
     <h2><span class="de">Wo Anonymität hier aufhört</span><span class="en">Where anonymity ends here</span></h2>
     <ul class="de">
-      <li><strong>Eine Adresse ist ein Pseudonym, keine Tarnkappe.</strong> Sie enthält nichts über dich, bleibt aber gleich, solange du sie benutzt. Steht sie neben deinem Namen, gehört sie zu deinem Namen.</li>
-      <li><strong>Dass du BitDM benutzt, ist sichtbar:</strong> als Verbindung zu einem Relay, und im Nahbereich an der Bluetooth-Werbung.</li>
-      <li><strong>Ein kompromittiertes Gerät</strong> — Root-Zugriff oder eine bösartige Tastatur — schlägt jeden Messenger, auch diesen.</li>
-      <li><strong>Kein unabhängiges Audit.</strong> Niemand außerhalb des Projekts hat Kryptografie, Protokoll oder Umsetzung geprüft, und die Signal-Bibliothek ist eine Portierung aus der Gemeinschaft, nicht Signals eigene.</li>
+      <li><strong>Deine Adresse ist ein Pseudonym.</strong> Sie enthält nichts über dich, bleibt aber gleich, solange du sie benutzt. Taucht sie irgendwo neben deinem Namen auf, lässt sie sich mit dir verbinden.</li>
+      <li><strong>Dass du BitDM benutzt, sieht man</strong> an der Verbindung zu einem Relay, im Nahbereich auch an der Bluetooth-Werbung.</li>
+      <li><strong>Ein kompromittiertes Gerät</strong>, etwa durch Root-Zugriff oder eine bösartige Tastatur, schlägt jeden Messenger, auch diesen.</li>
+      <li><strong>Kein unabhängiges Audit.</strong> Niemand außerhalb des Projekts hat Kryptografie, Protokoll oder Umsetzung geprüft. Außerdem ist die Signal-Bibliothek eine Portierung aus der Gemeinschaft und nicht Signals eigene.</li>
     </ul>
     <ul class="en">
-      <li><strong>An address is a pseudonym, not an invisibility cloak.</strong> It contains nothing about you, but it stays the same for as long as you use it. Put it next to your name and it belongs to your name.</li>
-      <li><strong>The fact that you use BitDM is visible:</strong> as a connection to a relay, and in nearby mode from the Bluetooth advertising.</li>
-      <li><strong>A compromised device</strong> — root access or a malicious keyboard — defeats any messenger, including this one.</li>
-      <li><strong>No independent audit.</strong> Nobody outside the project has reviewed the cryptography, the protocol or the implementation, and the Signal library is a community port, not Signal's own.</li>
+      <li><strong>Your address is a pseudonym.</strong> It contains nothing about you, but it stays the same for as long as you use it, so once it appears next to your name, people can link the two.</li>
+      <li><strong>Using BitDM is visible</strong> as a connection to a relay, and in nearby mode through the Bluetooth advertising.</li>
+      <li><strong>A compromised device</strong> (say, root access or a malicious keyboard) beats any messenger, this one included.</li>
+      <li><strong>No independent audit.</strong> Nobody outside the project has checked the cryptography, the protocol or the implementation. Also, the Signal library is a community port and not Signal's own.</li>
     </ul>
   </section>
 
@@ -304,33 +304,33 @@ footer a{color:var(--muted)}
     <h2><span class="de">Kurze Antworten</span><span class="en">Short answers</span></h2>
     <dl class="qa de">
       <dt>Kann ich einen Messenger ohne Konto benutzen?</dt>
-      <dd>Ja. BitDM hat keine Anmeldung: keine Telefonnummer, keine E-Mail, keinen Nutzernamen, kein Passwort bei einem Server. Die App erzeugt dein Schlüsselpaar auf dem Telefon, und deine Adresse ist der öffentliche Schlüssel.</dd>
+      <dd>Ja. BitDM kennt keine Anmeldung, du brauchst weder Telefonnummer noch E-Mail, Nutzernamen oder Passwort bei einem Server. Die App erzeugt dein Schlüsselpaar auf deinem Telefon, und der öffentliche Schlüssel ist deine Adresse.</dd>
       <dt>Ist BitDM anonym?</dt>
-      <dd>Pseudonym ist das ehrliche Wort. Deine Adresse enthält nichts über dich, ist aber eine feste Kennung. Der Relay kann keine Nachrichten lesen, sieht aber, welche Adresse welcher schreibt und wann, und deine IP-Adresse, außer du verbindest dich über Tor.</dd>
+      <dd>Pseudonym trifft es besser als anonym. Deine Adresse enthält nichts über dich, ist aber eine feste Kennung. Der Relay kann keine Nachrichten lesen, sieht aber, welche Adresse welcher wann schreibt, und auch deine IP-Adresse, außer du verbindest dich über Tor.</dd>
       <dt>Wie bekomme ich meine Identität ohne Konto zurück?</dt>
-      <dd>Mit deinen zwölf Wörtern oder mit den Teilen, die du Vertrauenspersonen gegeben hast. Alte Nachrichten kommen nur aus einer verschlüsselten Sicherung zurück.</dd>
+      <dd>Mit deinen zwölf Wörtern oder mit den Teilen, die du Vertrauenspersonen gegeben hast. Alte Nachrichten bekommst du nur aus einer verschlüsselten Sicherung zurück.</dd>
     </dl>
     <dl class="qa en">
       <dt>Can I use a messenger without an account?</dt>
-      <dd>Yes. BitDM has no sign-up: no phone number, no e-mail, no username, no password at a server. The app creates your key pair on the phone, and your address is the public key.</dd>
+      <dd>Yes. BitDM has no sign-up, so you need no phone number, e-mail, username or password at a server. The app creates your key pair on your phone, and the public key is your address.</dd>
       <dt>Is BitDM anonymous?</dt>
-      <dd>Pseudonymous is the honest word. Your address contains nothing about you, but it is a permanent identifier. The relay cannot read messages, but it sees which address writes to which and when, and your IP address unless you connect through Tor.</dd>
+      <dd>Pseudonymous fits better than anonymous. Your address contains nothing about you, but it's a permanent identifier. The relay can't read messages, though it does see which address writes to which and when, and also your IP address unless you connect through Tor.</dd>
       <dt>How do I get my identity back without an account?</dt>
-      <dd>With your 12 words, or with the parts you gave to trusted contacts. Old messages come back only from an encrypted backup.</dd>
+      <dd>With your 12 words, or with the parts you gave to trusted contacts. Old messages only come back from an encrypted backup.</dd>
     </dl>
   </section>
 
   <section>
     <h2><span class="de">Weiterlesen</span><span class="en">Read on</span></h2>
     <ul class="de">
-      <li><a href="messenger-without-phone-number.html">Messenger ohne Telefonnummer</a> — welche Wege es gibt</li>
-      <li><a href="messaging-without-internet-bluetooth.html">Nachrichten ohne Internet über Bluetooth</a> — wenn kein Netz da ist</li>
-      <li><a href="docs.html">Server selbst betreiben</a> — der eigene Relay</li>
+      <li><a href="messenger-without-phone-number.html">Messenger ohne Telefonnummer</a>: welche Wege es gibt</li>
+      <li><a href="messaging-without-internet-bluetooth.html">Nachrichten ohne Internet über Bluetooth</a>, falls kein Netz da ist</li>
+      <li><a href="docs.html">Server selbst betreiben</a> (der eigene Relay)</li>
     </ul>
     <ul class="en">
-      <li><a href="messenger-without-phone-number.html">Messenger without a phone number</a> — which ways exist</li>
-      <li><a href="messaging-without-internet-bluetooth.html">Messaging without internet over Bluetooth</a> — when there is no network</li>
-      <li><a href="docs.html">Run your own server</a> — your own relay</li>
+      <li><a href="messenger-without-phone-number.html">Messenger without a phone number</a>: the ways it can work</li>
+      <li><a href="messaging-without-internet-bluetooth.html">Messaging without internet over Bluetooth</a>, for when there's no network</li>
+      <li><a href="docs.html">Run your own server</a> (setting up a relay)</li>
     </ul>
   </section>
 
