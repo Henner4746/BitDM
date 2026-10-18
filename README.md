@@ -6,7 +6,7 @@ This page in [German](README.de.md).
 Your address *is* your public key.**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.9.1-6f62a8)
+![Version](https://img.shields.io/badge/version-2.0.0-6f62a8)
 ![Platform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows_%7C_Linux_%7C_Web-6f62a8)
 
 | Platform | State |
@@ -27,7 +27,7 @@ poison, because there is no directory.
 
 ```
 tayn-bret-xl2d-i6f6-i5h4-cleu-salt-5mr3-ed3a-m3yo-bafm-qwqf-wdwo-rd2p
-└─ base32( pubkey[32] ‖ sha256(pubkey)[:3] ) — 35 bytes, exactly 56 characters
+└─ base32( pubkey[32] ‖ sha256(pubkey)[:3] ): 35 bytes, exactly 56 characters
 ```
 
 Three checksum bytes rather than two, for a reason worth one line: 35 bytes
@@ -38,6 +38,8 @@ side effect is 24 bits of typo detection instead of 16.
 > **This software has not been independently audited.** It sends real messages
 > and the reasoning behind each part is written down, but no outside party has
 > reviewed the result. Read [Known gaps](#known-gaps) before you rely on it.
+> If your safety depends on the encryption, for example as a journalist or
+> under surveillance, use Signal until BitDM has had an independent audit.
 
 ---
 
@@ -53,7 +55,7 @@ flowchart TD
     M["Alice sends"] --> T{"Text or attachment?"}
 
     T -->|text| P{"Nearby-only<br/>switch on?"}
-    P -->|"yes — never touch a server"| BLE["Bluetooth LE<br/>no Wi-Fi, no mobile data,<br/>no data centre"]
+    P -->|"yes: never touch a server"| BLE["Bluetooth LE<br/>no Wi-Fi, no mobile data,<br/>no data centre"]
     P -->|no| RCH{"Relay reachable?"}
     RCH -->|yes| RLY["Relay<br/>encrypted envelope over TLS"]
     RCH -->|"no, nearby enabled"| BLE
@@ -61,7 +63,7 @@ flowchart TD
 
     T -->|attachment| SPLIT["Split into 32 MiB chunks,<br/>one random AES-GCM key each"]
     SPLIT --> BLOB["Blob store<br/>sees ciphertext, size, time"]
-    SPLIT --> RCP["Recipe holding the keys —<br/>an ordinary Signal message"]
+    SPLIT --> RCP["Recipe holding the keys:<br/>an ordinary Signal message"]
     RCP --> RLY
 
     RLY --> BOB["Bob"]
@@ -136,9 +138,10 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 | Nearby-only switch | working | the app opens no relay connection at all; `test/core/nur_nahbereich_test.dart`, `test/nah/schalter_test.dart`, `test/nah/schalter_echt_test.dart` |
 | Attachments | working | separate encrypted blob store, never through the relay |
 | Update over an existing install | working | 1.5.0+11 → 1.5.1+12, identity and contacts survived |
-| Recovery on a new device | working | 12 BIP39 words restore identity and address, not contacts or message history; those only come back from the encrypted backup |
-| Desktop client | runs, as an additional device | the Windows binary joins with the same 12 words as another device of the same address and sees everything new from then on, but no old history (see [Known gaps](#known-gaps)) |
-| Independent security audit | **none** | — |
+| Recovery on a new device | working | 12 BIP39 words restore identity and address, not contacts or message history; those only come back from the encrypted backup. Since 2.0.0 the new device also needs a code from a device that is still signed in; if none is left, it signs out all the others |
+| Desktop client | runs, as an additional device | the Windows binary joins with the same 12 words as another device of the same address and sees everything new from then on, but no old history. Since 2.0.0 a device already signed in has to confirm it with a code (see [Known gaps](#known-gaps)) |
+| Signing out a device | working (from 2.0.0) | signed device list per identity, checked by the relay and by every contact. Relay: section "Geraeteabmeldung" in `server/test_relay.py`; app against the real relay: `test/net/geraeteabmeldung_test.dart`; contacts against a lying relay: `test/net/geraeteliste_stufe2_test.dart`; see [`docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md) |
+| Independent security audit | **none** | n/a |
 
 The nearby proof used an **ESP32 as the counterpart on purpose.** Two BitDM
 phones talking to each other only prove that the same code agrees with itself.
@@ -180,6 +183,14 @@ limits: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.
 ---
 
 ## Get it
+
+> [!IMPORTANT]
+> **2.0.0 does not work together with 1.9.x.** Both sides have to update.
+> Until a contact has updated, your messages to them wait and the chat says
+> why; they go out by themselves afterwards. Your address, chats and contacts
+> stay, and every session is set up anew. If you use several devices, the
+> first one you update creates the device list, and each further device joins
+> it once with a code.
 
 ### Android
 
@@ -242,9 +253,10 @@ the hash, so the warning becomes something you can check rather than something
 you have to believe.
 
 **Read [Known gaps](#known-gaps) first if you already use BitDM on a phone.**
-A second install with the same 12 words joins your identity as another device:
-it sees everything new from then on, but no old history, and the phone stays
-signed in.
+A second install joins your identity as another device. It needs your 12 words
+and a code from the phone (Settings › My ID › Manage devices › Add device). It
+sees everything new from then on, but no old history, and the phone stays
+signed in until you sign it out.
 
 The installer comes from
 [`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss). It installs
@@ -267,10 +279,12 @@ The release also carries a build attestation:
 checks that the file came out of that workflow for the tag `v1.9.1`.
 
 Unpack and run `./bitdm`. It needs GTK 3, libsecret and an unlocked keyring
-behind it (GNOME Keyring or another Secret Service).
+behind it (GNOME Keyring or another Secret Service). Without one, 2.0.0 shows a
+message with "Try again" instead of an empty window; nothing is deleted or
+created.
 
 **Tested on 17.10.2026, in a Debian 13 container under Xvfb, not on a real
-desktop.** This archive (sha256 above), with an unlocked GNOME Keyring: it
+desktop.** The 1.9.1 archive, with an unlocked GNOME Keyring: it
 starts, creates an identity, sets an app password, comes back locked after a
 restart, rejects a wrong password, opens with the right one and still shows a
 note to self written before the restart. The test kept it away from
@@ -345,13 +359,20 @@ Needs Flutter with Dart SDK ^3.12.2 and JDK 17. Your APK will not match the
 published hash byte for byte: it will be signed with *your* key, not ours. A
 differing hash is normal here.
 
+Since 2.0.0 the build also needs Signal's libsignal. On your own machine the
+build hook of the `libsignal` package downloads the prebuilt library from that
+package's GitHub release. The published APK compiles it from source instead
+([`fdroid/libsignal-quellbau.sh`](secure-messenger/fdroid/libsignal-quellbau.sh),
+details in [`docs/LIBSIGNAL-UMSTIEG.md`](secure-messenger/docs/LIBSIGNAL-UMSTIEG.md)).
+
 The Windows output is a directory, not a single file. `bitdm.exe` is 90 KiB and
-useless alone: `sqlite3mc.dll` is the encrypted database, `webcrypto.dll` the
-crypto, and the actual Dart code lives in `data/app.so`. Ship the whole folder.
+useless alone: `sqlite3mc.dll` is the encrypted database, `libsignal_frb.dll`
+(since 2.0.0) and `webcrypto.dll` the crypto, and the actual Dart code lives in
+`data/app.so`. Ship the whole folder.
 For an installer instead of a zip:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=1.9.1 windows\bitdm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=2.0.0 windows\bitdm.iss
 ```
 
 Tests:
@@ -432,9 +453,10 @@ secure-messenger/
     core/nah/              nearby: beacons, BLE radio, chunking, route choice
     core/anhang/           attachments: chunk crypto, recipe, blob store client
     core/store/            encrypted local database
-  app/test/              144 files, 36,334 lines: 1,511 tests (18.10.2026)
-  app/integration_test/  3 files, 791 lines: attachment throughput on real hardware
-  app/android/…/kotlin/  9 files, 3,062 lines — BLE, keystore, foreground service
+  app/test/              144 files, 36,334 lines: 1,517 tests (18.10.2026)
+  app/integration_test/  3 files, 791 lines on real systems: attachment throughput,
+                         Windows platform, file dialog
+  app/android/…/kotlin/  9 files, 3,062 lines: BLE, keystore, foreground service
                          (plus 2 test files)
   app/windows/           CMake, runner, and bitdm.iss for the installer
   app/linux/             runner; the release tar.gz comes from .github/workflows/linux.yml
@@ -446,7 +468,7 @@ secure-messenger/
   docs/                  operations, threat notes, measurements
   website/               bitdm.net
 LICENSE                  AGPL-3.0
-PLAN.md                  design log — older than the code in places
+PLAN.md                  design log, older than the code in places
 ```
 
 `core/nah/` is where the interesting problem lives. Android hands **each role
@@ -462,7 +484,7 @@ concerned. Two separate bugs in this project had that single root cause.
   working with Claude (Anthropic), and the AI wrote the large majority of the
   code, including the cryptographic plumbing. Every design decision was made
   deliberately and is documented, the test suite is extensive, and the reviews
-  so far were thorough — but they were reviews *by the same AI that wrote the
+  so far were thorough, but they were reviews *by the same AI that wrote the
   code*, which can share its own blind spots. Treat that as part of the risk,
   not as a footnote.
 - **No independent audit.** Nobody outside this project has reviewed the
@@ -474,10 +496,13 @@ concerned. Two separate bugs in this project had that single root cause.
 - **The Dart binding to libsignal has a single maintainer.** Since 2.0.0 the
   cryptography is Signal's own libsignal (Rust). It reaches Dart through the
   package `libsignal` 8.0.0 (flutter_rust_bridge, AGPL-3.0), which is young,
-  unaudited and maintained by one person. BitDM pins the exact version; release
-  builds are to compile the Rust library from source. Up to 1.9.x BitDM used a
-  pure-Dart port (`libsignal_protocol_dart`) in which the audit of 16.10.2026
-  found two high-severity state-handling bugs — that is why it was replaced.
+  unaudited and maintained by one person. BitDM pins the exact version. The
+  published Android APK compiles the Rust library from source; the Windows,
+  Linux and web builds still use the prebuilt library that the package
+  downloads, checked only against a checksum file from the same GitHub
+  release. Up to 1.9.x BitDM used a pure-Dart port (`libsignal_protocol_dart`)
+  in which the audit of 16.10.2026 found two high-severity state-handling
+  bugs. That is why it was replaced.
 - **Post-quantum session setup (PQXDH), not yet a post-quantum ratchet.**
   Every new session uses Kyber-1024 (PQXDH). Whether the post-quantum ratchet
   Signal added in 2025 (SPQR) is active through this binding is not verified
@@ -495,23 +520,26 @@ concerned. Two separate bugs in this project had that single root cause.
   and phone↔PC in both directions (26.09.2026, the PC running the real core with
   a Windows Bluetooth bridge). Two current phones against each other have not
   been re-measured since 1.8.x.
-- **Several devices, but no way to log one out, not even after a theft.** A
-  second install with the same 12 words *joins the address* rather than taking
-  it over: the relay keeps up to five devices per address
-  (`BITDM_GERAETE_MAX`), each with its own key bundle, and every message goes to
-  all of them. **So the old device stays reachable**, even when you enter the
-  words on a new phone because the old one is lost. A device cannot be logged
-  out: whoever has the words or an unlocked device is an equal of every other
-  device of that address. The relay only drops a device by itself after 30 days
-  without a connection (`BITDM_GERAET_TTL`). The app shows in its settings how
-  many devices use the identity and warns from two upwards.
-  What helps with a lost phone: with the app lock on, it does not connect and
-  receives nothing until someone unlocks it. Without the app lock it keeps
-  receiving until a trusted contact wipes it remotely with your code word. It
-  is only cut off for certain by a new identity whose address you give to your
-  contacts. A new device sees no old history; read and delivery ticks are not
+- **Devices can be signed out, but whoever knows the 12 words can take
+  over.** A second install with the same 12 words *joins the address* rather
+  than taking it over: the relay keeps up to five devices per address
+  (`BITDM_GERAETE_MAX`), each with its own key bundle. Since 2.0.0 every
+  identity keeps a signed device list. Contacts check the list themselves and
+  encrypt only to the devices on it, whatever a relay claims.
+  A new device needs the 12 words plus a code from a device already on the list
+  (Settings › My ID › Manage devices › Add device). A lost device is signed out
+  there; with no other device left, choose "Sign out all other devices" on the
+  new one. The signed-out device receives nothing more, cannot sign back in,
+  and forgets the 12 words as soon as it connects again; its chats stay on it,
+  encrypted. **The limit:** anyone who knows the 12 words can do the same, sign
+  out all your devices and take over the address. If a phone was stolen
+  unlocked or the words are not safe, only a new identity whose address you
+  give to your contacts helps. Signing out needs a relay from 2.0.0 on; against
+  an older relay the app runs without a device list, and nothing can be signed
+  out. A new device sees no old history; read and delivery ticks are not
   synchronised between devices
-  ([specification](secure-messenger/docs/MEHRGERAETE.md), §6 and §9).
+  ([specification](secure-messenger/docs/MEHRGERAETE.md), §9; signing out:
+  [`docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md)).
 - **The web build runs at <https://bitdm.net/app/>, but limited.** Identity,
   app password, unlock after reload, restore from the 12 words and text
   messages between two browsers work (tested headless against a local relay).
@@ -524,16 +552,15 @@ concerned. Two separate bugs in this project had that single root cause.
   hosted anywhere else cannot register there.
 - **Linux has only been tested in a container.** Debian 13 under Xvfb
   (17.10.2026): start, identity, app password and lock work; a development
-  build also sent and received messages over a local relay. Not tested: a real
-  desktop (Wayland, GPU drivers, notifications), other distributions, and 1.9.1
-  itself against relay.bitdm.net. Without an unlocked keyring the window stays
-  empty and shows no error.
-- **On Windows and Linux the attach button opens no file dialog.** Choosing and
-  opening attachments works on Android only; the desktop shows the button
-  anyway.
+  build also sent and received messages over a local relay. The file dialog
+  for attachments passed its test under Xvfb too. Not tested: a real desktop
+  (Wayland, GPU drivers), other distributions, and a released build against
+  relay.bitdm.net. The app sets up no notifications on Linux.
 - **The Windows binaries are unsigned**, installer and zip alike.
 - **Groups are limited:** up to 20 members, fan-out over one-to-one sessions
-  (no sender keys; reasoning in `docs/FUNKTIONSVERGLEICH.md`).
+  (no sender keys; reasoning in `docs/FUNKTIONSVERGLEICH.md`). As long as one
+  member is still on 1.9.x, every group message stays pending, and the group
+  chat does not say who has to update.
 - **Not in Google Play or the official F-Droid catalogue.** Our own F-Droid
   repository on bitdm.net serves the same APK.
 

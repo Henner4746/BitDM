@@ -6,7 +6,7 @@ Diese Seite auf [Englisch](README.md).
 Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 
 [![Lizenz: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.9.1-6f62a8)
+![Version](https://img.shields.io/badge/version-2.0.0-6f62a8)
 ![Plattform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows_%7C_Linux_%7C_Web-6f62a8)
 
 | Plattform | Zustand |
@@ -27,7 +27,7 @@ das man vergiften könnte, weil es kein Verzeichnis gibt.
 
 ```
 tayn-bret-xl2d-i6f6-i5h4-cleu-salt-5mr3-ed3a-m3yo-bafm-qwqf-wdwo-rd2p
-└─ base32( pubkey[32] ‖ sha256(pubkey)[:3] ) — 35 Byte, genau 56 Zeichen
+└─ base32( pubkey[32] ‖ sha256(pubkey)[:3] ): 35 Byte, genau 56 Zeichen
 ```
 
 Drei Prüfsummen-Bytes statt zwei, und der Grund ist eine Zeile wert: 35 Byte
@@ -39,6 +39,8 @@ anzuhängen. Der Nebeneffekt sind 24 statt 16 Bit Vertipper-Erkennung.
 > Nachrichten, und die Überlegung hinter jedem Teil ist aufgeschrieben, aber
 > niemand von außen hat das Ergebnis durchgesehen. Lies
 > [Bekannte Lücken](#bekannte-lücken), bevor du dich darauf verlässt.
+> Hängt deine Sicherheit an der Verschlüsselung, etwa als Journalistin oder
+> unter Überwachung, nimm bis zu einer unabhängigen Prüfung Signal.
 
 ---
 
@@ -54,7 +56,7 @@ flowchart TD
     M["Alice schickt"] --> T{"Text oder Anhang?"}
 
     T -->|Text| P{"Schalter<br/>Nur in der Nähe?"}
-    P -->|"an — nie einen Server anfassen"| BLE["Bluetooth LE<br/>kein WLAN, keine mobilen Daten,<br/>kein Rechenzentrum"]
+    P -->|"an: nie einen Server anfassen"| BLE["Bluetooth LE<br/>kein WLAN, keine mobilen Daten,<br/>kein Rechenzentrum"]
     P -->|aus| RCH{"Relay erreichbar?"}
     RCH -->|ja| RLY["Relay<br/>verschlüsselter Umschlag über TLS"]
     RCH -->|"nein, Nähe an"| BLE
@@ -62,7 +64,7 @@ flowchart TD
 
     T -->|Anhang| SPLIT["In Stücke von 32 MiB zerlegt,<br/>je Stück ein eigener AES-GCM-Zufallsschlüssel"]
     SPLIT --> BLOB["Zwischenlager<br/>sieht Chiffrat, Größe, Zeit"]
-    SPLIT --> RCP["Rezept mit den Schlüsseln —<br/>eine gewöhnliche Signal-Nachricht"]
+    SPLIT --> RCP["Rezept mit den Schlüsseln:<br/>eine gewöhnliche Signal-Nachricht"]
     RCP --> RLY
 
     RLY --> BOB["Bob"]
@@ -141,9 +143,10 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 | Schalter "Nur in der Nähe" | läuft | die App öffnet überhaupt keine Relay-Verbindung; `test/core/nur_nahbereich_test.dart`, `test/nah/schalter_test.dart`, `test/nah/schalter_echt_test.dart` |
 | Anhänge | läuft | eigenes verschlüsseltes Zwischenlager, nie über den Relay |
 | Aktualisierung über eine bestehende Installation | läuft | 1.5.0+11 → 1.5.1+12, Identität und Kontakte blieben erhalten |
-| Wiederherstellung auf einem neuen Gerät | läuft | 12 BIP39-Wörter holen Identität und Adresse zurück, nicht Kontakte und Verlauf; die kommen nur aus der verschlüsselten Sicherung |
-| Desktop-Programm | läuft, als weiteres Gerät | die Windows-Datei schließt sich mit denselben 12 Wörtern als weiteres Gerät derselben Adresse an und sieht ab dann alles Neue, aber keinen alten Verlauf (siehe [Bekannte Lücken](#bekannte-lücken)) |
-| Unabhängige Sicherheitsprüfung | **keine** | — |
+| Wiederherstellung auf einem neuen Gerät | läuft | 12 BIP39-Wörter holen Identität und Adresse zurück, nicht Kontakte und Verlauf; die kommen nur aus der verschlüsselten Sicherung. Seit 2.0.0 braucht das neue Gerät zusätzlich einen Code von einem Gerät, das noch angemeldet ist; gibt es keins mehr, meldet es alle anderen ab |
+| Desktop-Programm | läuft, als weiteres Gerät | die Windows-Datei schließt sich mit denselben 12 Wörtern als weiteres Gerät derselben Adresse an und sieht ab dann alles Neue, aber keinen alten Verlauf. Seit 2.0.0 muss ein schon angemeldetes Gerät das mit einem Code bestätigen (siehe [Bekannte Lücken](#bekannte-lücken)) |
+| Gerät abmelden | läuft (ab 2.0.0) | signierte Geräteliste je Identität, geprüft vom Relay und von jedem Kontakt. Relay: Abschnitt „Geraeteabmeldung“ in `server/test_relay.py`; App gegen den echten Relay: `test/net/geraeteabmeldung_test.dart`; Kontakte gegen einen lügenden Relay: `test/net/geraeteliste_stufe2_test.dart`; siehe [`docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md) |
+| Unabhängige Sicherheitsprüfung | **keine** | entfällt |
 
 Für den Nahbereichs-Beweis stand **absichtlich ein ESP32 auf der Gegenseite.**
 Zwei BitDM-Telefone, die miteinander reden, beweisen nur, dass derselbe Code
@@ -188,6 +191,14 @@ Grenzen es gibt: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSV
 ---
 
 ## Holen
+
+> [!IMPORTANT]
+> **2.0.0 arbeitet nicht mit 1.9.x zusammen.** Beide Seiten müssen
+> aktualisieren. Bis ein Kontakt aktualisiert hat, warten deine Nachrichten an
+> ihn, und der Chat sagt, warum; danach gehen sie von selbst hinaus. Adresse,
+> Chats und Kontakte bleiben, jede Sitzung wird neu aufgebaut. Nutzt du mehrere
+> Geräte, legt das erste aktualisierte die Geräteliste an, und jedes weitere
+> tritt ihr einmal mit einem Code bei.
 
 ### Android
 
@@ -252,9 +263,11 @@ Warnung etwas wird, das du nachprüfen kannst, statt etwas, das du glauben
 musst.
 
 **Lies zuerst [Bekannte Lücken](#bekannte-lücken), wenn du BitDM schon auf
-einem Telefon benutzt.** Eine zweite Installation mit denselben 12 Wörtern
-schließt sich deiner Identität als weiteres Gerät an: Sie sieht ab dann alles
-Neue, aber keinen alten Verlauf, und das Telefon bleibt angemeldet.
+einem Telefon benutzt.** Eine zweite Installation schließt sich deiner
+Identität als weiteres Gerät an. Sie braucht deine 12 Wörter und einen Code
+vom Telefon (Einstellungen › Meine ID › Geräte verwalten › Gerät hinzufügen).
+Sie sieht ab dann alles Neue, aber keinen alten Verlauf, und das Telefon bleibt
+angemeldet, bis du es abmeldest.
 
 Der Installer entsteht aus
 [`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss). Er
@@ -278,10 +291,11 @@ prüft, dass die Datei aus genau diesem Workflow für das Tag `v1.9.1` stammt.
 
 Auspacken und `./bitdm` starten. Gebraucht werden GTK 3, libsecret und
 dahinter ein entsperrter Schlüsselbund (GNOME Keyring oder ein anderer Secret
-Service).
+Service). Fehlt er, zeigt 2.0.0 eine Meldung mit „Erneut versuchen“ statt eines
+leeren Fensters; gelöscht oder neu angelegt wird dabei nichts.
 
 **Getestet am 17.10.2026, in einem Debian-13-Container unter Xvfb, nicht auf
-einem echten Desktop.** Genau dieses Archiv (sha256 oben), mit entsperrtem
+einem echten Desktop.** Das Archiv von 1.9.1, mit entsperrtem
 GNOME Keyring: Es startet, legt eine Identität an, setzt ein App-Passwort,
 kommt nach einem Neustart gesperrt hoch, weist ein falsches Passwort ab, öffnet
 mit dem richtigen und zeigt eine vor dem Neustart geschriebene Notiz an mich
@@ -363,14 +377,21 @@ Braucht Flutter mit Dart-SDK ^3.12.2 und JDK 17. Dein APK wird nicht Byte für
 Byte zur veröffentlichten Prüfsumme passen: Es ist mit *deinem* Schlüssel
 signiert, nicht mit unserem. Eine abweichende Prüfsumme ist hier normal.
 
+Seit 2.0.0 braucht der Bau außerdem Signals libsignal. Am eigenen Rechner lädt
+der Build-Hook des Pakets `libsignal` die vorgebaute Bibliothek aus dem
+GitHub-Release dieses Pakets. Die veröffentlichte APK baut sie stattdessen aus
+der Quelle
+([`fdroid/libsignal-quellbau.sh`](secure-messenger/fdroid/libsignal-quellbau.sh),
+Einzelheiten in [`docs/LIBSIGNAL-UMSTIEG.md`](secure-messenger/docs/LIBSIGNAL-UMSTIEG.md)).
+
 Die Windows-Ausgabe ist ein Verzeichnis und keine einzelne Datei. `bitdm.exe`
 ist 90 KiB groß und allein nutzlos: `sqlite3mc.dll` ist die verschlüsselte
-Datenbank, `webcrypto.dll` die Kryptografie, und der eigentliche Dart-Code
-liegt in `data/app.so`. Gib den ganzen Ordner weiter. Für ein
+Datenbank, `libsignal_frb.dll` (seit 2.0.0) und `webcrypto.dll` die
+Kryptografie, und der eigentliche Dart-Code liegt in `data/app.so`. Gib den ganzen Ordner weiter. Für ein
 Installationsprogramm statt eines Zip:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=1.9.1 windows\bitdm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=2.0.0 windows\bitdm.iss
 ```
 
 Tests:
@@ -455,9 +476,10 @@ secure-messenger/
     core/nah/              Nahbereich: Leuchtfeuer, BLE-Funk, Zerlegen, Wegwahl
     core/anhang/           Anhänge: Stückkrypto, Rezept, Zwischenlager-Anbindung
     core/store/            verschlüsselte lokale Datenbank
-  app/test/              144 Dateien, 36.334 Zeilen: 1.511 Tests (18.10.2026)
-  app/integration_test/  3 Dateien, 791 Zeilen: Anhang-Durchsatz auf echter Hardware
-  app/android/…/kotlin/  9 Dateien, 3.062 Zeilen — BLE, Schlüsselspeicher,
+  app/test/              144 Dateien, 36.334 Zeilen: 1.517 Tests (18.10.2026)
+  app/integration_test/  3 Dateien, 791 Zeilen auf echten Systemen: Anhang-Durchsatz,
+                         Windows-Plattform, Dateidialog
+  app/android/…/kotlin/  9 Dateien, 3.062 Zeilen: BLE, Schlüsselspeicher,
                          Vordergrunddienst (plus 2 Testdateien)
   app/windows/           CMake, Runner und bitdm.iss für das Installationsprogramm
   app/linux/             Runner; das Release-tar.gz baut .github/workflows/linux.yml
@@ -469,7 +491,7 @@ secure-messenger/
   docs/                  Betrieb, Bedrohungsnotizen, Messungen
   website/               bitdm.net
 LICENSE                  AGPL-3.0
-PLAN.md                  Entwurfsprotokoll — stellenweise älter als der Code
+PLAN.md                  Entwurfsprotokoll, stellenweise älter als der Code
 ```
 
 In `core/nah/` steckt das interessante Problem. Android gibt **jeder Rolle eine
@@ -485,7 +507,7 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   einer Person zusammen mit Claude (Anthropic) gebaut worden, und die KI hat
   den überwiegenden Teil des Codes geschrieben, auch die kryptografischen
   Teile. Jede Entwurfsentscheidung ist bewusst getroffen und begründet, die
-  Tests sind umfangreich, und die bisherigen Prüfungen waren gründlich — aber
+  Tests sind umfangreich, und die bisherigen Prüfungen waren gründlich, aber
   es waren Prüfungen *durch dieselbe KI, die den Code geschrieben hat*, und
   die kann beim Prüfen dieselben blinden Flecken haben wie beim Schreiben. Das
   gehört zum Risiko, nicht in eine Fußnote.
@@ -497,12 +519,14 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   externen Prüfung steht in [`docs/AUDIT.md`](secure-messenger/docs/AUDIT.md).
 - **Die Dart-Anbindung an libsignal hat einen einzigen Betreuer.** Seit 2.0.0
   kommt die Kryptografie aus Signals eigener libsignal (Rust). In Dart kommt
-  sie über das Paket `libsignal` 8.0.0 an (flutter_rust_bridge, AGPL-3.0) —
-  jung, ungeprüft, von einer Person gepflegt. BitDM pinnt die genaue Fassung;
-  Release-Bauten sollen die Rust-Bibliothek aus der Quelle bauen. Bis 1.9.x
-  nutzte BitDM eine Nachbildung in reinem Dart (`libsignal_protocol_dart`), in
-  der das Audit vom 16.10.2026 zwei schwere Fehler in der Zustandsverwaltung
-  fand — deshalb wurde sie ersetzt.
+  sie über das Paket `libsignal` 8.0.0 an (flutter_rust_bridge, AGPL-3.0).
+  Das Paket ist jung, ungeprüft und wird von einer Person gepflegt. BitDM pinnt
+  die genaue Fassung. Die veröffentlichte Android-APK baut die Rust-Bibliothek
+  aus der Quelle; Windows-, Linux- und Web-Fassung nehmen weiter die vorgebaute
+  Bibliothek, die das Paket herunterlädt und nur gegen eine Prüfsummendatei aus
+  demselben GitHub-Release prüft. Bis 1.9.x nutzte BitDM eine Nachbildung in
+  reinem Dart (`libsignal_protocol_dart`), in der das Audit vom 16.10.2026 zwei
+  schwere Fehler in der Zustandsverwaltung fand. Deshalb wurde sie ersetzt.
 - **Post-Quanten-Sitzungsaufbau (PQXDH), noch kein Post-Quanten-Ratchet.**
   Jede neue Sitzung nutzt Kyber-1024 (PQXDH). Ob der 2025 von Signal ergänzte
   Post-Quanten-Ratchet (SPQR) über diese Anbindung aktiv ist, ist noch nicht
@@ -522,24 +546,28 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   (29.07.2026) und Telefon↔PC in beide Richtungen (26.09.2026; der PC mit dem
   echten Kern und einer Windows-Bluetooth-Brücke). Zwei aktuelle Telefone
   gegeneinander sind seit 1.8.x nicht neu gemessen.
-- **Mehrere Geräte, aber kein Abmelden, auch nicht nach einem Diebstahl.**
-  Eine zweite Installation mit denselben 12 Wörtern *schließt sich der Adresse
-  an*, sie übernimmt sie nicht: der Relay führt bis zu fünf Geräte je Adresse
-  (`BITDM_GERAETE_MAX`), jedes mit eigenem Schlüsselbündel, und jede Nachricht
-  geht an alle. **Das bisherige Gerät bleibt also erreichbar**, auch wenn du
-  die Wörter auf einem neuen Telefon eingibst, weil das alte verloren ist. Ein
-  Gerät abmelden geht nicht: wer die Wörter oder ein entsperrtes Gerät hat,
-  ist gegenüber der Adresse gleichberechtigt. Der Relay räumt ein Gerät erst
-  nach 30 Tagen ohne Verbindung von selbst ab (`BITDM_GERAET_TTL`). Die App
-  zeigt in den Einstellungen, wie viele Geräte die Identität benutzen, und
-  warnt ab zwei.
-  Was bei einem verlorenen Telefon hilft: Mit App-Sperre verbindet es sich
-  nicht und empfängt nichts, solange niemand es entsperrt. Ohne App-Sperre
-  empfängt es weiter, bis ein Vertrauenskontakt es mit deinem Codewort aus der
-  Ferne löscht. Sicher abgeschnitten ist es nur durch eine neue Identität, deren
-  Adresse du deinen Kontakten gibst. Ein neues Gerät sieht keinen alten
-  Verlauf; Lese- und Zustellhaken werden zwischen den Geräten nicht abgeglichen
-  ([Festlegung](secure-messenger/docs/MEHRGERAETE.md), §6 und §9).
+- **Geräte lassen sich abmelden, aber wer die 12 Wörter kennt, kann
+  übernehmen.** Eine zweite Installation mit denselben 12 Wörtern *schließt
+  sich der Adresse an*, sie übernimmt sie nicht: der Relay führt bis zu fünf
+  Geräte je Adresse (`BITDM_GERAETE_MAX`), jedes mit eigenem Schlüsselbündel.
+  Seit 2.0.0 führt jede Identität eine signierte Geräteliste. Kontakte prüfen
+  die Liste selbst und verschlüsseln nur an Geräte darin, egal was ein Relay
+  behauptet. Ein neues Gerät braucht die 12 Wörter und einen Code von einem
+  Gerät, das schon in der Liste steht (Einstellungen › Meine ID › Geräte
+  verwalten › Gerät hinzufügen). Ein verlorenes Gerät meldest du dort ab; hast
+  du kein anderes Gerät mehr, wählst du auf dem neuen „Alle anderen Geräte
+  abmelden“. Das abgemeldete Gerät bekommt nichts mehr, kommt nicht wieder
+  hinein und vergisst die 12 Wörter, sobald es sich wieder verbindet; seine
+  Unterhaltungen bleiben verschlüsselt darauf. **Die Grenze:** Wer die 12
+  Wörter kennt, kann dasselbe tun, alle deine Geräte abmelden und die Adresse
+  übernehmen. War ein Telefon entsperrt, als es gestohlen wurde, oder liegen
+  die Wörter nicht sicher, hilft nur eine neue Identität, deren Adresse du
+  deinen Kontakten gibst. Abmelden braucht einen Relay ab 2.0.0; an einem
+  älteren läuft die App ohne Geräteliste, und abmelden geht dort nicht. Ein
+  neues Gerät sieht keinen alten Verlauf; Lese- und Zustellhaken werden
+  zwischen den Geräten nicht abgeglichen
+  ([Festlegung](secure-messenger/docs/MEHRGERAETE.md), §9; Abmelden:
+  [`docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md)).
 - **Der Web-Build läuft unter <https://bitdm.net/app/>, aber eingeschränkt.**
   Identität, App-Passwort, Entsperren nach dem Neuladen, Wiederherstellen aus
   den 12 Wörtern und Textnachrichten zwischen zwei Browsern gehen (headless
@@ -554,16 +582,15 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
 - **Linux ist nur im Container getestet.** Debian 13 unter Xvfb (17.10.2026):
   Start, Identität, App-Passwort und Sperre funktionieren; ein
   Entwicklungsstand hat außerdem über einen lokalen Relay Nachrichten gesendet
-  und empfangen. Nicht getestet: ein echter Desktop (Wayland, Grafiktreiber,
-  Benachrichtigungen), andere Distributionen und 1.9.1 selbst gegen
-  relay.bitdm.net. Ohne entsperrten Schlüsselbund bleibt das Fenster leer, ohne
-  Fehlermeldung.
-- **Unter Windows und Linux öffnet der Anhangknopf kein Auswahlfenster.**
-  Anhänge aussuchen und öffnen geht nur unter Android; am PC ist der Knopf
-  trotzdem zu sehen.
+  und empfangen. Der Dateidialog für Anhänge hat seinen Test unter Xvfb
+  ebenfalls bestanden. Nicht getestet: ein echter Desktop (Wayland,
+  Grafiktreiber), andere Distributionen und eine veröffentlichte Fassung gegen
+  relay.bitdm.net. Benachrichtigungen richtet die App unter Linux nicht ein.
 - **Die Windows-Dateien sind unsigniert**, Installer wie Zip.
 - **Gruppen mit Grenzen:** bis 20 Mitglieder, Verteilung über Einzelsitzungen
-  (keine Sender Keys; Begründung in `docs/FUNKTIONSVERGLEICH.md`).
+  (keine Sender Keys; Begründung in `docs/FUNKTIONSVERGLEICH.md`). Solange ein
+  Mitglied noch 1.9.x hat, bleibt jede Gruppennachricht wartend, und der
+  Gruppenchat sagt nicht, wer aktualisieren muss.
 - **Nicht in Google Play und nicht im offiziellen F-Droid-Katalog.** Das eigene
   F-Droid-Verzeichnis auf bitdm.net liefert dieselbe APK.
 

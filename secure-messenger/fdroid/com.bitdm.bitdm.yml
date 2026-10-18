@@ -23,8 +23,8 @@ Repo: https://github.com/Henner4746/BitDM.git
 Binaries: https://github.com/Henner4746/BitDM/releases/download/v%v/bitdm-%v.apk
 
 Builds:
-  - versionName: 1.9.1
-    versionCode: 21
+  - versionName: 2.0.0
+    versionCode: 22
     commit: '0000000000000000000000000000000000000000'
     subdir: secure-messenger/app
     submodules: true
@@ -65,5 +65,5 @@ AllowedAPKSigningKeys: e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085a
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
 UpdateCheckData: secure-messenger/app/pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
-CurrentVersion: 1.9.1
-CurrentVersionCode: 21
+CurrentVersion: 2.0.0
+CurrentVersionCode: 22

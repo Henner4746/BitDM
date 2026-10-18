@@ -4,7 +4,7 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
-## 2.0.0 — noch nicht veröffentlicht
+## 2.0.0 (18.10.2026)
 
 **Signals offizielle libsignal statt der Dart-Nachbildung.** Bis 1.9.x lief die Verschlüsselung über `libsignal_protocol_dart`, eine nie geprüfte Nachbildung in reinem Dart. Das Sicherheitsaudit vom 16.10.2026 fand darin zwei schwere Fehler in der Zustandsverwaltung. Ab 2.0.0 rechnet Signals eigene Bibliothek (Rust, libsignal 0.105, über das Paket `libsignal` 8.0.0). Plan und Nachweise: [`secure-messenger/docs/LIBSIGNAL-UMSTIEG.md`](secure-messenger/docs/LIBSIGNAL-UMSTIEG.md).
 
@@ -17,15 +17,15 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 - **Keine Nachricht geht mehr doppelt hinaus.** Kam während des Sendens jemand in Bluetooth-Reichweite oder stand die Verbindung wieder, schickte der Nachversand dieselbe Nachricht ein zweites Mal.
 - **Erst festschreiben, dann senden.** Der Sitzungsstand wird gespeichert, bevor eine Nachricht hinausgeht. Ein Absturz genau dazwischen konnte vorher dazu führen, dass ein Nachrichtenschlüssel zweimal benutzt wurde.
 
-**Anhänge am PC.** Bis 1.9.x stand „Datei anhängen“ unter Windows und Linux im Menü und tat auf Druck nichts — die Dateiauswahl gab es nur unter Android. Ebenso „Sicherung einspielen“; „Öffnen“ bei einem empfangenen Anhang meldete fälschlich, keine App könne die Datei öffnen.
+**Anhänge am PC.** Bis 1.9.x stand „Datei anhängen“ unter Windows und Linux im Menü und tat auf Druck nichts: Die Dateiauswahl gab es nur unter Android. Ebenso „Sicherung einspielen“; „Öffnen“ bei einem empfangenen Anhang meldete fälschlich, keine App könne die Datei öffnen.
 - Unter Windows und Linux öffnet sich jetzt der Dateidialog des Systems. Geschickt wird die Originaldatei, ohne Kopie.
 - Empfangene Anhänge lassen sich am PC öffnen. Unter Windows laufen sie vorher durch die Anhangprüfung des Systems (Markierung „aus dem Internet“, Virenscanner); dann fragt Windows bei Programmen und Skripten nach, und Office öffnet in der geschützten Ansicht. HTML, SVG und Skripte gehen wie unter Android als Text auf.
 - Im Browser ist der Menüpunkt ausgegraut und nennt den Grund, statt nichts zu tun.
 
-**Geräte abmelden.** Bis 1.9.x blieb ein verlorenes Telefon Teil der Identität und bekam weiter jede Nachricht — auch nachdem man sie mit den zwölf Wörtern auf einem neuen wiederhergestellt hatte. Ab 2.0.0 führt jede Identität eine signierte Geräteliste. Bedrohungsmodell und Protokoll: [`secure-messenger/docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md).
+**Geräte abmelden.** Bis 1.9.x blieb ein verlorenes Telefon Teil der Identität und bekam weiter jede Nachricht, auch nachdem man sie mit den zwölf Wörtern auf einem neuen wiederhergestellt hatte. Ab 2.0.0 führt jede Identität eine signierte Geräteliste. Bedrohungsmodell und Protokoll: [`secure-messenger/docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md).
 - **Abmelden** unter Einstellungen › Meine ID › Geräte verwalten. Das abgemeldete Gerät bekommt sofort nichts mehr, kommt beim Relay nicht wieder hinein und vergisst die zwölf Wörter; seine Unterhaltungen bleiben verschlüsselt darauf.
 - **Ein weiteres Gerät** braucht jetzt zusätzlich zu den Wörtern einen Code vom vorhandenen Gerät. Wer kein Gerät mehr hat, meldet auf dem neuen alle anderen ab.
-- **Kontakte prüfen die Liste selbst** und verschlüsseln nur an Geräte darin — auch dann, wenn ein Relay etwas anderes behauptet.
+- **Kontakte prüfen die Liste selbst** und verschlüsseln nur an Geräte darin, auch wenn ein Relay etwas anderes behauptet.
 - **Die Grenze bleibt benannt:** Wer die zwölf Wörter kennt, kann alle Geräte abmelden und übernehmen. Dann hilft nur eine neue Identität.
 - **Beim Update** legt das erste aktualisierte Gerät die Liste an; jedes weitere tritt einmal per Code bei. Der Relay muss vorher aktualisiert sein.
 
@@ -39,6 +39,18 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 - Ohne erreichbaren oder entsperrten Schlüsselbund (GNOME Keyring, KWallet) blieb das Fenster unter Linux leer. Jetzt steht dort eine Meldung mit „Erneut versuchen“. Gelöscht oder neu angelegt wird dabei nichts.
 - Am Rechner und im Browser ist in Sperrbildschirm, 12-Wörter-Seite, Startseite, Wiederherstellen und Fernlöschung von „diesem Gerät“ die Rede statt vom Telefon. In der Android-App bleibt es beim Telefon.
 
+**Kontaktaufbau**
+- Fügten sich zwei Leute gegenseitig hinzu (beide scannen den Code des anderen), standen beide für immer auf „Anfrage gesendet“, auch mit Internet. Jetzt gilt das auf beiden Seiten als Zusage. Wer eine Anfrage schon hat und den anderen selbst hinzufügt, nimmt damit an, und der Chat geht auf.
+- Eine Zusage oder Absage ohne Verbindung (oder mit „Nur in der Nähe“, während die Gegenseite nicht in Reichweite war) ging verloren, und die Gegenseite wartete für immer. Sie wartet jetzt und geht beim nächsten Verbinden hinaus, mit „Nur in der Nähe“ auch über Bluetooth, sobald die Gegenseite da ist. Wer schon so festhängt, kommt los, sobald beide Seiten diese Fassung haben und die wartende Seite verbindet.
+- Der Hinzufügen-Bildschirm sagte auch mit „Nur in der Nähe“ „Anfrage gesendet“, obwohl dort keine Anfrage hinausgeht, und ebenso bei jemandem, der schon Kontakt war.
+- Ein Telefon ohne Bluetooth 5 bekam in den Einstellungen keinen Hinweis, dass der Nahbereich darauf nicht geht. Bei ausgeschaltetem Bluetooth konnte dort „kein Bluetooth LE“ stehen statt „Bluetooth ist ausgeschaltet“.
+
+**Oberfläche**
+- Die Eingabezeile fluchtet. Plus, Textfeld, Sprachknöpfe und Senden sind gleich hoch (48). Vorher waren die Knöpfe 36 hoch und das Feld etwa 20; am Rechner und im Browser sah das Feld aus wie ein dünner Strich zwischen zwei Kästen.
+- Senden wird in der Akzentfarbe ausgefüllt, sobald etwas im Feld steht. Bei leerem Feld bleibt der Knopf zurückhaltend.
+- In der ganzen App stehen in angezeigten Texten keine Gedankenstriche mehr, auf Deutsch wie auf Englisch. An ihrer Stelle stehen Komma, Punkt, Doppelpunkt, Semikolon oder Klammer.
+- Die Web-Fassung fragte im offenen Chat alle zwei Sekunden eine fehlende Schriftdatei an (404), weil keine ihrer Schriften die Haken ✓ und die Uhr ◷ am Zustellstatus hatte. Die eigenen Sonderzeichen (✓ ◷ ★ ● ○ ◌ ◍ ◎ ⇉ ≡ ∿ → ≈) bringt die App jetzt in zwei Noto-Untermengen von zusammen gut 6 KB selbst mit, auf allen Plattformen gleich. Für empfangene Symbole liegt im Web zusätzlich ein Teil von Noto Sans Symbols 2. Ein neuer Test meldet jedes künftige Sonderzeichen ohne Glyphe.
+
 ## 1.9.1 — veröffentlicht am 15.10.2026
 
 Behebungen aus der Prüfung vom 14.10.2026 (Quellstand `e5aefdf`), Einzelheiten
@@ -51,13 +63,6 @@ in [`secure-messenger/docs/BEFUNDE-2026-10-14.md`](secure-messenger/docs/BEFUNDE
 - Die Einstellungen der Passwort-Ableitung (Argon2id) aus der Fachdatei werden vor dem Entsperren geprüft. Eine manipulierte Datei konnte die App vorher abstürzen oder minutenlang hängen lassen.
 - Der Wiederherstellen-Bildschirm sagt jetzt, dass ein anderes Gerät mit denselben 12 Wörtern angemeldet bleibt und weiter Nachrichten bekommt.
 - Die Anleitung „Nur in der Nähe“ behauptete, die Zustellung über Funk sei noch nicht gebaut, und verlangte den Standortzugriff, den BitDM gar nicht anfordert. Sie beschreibt jetzt, was der Nahbereich tatsächlich kann: Bluetooth 5 und Android 12 auf beiden Seiten, rund zwei Meter gemessen, und die Kontaktanfrage geht erst über den Relay hinaus.
-- Die Web-Fassung fragte im offenen Chat alle zwei Sekunden eine fehlende Schriftdatei an (404), weil keine ihrer Schriften die Haken ✓ und die Uhr ◷ am Zustellstatus hatte. Die eigenen Sonderzeichen (✓ ◷ ★ ● ○ ◌ ◍ ◎ ⇉ ≡ ∿ → ≈) bringt die App jetzt in zwei Noto-Untermengen von zusammen gut 6 KB selbst mit, auf allen Plattformen gleich. Für empfangene Symbole liegt im Web zusätzlich ein Teil von Noto Sans Symbols 2. Ein neuer Test meldet jedes künftige Sonderzeichen ohne Glyphe.
-
-- Fügten sich zwei Leute gegenseitig hinzu (beide scannen den Code des anderen), standen beide für immer auf „Anfrage gesendet“ — auch mit Internet. Jetzt gilt das auf beiden Seiten als Zusage. Wer eine Anfrage schon hat und den anderen selbst hinzufügt, nimmt damit an, und der Chat geht auf.
-- Eine Zusage oder Absage ohne Verbindung (oder mit „Nur in der Nähe“, während die Gegenseite nicht in Reichweite war) ging verloren, und die Gegenseite wartete für immer. Sie wartet jetzt und geht beim nächsten Verbinden hinaus, mit „Nur in der Nähe“ auch über Bluetooth, sobald die Gegenseite da ist. Wer schon so festhängt, kommt los, sobald beide Seiten diese Fassung haben und die wartende Seite verbindet.
-- Eine veränderte App konnte sich mit einer eigenen Zusage selbst zum bestätigten Kontakt machen und mit einer „Absage“ einen bestehenden Kontakt samt Verlauf auf dem anderen Telefon löschen. Zu- und Absage gelten jetzt nur noch als Antwort auf eine eigene, offene Anfrage.
-- Der Hinzufügen-Bildschirm sagte auch mit „Nur in der Nähe“ „Anfrage gesendet“, obwohl dort keine Anfrage hinausgeht — und ebenso bei jemandem, der schon Kontakt war.
-- Ein Telefon ohne Bluetooth 5 bekam in den Einstellungen keinen Hinweis, dass der Nahbereich darauf nicht geht. Bei ausgeschaltetem Bluetooth konnte dort „kein Bluetooth LE“ stehen statt „Bluetooth ist ausgeschaltet“.
 
 **Behoben (Relay)**
 - Ein Fremder konnte die Anmeldung eines Geräts stören, indem er dessen Einmal-Nonce verdrängte. Die Plätze gehören jetzt der Herkunft der Anfrage; über Tor dem Circuit, sobald der Onion-Dienst die Circuit-Kennung weitergibt.

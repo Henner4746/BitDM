@@ -35,13 +35,18 @@ Sicherheitskorrekturen. / Only the latest release receives security fixes.
 Besonders interessiert uns alles, was dem **Bedrohungsmodell** widerspricht:
 Inhalt lesbar für den Relay, Adressen fälschbar, Metadaten, die über das in der
 Datenschutzerklärung Genannte hinausgehen, Umgehung der App-Sperre, der
-Fernlöschung oder der Einmal-Ansicht.
+Fernlöschung oder der Einmal-Ansicht. Seit 2.0.0 auch: eine Sitzung ohne Kyber,
+ein abgemeldetes Gerät, das weiter Nachrichten bekommt oder wieder hereinkommt,
+ein Gerät, das ohne Code beitritt, ohne die anderen abzumelden.
 
 ## Nicht im Umfang / Out of scope
 
 - Denial of Service durch reine Last gegen die öffentlichen Server
 - Fehlende Kopfzeilen ohne nachweisbare Auswirkung
-- Angriffe, die ein entsperrtes Gerät in fremder Hand voraussetzen
+- Angriffe, die ein entsperrtes Gerät in fremder Hand voraussetzen (außer: es
+  lässt sich nicht abmelden oder kommt nach dem Abmelden wieder herein)
+- Wer die 12 Wörter kennt, kann alle Geräte abmelden und die Adresse
+  übernehmen. Das ist die benannte Grenze, kein Fund.
 - Social Engineering, physische Angriffe auf Infrastruktur
 
 ## Stand der Prüfung / Audit status
