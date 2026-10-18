@@ -100,8 +100,10 @@ extension _Gruppen on _HomeState {
           ]),
           const SizedBox(height: 12),
           Container(
-            decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
+            constraints: const BoxConstraints(minHeight: Masse.eingabeHoehe),
+            alignment: Alignment.centerLeft,
+            decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(Masse.eingabeRund), border: Border.all(color: p.line)),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
             child: TextField(
               key: const ValueKey('verteiler-text'),
               controller: text,

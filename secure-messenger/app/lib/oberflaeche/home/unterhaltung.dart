@@ -345,7 +345,7 @@ extension _Unterhaltung on _HomeState {
         )
       else
       Container(
-        padding: const EdgeInsets.fromLTRB(17, 11, 17, 16),
+        padding: const EdgeInsets.fromLTRB(Masse.block, 10, Masse.block, 12),
         decoration: BoxDecoration(border: Border(top: BorderSide(color: p.lineSoft))),
         // DER ABSTAND GEHOERT NACH INNEN, nicht um das Container herum: so
         // laeuft die Trennlinie und der Hintergrund bis an den Rand durch, und
@@ -368,24 +368,32 @@ extension _Unterhaltung on _HomeState {
             // DATEI ODER UMFRAGE. Ein Menue statt zweier Knoepfe: die
             // Eingabezeile ist am Telefon schon voll.
             onTap: st.schwebendeKennung == null ? () => plusMenue(cid) : null,
+            // So hoch wie die Trefferflaeche: sonst stuende das Plus mittig in
+            // ihr und damit hoeher als Feld und Senden (siehe Masse).
             child: Container(
-              width: 36, height: 36, alignment: Alignment.center,
+              width: Masse.eingabeHoehe, height: Masse.eingabeHoehe, alignment: Alignment.center,
               decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
+                  color: p.surf2,
+                  borderRadius: BorderRadius.circular(Masse.eingabeRund),
                   border: Border.all(
                       color: st.schwebendeKennung == null ? p.line : p.lineSoft)),
               child: Text('+',
                   style: TextStyle(
                       color: st.schwebendeKennung == null ? p.muted : p.dim,
-                      fontSize: 16,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w300,
                       height: 1)),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: Masse.nah),
           Expanded(
             child: Container(
-              decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 2),
+              // Mindesthoehe statt fester Hoehe, mittig: eine Zeile steht in
+              // der Mitte, und das Feld fluchtet mit den Knoepfen daneben.
+              constraints: const BoxConstraints(minHeight: Masse.eingabeHoehe),
+              alignment: Alignment.centerLeft,
+              decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(Masse.eingabeRund), border: Border.all(color: p.line)),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               child: TextField(
                 controller: draftCtl,
                 // INKOGNITO-TASTATUR, wie bei Signal und Threema — hier immer:
@@ -408,15 +416,15 @@ extension _Unterhaltung on _HomeState {
                   if (befehl || _warBefehl) setState(() {});
                   _warBefehl = befehl;
                 },
-                style: mono(size: 13.5, color: p.ink),
+                style: mono(size: 14, color: p.ink),
                 cursorColor: p.accent,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => send(),
-                decoration: InputDecoration.collapsed(hintText: t('message'), hintStyle: mono(size: 13.5, color: p.dim)),
+                decoration: InputDecoration.collapsed(hintText: t('message'), hintStyle: mono(size: 14, color: p.dim)),
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: Masse.nah),
           // SPRACHNACHRICHT: nur, wo es den Kanal gibt (Android). Einmal
           // tippen nimmt auf, noch einmal tippen schickt; das Kreuz daneben
           // verwirft. Kein "gedrueckt halten": das verlangt eine ruhige Hand,
@@ -431,10 +439,10 @@ extension _Unterhaltung on _HomeState {
                   key: const ValueKey('sprache-einmal'),
                   onTap: () => setState(() => _spracheEinmal = !_spracheEinmal),
                   child: Container(
-                    width: 36, height: 36, alignment: Alignment.center,
+                    width: Masse.eingabeHoehe, height: Masse.eingabeHoehe, alignment: Alignment.center,
                     decoration: BoxDecoration(
-                        color: _spracheEinmal ? p.tint : null,
-                        borderRadius: BorderRadius.circular(8),
+                        color: _spracheEinmal ? p.tint : p.surf2,
+                        borderRadius: BorderRadius.circular(Masse.eingabeRund),
                         border: Border.all(color: _spracheEinmal ? p.tintLine : p.line)),
                     child: Text('1×', style: mono(size: 11, weight: FontWeight.w600,
                         color: _spracheEinmal ? p.tintInk : p.muted)),
@@ -448,9 +456,9 @@ extension _Unterhaltung on _HomeState {
                 child: GestureDetector(
                   onTap: _verwirfAufnahme,
                   child: Container(
-                    width: 36, height: 36, alignment: Alignment.center,
-                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.line)),
-                    child: Text('×', style: TextStyle(color: p.muted, fontSize: 16, height: 1)),
+                    width: Masse.eingabeHoehe, height: Masse.eingabeHoehe, alignment: Alignment.center,
+                    decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(Masse.eingabeRund), border: Border.all(color: p.line)),
+                    child: Text('×', style: TextStyle(color: p.muted, fontSize: 20, height: 1)),
                   ),
                 ),
               ),
@@ -463,12 +471,12 @@ extension _Unterhaltung on _HomeState {
                 onTap: () => _aufnahmeSeit == null ? _starteAufnahme(cid) : _schickeAufnahme(cid),
                 child: Container(
                   key: ValueKey(_aufnahmeSeit == null ? 'mikro-bereit' : 'mikro-laeuft'),
-                  height: 36, alignment: Alignment.center,
-                  constraints: const BoxConstraints(minWidth: 36),
-                  padding: EdgeInsets.symmetric(horizontal: _aufnahmeSeit == null ? 0 : 10),
+                  height: Masse.eingabeHoehe, alignment: Alignment.center,
+                  constraints: const BoxConstraints(minWidth: Masse.eingabeHoehe),
+                  padding: EdgeInsets.symmetric(horizontal: _aufnahmeSeit == null ? 0 : 12),
                   decoration: BoxDecoration(
-                      color: _aufnahmeSeit == null ? null : p.tint,
-                      borderRadius: BorderRadius.circular(8),
+                      color: _aufnahmeSeit == null ? p.surf2 : p.tint,
+                      borderRadius: BorderRadius.circular(Masse.eingabeRund),
                       border: Border.all(color: _aufnahmeSeit == null ? p.line : p.tintLine)),
                   // GEZEICHNET, NICHT GESETZT: Punkt = aufnehmen, Quadrat =
                   // anhalten, wie an jedem Rekorder. Als Textzeichen (● ■)
@@ -477,7 +485,7 @@ extension _Unterhaltung on _HomeState {
                   // 25.09.2026).
                   child: _aufnahmeSeit == null
                       ? Container(
-                          width: 11, height: 11,
+                          width: 12, height: 12,
                           decoration: BoxDecoration(color: p.muted, shape: BoxShape.circle))
                       : Row(mainAxisSize: MainAxisSize.min, children: [
                           Container(
@@ -490,19 +498,36 @@ extension _Unterhaltung on _HomeState {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Masse.nah),
           ],
-          GestureDetector(
-            onTap: send,
-            // LANGER DRUCK PLANT, wie bei Signal. Rechtsklick am Rechner.
-            onLongPress: _planeSenden,
-            onSecondaryTap: _planeSenden,
-            child: Container(
-              height: 36, alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.accent)),
-              child: Text(t('send').toUpperCase(), style: mono(size: 11, weight: FontWeight.w600, color: p.ink, spacing: 1.2)),
-            ),
+          // AUSGEFUELLT, SOBALD ES ETWAS ZU SENDEN GIBT. Vorher immer nur
+          // umrandet, ob das Feld leer war oder nicht; jetzt sieht man der
+          // Zeile an, ob ein Tippen auf Senden etwas tut. Antippbar bleibt
+          // der Knopf trotzdem: send() und _planeSenden() tun bei leerem Feld
+          // ohnehin nichts.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: draftCtl,
+            builder: (context, wert, _) {
+              final bereit = wert.text.trim().isNotEmpty;
+              return GestureDetector(
+                onTap: send,
+                // LANGER DRUCK PLANT, wie bei Signal. Rechtsklick am Rechner.
+                onLongPress: _planeSenden,
+                onSecondaryTap: _planeSenden,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  height: Masse.eingabeHoehe, alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  decoration: BoxDecoration(
+                      color: bereit ? p.accent : p.surf2,
+                      borderRadius: BorderRadius.circular(Masse.eingabeRund),
+                      border: Border.all(color: bereit ? p.accent : p.line)),
+                  child: Text(t('send').toUpperCase(),
+                      style: mono(size: 11.5, weight: FontWeight.w600,
+                          color: bereit ? p.onAcc : p.muted, spacing: 1.2)),
+                ),
+              );
+            },
           ),
           ]),
         ),

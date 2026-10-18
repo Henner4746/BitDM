@@ -54,6 +54,21 @@ class Masse {
 
   static const double antippMass = 48;
 
+  // ════════════════════════════════════════════════════════════ Eingabezeile
+  //
+  // BIS 18.10.2026 waren die Knoepfe der Eingabezeile 36 hoch und das Feld
+  // dazwischen etwa 20 (2 Innenabstand, eine Zeile): am Rechner und im Browser
+  // ein duenner Strich zwischen zwei groesseren Kaesten, dazu ein Plus, das in
+  // seiner 48er-Trefferflaeche hoeher sass als der Rest. Jetzt sind alle Teile
+  // so hoch wie das Antippmass: sie fluchten, und keiner braucht einen
+  // unsichtbaren Rand, um treffbar zu sein.
+
+  /// Hoehe von Feld und Knoepfen einer Eingabezeile.
+  static const double eingabeHoehe = antippMass;
+
+  /// Rundung von Feld und Knoepfen einer Eingabezeile.
+  static const double eingabeRund = 12;
+
   /// Legt einen ausreichend grossen Trefferbereich um etwas Kleines.
   ///
   /// Die SICHTBARE Groesse bleibt, wie sie ist. Ein Knopf, der auf 48 dp
