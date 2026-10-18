@@ -236,8 +236,8 @@ footer a{color:var(--muted)}
       <li><strong>No uploaded address book, and no names.</strong> BitDM shows contacts as an address and a pattern. You can't name them, not even locally.</li>
       <li><strong>Twelve words instead of a password reset.</strong> With them you restore your identity on a new device. You can also split them into parts for people you trust; a few together restore your identity, but one alone reveals nothing.</li>
     </ul>
-    <p class="de"><strong>Der Haken</strong> ist, dass jeder mit den zwölf Wörtern als du gilt. Jede Installation mit ihnen wird ein weiteres Gerät deiner Adresse und bekommt jede neue Nachricht; ein Gerät abmelden kannst du nicht. Die Wörter gehören auf Papier und in keine Cloud.</p>
-    <p class="en"><strong>The catch</strong> is that anyone with the twelve words counts as you. Every install with them becomes another device on your address and gets every new message; you can't log a device out. Keep the words on paper and out of any cloud.</p>
+    <p class="de"><strong>Der Haken</strong> ist, dass jeder mit den zwölf Wörtern als du gilt. Seit Fassung 2.0.0 braucht ein weiteres Gerät zusätzlich einen Code von einem vorhandenen, und abmelden lässt sich jedes. Wer die Wörter hat, kann aber auf einem neuen Gerät alle anderen abmelden. Die Wörter gehören auf Papier und in keine Cloud.</p>
+    <p class="en"><strong>The catch</strong> is that anyone with the twelve words counts as you. Since version 2.0.0 another device also needs a code from one you already have, and any device can be signed out. But whoever has the words can sign out all the others from a new device. Keep the words on paper and out of any cloud.</p>
   </section>
 
   <section>
@@ -290,13 +290,13 @@ footer a{color:var(--muted)}
       <li><strong>Deine Adresse ist ein Pseudonym.</strong> Sie enthält nichts über dich, bleibt aber gleich, solange du sie benutzt. Taucht sie irgendwo neben deinem Namen auf, lässt sie sich mit dir verbinden.</li>
       <li><strong>Dass du BitDM benutzt, sieht man</strong> an der Verbindung zu einem Relay, im Nahbereich auch an der Bluetooth-Werbung.</li>
       <li><strong>Ein kompromittiertes Gerät</strong>, etwa durch Root-Zugriff oder eine bösartige Tastatur, schlägt jeden Messenger, auch diesen.</li>
-      <li><strong>Kein unabhängiges Audit.</strong> Niemand außerhalb des Projekts hat Kryptografie, Protokoll oder Umsetzung geprüft. Außerdem ist die Signal-Bibliothek eine Portierung aus der Gemeinschaft und nicht Signals eigene.</li>
+      <li><strong>Kein unabhängiges Audit.</strong> Niemand außerhalb des Projekts hat geprüft, wie BitDM Protokoll und Bibliothek einsetzt. Die Bibliothek selbst ist seit Fassung 2.0.0 Signals eigene, libsignal.</li>
     </ul>
     <ul class="en">
       <li><strong>Your address is a pseudonym.</strong> It contains nothing about you, but it stays the same for as long as you use it, so once it appears next to your name, people can link the two.</li>
       <li><strong>Using BitDM is visible</strong> as a connection to a relay, and in nearby mode through the Bluetooth advertising.</li>
       <li><strong>A compromised device</strong> (say, root access or a malicious keyboard) beats any messenger, this one included.</li>
-      <li><strong>No independent audit.</strong> Nobody outside the project has checked the cryptography, the protocol or the implementation. Also, the Signal library is a community port and not Signal's own.</li>
+      <li><strong>No independent audit.</strong> Nobody outside the project has checked how BitDM uses the protocol and the library. Since version 2.0.0 the library itself is Signal's own, libsignal.</li>
     </ul>
   </section>
 

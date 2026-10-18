@@ -127,7 +127,7 @@
       "name": "BitDM",
       "alternateName": "BitDM Messenger",
       "url": "https://bitdm.net/",
-      "description": "BitDM is an end-to-end encrypted messenger without phone number, e-mail or username: your address is your public key. It uses the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256) through the community Dart port libsignal_protocol_dart, not Signal's own library, encrypts attachments with AES-256-GCM, works over a relay, over Tor and directly between nearby phones via Bluetooth without internet. Open source under AGPL-3.0.",
+      "description": "BitDM is an end-to-end encrypted messenger without phone number, e-mail or username: your address is your public key. It uses the Signal protocol (PQXDH with Curve25519 and Kyber-1024, Double Ratchet, AES-256) through Signal's official library, libsignal, encrypts attachments with AES-256-GCM, works over a relay, over Tor and directly between nearby phones via Bluetooth without internet. Open source under AGPL-3.0.",
       "applicationCategory": "CommunicationApplication",
       "applicationSubCategory": "Encrypted messenger",
       "operatingSystem": "Android, Windows, Linux, Web browser",
@@ -179,7 +179,7 @@
    "name": "Is BitDM an alternative to WhatsApp, Signal or Threema?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "For everyday use, yes. It uses the Signal protocol, like Signal and WhatsApp, but through libsignal_protocol_dart, a community Dart port, and not Signal's own library. BitDM is a pre-release and hasn't been independently audited. Signal and WhatsApp need your phone number and BitDM doesn't; compared with Threema, BitDM is free, and both app and server are open source."
+    "text": "For everyday use, yes. It uses the Signal protocol, like Signal and WhatsApp, and since version 2.0.0 also Signal's own library, libsignal. BitDM is a pre-release and hasn't been independently audited. Signal and WhatsApp need your phone number and BitDM doesn't; compared with Threema, BitDM is free, and both app and server are open source."
    }
   },
   {
@@ -195,7 +195,7 @@
    "name": "How secure is BitDM?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256) through the community Dart port libsignal_protocol_dart, not Signal's own library. Attachments use AES-256-GCM, including when stored on the device. There's no independent security audit yet, but the source is open for anyone to check."
+    "text": "Messages use the Signal protocol (PQXDH with Curve25519 and Kyber-1024, Double Ratchet, AES-256), and since version 2.0.0 Signal's own library, libsignal. Attachments use AES-256-GCM, including when stored on the device. There's no independent security audit of BitDM yet, but the source is open for anyone to check."
    }
   },
   {
@@ -227,7 +227,7 @@
    "name": "What happens if I lose my phone?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Your twelve words restore your identity on a new device. The old phone stays signed in, though. If the app lock is on, it receives nothing until someone unlocks it. If it's off, the phone keeps receiving until trusted contacts you picked beforehand wipe it (with /wipe or a code word you choose), or until the relay drops it after 30 days without a connection. If it was taken unlocked, a new identity is safer."
+    "text": "Your twelve words restore your identity on a new device. If you have no other device left, sign out all the old ones there: the lost phone gets nothing after that and can't get back onto the relay. Anyone who knows your twelve words can do the same, though. If the phone was stolen unlocked or the words were lying around, only a new identity helps."
    }
   },
   {
@@ -1241,12 +1241,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         </div>
         <p class="dl-text">
           <span class="de">GitHub baut das Paket aus diesem Quellcode. Auspacken,
-            <code>./bitdm</code> starten; ohne entsperrten Schlüsselbund bleibt das
-            Fenster leer. Getestet haben wir es bisher nur in einem Debian-Container.
+            <code>./bitdm</code> starten; ohne entsperrten Schlüsselbund zeigt es
+            eine Meldung mit „Erneut versuchen“. Getestet haben wir es bisher nur in einem Debian-Container.
             Zum Selbstbauen siehe <code>docs/LINUX.md</code>.</span>
           <span class="en">GitHub builds the package from this source. Unpack
-            it and run <code>./bitdm</code>; if your keyring isn't unlocked, the
-            window stays empty. We've only tested it in a Debian container so far.
+            it and run <code>./bitdm</code>; if your keyring isn't unlocked, it
+            shows a message with "Try again". We've only tested it in a Debian container so far.
             To build it yourself, see <code>docs/LINUX.md</code>.</span>
         </p>
       </article>
@@ -1293,6 +1293,21 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
     <!-- BIS 18.10.2026 STAND DER KASTEN IM SEITENKOPF unter dem Downloadknopf.
          Er sollte aus dem ersten Bildschirm heraus; hier unter den Geraeten
          sieht ihn, wer eine Datei holt. -->
+    <!-- SEIT 2.0.0 (18.10.2026): 1.9.x und 2.0.0 bauen keine Sitzung
+         miteinander auf (libsignal statt libsignal_protocol_dart, PQXDH
+         Pflicht). Wer schon BitDM hat, muss das wissen, bevor er laedt. -->
+    <p class="vorab">
+      <b><span class="de">Neu: Fassung 2.0.0</span><span class="en">New: version 2.0.0</span></b>
+      <span class="de">Die Verschlüsselung rechnet jetzt Signals eigene Bibliothek,
+        und Geräte lassen sich abmelden. 2.0.0 versteht sich nicht mit 1.9.x:
+        Beide Seiten müssen aktualisieren. Bis dahin warten deine Nachrichten,
+        und der Chat sagt dir, dass dein Kontakt noch aktualisieren muss.</span>
+      <span class="en">Signal's own library now does the encryption, and you
+        can sign devices out. 2.0.0 doesn't talk to 1.9.x, so both sides need to
+        update. Until then your messages wait, and the chat tells you that your
+        contact still has to update.</span>
+    </p>
+
     <p class="vorab">
       <b><span class="de">Vorabversion</span><span class="en">Pre-release</span></b>
       <span class="de">BitDM ist noch nicht unabhängig geprüft. Hängt deine
@@ -1432,12 +1447,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         unterschieben</strong>, denn dafür müsste er eine Adresse ändern, die du schon hast.
       </p>
       <!-- BIS 17.10.2026 STAND HIER "libsignal, derselben Bibliothek, die
-           Signal benutzt". Das hatte 25dd038 an dieser Stelle uebersehen.
-           BitDM 1.9.x rechnet mit libsignal_protocol_dart. -->
+           Signal benutzt". Das hatte 25dd038 an dieser Stelle uebersehen:
+           BitDM 1.9.x rechnete mit libsignal_protocol_dart. Seit 2.0.0
+           (18.10.2026) stimmt es: die App rechnet mit Signals libsignal. -->
       <p class="de">
-        Verschlüsselt wird mit dem <strong>Signal-Protokoll</strong> über
-        libsignal_protocol_dart, eine Dart-Portierung aus der Community,
-        nicht über Signals eigene Bibliothek. Jede Nachricht bekommt ihren
+        Verschlüsselt wird mit dem <strong>Signal-Protokoll</strong>, seit
+        Fassung 2.0.0 über Signals eigene Bibliothek libsignal. Jede Nachricht bekommt ihren
         eigenen Schlüssel für <strong>AES mit 256 Bit</strong>. Weiter unten
         stehen alle Verfahren Zeile für Zeile.
       </p>
@@ -1451,9 +1466,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         to change an address you already have.
       </p>
       <p class="en">
-        For encryption BitDM uses the <strong>Signal protocol</strong> through
-        libsignal_protocol_dart, a community Dart port, and not Signal's own
-        library. Every message gets its own <strong>256-bit
+        For encryption BitDM uses the <strong>Signal protocol</strong>, and
+        since version 2.0.0 Signal's own library, libsignal. Every message gets its own <strong>256-bit
         AES</strong> key. Further down you'll find each algorithm, line by line.
       </p>
     </div>
@@ -1616,10 +1630,12 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
         <span class="de">Wie eine Nachricht entsteht</span>
         <span class="en">How a message gets sent</span>
       </h2>
-      <p class="de">Im Signal-Protokoll baut X3DH die Sitzung auf, und der Double
+      <p class="de">Im Signal-Protokoll baut PQXDH die Sitzung auf (X3DH plus
+        Kyber, gegen künftige Quantenrechner), und der Double
         Ratchet erneuert die Schlüssel mit jeder Nachricht. Wer heute einen Schlüssel
         erbeutet, kann damit nicht lesen, was du gestern geschrieben hast.</p>
-      <p class="en">In the Signal protocol, X3DH sets up the session and the Double
+      <p class="en">In the Signal protocol, PQXDH sets up the session (X3DH plus
+        Kyber, against future quantum computers) and the Double
         Ratchet renews the keys with every message. A key stolen today can't decrypt
         what you wrote yesterday.</p>
     </div>
@@ -1709,20 +1725,21 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </h2>
       <!-- BIS 17.10.2026 STAND HIER "libsignal, der Bibliothek hinter Signal".
            25dd038 hatte die Stelle uebersehen. -->
-      <p class="de">Das Protokoll stammt von Signal, den Code dafür liefert aber
-        <strong>libsignal_protocol_dart</strong>, eine Dart-Portierung aus der
-        Community, nicht Signals eigene Bibliothek. Ein unabhängiges Audit
-        von BitDM gibt es noch nicht.</p>
-      <p class="en">The protocol is Signal's, but the code that runs it is
-        <strong>libsignal_protocol_dart</strong>, a community Dart port, and not
-        Signal's own library. BitDM hasn't had an independent audit yet.</p>
+      <p class="de">Das Protokoll stammt von Signal, und seit Fassung 2.0.0 auch
+        der Code dafür: <strong>libsignal</strong>, Signals eigene Bibliothek in
+        Rust. Bis 1.9.x war es libsignal_protocol_dart, eine Dart-Portierung aus
+        der Community. Ein unabhängiges Audit von BitDM gibt es noch nicht.</p>
+      <p class="en">The protocol is Signal's, and since version 2.0.0 so is the
+        code that runs it: <strong>libsignal</strong>, Signal's own library,
+        written in Rust. Up to 1.9.x it was libsignal_protocol_dart, a community
+        Dart port. BitDM hasn't had an independent audit yet.</p>
     </div>
 
     <dl class="plate">
       <div class="plate-row">
         <dt><span class="de">Sitzungsaufbau</span><span class="en">Session setup</span></dt>
-        <dd><span class="de">X3DH über Curve25519. Geht auch, wenn dein Gegenüber offline ist.</span>
-            <span class="en">X3DH over Curve25519. Works even if your contact is offline.</span></dd>
+        <dd><span class="de">PQXDH: X3DH über Curve25519 plus Kyber-1024. Geht auch, wenn dein Gegenüber offline ist; ohne Kyber kommt keine Sitzung zustande.</span>
+            <span class="en">PQXDH: X3DH over Curve25519 plus Kyber-1024. Works even if your contact is offline; without Kyber no session is set up.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Laufendes Gespräch</span><span class="en">Ongoing conversation</span></dt>
@@ -1926,22 +1943,24 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       <li class="yes"><span class="what de">Schreiben, empfangen, Verlauf</span><span class="what en">Writing, receiving, history</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
       <li class="yes"><span class="what de">Verschlüsselte Datenbank auf der Platte</span><span class="what en">Encrypted database on disk</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
       <li class="yes"><span class="what de">App-Passwort als Sperre</span><span class="what en">App password as a lock</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
+      <li class="yes"><span class="what de">Anhänge aussuchen, schicken und öffnen</span><span class="what en">Choosing, sending and opening attachments</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
       <li class="no"><span class="what de">Fingerabdruck, Gerätesperre, Sicherheitsschlüssel</span><span class="what en">Fingerprint, device lock, security key</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
       <li class="no"><span class="what de">Push als Weckdienst</span><span class="what en">Push as a wake-up service</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
       <li class="no"><span class="what de">Nahbereich über Bluetooth</span><span class="what en">Nearby exchange over Bluetooth</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
       <li class="no"><span class="what de">Einen QR-Code scannen</span><span class="what en">Scanning a QR code</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
-      <li class="no"><span class="what de">Anhänge aussuchen und öffnen</span><span class="what en">Choosing and opening attachments</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
     </ul>
 
     <p class="hint">
       <span class="de">Am PC bleibt die Verbindung offen, solange die App läuft,
-        also braucht es dort weder Push noch einen Weckdienst von außen. Bei
-        Anhängen ist es unschöner: Der Knopf ist noch zu sehen, aber am PC öffnet
-        sich beim Klick kein Auswahlfenster. Solange das so ist, steht es hier.</span>
+        also braucht es dort weder Push noch einen Weckdienst von außen. Den
+        Anhangknopf gab es am PC schon vorher, aber bis Fassung 1.9.1 öffnete er
+        kein Auswahlfenster. Seit 2.0.0 öffnet er unter Windows und Linux den
+        Dateidialog des Systems; im Browser ist er ausgegraut und sagt, warum.</span>
       <span class="en">On the PC the connection stays open while the app is
-        running, so it doesn't need push or any outside wake-up. Attachments are
-        messier. The button is still there, but clicking it on the PC doesn't open
-        a file dialog. We'll say so here as long as that's the case.</span>
+        running, so it doesn't need push or any outside wake-up. The attach button
+        was on the PC before, but up to version 1.9.1 it didn't open a file
+        dialog. Since 2.0.0 it opens the system's file dialog on Windows and
+        Linux; in the browser it's greyed out and says why.</span>
     </p>
   </section>
 
@@ -1971,8 +1990,11 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
              legt das erste still". Falsch seit Mehrgeraete: der Relay fuehrt bis zu
              fuenf Geraete je Adresse, und abmelden laesst sich keines (Befund N1,
              docs/BEFUNDE-2026-10-14.md). -->
-        <dd><span class="de">Bis zu fünf Geräte je Identität. Eine Wiederherstellung legt das alte Gerät nicht still, und abmelden lässt sich keins.</span>
-            <span class="en">Up to five devices per identity. Restoring on a new device leaves the old one active, and you can't log devices out.</span></dd>
+        <!-- SEIT 2.0.0 (18.10.2026) lassen sich Geraete abmelden: signierte
+             Geraeteliste, ein weiteres Geraet braucht Woerter UND Code
+             (docs/GERAETEABMELDUNG.md). -->
+        <dd><span class="de">Bis zu fünf Geräte je Identität. Ein weiteres Gerät braucht die zwölf Wörter und einen Code von einem vorhandenen; abmelden geht unter Einstellungen › Meine ID › Geräte verwalten. Wer die zwölf Wörter kennt, kann allerdings alle Geräte abmelden und übernehmen.</span>
+            <span class="en">Up to five devices per identity. Adding another one takes the twelve words plus a code from a device you already have; you sign devices out under Settings › My ID › Manage devices. Anyone who knows your twelve words can sign out all your devices and take over, though.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Umfang</span><span class="en">Scope</span></dt>
@@ -2112,8 +2134,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Ist BitDM eine Alternative zu WhatsApp, Signal oder Threema?</span><span class="en">Is BitDM an alternative to WhatsApp, Signal or Threema?</span></summary>
-        <p class="de">Für den Alltag ja. Es nutzt das Signal-Protokoll wie Signal und WhatsApp, allerdings über libsignal_protocol_dart, eine Dart-Portierung aus der Community, und nicht über Signals eigene Bibliothek. BitDM ist eine Vorabversion und noch nicht unabhängig geprüft. Signal und WhatsApp wollen deine Telefonnummer, BitDM nicht; anders als Threema ist BitDM kostenlos, und App und Server sind beide quelloffen.</p>
-        <p class="en">For everyday use, yes. It uses the Signal protocol, like Signal and WhatsApp, but through libsignal_protocol_dart, a community Dart port, and not Signal's own library. BitDM is a pre-release and hasn't been independently audited. Signal and WhatsApp need your phone number and BitDM doesn't; compared with Threema, BitDM is free, and both app and server are open source.</p>
+        <p class="de">Für den Alltag ja. Es nutzt das Signal-Protokoll wie Signal und WhatsApp und seit Fassung 2.0.0 auch Signals eigene Bibliothek libsignal. BitDM ist eine Vorabversion und noch nicht unabhängig geprüft. Signal und WhatsApp wollen deine Telefonnummer, BitDM nicht; anders als Threema ist BitDM kostenlos, und App und Server sind beide quelloffen.</p>
+        <p class="en">For everyday use, yes. It uses the Signal protocol, like Signal and WhatsApp, and since version 2.0.0 also Signal's own library, libsignal. BitDM is a pre-release and hasn't been independently audited. Signal and WhatsApp need your phone number and BitDM doesn't; compared with Threema, BitDM is free, and both app and server are open source.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Was kostet BitDM?</span><span class="en">How much does BitDM cost?</span></summary>
@@ -2122,8 +2144,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Wie sicher ist BitDM?</span><span class="en">How secure is BitDM?</span></summary>
-        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), umgesetzt mit der Dart-Portierung libsignal_protocol_dart aus der Community, nicht mit Signals eigener Bibliothek. Anhänge über AES-256-GCM, auch gespeichert auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht, aber jeder kann im offenen Quellcode nachsehen.</p>
-        <p class="en">Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256) through the community Dart port libsignal_protocol_dart, not Signal's own library. Attachments use AES-256-GCM, including when stored on the device. There's no independent security audit yet, but the source is open for anyone to check.</p>
+        <p class="de">Nachrichten laufen über das Signal-Protokoll (PQXDH mit Curve25519 und Kyber-1024, Double Ratchet, AES-256), seit Fassung 2.0.0 mit Signals eigener Bibliothek libsignal. Anhänge über AES-256-GCM, auch gespeichert auf dem Gerät. Ein unabhängiges Sicherheitsaudit von BitDM gibt es noch nicht, aber jeder kann im offenen Quellcode nachsehen.</p>
+        <p class="en">Messages use the Signal protocol (PQXDH with Curve25519 and Kyber-1024, Double Ratchet, AES-256), and since version 2.0.0 Signal's own library, libsignal. Attachments use AES-256-GCM, including when stored on the device. There's no independent security audit of BitDM yet, but the source is open for anyone to check.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Was sieht der Server?</span><span class="en">What can the server see?</span></summary>
@@ -2142,8 +2164,8 @@ footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
       </details>
       <details class="faq-item">
         <summary><span class="de">Was passiert, wenn mein Telefon weg ist?</span><span class="en">What happens if I lose my phone?</span></summary>
-        <p class="de">Mit deinen zwölf Wörtern holst du deine Identität auf ein neues Gerät zurück. Das alte Telefon bleibt aber angemeldet. Mit App-Sperre empfängt es nichts, bis jemand es entsperrt. Ohne Sperre empfängt es weiter, bis Vertrauenskontakte, die du vorher festgelegt hast, es löschen (mit /wipe oder einem Codewort, das du selbst bestimmst), oder bis der Relay es nach 30 Tagen ohne Verbindung vergisst. Wurde es entsperrt mitgenommen, fängst du besser mit einer neuen Identität an.</p>
-        <p class="en">Your twelve words restore your identity on a new device. The old phone stays signed in, though. If the app lock is on, it receives nothing until someone unlocks it. If it's off, the phone keeps receiving until trusted contacts you picked beforehand wipe it (with /wipe or a code word you choose), or until the relay drops it after 30 days without a connection. If it was taken unlocked, a new identity is safer.</p>
+        <p class="de">Mit deinen zwölf Wörtern holst du deine Identität auf ein neues Gerät zurück. Hast du kein anderes Gerät mehr, meldest du dort alle alten ab: Das verlorene Telefon bekommt danach nichts mehr und kommt beim Relay nicht wieder hinein. Das kann allerdings auch, wer deine zwölf Wörter kennt. Wurde das Telefon entsperrt mitgenommen oder lagen die Wörter herum, hilft nur eine neue Identität.</p>
+        <p class="en">Your twelve words restore your identity on a new device. If you have no other device left, sign out all the old ones there: the lost phone gets nothing after that and can't get back onto the relay. Anyone who knows your twelve words can do the same, though. If the phone was stolen unlocked or the words were lying around, only a new identity helps.</p>
       </details>
       <details class="faq-item">
         <summary><span class="de">Sieht man meine Chats, wenn ich den Bildschirm teile?</span><span class="en">Can others see my chats when I share my screen?</span></summary>

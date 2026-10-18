@@ -2,7 +2,7 @@
 
 > BitDM is a free, open-source (AGPL-3.0), end-to-end encrypted messenger that needs no phone number, no e-mail and no account. Your address is your public key. Available for Android, Windows, Linux and in the web browser.
 
-BitDM ("Verschlüsselt schreiben, ohne Konto") is built for people who want private messaging without handing over an identity. Messages are encrypted with the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256) through the community Dart port libsignal_protocol_dart, not Signal's own library; BitDM has not been independently audited; attachments with AES-256-GCM, also at rest on the device. A relay forwards encrypted envelopes and cannot read them; it can also be reached as a Tor onion service. Nearby phones can exchange messages directly over Bluetooth LE without any internet.
+BitDM ("Verschlüsselt schreiben, ohne Konto") is built for people who want private messaging without handing over an identity. Messages are encrypted with the Signal protocol (PQXDH with Curve25519 and Kyber-1024, Double Ratchet, AES-256) using Signal's official library, libsignal, since version 2.0.0 (up to 1.9.x it was the community Dart port libsignal_protocol_dart); BitDM itself has not been independently audited; attachments with AES-256-GCM, also at rest on the device. A relay forwards encrypted envelopes and cannot read them; it can also be reached as a Tor onion service. Nearby phones can exchange messages directly over Bluetooth LE without any internet.
 
 ## Key facts
 
@@ -24,6 +24,7 @@ BitDM ("Verschlüsselt schreiben, ohne Konto") is built for people who want priv
 - Optional Tor routing (Orbot)
 - App lock with password, device PIN, fingerprint or hardware key; panic word that silently wipes the app
 - Remote wipe by trusted contacts (k of n), triggered with /wipe or a personal code word
+- Devices can be signed out (signed device list, since 2.0.0); adding a device needs the 12 words plus a code from an existing device
 - Screen capture protection: the window is hidden from screenshots, screen recordings and Discord/OBS streams on Android and Windows
 - Encrypted backup, disappearing messages, cover traffic
 
