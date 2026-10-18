@@ -106,7 +106,7 @@ dependencies:
   # @visibleForTesting im Kern. Kam bisher nur ueber andere Pakete mit —
   # `flutter analyze` meldete den Import als nicht angegeben. Gleiche
   # Fassung wie im Lock, damit sich nichts verschiebt.
-  meta: 1.18.0
+  meta: 1.19.0
 
   # Verschluesselte lokale Datenbank.
   #
@@ -146,7 +146,7 @@ dependencies:
   # (flutter.dev, verifiziert). Braucht es, weil der Pfad je Plattform anders
   # ist und nur das System ihn kennt.
   path_provider: 2.1.6
-  camera: 0.12.0+2
+  camera: 0.12.1
   zxing2: 0.2.4
   flutter_local_notifications: 22.2.0
   nfc_manager: 4.2.1
