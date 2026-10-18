@@ -123,6 +123,10 @@ server {
     location = /register/challenge { limit_req zone=bitdm_onion_req burst=60 nodelay; limit_req zone=bitdm_onion_kreis burst=20 nodelay; proxy_pass http://127.0.0.1:8465; }
     location = /register           { limit_req zone=bitdm_onion_req burst=60 nodelay; limit_req zone=bitdm_onion_kreis burst=20 nodelay; proxy_pass http://127.0.0.1:8465; }
     location ^~ /prekey/           { limit_req zone=bitdm_onion_req burst=120 nodelay; limit_req zone=bitdm_onion_kreis burst=40 nodelay; proxy_pass http://127.0.0.1:8465; }
+    # Seit 2.0.0: Geraeteliste, Beitritt und Beitritte. Ohne diese Zeile bekam
+    # jede 2.0.0-App hier 404 und konnte ihre Geraeteliste nicht anlegen
+    # (auf relay.bitdm.net am 18.10.2026 vor der Freigabe bemerkt).
+    location ^~ /geraeteliste      { limit_req zone=bitdm_onion_req burst=60 nodelay; limit_req zone=bitdm_onion_kreis burst=20 nodelay; proxy_pass http://127.0.0.1:8465; }
     location = /health { return 404; }
     location / { return 404; }
 }

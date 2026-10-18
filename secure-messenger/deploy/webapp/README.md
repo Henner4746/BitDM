@@ -106,6 +106,7 @@ erreicht:
 location = /register/challenge { if ($request_method = OPTIONS) { return 204; } ... }
 location = /register           { if ($request_method = OPTIONS) { return 204; } ... }
 location ^~ /prekey/           { if ($request_method = OPTIONS) { return 204; } ... }
+location ^~ /geraeteliste      { if ($request_method = OPTIONS) { return 204; } ... }
 ```
 
 Bei leerem `$bitdm_cors` lässt nginx die Kopfzeile ganz weg — eine fremde

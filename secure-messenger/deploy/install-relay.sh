@@ -396,6 +396,10 @@ server {
     location = /register/challenge { limit_req zone=bitdm_relay_req64 burst=100 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
     location = /register           { limit_req zone=bitdm_relay_req64 burst=100 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
     location ^~ /prekey/           { limit_req zone=bitdm_relay_req64 burst=200 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
+    # Seit 2.0.0: Geraeteliste, Beitritt und Beitritte. Ohne diese Zeile bekam
+    # jede 2.0.0-App hier 404 und konnte ihre Geraeteliste nicht anlegen
+    # (auf relay.bitdm.net am 18.10.2026 vor der Freigabe bemerkt).
+    location ^~ /geraeteliste      { limit_req zone=bitdm_relay_req64 burst=100 nodelay; proxy_pass http://127.0.0.1:$PORT; include /etc/nginx/snippets/bitdm-relay-proxy.conf; }
 
     # /health verraet Nutzerzahl und wie viele gerade online sind. Auch das
     # ist eine Angabe, die niemanden ausser dem Betreiber etwas angeht.
