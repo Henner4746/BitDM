@@ -5023,3 +5023,179 @@ def test_eine_abmeldung_waehrend_der_anmeldung_trennt_trotzdem(relay):
     assert {"type": "abgemeldet", "epoche": 3} in sock.gesendet
     assert not any(m.get("type") == "message" for m in sock.gesendet)
     assert rs.connections == {}
+
+
+# --------------------------------------------------------------------------- #
+#  Relay verschweigt Epoche 3  (docs/GERAETEABMELDUNG.md §12, 18.10.2026)
+# --------------------------------------------------------------------------- #
+#
+# Gegen einen Relay, der luegt, schuetzt die App sich selbst (Listenstempel
+# Ende-zu-Ende, app/test/net/geraeteliste_verschwiegen_test.dart). Was der
+# Relay dafuer beitraegt, steht hier: er nimmt die Geraeteschluessel-Signatur
+# am signierten Prekey an, prueft sie gegen die Liste und gibt sie je Geraet
+# aus (§12.5 a). Und ein ehrlicher Relay liefert eine neue Fassung auf allen
+# drei Wegen gleich aus — darauf baut die Warnung beim Besitzer (§12.4).
+
+PREKEY_PRAEFIX_T = b"BitDM-Prekey-v1\n"
+
+
+def _spk_sig(user, geraet, gs, *, spk=None, spk_id=None):
+    """Die Signatur des Geraeteschluessels am signierten Prekey, wie die App
+    sie baut (geraeteliste.dart spkNachricht)."""
+    b = user["bundle"]
+    nachricht = PREKEY_PRAEFIX_T + (
+        f"{user['user_id']}\n{geraet}\n{spk_id or b['signed_prekey_id']}\n"
+        f"{spk or b['signed_prekey']}").encode()
+    return b64(sign(gs["priv"], nachricht))
+
+
+def _melde_an_mit_spk(rs, user, geraet, gs, spk_sig):
+    kennung = None if geraet == 1 else geraet
+    bundle = _bundle_mit(user, kennung)
+    nonce = rs.issue_nonce(user["user_id"], kennung)
+    inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
+    return rs.register(rs.RegisterRequest(
+        bundle=bundle,
+        signature=b64(sign(user["priv"], nonce + inhalt)),
+        geraete_signatur=b64(sign(gs["priv"], ANMELDE_PRAEFIX_T + nonce + inhalt)),
+        spk_geraete_sig=spk_sig), _Anfrage())
+
+
+def _echter_user():
+    """make_user mit einem echten 33-Byte-Prekey — register() prueft die Form."""
+    user = make_user()
+    user["bundle"]["signed_prekey"] = b64(b"\x05" + os.urandom(32))
+    return user
+
+
+def _spk_eintraege(rs, user):
+    voll = rs.get_prekey(user["user_id"], _Anfrage())
+    return voll, {g["device_id"]: g.get("spk_geraete_sig") for g in voll["geraete"]}
+
+
+def test_die_prekey_signatur_des_geraets_wird_gespeichert_und_ausgeliefert(relay):
+    rs = relay
+    henrik = _echter_user()
+    handy, tablet = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: handy}, 1))
+    _setze(rs, _liste(henrik, 2, {1: handy, 7: tablet}, 1))
+
+    sig7 = _spk_sig(henrik, 7, tablet)
+    assert _melde_an_mit_spk(rs, henrik, 7, tablet, sig7)["ok"] is True
+    # Geraet 1 meldet sich ohne an, wie eine App vor 2.0.1. Das geht noch
+    # (Uebergang bis 2.0.2), und das Feld fehlt dann ganz.
+    assert _melde_an_mit(rs, henrik, 1, handy)["ok"] is True
+
+    voll, je_geraet = _spk_eintraege(rs, henrik)
+    assert je_geraet == {1: None, 7: sig7}
+    assert "spk_geraete_sig" not in voll, \
+        "flach steht eine Kopie von geraete[0], und das hat keine"
+    # Pruefbar mit genau dem, was ausgeliefert wird.
+    g7 = next(g for g in voll["geraete"] if g["device_id"] == 7)
+    assert rs.verify_signature(
+        tablet["pub"],
+        rs.spk_nachricht(henrik["user_id"], 7, g7["signed_prekey_id"],
+                         g7["signed_prekey"]),
+        rs.b64d(g7["spk_geraete_sig"]))
+
+
+def test_eine_falsche_prekey_signatur_wird_nie_gespeichert(relay):
+    """Das Buendel des Tablets unter der Kennung des Handys (§12.1 a) beginnt
+    hier: das Tablet unterschreibt mit SEINEM Schluessel. Der Relay nimmt das
+    nicht an — und auch keine Signatur ueber einen anderen Prekey."""
+    rs = relay
+    henrik = _echter_user()
+    handy, tablet = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: handy}, 1))
+    _setze(rs, _liste(henrik, 2, {1: handy, 7: tablet}, 1))
+
+    fremd = _spk_sig(henrik, 1, tablet)
+    assert _status(lambda: _melde_an_mit_spk(rs, henrik, 1, handy, fremd)) == 403
+    anderer_spk = _spk_sig(henrik, 1, handy, spk=b64(b"\x05" + os.urandom(32)))
+    assert _status(lambda: _melde_an_mit_spk(rs, henrik, 1, handy, anderer_spk)) == 403
+    falsche_kennung = _spk_sig(henrik, 7, handy)
+    assert _status(lambda: _melde_an_mit_spk(rs, henrik, 1, handy, falsche_kennung)) == 403
+    assert _status(lambda: _melde_an_mit_spk(rs, henrik, 1, handy, "kein base64!")) == 400
+    assert _geraete(rs, henrik["user_id"]) == []
+
+
+def test_eine_neue_anmeldung_ohne_signatur_loescht_die_alte(relay):
+    """Die alte Signatur gehoert zum alten Prekey. Bliebe sie stehen, stuende
+    sie neben einem neuen, zu dem sie nicht passt."""
+    rs = relay
+    henrik = _echter_user()
+    handy = _geraet()
+    _setze(rs, _liste(henrik, 1, {1: handy}, 1))
+    sig = _spk_sig(henrik, 1, handy)  # XEdDSA ist zufaellig: einmal bauen
+    _melde_an_mit_spk(rs, henrik, 1, handy, sig)
+    assert _spk_eintraege(rs, henrik)[1] == {1: sig}
+    _melde_an_mit(rs, henrik, 1, handy)
+    assert _spk_eintraege(rs, henrik)[1] == {1: None}
+
+
+def test_ohne_liste_wird_keine_prekey_signatur_gespeichert(relay):
+    """Ohne Liste gibt es keinen Schluessel, gegen den sie gelten koennte."""
+    rs = relay
+    alt = _echter_user()
+    bundle = _bundle_mit(alt)
+    nonce = rs.issue_nonce(alt["user_id"], None)
+    inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
+    assert rs.register(rs.RegisterRequest(
+        bundle=bundle, signature=b64(sign(alt["priv"], nonce + inhalt)),
+        spk_geraete_sig=b64(os.urandom(64))), _Anfrage())["ok"] is True
+    assert _spk_eintraege(rs, alt)[1] == {1: None}
+
+
+def test_eine_neue_fassung_kommt_auf_allen_wegen_gleich_an(relay):
+    """Der ehrliche Relay: nach Epoche 3 liefern /geraeteliste, /prekey und
+    /prekey?nur_geraete=1 genau dieselbe Fassung — jedem Abrufer. Die App des
+    Besitzers vergleicht damit (§12.4); ein Relay, der hier Epoche 2 zeigt,
+    verschweigt die Abmeldung."""
+    rs = relay
+    henrik = _echter_user()
+    handy, tablet = _geraet(), _geraet()
+    _setze(rs, _liste(henrik, 1, {1: handy}, 1))
+    _setze(rs, _liste(henrik, 2, {1: handy, 7: tablet}, 1))
+    _melde_an_mit(rs, henrik, 1, handy)
+    _melde_an_mit(rs, henrik, 7, tablet)
+    drei = _liste(henrik, 3, {1: handy}, 1)
+    assert _setze(rs, drei) == {"ok": True, "epoche": 3}
+
+    erwartet = {"liste": drei.liste, "sig_identitaet": drei.sig_identitaet,
+                "sig_geraet": drei.sig_geraet}
+    assert rs.hole_geraeteliste(henrik["user_id"], _Anfrage()) == erwartet
+    assert rs.get_prekey(henrik["user_id"], _Anfrage())["geraeteliste"] == erwartet
+    knapp = rs.get_prekey(henrik["user_id"], _Anfrage(), nur_geraete=True)
+    assert knapp["geraeteliste"] == erwartet
+    assert [g["device_id"] for g in knapp["geraete"]] == [1]
+
+
+def test_eine_datenbank_ohne_spalte_fuer_die_prekey_signatur_wird_erweitert(
+        relay, tmp_path, monkeypatch):
+    """Der Fall beim Aufspielen: die laufende Datenbank kennt die Spalte nicht.
+    Jede Zeile steht danach unveraendert da, nur ohne Signatur."""
+    rs = relay
+    pfad = tmp_path / "vor_spk_sig.db"
+    henrik = make_user()
+    _datenbank_vor_kyber(pfad, henrik)
+    conn = rs.init_db(pfad)
+    try:
+        spalten = {r[1] for r in conn.execute("PRAGMA table_info(identities)")}
+        assert "spk_geraete_sig" in spalten
+        assert conn.execute("SELECT spk_geraete_sig FROM identities").fetchall() \
+            == [(None,)]
+        conn.close()
+        conn = rs.init_db(pfad)
+        assert rs.ergaenze_spk_geraete_sig(conn) is False
+        monkeypatch.setattr(rs, "db", conn)
+        assert "spk_geraete_sig" not in rs.get_prekey(
+            henrik["user_id"], _Anfrage())["geraete"][0]
+    finally:
+        conn.close()
+
+
+def test_spk_nachricht_ist_die_der_app(relay):
+    """DIESELBE ZEICHENKETTE steht in app/test/net/payload_listenstempel_test.dart.
+    Weicht eine Seite ab, scheitert jede Anmeldung mit Signatur an 403."""
+    assert relay.spk_nachricht("ABCD", 7, 42, "BQ==") == \
+        b"BitDM-Prekey-v1\nABCD\n7\n42\nBQ=="

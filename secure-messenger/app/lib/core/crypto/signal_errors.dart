@@ -63,6 +63,9 @@ SignalFailure classify(Object error) {
   // passt, hat der Relay geformt — daraus darf keine Kontaktanfrage werden
   // (sonst koennte er solche Anfragen fuer bekannte Kontakte erzeugen).
   if (error is FremdeIdentitaet) return SignalFailure.unreadable;
+  // Ebenso: eine Erstnachricht unter fremder Geraetekennung hat der Relay
+  // beschriftet (docs/GERAETEABMELDUNG.md §12.5 b).
+  if (error is FremdesGeraet) return SignalFailure.unreadable;
   if (error is! LibSignalException) return SignalFailure.unreadable;
   switch (error.code) {
     case LibSignalErrorCode.duplicatedMessage:
@@ -103,6 +106,23 @@ class ErneutEingespielt implements Exception {
   const ErneutEingespielt();
   @override
   String toString() => 'ErneutEingespielt: Erstnachricht wiederholt';
+}
+
+/// Eine Erstnachricht traegt keinen gueltigen Sitzungsnachweis fuer das
+/// Geraet, unter dessen Kennung sie ankam (docs/GERAETEABMELDUNG.md §12.5 b).
+///
+/// Die Kennung des Absendergeraets setzt der Relay. Ohne diese Pruefung
+/// ersetzte eine Erstnachricht des abgemeldeten Tablets, beschriftet mit der
+/// Kennung des Laptops, beim Kontakt die echte Sitzung zum Laptop. Der
+/// Empfangspfad nimmt die neue Sitzung zurueck und wirft das; [classify]
+/// behandelt es wie eine unlesbare Nachricht.
+class FremdesGeraet implements Exception {
+  final String adresse;
+  final int geraet;
+  const FremdesGeraet(this.adresse, this.geraet);
+  @override
+  String toString() =>
+      'FremdesGeraet: Erstnachricht ohne gueltigen Nachweis fuer $adresse:$geraet';
 }
 
 /// Ein Schluessel passt nicht zu der Adresse, fuer die er gelten soll.

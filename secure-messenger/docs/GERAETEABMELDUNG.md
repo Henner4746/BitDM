@@ -496,8 +496,9 @@ derselbe englische Text.
 
 ## 12. Relay verschweigt eine Abmeldung (Befund 18.10.2026)
 
-Entwurf, Stand 18.10.2026, Zweig `fix/geraeteliste-verschwiegen` ab `main`
-(2.0.0). Zuerst zur Abstimmung; gebaut wird erst nach Henriks Ja.
+Stand 18.10.2026: gebaut, Zweig `fix/geraeteliste-verschwiegen` ab `main`
+(2.0.0), fuer 2.0.1. Was beim Bauen vom Entwurf abwich, steht an Ort und
+Stelle; die Belege stehen in §12.8.
 
 ### 12.1 Befund
 
@@ -564,14 +565,18 @@ still.
    Sitzung noch steht. Es prueft sie und entfernt die Woerter, auch wenn der
    Relay es nie trennt.
 2. **Ankuendigung merken.** Nennt ein Stempel von Adresse X eine hoehere
-   Epoche, als wir kennen, merkt sich die App das in `meta`: Epoche, Hash und
-   welche Geraete von X sie genannt haben. Dann laedt sie die Liste beim Relay
-   nach.
+   Epoche, als wir kennen, merkt sich die App das in `meta`
+   (`geraeteliste_ank:<X>`): Epoche, Hash und welche Geraete von X sie
+   genannt haben. Dann laedt sie die Liste beim Relay nach, hoechstens einmal
+   je Minute und Adresse. Kommt die angekuendigte Fassung (oder eine neuere),
+   faellt die Ankuendigung.
 3. **Veraltet.** Als veraltet gilt die bekannte Liste von X, solange sie hinter
    der Ankuendigung liegt: kleinere Epoche, oder gleiche Epoche mit anderem
    Hash. Dann gilt:
-   - Versand an X geht nur an Geraete, die die Ankuendigung selbst gestempelt
-     haben. Hat keines davon eine Sitzung, bleibt die Nachricht liegen.
+   - Versand an X fragt zuerst einmal beim Relay nach. Liegt die Liste dann
+     noch hinten, geht er nur an Geraete, die die Ankuendigung selbst
+     gestempelt haben. Hat keines davon eine Sitzung, bleibt die Nachricht
+     liegen (ohne Buendelabruf).
    - Post von X, deren Stempel hinter der Ankuendigung liegt oder fehlt, wird
      nach dem Entschluesseln verworfen (quittiert, nicht angezeigt). Die Art 20
      ist ausgenommen.
@@ -581,17 +586,45 @@ still.
    Verteilung holt so die naechste Nachricht des Kontakts nach.
 5. **Widerspruch.** Zwei verschiedene Fassungen derselben Epoche (aus Stempel
    oder Liste) kann ein ehrlicher Relay nicht erzeugen, er nimmt nur genau +1
-   an. Die App merkt sich das je Adresse und zeigt im Chat den Hinweis
-   "Geraeteliste widerspruechlich, Sicherheitsnummer vergleichen". Es bleibt
-   bei der zuerst gesehenen Fassung, versandt wird nach Regel 3.
+   an. Die App merkt sich das je Adresse (`geraeteliste_widerspruch:<X>`,
+   bis eine hoehere Fassung kommt), meldet `deviceListConflict` und zeigt im
+   Chat einen warnenden Hinweis: zwei widerspruechliche Geraetelisten, das
+   erzeuge nur ein manipulierter Server oder jemand mit den zwoelf Woertern,
+   Sicherheitsnummer vergleichen. Es bleibt bei der zuerst gesehenen Fassung,
+   versandt wird nach Regel 3.
+
+Nachladen nach Regel 2 hat eine eigene Bremse (eine Minute je Adresse), nicht
+die von Stufe 2: teilten sich beide eine, verbrauchte der erste Stempel einer
+Kontaktanfrage die Minute, und ein Geraet, das darin zuruecksetzte, kam nicht
+mehr durch (`sicherung_test.dart` im Gesamtlauf). Ein Abruf von Stufe 2 oder
+der Geraetepruefung zaehlt aber auch fuer sie. Kein Nachladen fuer Fremde
+(erste Kontaktanfrage, wie Stufe 2), fuer die Art 20 (sie bringt die Liste
+mit) und vor dem Versand, wenn die Geraetepruefung ohnehin faellig ist. Die
+Art 20 an eigene Geraete geht nur an solche, die schon in der vorigen Fassung
+standen: ein eben beigetretenes hat die Liste gerade selbst geholt.
+
+Gebaut in `payload.dart` (Felder, Art 20, `gestempelt`),
+`geraeteverwaltung.dart` (Abschnitt "Verschweigen") und
+`real_messenger_core.dart` (`_sendePayload` stempelt, `_nimmUmschlagJetzt`
+prueft). Ein kaputter Stempel ist ein Formatfehler und wird nicht still zu
+"kein Stempel": der Kern entscheidet an ihm, wem er glaubt.
+`abmelden` dieses Geraets wartet hoechstens zehn Sekunden auf die
+Verteilung, danach ist die Datenbank zu; den Rest heilen die anderen eigenen
+Geraete nach Regel 4.
 
 ### 12.4 Teil 2: Der Besitzer prueft, was der Relay ausliefert (nur App)
 
 Nach jedem Veroeffentlichen und bei jedem Verbinden vergleicht die App die
-eigene Liste, die der Relay liefert, mit der, die sie selbst kennt. Ist die
-gelieferte aelter oder anders, zeigt "Geraete verwalten" eine Warnung: "Der
-Server liefert deine letzte Aenderung der Geraeteliste nicht aus. Deine
-Kontakte erfahren sie ueber deine Nachrichten."
+eigene Liste, die der Relay liefert, mit der, die sie selbst kennt. Nach dem
+Veroeffentlichen erst nach drei Sekunden und nur, wenn bis dahin keiner
+verglichen hat: ein ehrlicher Relay meldet die neue Fassung allen Geraeten
+der Liste, dem veroeffentlichenden auch, und dessen Auffrischung vergleicht
+ohnehin. Jeder Abruf kostet eine Marke derselben Herkunftsbremse wie
+`/prekey`. Ist die gelieferte aelter oder anders, zeigt "Geraete
+verwalten" eine Warnung: "Der Server liefert deine letzte Aenderung der
+Geraeteliste nicht aus. Deine Kontakte erfahren sie trotzdem ueber deine
+Nachrichten. Bleibt dieser Hinweis, vertrau diesem Server nicht." Liefert er
+sie spaeter, faellt die Warnung beim naechsten Vergleich.
 
 Grenze: Ein Relay, der gezielt luegt, zeigt dem Besitzer die Wahrheit. Dagegen
 hilft Teil 1, nicht Teil 2.
@@ -625,9 +658,17 @@ gs = Sig(GS, "BitDM-Sitzung-v1\n" ‖ absender ‖ "\n" ‖ absendergeraet ‖ "
 Der Empfaenger prueft `gs` gegen den Listenschluessel der Kennung, unter der
 die Nachricht ankommt, und gegen den Basisschluessel der PreKey-Nachricht.
 Passt sie nicht, verwirft er die neue Sitzung (Schnappschuss zurueck, wie bei
-einer wiederholten Kyber-Erstnachricht) und zeigt nichts an. Damit ist
-`from_device` geprueft: eine Nachricht unter fremder Kennung entschluesselt
-entweder nicht, oder sie hat den falschen Nachweis.
+einer wiederholten Kyber-Erstnachricht; Fehler `FremdesGeraet`, eingeordnet
+wie unlesbar) und zeigt nichts an. Damit ist `from_device` geprueft: eine
+Nachricht unter fremder Kennung entschluesselt entweder nicht, oder sie hat
+den falschen Nachweis.
+
+Den Basisschluessel kennt der Absender vor dem Verschluesseln, die Anbindung
+(libsignal 8.0.0) reicht ihn aber nicht heraus. `sitzungsdatensatz.dart` liest
+ihn aus dem gespeicherten Datensatz (`storage.proto`: `current_session` = 1,
+`pending_pre_key` = 9, `base_key` = 2). Der Test dazu vergleicht gegen
+`PreKeySignalMessage.baseKey()` echter Nachrichten; aendert libsignal das
+Format, wird er rot.
 
 **(c) "Zielgeraet unbekannt"** loescht die Sitzung nicht mehr, wenn das Geraet
 in der signierten Liste steht. Die App laedt die Liste nach. Fehlt das Geraet
@@ -638,7 +679,8 @@ Ohne Liste (alter Relay) bleibt es beim Loeschen. (c) ist reine App und
 schliesst schon vor (a) den einfachsten Weg in (a).
 
 **Uebergang.** Fassungen vor diesem Teil signieren nichts. Pflicht wird die
-Pruefung erst, wenn keine solche Fassung mehr erwartet wird. Bis dahin gilt:
+Pruefung erst, wenn keine solche Fassung mehr erwartet wird (Schalter
+`RealMessengerCore.geraeteNachweisPflicht`, in 2.0.1 aus). Bis dahin gilt:
 eine FALSCHE Signatur wird nie angenommen, eine FEHLENDE schon. Bei (b) hilft
 das sofort, denn `gs` steht im verschluesselten Inhalt, und der Relay kann ihn
 nicht entfernen. Ein abgemeldetes Geraet mit unveraenderter App nennt darin
@@ -680,19 +722,44 @@ additiv: Alte Apps senden das Feld nicht, und alte Relays ignorieren es. Der
 Relay geht wie immer zuerst raus. Neue Endpunkte gibt es nicht, an der
 nginx-Liste aendert sich nichts.
 
-### 12.8 Belege, die dazu entstehen
+### 12.8 Belege (18.10.2026)
 
-- `app/test/net/geraeteliste_verschwiegen_test.dart`, gegen eine Attrappe, die
-  Epoche 3 annimmt, aber weiter Epoche 2 ausliefert und das Tablet nicht
-  trennt. Faelle: Verteilung kommt an, Kontakt schickt nichts mehr ans Tablet
-  und nimmt nichts mehr von ihm; Verteilung verschluckt, die naechste
-  Nachricht des Besitzers macht den Kontakt veraltet; Heilen ueber `ke`; das
-  Tablet entfernt nach dem Abschied seine Woerter; Warnung beim Besitzer;
-  Widerspruch; Buendel des Tablets unter fremder Kennung abgewiesen;
-  Erstnachricht des Tablets unter fremder Kennung abgewiesen; "Zielgeraet
-  unbekannt" laesst die Sitzung stehen.
-- `server/test_relay.py`: `spk_geraete_sig` wird geprueft, gespeichert und je
-  Geraet ausgeliefert; ohne Liste und ohne Feld bleibt alles wie bisher; nach
-  einer neuen Fassung liefern `/geraeteliste`, `/prekey` und
-  `/prekey?nur_geraete=1` dieselbe Epoche.
-- Mutationsproben je Riegel wie in §9.
+- `app/test/net/geraeteliste_verschwiegen_test.dart`, 10 Faelle gegen eine
+  Attrappe, die neue Fassungen annimmt und verschweigt
+  (`Relaylage.verschweigtListen`) und Geraete verleugnet
+  (`unbekannteGeraete`). Die Gegenstellen sind echt: eigener libsignal-
+  Speicher und eigener Geraeteschluessel je Geraet, jeder Umschlag wird
+  wirklich ver- und entschluesselt. Faelle: verschluckte Verteilung, der
+  naechste Stempel macht die Liste veraltet (nichts mehr ans Tablet, nichts
+  mehr von ihm, quittiert), danach kommt die Liste doch an; Widerspruch aus
+  Liste und aus Stempel; Stempel in jeder Nutzlast und Nachweis in jeder
+  PreKey-Nachricht bis zur Antwort; Heilen ueber `ke` mit Bremse; Abmelden
+  verteilt an Kontakt und abgemeldetes Geraet; das abgemeldete Geraet entfernt
+  seine Woerter, obwohl der Relay weiter Fassung 2 liefert; Warnung beim
+  Besitzer und ihr Wegfall; Buendel des Tablets unter der Kennung des Laptops
+  (fremde Signatur, kopierte Signatur, fehlende mit und ohne Pflicht);
+  Erstnachricht des Tablets unter der Kennung des Laptops, Antwort liest der
+  echte Laptop; "Zielgeraet unbekannt" mit und ohne Liste.
+- `app/test/net/payload_listenstempel_test.dart`: Rundlauf, Bytes ohne
+  Stempel unveraendert, was abgewiesen wird, und die signierten Zeichen
+  (`spkNachricht`, `sitzungsNachricht`, `listenKurzHash`) an festen Werten —
+  dieselbe Zeichenkette prueft `test_spk_nachricht_ist_die_der_app` im Relay.
+- `app/test/crypto/sitzungsdatensatz_test.dart`: der gelesene Basisschluessel
+  ist der der echten PreKey-Nachricht und faellt mit der ersten Antwort weg.
+- `server/test_relay.py`, 7 Faelle: `spk_geraete_sig` wird geprueft (fremder
+  Schluessel, anderer Prekey, andere Kennung: 403; kein base64: 400),
+  gespeichert und je Geraet ausgeliefert, bei neuer Anmeldung ohne Feld
+  geloescht, ohne Liste nie gespeichert; eine alte Datenbank bekommt die
+  Spalte; nach einer neuen Fassung liefern `/geraeteliste`, `/prekey` und
+  `/prekey?nur_geraete=1` dieselbe.
+- **Mutationsproben**: App 20 von 20 Riegeln (je Regel 1 bis 5, Stempel,
+  Warnung, 12.5 a/b/c samt Pflicht und Zuruecknahme der Sitzung), Relay 6 von
+  6. Eine Probe war zuerst gruen: ohne Zuruecknahme der Sitzung bestand der
+  Test, weil die naechste Nachricht des echten Laptops den alten
+  Sitzungszustand in libsignal wieder nach vorn holte, bevor die Antwort
+  hinausging. Der Test schickt die Antwort jetzt sofort.
+- **Gesamtlauf**: App 1542 Tests gruen, Relay 176. Zwei Zwischenbefunde dabei,
+  beide behoben: die geteilte Bremse (§12.3, `sicherung_test.dart`), und
+  `zwei_geraete_test.dart` lief in die Herkunftsbremse des Test-Relays (dort
+  teilen sich alle Nutzer 127.0.0.1). Gezaehlt: 182 Abrufe in 33 Sekunden bei
+  rund 186 erlaubten; nach dem Sparen (§12.3, §12.4) 168.

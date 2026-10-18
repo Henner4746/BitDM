@@ -493,6 +493,11 @@ enum ContactEventType {
   requestDeclined,
   removed,
   needsUpdateChanged,
+
+  /// Von dieser Adresse gibt es zwei verschiedene Fassungen der Geraeteliste
+  /// mit derselben Epoche (docs/GERAETEABMELDUNG.md §12.3 Regel 5). Ein
+  /// ehrlicher Relay kann das nicht erzeugen; der Chat zeigt einen Hinweis.
+  deviceListConflict,
 }
 
 class Message {

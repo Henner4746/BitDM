@@ -154,4 +154,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(kern.beitrittscode, isNull);
   });
+
+  testWidgets(
+      'LIEFERT DER SERVER DIE LETZTE AENDERUNG NICHT AUS, SAGT ES DIE LISTE '
+      '(GERAETEABMELDUNG §12.4)', (tester) async {
+    await neuesGeraet(tester);
+    await tester.runAsync(() => kern.setzeZurueck());
+    const warnung = ValueKey('hinweis-relay-verschweigt');
+
+    Future<void> oeffne() async {
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(body: GeraeteKachel(st: st, stil: _stil))));
+      await tester.tap(find.byKey(const ValueKey('geraete-verwalten')));
+      await tester.pumpAndSettle();
+    }
+
+    await oeffne();
+    expect(find.byKey(warnung), findsNothing,
+        reason: 'GEGENPROBE: der Server liefert, was dieses Geraet kennt');
+    await tester.tap(find.text(_t('close')).last);
+    await tester.pumpAndSettle();
+
+    // Der Server nimmt die naechste Fassung an und liefert weiter die alte.
+    lage.verschweigtListen = true;
+    await tester.runAsync(() async {
+      await kern.setzeZurueck();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    expect(kern.relayVerschweigtListe, isNotNull);
+    await oeffne();
+    expect(find.byKey(warnung), findsOneWidget);
+    expect(find.text(_t('geraeteRelayVerschweigt')), findsOneWidget);
+  });
 }

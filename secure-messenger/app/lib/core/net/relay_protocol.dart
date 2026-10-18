@@ -267,6 +267,11 @@ class RelayBundleResponse {
   /// Welches Geraet dieser Adresse dieses Buendel gehoert.
   final int deviceId;
 
+  /// Die Signatur des GERAETESCHLUESSELS am signierten Prekey, base64
+  /// (docs/GERAETEABMELDUNG.md §12.5 a), UNGEPRUEFT. Null bei einem Geraet
+  /// mit App vor 2.0.1 oder einem Relay, der das Feld nicht kennt.
+  final String? spkGeraeteSig;
+
   /// Die WEITEREN Geraete derselben Adresse, jedes mit eigenem Buendel.
   ///
   /// Leer bei einem Relay, der die Erweiterung nicht kennt — dann gibt es
@@ -294,6 +299,7 @@ class RelayBundleResponse {
     this.deviceId = 1,
     this.geraete = const [],
     this.geraeteliste,
+    this.spkGeraeteSig,
   });
 
   /// Alle Geraete der Adresse, immer mindestens eines.
@@ -324,6 +330,7 @@ class RelayBundleResponse {
       kyberPreKey: j['kyber_prekey'] as String?,
       kyberPreKeySignature: j['kyber_prekey_sig'] as String?,
       deviceId: j['device_id'] as int? ?? 1,
+      spkGeraeteSig: j['spk_geraete_sig'] as String?,
       geraete: rohGeraete is! List
           ? const []
           : [

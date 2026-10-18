@@ -487,6 +487,11 @@ GERAET_TTL = int(os.getenv("BITDM_GERAET_TTL", 30 * 24 * 3600))
 LISTE_PRAEFIX = b"BitDM-Geraeteliste-v1\n"
 BEITRITT_PRAEFIX = b"BitDM-Beitritt-v1\n"
 ANMELDE_PRAEFIX = b"BitDM-Geraet-Anmeldung-v1\n"
+# Der signierte Prekey, zusaetzlich vom Geraeteschluessel unterschrieben
+# (GERAETEABMELDUNG.md §12.5 a). Ohne das liesse sich das Buendel eines
+# abgemeldeten Geraets unter der Kennung eines gelisteten ausliefern — vom
+# Identitaetsschluessel signiert ist es ja auch.
+PREKEY_PRAEFIX = b"BitDM-Prekey-v1\n"
 
 # Eine Liste mit 5 Geraeten ist rund 1,3 KB (je Eintrag 44 Zeichen Schluessel
 # und hoechstens GERAETE_INFO_MAX Info). 4096 laesst Luft und haelt jeden
@@ -987,7 +992,35 @@ def init_db(path: Path) -> sqlite3.Connection:
     # vor dem Mehrgeraete-Umbau wieder weg, und der erste /register liefe in
     # "no such column".
     ergaenze_kyber_spalten(conn)
+    ergaenze_spk_geraete_sig(conn)
     return conn
+
+
+def ergaenze_spk_geraete_sig(conn: sqlite3.Connection) -> bool:
+    """Die Spalte fuer die Geraeteschluessel-Signatur am signierten Prekey.
+
+    Nullbar und ohne Vorgabe, wie die Kyber-Spalten: das ALTER beruehrt keine
+    Zeile. NULL heisst "nicht signiert" (App vor 2.0.1 oder Adresse ohne
+    Liste), /prekey laesst das Feld dann weg. Aus demselben Grund NACH
+    wandere_auf_geraete wie ergaenze_kyber_spalten. Rueckgabe: ob etwas zu
+    tun war.
+    """
+    vorhanden = {row[1] for row in conn.execute("PRAGMA table_info(identities)")}
+    if "spk_geraete_sig" in vorhanden:
+        return False
+    conn.execute("ALTER TABLE identities ADD COLUMN spk_geraete_sig BLOB")
+    conn.commit()
+    return True
+
+
+def spk_nachricht(user_id: str, geraet: int, spk_id: int, spk_b64: str) -> bytes:
+    """Was der Geraeteschluessel am signierten Prekey unterschreibt.
+
+    Dieselben Zeichen baut die App in geraeteliste.dart (spkNachricht). Der
+    Prekey steht als base64 darin, so wie /prekey ihn ausliefert — der Relay
+    gibt ihn kanonisch kodiert aus, und so kodiert ihn die App beim Anmelden.
+    """
+    return PREKEY_PRAEFIX + f"{user_id}\n{geraet}\n{spk_id}\n{spk_b64}".encode()
 
 
 def ergaenze_kyber_spalten(conn: sqlite3.Connection) -> bool:
@@ -1816,6 +1849,10 @@ class RegisterRequest(BaseModel):
     # Nur verlangt, wenn die Adresse eine Geraeteliste hat (siehe register).
     # NICHT in canonical_bytes: die Bytes alter Clients bleiben, wie sie sind.
     geraete_signatur: str | None = Field(default=None, max_length=200)
+    # Der Geraeteschluessel ueber spk_nachricht(...) (GERAETEABMELDUNG.md
+    # §12.5 a). Nur mit Liste geprueft und gespeichert; Kontakte pruefen ihn
+    # selbst gegen die Liste. Ebenfalls NICHT in canonical_bytes.
+    spk_geraete_sig: str | None = Field(default=None, max_length=200)
 
 
 class ChallengeRequest(BaseModel):
@@ -2635,6 +2672,9 @@ def register(req: RegisterRequest, request: Request):
     # Zahl ab, ob er Prekeys nachliefern muss.
     # Fehlt die Kennung, ist es Geraet 1 — die Regel fuer den ganzen Umbau.
     geraet = 1 if bundle.device_id is None else bundle.device_id
+    # Nur mit Liste und nur geprueft gesetzt, siehe unten. Ohne Liste gibt es
+    # keinen Schluessel, gegen den sie gelten koennte.
+    spk_sig_speichern: bytes | None = None
 
     with schreibsperre:
         # DIE GERAETELISTE (GERAETEABMELDUNG.md §8.4), und zwar INNERHALB der
@@ -2658,6 +2698,24 @@ def register(req: RegisterRequest, request: Request):
             if not geraete_signatur_ok(schluessel, treffer + inhalt,
                                        req.geraete_signatur):
                 raise HTTPException(403, "Geraeteschluessel fehlt oder passt nicht")
+            # DER SIGNIERTE PREKEY, AN DEN GERAETESCHLUESSEL GEBUNDEN
+            # (§12.5 a). Fehlt die Signatur, geht es weiter (App vor 2.0.1);
+            # eine FALSCHE wird nie gespeichert — sonst lieferte /prekey ein
+            # Buendel aus, an dem jeder Kontakt scheitert.
+            if req.spk_geraete_sig is not None:
+                try:
+                    spk_sig = b64d(req.spk_geraete_sig)
+                except ValueError as exc:
+                    raise HTTPException(400, "spk_geraete_sig ist kein "
+                                             "gueltiges base64") from exc
+                if not verify_signature(
+                        schluessel,
+                        spk_nachricht(bundle.user_id, geraet,
+                                      bundle.signed_prekey_id,
+                                      b64e(signed_prekey)),
+                        spk_sig):
+                    raise HTTPException(403, "spk_geraete_sig passt nicht")
+                spk_sig_speichern = spk_sig
 
         # DAS DACH, und zwar nur fuer NEUE Adressen.
         #
@@ -2734,8 +2792,8 @@ def register(req: RegisterRequest, request: Request):
                     "INSERT INTO identities (user_id, device_id, identity_key,"
                     " registration_id, signed_prekey_id, signed_prekey,"
                     " signed_prekey_sig, updated_at, kyber_prekey_id,"
-                    " kyber_prekey, kyber_prekey_sig)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+                    " kyber_prekey, kyber_prekey_sig, spk_geraete_sig)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
                     " ON CONFLICT(user_id, device_id) DO UPDATE SET"
                     " identity_key=excluded.identity_key,"
                     " registration_id=excluded.registration_id,"
@@ -2745,10 +2803,14 @@ def register(req: RegisterRequest, request: Request):
                     " updated_at=excluded.updated_at,"
                     " kyber_prekey_id=excluded.kyber_prekey_id,"
                     " kyber_prekey=excluded.kyber_prekey,"
-                    " kyber_prekey_sig=excluded.kyber_prekey_sig",
+                    " kyber_prekey_sig=excluded.kyber_prekey_sig,"
+                    # IMMER UEBERSCHRIEBEN, auch mit NULL: die alte Signatur
+                    # gehoert zum alten Prekey und passte zum neuen nicht.
+                    " spk_geraete_sig=excluded.spk_geraete_sig",
                     (bundle.user_id, geraet, identity_key, bundle.registration_id,
                      bundle.signed_prekey_id, signed_prekey,
-                     signed_prekey_sig, time.time(), *kyber_spalten),
+                     signed_prekey_sig, time.time(), *kyber_spalten,
+                     spk_sig_speichern),
                 )
                 # NUR die Einmalschluessel DIESES Geraets. Ohne das
                 # `AND device_id=?` raeumte jede Nachlieferung eines Geraets den
@@ -2877,7 +2939,7 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
         rows = db.execute(
             "SELECT device_id, identity_key, signed_prekey_id, signed_prekey,"
             " signed_prekey_sig, registration_id, kyber_prekey_id, kyber_prekey,"
-            " kyber_prekey_sig FROM identities"
+            " kyber_prekey_sig, spk_geraete_sig FROM identities"
             " WHERE user_id=? ORDER BY device_id", (user_id,)
         ).fetchall()
         # NUR GERAETE DER LISTE. Eine Zeile ausserhalb gibt es nur fuer einen
@@ -2983,6 +3045,10 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
                 {"key_id": otk[0], "public_key": b64e(otk[1])} if otk else None
             ),
         }
+        if r[9] is not None:
+            # §12.5 a: der Kontakt prueft sie gegen den Schluessel der Liste.
+            # Fehlt sie, fehlt das Feld ganz (wie bei Kyber).
+            eintrag["spk_geraete_sig"] = b64e(r[9])
         if r[7] is not None:
             # Einmal- ODER Last-Resort-Schluessel, in denselben drei Feldern.
             # libsignals PreKeyBundle hat nur EINEN Platz fuer einen
@@ -3014,7 +3080,7 @@ def get_prekey(user_id: str, request: Request, nur_geraete: bool = False):
     # Flach dieselben Kyber-Felder wie in geraete[0] — derselbe Schluessel,
     # kein zweiter gezogener, aus demselben Grund wie beim EC-Einmalschluessel.
     for feld in ("kyber_prekey_id", "kyber_prekey", "kyber_prekey_sig",
-                 "kyber_einmal"):
+                 "kyber_einmal", "spk_geraete_sig"):
         if feld in erstes:
             antwort[feld] = erstes[feld]
     antwort["geraete"] = geraete

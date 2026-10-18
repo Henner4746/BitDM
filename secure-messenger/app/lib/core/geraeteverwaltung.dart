@@ -34,6 +34,10 @@ const Duration _beitrittsTakt = Duration(seconds: 2);
 /// Post von einem unbekannten Geraet kam.
 const Duration _listenNachfrage = Duration(minutes: 1);
 
+/// Wie oft hoechstens die eigene Liste an dieselbe Adresse nachgeschickt wird,
+/// weil sie mit einer veralteten Epoche schrieb (§12.3 Regel 4).
+const Duration _nachschickAbstand = Duration(minutes: 10);
+
 extension Geraeteverwaltung on RealMessengerCore {
   // ═══════════════════════════════════════════════════════ fuer die Oberflaeche
 
@@ -87,6 +91,17 @@ extension Geraeteverwaltung on RealMessengerCore {
   /// Prozess (die Woerter, und mit ihnen die Datenbank, sind danach weg).
   ({DateTime zeit, String? von})? get abmeldung => _abmeldung;
 
+  /// Die Epoche der eigenen Liste, die der Relay NICHT ausliefert — oder
+  /// null, wenn er liefert, was dieses Geraet kennt (docs/GERAETEABMELDUNG.md
+  /// §12.4). Dann erfahren Kontakte die Aenderung nur ueber unsere
+  /// Nachrichten; "Geraete verwalten" sagt das.
+  int? get relayVerschweigtListe => _relayVerschweigt;
+
+  /// Ob es von [adresse] zwei verschiedene Fassungen derselben Epoche gibt
+  /// (§12.3 Regel 5). Ein ehrlicher Relay kann das nicht erzeugen.
+  bool geraetelisteWiderspruch(String adresse) =>
+      _db?.meta('geraeteliste_widerspruch:$adresse') != null;
+
   // ═══════════════════════════════════════════════════════ Aktionen
 
   /// Nimmt ein anderes eigenes Geraet aus der Liste. Der Relay trennt es
@@ -110,10 +125,15 @@ extension Geraeteverwaltung on RealMessengerCore {
   /// Dieses Geraet geht — etwa vor dem Verkauf. Danach ist es abgemeldet wie
   /// jedes andere: die Woerter sind weg, die Datenbank bleibt verschluesselt.
   Future<void> meldeDiesesGeraetAb() async {
-    final neu = await _veroeffentliche((alt) => [
-          for (final e in alt.geraete)
-            if (e.id != geraetId) e,
-        ]);
+    // DIE VERTEILUNG ABWARTEN (§12.3 Regel 1): danach ist die Datenbank zu,
+    // und was noch im Ausgang laege, ginge nie mehr hinaus. Hoechstens zehn
+    // Sekunden — die anderen eigenen Geraete heilen den Rest.
+    final neu = await _veroeffentliche(
+        (alt) => [
+              for (final e in alt.geraete)
+                if (e.id != geraetId) e,
+            ],
+        verteilungAbwarten: true);
     await _wirdAbgemeldet(neu);
   }
 
@@ -214,6 +234,11 @@ extension Geraeteverwaltung on RealMessengerCore {
       _uebernimmEigeneListe(neu);
       _wirdMitglied(neu);
       _abgewiesen = false;
+      // Laut, und zwar Ende-zu-Ende (§12.3): jedes andere Geraet und jeder
+      // Kontakt erfaehrt es, auch wenn der Relay es verschwiege. Ueber den
+      // Ausgang — die Nachrichten gehen nach dem Verbinden hinaus.
+      unawaited(_verbreiteListe(neu, alt: alt));
+      unawaited(_pruefeWasDerRelayLiefert(relay));
       unawaited(connect());
       return;
     }
@@ -263,6 +288,7 @@ extension Geraeteverwaltung on RealMessengerCore {
       // Verbindung scheitert und wird spaeter neu versucht.
       throw const RelayException('Geraeteliste nicht pruefbar');
     }
+    _vergleicheMitRelay(roh);
     final gs = _eigenerSchluesselOderNull();
     if (gs != null && liste.enthaelt(geraetId, gs)) {
       _wirdMitglied(liste);
@@ -336,8 +362,10 @@ extension Geraeteverwaltung on RealMessengerCore {
     final relay = _relay ?? (_store == null ? null : _httpRelay());
     if (relay == null || _store == null) return;
     try {
-      final liste = _nimmListe(myId, await relay.holeGeraeteliste(myId));
+      final roh = await relay.holeGeraeteliste(myId);
+      final liste = _nimmListe(myId, roh);
       if (liste == null) return;
+      _vergleicheMitRelay(roh);
       final gs = _eigenerSchluesselOderNull();
       if (gs != null && liste.enthaelt(geraetId, gs)) {
         _meldeGeraete();
@@ -410,7 +438,7 @@ extension Geraeteverwaltung on RealMessengerCore {
     if (i != null) i.fillRange(0, i.length, 0);
     _infoSchluessel = null;
     _geraeteSchluessel = null;
-    _listen.clear();
+    _vergissListenZustand();
     _geraetId = null;
 
     await secretStore.delete();
@@ -484,8 +512,12 @@ extension Geraeteverwaltung on RealMessengerCore {
 
   /// Baut aus der aktuellen Fassung die naechste, unterschreibt sie und
   /// reicht sie ein. Bei 409 (jemand war schneller) einmal neu.
+  ///
+  /// Danach geht sie Ende-zu-Ende an Kontakte und Geraete (§12.3 Regel 1),
+  /// und es wird nachgesehen, ob der Relay sie auch ausliefert (§12.4).
   Future<Geraeteliste> _veroeffentliche(
-      List<GeraeteEintrag> Function(Geraeteliste alt) aendere) async {
+      List<GeraeteEintrag> Function(Geraeteliste alt) aendere,
+      {bool verteilungAbwarten = false}) async {
     final store = _store;
     if (store == null) throw const NotInitializedException();
     final relay = _relay ?? _httpRelay();
@@ -508,6 +540,13 @@ extension Geraeteverwaltung on RealMessengerCore {
       _uebernimmEigeneListe(neu);
       if (neu.kennungen.contains(geraetId)) _wirdMitglied(neu);
       _meldeGeraete();
+      final verteilung = _verbreiteListe(neu, alt: alt);
+      if (verteilungAbwarten) {
+        await verteilung.timeout(const Duration(seconds: 10), onTimeout: () {});
+      } else {
+        unawaited(verteilung);
+        unawaited(_pruefeSpaeterWasDerRelayLiefert(relay, neu.epoche));
+      }
       return neu;
     }
   }
@@ -534,10 +573,27 @@ extension Geraeteverwaltung on RealMessengerCore {
     }
     if (vorige != null && neu.epoche <= vorige.epoche) {
       // Gleiche Epoche, andere Zeichen: zwei Fassungen derselben Nummer.
-      // Die erste, die wir gesehen haben, gilt.
+      // Die erste, die wir gesehen haben, gilt — und der Nutzer erfaehrt,
+      // dass es zwei gibt (§12.3 Regel 5).
+      if (neu.epoche == vorige.epoche && neu.roh != vorige.roh) {
+        _merkeWiderspruch(adresse, neu.epoche);
+      }
       return vorige;
     }
     _speichereListe(adresse, neu);
+    // WAS ANGEKUENDIGT WAR, IST DA (§12.3) — oder eine andere Fassung
+    // derselben Epoche. Dann bleibt die Liste veraltet, und es gibt zwei.
+    final ank = _ankuendigungVon(adresse);
+    if (ank != null) {
+      if (neu.epoche > ank.epoche ||
+          (neu.epoche == ank.epoche && neu.kurzHash == ank.hash)) {
+        _setzeAnkuendigung(adresse, null);
+      } else if (neu.epoche == ank.epoche) {
+        _merkeWiderspruch(adresse, neu.epoche);
+      }
+    }
+    final w = int.tryParse(_db?.meta('geraeteliste_widerspruch:$adresse') ?? '');
+    if (w != null && neu.epoche > w) _loescheMeta('geraeteliste_widerspruch:$adresse');
     final store = _store;
     if (store != null && vorige != null) {
       var weg = false;
@@ -566,6 +622,14 @@ extension Geraeteverwaltung on RealMessengerCore {
     _speichereListe(myId, neu);
     _meldeGeraete();
   }
+
+  void _loescheMeta(String key) =>
+      _db?.transaction((raw) => raw.execute('DELETE FROM meta WHERE key = ?', [key]));
+
+  void _setzeMeta(String key, String wert) => _db?.transaction((raw) => raw.execute(
+      'INSERT INTO meta (key, value) VALUES (?,?) '
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      [key, wert]));
 
   void _speichereListe(String adresse, Geraeteliste l) {
     _listen[adresse] = l;
@@ -647,6 +711,450 @@ extension Geraeteverwaltung on RealMessengerCore {
       }
     }
     return l == null;
+  }
+
+  // ═══════════════════════════════════════════ Verschweigen (GERAETEABMELDUNG §12)
+  //
+  // Stufe 2 oben glaubt der Liste, die der Relay ausliefert, und weist nur
+  // eine AELTERE ab. Verschweigt der Relay eine neue Fassung, merkt sie
+  // nichts: Kontakte verschluesselten weiter an ein abgemeldetes Geraet, und
+  // es schrieb weiter als Besitzer. Deshalb reist die Liste auch
+  // Ende-zu-Ende — als eigene Nachricht nach jeder Aenderung (Art 20) und als
+  // Stempel in jeder Nutzlast. Wer einen Stempel sieht, der mehr kennt als er,
+  // weiss, DASS ihm etwas fehlt, und schickt bis dahin nur an Geraete, die
+  // es nachweislich haben.
+
+  void _vergissListenZustand() {
+    _listen.clear();
+    _ankuendigungen.clear();
+    _listenAbrufe.clear();
+    _stempelGefragt.clear();
+    _listeNachgeschickt.clear();
+    _relayKenntNicht.clear();
+    _relayVerschweigt = null;
+    _verglichenBis = null;
+  }
+
+  /// Die Stempel fuer eine Nutzlast an [an] (§12.3): die eigene Epoche samt
+  /// Kurzhash, wenn dieses Geraet in der eigenen Liste steht, und welche
+  /// Epoche der Liste von [an] wir kennen. Ohne Listen (alter Relay) keine
+  /// Stempel — die Nutzlast ist dann Zeichen fuer Zeichen die von 2.0.0.
+  ({int? le, String? lh, int? ke}) _stempelFuer(String an) {
+    int? le;
+    String? lh;
+    final eigene = _eigeneListeOderNull();
+    final gs = _eigenerSchluesselOderNull();
+    if (_geraeteStand == ListenStand.mitglied &&
+        eigene != null &&
+        gs != null &&
+        eigene.enthaelt(geraetId, gs)) {
+      le = eigene.epoche;
+      lh = eigene.kurzHash;
+    }
+    final ihre = an == myId ? null : _listeVon(an);
+    final ke = an == myId || (le == null && ihre == null) ? null : (ihre?.epoche ?? 0);
+    return (le: le, lh: lh, ke: ke);
+  }
+
+  Ankuendigung? _ankuendigungVon(String adresse) {
+    if (_ankuendigungen.containsKey(adresse)) return _ankuendigungen[adresse];
+    final db = _db;
+    if (db == null) return null;
+    Ankuendigung? a;
+    final roh = db.meta('geraeteliste_ank:$adresse');
+    if (roh != null) {
+      try {
+        a = Ankuendigung.lies(jsonDecode(roh));
+      } on FormatException {
+        a = null;
+      }
+    }
+    _ankuendigungen[adresse] = a;
+    return a;
+  }
+
+  void _setzeAnkuendigung(String adresse, Ankuendigung? a) {
+    _ankuendigungen[adresse] = a;
+    if (a == null) {
+      _loescheMeta('geraeteliste_ank:$adresse');
+    } else {
+      _setzeMeta('geraeteliste_ank:$adresse', jsonEncode(a.alsJson()));
+    }
+  }
+
+  /// Liegt die bekannte Liste von [adresse] hinter dem, was Stempel
+  /// angekuendigt haben (§12.3 Regel 3)? Kleinere Epoche, keine Liste, oder
+  /// dieselbe Epoche mit anderen Zeichen.
+  bool _listeVeraltet(String adresse) {
+    final ank = _ankuendigungVon(adresse);
+    if (ank == null) return false;
+    final l = _listeVon(adresse);
+    if (l == null || ank.epoche > l.epoche) return true;
+    return ank.epoche == l.epoche && ank.hash != l.kurzHash;
+  }
+
+  /// Nur an diese Geraete von [adresse] — oder null, wenn die Liste nicht
+  /// veraltet ist und sie allein entscheidet.
+  Set<int>? _nurAn(String adresse) =>
+      _listeVeraltet(adresse) ? _ankuendigungVon(adresse)!.geraete : null;
+
+  void _merkeAnkuendigung(String von, int epoche, String hash, int geraet) {
+    final ank = _ankuendigungVon(von);
+    if (ank == null || epoche > ank.epoche) {
+      _setzeAnkuendigung(von, Ankuendigung(epoche, hash, {geraet}));
+    } else if (epoche == ank.epoche) {
+      if (hash != ank.hash) {
+        _merkeWiderspruch(von, epoche);
+      } else if (!ank.geraete.contains(geraet)) {
+        _setzeAnkuendigung(von, Ankuendigung(epoche, hash, {...ank.geraete, geraet}));
+      }
+    }
+  }
+
+  /// Zwei Fassungen derselben Epoche (§12.3 Regel 5). Gemerkt bis zu einer
+  /// hoeheren Fassung; der Chat zeigt einen Hinweis.
+  void _merkeWiderspruch(String adresse, int epoche) {
+    if (_db?.meta('geraeteliste_widerspruch:$adresse') != null) return;
+    _setzeMeta('geraeteliste_widerspruch:$adresse', '$epoche');
+    _contacts.add(ContactEvent(
+      type: ContactEventType.deviceListConflict,
+      contactId: adresse,
+      at: DateTime.now().toUtc(),
+    ));
+    if (adresse == myId) _meldeGeraete();
+  }
+
+  /// Nimmt die Stempel einer entschluesselten Nutzlast (§12.3). Rueckgabe:
+  /// ob sie weiter verarbeitet wird. SYNCHRON — siehe [_darfEmpfangenSofort],
+  /// warum der Empfang hier nicht warten darf; Nachladen und Nachschicken
+  /// laufen nebenher.
+  bool _nimmStempel(String von, int vonGeraet, Payload p) {
+    if (_db == null) return true;
+    final le = p.listenEpoche;
+    final lh = p.listenHash;
+    if (le != null && lh != null) {
+      final bekannt = _listeVon(von);
+      if (bekannt != null && le == bekannt.epoche) {
+        // Dieselbe Epoche mit anderen Zeichen: zwei Fassungen (Regel 5). Der
+        // Stempel gilt trotzdem als Ankuendigung — versandt wird nach Regel 3.
+        if (lh != bekannt.kurzHash) {
+          _merkeWiderspruch(von, le);
+          _merkeAnkuendigung(von, le, lh, vonGeraet);
+        }
+      } else if (bekannt == null || le > bekannt.epoche) {
+        _merkeAnkuendigung(von, le, lh, vonGeraet);
+        // EIN FREMDER (erste Kontaktanfrage) kostet keine Anfrage — wie in
+        // [_darfEmpfangenSofort]. Die Ankuendigung steht trotzdem, und
+        // spaetestens die erste Antwort laedt nach (`_sendePayload`). Die
+        // Art 20 bringt die Liste selbst mit.
+        if (p.kind != PayloadKind.geraeteliste &&
+            (von == myId || _chats?.kontakt(von) != null)) {
+          unawaited(_holeListeNach(von));
+        }
+      }
+    }
+
+    // HEILEN (Regel 4): wer mit einer aelteren Fassung unserer Liste
+    // schreibt, hat die Verteilung verpasst — vielleicht, weil der Relay sie
+    // verschluckt hat. Er bekommt sie nachgeschickt.
+    final eigene = _eigeneListeOderNull();
+    if (eigene != null && _geraeteStand == ListenStand.mitglied) {
+      if (von == myId) {
+        if (le != null && le < eigene.epoche) unawaited(_schickeListeNach(myId));
+      } else {
+        final ke = p.kenntEpoche;
+        if (ke != null && ke < eigene.epoche) unawaited(_schickeListeNach(von));
+        // Er kennt eine neuere als wir: dann fehlt UNS etwas.
+        if (ke != null && ke > eigene.epoche) unawaited(_holeListeNach(myId));
+      }
+    }
+
+    // DIE LISTE SELBST traegt ihre Beweise — von wem auch immer.
+    if (p.kind == PayloadKind.geraeteliste) return true;
+    if (!_listeVeraltet(von)) return true;
+    // VERALTET: nur wer die angekuendigte Fassung selbst nennt, spricht noch
+    // fuer diese Adresse. Ein abgemeldetes Geraet, das der Relay weiter
+    // beliefert, kennt sie nicht.
+    final ank = _ankuendigungVon(von)!;
+    return le != null &&
+        (le > ank.epoche || (le == ank.epoche && lh == ank.hash));
+  }
+
+  /// Laedt die Liste von [adresse] beim Relay nach — hoechstens eine Anfrage
+  /// zur Zeit und eine je [_listenNachfrage].
+  ///
+  /// EIGENE BREMSE, nicht `_listeGefragt`: die gehoert [_darfEmpfangen], und
+  /// die Post eines eben beigetretenen Geraets braucht ihren Abruf. Teilten
+  /// sich beide eine, verbrauchte der erste Stempel einer Kontaktanfrage die
+  /// Minute — und ein Geraet, das in dieser Minute zuruecksetzte, kam nicht
+  /// mehr durch (test/net/sicherung_test.dart, Gesamtlauf vom 18.10.2026).
+  ///
+  /// Umgekehrt zaehlt ein Abruf von dort auch hier: er hat die Liste eben
+  /// geholt, und jeder Abruf kostet eine Marke der Herkunftsbremse des Relays
+  /// (dieselbe wie `/prekey`).
+  Future<void> _holeListeNach(String adresse) {
+    final laeuft = _listenAbrufe[adresse];
+    if (laeuft != null) return laeuft;
+    final jetzt = DateTime.now();
+    final naechste = _stempelGefragt[adresse];
+    final stufe2 = _listeGefragt[adresse];
+    if ((naechste != null && jetzt.isBefore(naechste)) ||
+        (stufe2 != null && jetzt.isBefore(stufe2))) {
+      return Future<void>.value();
+    }
+    _stempelGefragt[adresse] = jetzt.add(_listenNachfrage);
+    // `Future(...)` und nicht sofort: der Eintrag muss stehen, bevor der
+    // Abruf ihn im `finally` wieder entfernt.
+    final abruf = Future<void>(() async {
+      try {
+        if (adresse == myId) {
+          await _frischeEigeneListeAuf();
+          return;
+        }
+        final relay = _relay;
+        if (relay == null) return;
+        _nimmListe(adresse, await relay.holeGeraeteliste(adresse));
+      } catch (_) {
+        // Dann eben mit dem naechsten Stempel oder der Verteilung.
+      } finally {
+        _listenAbrufe.remove(adresse);
+      }
+    });
+    _listenAbrufe[adresse] = abruf;
+    return abruf;
+  }
+
+  /// Schickt die eigene Liste an [an] nach (Regel 4). Best effort.
+  Future<void> _schickeListeNach(String an) async {
+    final eigene = _eigeneListeOderNull();
+    if (eigene == null || _geraeteStand != ListenStand.mitglied) return;
+    final jetzt = DateTime.now();
+    final zuletzt = _listeNachgeschickt[an];
+    if (zuletzt != null && jetzt.difference(zuletzt) < _nachschickAbstand) return;
+    _listeNachgeschickt[an] = jetzt;
+    try {
+      await _sendePayload(
+          an, Payload.geraeteliste(_neueId(), eigene.alsJson(), jetzt.toUtc()),
+          spiegeln: false);
+    } catch (_) {
+      // Die naechste Nachricht von dort fragt wieder.
+    }
+  }
+
+  /// Verteilt eine eben veroeffentlichte Fassung Ende-zu-Ende (Regel 1).
+  ///
+  /// 1. ABSCHIED an jedes Geraet, das in [alt] stand und jetzt fehlt —
+  ///    solange die Sitzung noch steht. Es prueft die Liste und entfernt die
+  ///    Woerter, auch wenn der Relay es nie trennt.
+  /// 2. An die eigenen Geraete der neuen Liste.
+  /// 3. An alle Kontakte (ausser offenen fremden Anfragen) und Mitglieder
+  ///    aktiver Gruppen — ueber den Ausgang, damit nichts verloren geht.
+  Future<void> _verbreiteListe(Geraeteliste neu, {Geraeteliste? alt}) async {
+    final p = Payload.geraeteliste(_neueId(), neu.alsJson(), DateTime.now().toUtc());
+    if (alt != null) {
+      for (final e in alt.geraete) {
+        if (e.id == geraetId || neu.enthaelt(e.id, e.schluessel)) continue;
+        try {
+          await _schickeAnGeraet(myId, e.id, p);
+        } catch (_) {
+          // Der Relay kennt es schon nicht mehr — dann hat er es getrennt.
+        }
+      }
+    }
+    // An die eigenen Geraete, die schon in der vorigen Fassung standen. Ein
+    // eben beigetretenes hat die Liste gerade selbst geholt — und haette noch
+    // keine Sitzung, also kostete es nur einen Buendelabruf.
+    if (neu.kennungen
+        .any((g) => g != geraetId && (alt == null || alt.kennungen.contains(g)))) {
+      try {
+        await _sendePayload(myId, p, spiegeln: false);
+      } catch (_) {
+        // Sie heilen sich mit der naechsten eigenen Nachricht (Regel 4).
+      }
+    }
+    for (final an in _listenEmpfaenger()) {
+      if (_store == null) return;
+      try {
+        await _sendeSteuerung(an, p);
+      } catch (_) {
+        // Bleibt im Ausgang.
+      }
+    }
+  }
+
+  /// Wer Nachrichten an uns verschluesselt und deshalb die Liste braucht.
+  Set<String> _listenEmpfaenger() {
+    final chats = _chats;
+    if (chats == null) return const {};
+    final an = <String>{
+      for (final k in chats.alleKontakte())
+        if (k.state != ContactState.incomingPending) k.id,
+      for (final g in chats.alleGruppen())
+        if (g.aktiv) ...g.mitglieder,
+    };
+    an.remove(myId);
+    return an;
+  }
+
+  /// Eine Nutzlast an GENAU EIN Geraet, an jedem Filter vorbei — fuer den
+  /// Abschied an ein Geraet, das in keiner Liste mehr steht.
+  Future<void> _schickeAnGeraet(String an, int g, Payload p) async {
+    final store = _store;
+    final relay = _relay;
+    if (store == null || relay == null || !relay.isConnected) return;
+    final ziel = ProtocolAddress(name: an, deviceId: g);
+    if (!await store.containsSession(ziel)) return;
+    final ct = await _signalExklusiv(() async {
+      final ct = await _chiffre(store).encrypt(ziel, p.toBytes());
+      _signalRepo!.commit(store);
+      return ct;
+    });
+    await _RelayAusgang(relay, g).schicke(an, Envelope.of(ct).toBytes());
+  }
+
+  /// Eine Liste, die Ende-zu-Ende kam (Art 20). Bei der eigenen Adresse auch
+  /// die Folgen: weiter Mitglied, oder abgemeldet — dann gibt sie die Fassung
+  /// zurueck, und der Empfang meldet ab, sobald er fertig ist.
+  Geraeteliste? _nimmListeEndeZuEnde(String von, Payload p) {
+    final roh = p.geraetelisteRoh;
+    if (roh == null) return null;
+    final vorige = _listeVon(von);
+    final l = _nimmListe(von, roh);
+    if (von != myId || l == null || identical(l, vorige)) return null;
+    final gs = _eigenerSchluesselOderNull();
+    if (gs != null && l.enthaelt(geraetId, gs)) {
+      if (_geraeteStand == ListenStand.mitglied) _wirdMitglied(l);
+      unawaited(_frischeEigeneGeraeteAuf());
+      // Ob der Relay sie auch ausliefert, prueft das Geraet, das sie
+      // veroeffentlicht hat (§12.4) — hier kostete es nur eine Marke der
+      // Herkunftsbremse mehr. Dieses vergleicht beim naechsten Verbinden.
+      return null;
+    }
+    final warMitglied = int.tryParse(_db?.meta('geraeteliste_mitglied') ?? '');
+    if (warMitglied != null && l.epoche > warMitglied) return l;
+    return null;
+  }
+
+  /// Liefert der Relay die eigene Liste, die wir kennen (§12.4)? [roh] ist
+  /// das, was er eben auf `/geraeteliste` oder `/prekey` ausgeliefert hat.
+  void _vergleicheMitRelay(Map<String, Object?>? roh) {
+    final eigene = _listeVon(myId);
+    if (eigene == null) return;
+    Geraeteliste? geliefert;
+    if (roh != null) {
+      try {
+        geliefert = Geraeteliste.pruefe(roh, adresse: myId);
+      } on GeraetelisteUngueltig {
+        geliefert = null;
+      }
+    }
+    final stimmt = geliefert != null &&
+        (geliefert.epoche > eigene.epoche || geliefert.roh == eigene.roh);
+    _verglichenBis = eigene.epoche;
+    final neu = stimmt ? null : eigene.epoche;
+    if (neu != _relayVerschweigt) {
+      _relayVerschweigt = neu;
+      _meldeGeraete();
+    }
+  }
+
+  Future<void> _pruefeWasDerRelayLiefert(RelayClient relay) async {
+    try {
+      _vergleicheMitRelay(await relay.holeGeraeteliste(myId));
+    } catch (_) {
+      // Beim naechsten Verbinden wird ohnehin verglichen.
+    }
+  }
+
+  /// Nach dem Veroeffentlichen von [epoche]: nur, wenn bis dahin keiner
+  /// verglichen hat. Ein ehrlicher Relay meldet die neue Fassung allen
+  /// Geraeten der Liste, dem veroeffentlichenden auch, und dessen Auffrischung
+  /// vergleicht ohnehin; ein zweiter Abruf kostete nur eine Marke der
+  /// Herkunftsbremse. Unterdrueckt der Relay die Meldung, greift dieser.
+  Future<void> _pruefeSpaeterWasDerRelayLiefert(
+      RelayClient relay, int epoche) async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    final bis = _verglichenBis;
+    if (_store == null || (bis != null && bis >= epoche)) return;
+    await _pruefeWasDerRelayLiefert(relay);
+  }
+
+  /// Gehoert das Buendel zum Geraet der Liste (§12.5 a)? Ohne Liste: ja.
+  /// Eine FALSCHE Signatur nie; eine FEHLENDE nur ohne
+  /// [RealMessengerCore.geraeteNachweisPflicht].
+  bool _buendelPasstZurListe(
+      String an, RelayBundleResponse b, Geraeteliste? liste) {
+    if (liste == null) return true;
+    final sig = b.spkGeraeteSig;
+    if (sig == null) return !RealMessengerCore.geraeteNachweisPflicht;
+    final schluessel = liste.schluesselVon(b.deviceId);
+    if (schluessel == null) return false;
+    try {
+      return signaturGilt(
+          schluessel,
+          spkNachricht(BitdmAddress.normalize(an), b.deviceId, b.signedPreKeyId,
+              b.signedPreKey),
+          base64.decode(sig));
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// Traegt eine Erstnachricht den Nachweis des Geraets, unter dessen
+  /// Kennung sie kam (§12.5 b)? Ohne Liste des Absenders: ja. Eine
+  /// Nutzlast, die sich nicht lesen laesst, entscheidet der Aufrufer.
+  bool _sitzungsNachweisGilt(
+      String von, int vonGeraet, Uint8List basis, Uint8List klar) {
+    final liste = _listeVon(von);
+    if (liste == null) return true;
+    final String? gs;
+    try {
+      gs = Payload.fromBytes(klar).sitzungsNachweis;
+    } on PayloadFormatException {
+      return true;
+    }
+    if (gs == null) return !RealMessengerCore.geraeteNachweisPflicht;
+    final schluessel = liste.schluesselVon(vonGeraet);
+    if (schluessel == null) return false;
+    return signaturGilt(
+        schluessel,
+        sitzungsNachricht(
+          absender: BitdmAddress.normalize(von),
+          absenderGeraet: vonGeraet,
+          empfaenger: myId,
+          empfaengerGeraet: geraetId,
+          basisschluessel: basis,
+        ),
+        base64.decode(gs));
+  }
+
+  /// Der Klartext fuer [ziel]: der gemeinsame — oder, solange libsignal fuer
+  /// diese Sitzung noch PreKey-Nachrichten schickt, derselbe mit dem
+  /// Sitzungsnachweis (§12.5 b). Nur mit eigenem Geraeteschluessel.
+  Future<Uint8List> _klartextFuer(BitdmSignalStore store, ProtocolAddress ziel,
+      Payload gestempelt, Uint8List klartext) async {
+    if (_geraeteStand != ListenStand.mitglied) return klartext;
+    if (_eigenerSchluesselOderNull() == null) return klartext;
+    final datensatz = await store.loadSession(ziel);
+    if (datensatz == null) return klartext;
+    final basis = offenerBasisschluessel(datensatz.serialize());
+    if (basis == null) return klartext;
+    final sig = _geraeteSchluessel!.sign(
+        message: sitzungsNachricht(
+      absender: myId,
+      absenderGeraet: geraetId,
+      empfaenger: BitdmAddress.normalize(ziel.name()),
+      empfaengerGeraet: ziel.deviceId(),
+      basisschluessel: basis,
+    ));
+    return gestempelt
+        .gestempelt(
+          listenEpoche: gestempelt.listenEpoche,
+          listenHash: gestempelt.listenHash,
+          kenntEpoche: gestempelt.kenntEpoche,
+          sitzungsNachweis: base64.encode(sig),
+        )
+        .toBytes();
   }
 
   // ═══════════════════════════════════════════════════════ Hilfen
