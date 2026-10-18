@@ -38,7 +38,56 @@ Voreinstellung ist `relay.bitdm.net` — die Konstante `relayBasis` in
 
 ---
 
-## Der Stand, ohne Beschoenigung: es ist nie ein Linux-Bau gelaufen
+## Nachtrag 17.10.2026: der erste echte Lauf
+
+Der Abschnitt danach beschreibt den Stand vom 30.07.2026 und bleibt als solcher
+stehen. Seitdem ist Folgendes gemessen:
+
+* **Es gibt ein Paket.** Seit 25.09.2026 baut `.github/workflows/linux.yml` auf
+  Ubuntu 22.04 bei jedem Versions-Tag und haengt das Bundle als
+  `bitdm-linux-x64-<fassung>.tar.gz` mit `.sha256` und Herkunftsnachweis an den
+  Release. Fuer 1.9.1: 14.036.216 Byte, sha256
+  `2b64b92968f0953afff186abd9c6ba682919370efd6db51f417117216c5d0227`;
+  `gh attestation verify … -R Henner4746/BitDM` bestaetigt
+  `linux.yml@refs/tags/v1.9.1`.
+* **Es ist gestartet worden** — in einem Debian-13-Container unter Xvfb, also
+  **nicht auf einem echten Desktop.** Genau dieses Archiv, mit entsperrtem
+  GNOME Keyring: Start, Identitaet, App-Passwort, gesperrt nach Neustart,
+  falsches Passwort abgewiesen, richtiges oeffnet, eine Notiz an mich
+  uebersteht den Neustart. relay.bitdm.net war dabei absichtlich gesperrt;
+  Nachrichten hat 1.9.1 unter Linux also noch nicht verschickt. Ein Linux-Bau
+  eines neueren Entwicklungsstands hat zwischen zwei Instanzen ueber einen
+  lokalen Relay Nachrichten in beide Richtungen ausgetauscht.
+* **Selbst gebaut** im selben Container (Flutter 3.44.8): `flutter build linux
+  --release` lief in 41 s durch. Installiert waren `clang cmake ninja-build
+  pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev liblzma-dev
+  libstdc++-14-dev`, also die Liste aus `linux.yml`, nur mit der
+  `libstdc++`-Fassung von Debian 13 statt `-12-dev`. Ob `liblzma-dev`
+  und `libstdc++-*-dev` noetig sind, zeigt das nicht — sie waren von Anfang an
+  da (Punkt 2 unten bleibt offen).
+* **Der Schluesselbund (Punkt 6 unten) ist jetzt beantwortet:** Ist der
+  Secret-Service da, aber gesperrt (gemessen: gnome-keyring ohne entsperrten
+  Schluesselbund, ohne Abfragedialog), bleibt das Fenster leer, ohne Meldung.
+  Im Protokoll steht `libsecret_error: KeyringLocked` und eine unbehandelte
+  `StorageException` aus `DeviceSecretStore.read`. Mit entsperrtem GNOME
+  Keyring laeuft alles oben Genannte.
+* **sqlite3mc:** Der Abschnitt weiter unten beschreibt den Download einer
+  fertigen `libsqlite3mc.so`. Seit 25.09.2026 uebersetzt der Hook stattdessen
+  die Amalgamation aus `app/third_party/sqlite3mc/` (siehe `pubspec.yaml`). Im
+  Bundle liegt sie als `lib/libsqlite3.so` (2.243.800 Byte in 1.9.1). Die
+  Datenbank `~/.local/share/com.bitdm.bitdm/bitdm.db` beginnt nicht mit
+  `SQLite format 3`, ist also verschluesselt.
+* **Bestaetigt wie beschrieben:** Fenster 1280x720, Kennung
+  `com.bitdm.bitdm`, Datenordner `~/.local/share/com.bitdm.bitdm/`, als
+  Sperrfaktor nur das App-Passwort, kein Scan-Knopf beim Hinzufuegen.
+  Einfuegen einer Adresse aus der Zwischenablage funktioniert.
+* **`libdartjni.so`** liegt im Bundle (der Runner hat ein JDK) und verweist auf
+  `libjvm.so`, die auf einem Desktop meist fehlt. Geladen wird sie nicht; die
+  App startet trotzdem.
+* **Nicht geprueft:** ein echter Desktop (X11 mit Fenstermanager, Wayland,
+  Grafiktreiber), Benachrichtigungen, Anhaenge, andere Distributionen.
+
+## Der Stand am 30.07.2026: es war nie ein Linux-Bau gelaufen
 
 Gemessen am 30.07.2026:
 
@@ -574,7 +623,8 @@ er ohnehin. **Auf einem nackten Fenstermanager, in einem Container oder ueber
 SSH mit X-Weiterleitung laeuft er nicht**, und dann findet BitDM die Entropie
 nicht, aus der die Identitaet entsteht. libsecret selbst installiert zu haben,
 genuegt dafuer nicht — die Bibliothek ist der Anrufer, nicht die Gegenseite.
-Wie sich das genau aeussert, ist auf Linux nicht erprobt.
+Wie sich das aeussert, wenn der Schluesselbund gesperrt ist: leeres Fenster,
+keine Meldung (gemessen 17.10.2026, siehe Nachtrag oben).
 
 **`ca-certificates`.** Die Verbindung zu `relay.bitdm.net` und zu
 `dateien.bitdm.net` laeuft ueber TLS, und `dart:io` prueft dabei gegen den
@@ -592,18 +642,17 @@ Mesa-Installation mit funktionierendem Treiber ist Voraussetzung; unter
 
 Damit der naechste nicht dasselbe zweimal herausfindet:
 
-1. **Es ist kein Linux-Bau gelaufen.** Alles oben ist aus dem Bausystem
-   gelesen. Der erste Mensch, der `flutter build linux --release` durchbekommt,
-   sollte hier die Fassung eintragen, die Ausgabe des Doctors und die Groesse
-   des Bundles — mit Datum, wie ueberall in diesem Projekt.
+1. ~~Es ist kein Linux-Bau gelaufen.~~ Erledigt, siehe „Nachtrag
+   17.10.2026“ oben. Offen bleibt der Lauf auf einem echten Desktop.
 2. **`liblzma-dev` und `libstdc++-*-dev`** sind unbelegt. Siehe den
    Debian-Abschnitt.
 3. **Wo `eglinfo` liegt**, ist auf Debian-Neufassungen und auf Fedora unklar.
    Betrifft nur die Diagnose.
 4. **Alpine und musl** sind vermutlich aussichtslos, aber nicht widerlegt.
 5. **Void, Gentoo, NixOS, Guix, Slackware, Solus** haben keine Zeile.
-6. **Der Schluesselbund** ist auf Linux nicht erprobt. Was BitDM anzeigt, wenn
-   kein Secret-Service-Dienst laeuft, weiss ich nicht.
+6. **Der Schluesselbund:** gesperrt heisst leeres Fenster ohne Meldung
+   (gemessen 17.10.2026, siehe Nachtrag oben). Ganz ohne Secret-Service-Dienst
+   ist es nicht gemessen.
 7. **Kein Paket, keine `.desktop`-Datei, kein Symbol.** Wer das bauen will,
    fange bei `linux/CMakeLists.txt:78-128` an — die Installationsregeln legen
    das Bundle schon relocatable ab, das ist die halbe Arbeit fuer ein
