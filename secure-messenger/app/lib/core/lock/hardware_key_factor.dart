@@ -178,7 +178,7 @@ class HardwareKeyFactor extends KekUnlockFactor {
     final kennung = slot?.handle;
     if (kennung == null) {
       throw const VaultFormatException(
-          'Stick-Fach ohne Zugangskennung — so laesst es sich nicht oeffnen');
+          'Stick-Fach ohne Zugangskennung; so laesst es sich nicht oeffnen');
     }
     return kennung;
   }

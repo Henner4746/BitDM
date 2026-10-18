@@ -155,7 +155,7 @@ class AnhangVersand {
       // Steht trotzdem hier: wer eines Tages die Stueckgroesse verkleinert,
       // soll es HIER merken und nicht daran, dass der letzte Umschlag beim
       // Relay abprallt — nach der ganzen Uebertragung.
-      throw StateError('$zahl Stuecke bei ${stueckGroesse}B je Stueck — '
+      throw StateError('$zahl Stuecke bei ${stueckGroesse}B je Stueck, '
           'mehr als ${Rezept.hoechstStueckzahl}');
     }
 

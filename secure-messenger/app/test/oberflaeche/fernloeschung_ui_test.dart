@@ -89,7 +89,7 @@ void main() {
     expect(st.hatIdentitaet, isTrue, reason: 'sofort geloescht, ohne Nachfrist');
     expect(find.byKey(const ValueKey('fern-banner')), findsOneWidget);
     // In Sekunden: die Nachfrist ist kuerzer als eine Minute.
-    expect(find.textContaining(' s — '), findsOneWidget);
+    expect(find.textContaining(' s, '), findsOneWidget);
     expect(kern.connectionState, ConnectionState.disconnected,
         reason: 'waehrend der Nachfrist geht die App nicht ins Netz');
     await tester.pump(AppState.fernNachfrist + const Duration(seconds: 1));

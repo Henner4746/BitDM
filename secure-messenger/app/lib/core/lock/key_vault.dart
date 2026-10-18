@@ -737,7 +737,7 @@ class KeyVault {
       throw ArgumentError('kein Fach mit der Kennung $id');
     }
     if (slots.length <= 1) {
-      throw StateError('das letzte Fach laesst sich nicht entfernen — sonst '
+      throw StateError('das letzte Fach laesst sich nicht entfernen, sonst '
           'waere die Datenbank fuer immer verschlossen');
     }
     return _kopie(slots: slots.where((s) => s.id != id).toList());

@@ -316,7 +316,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 600));
       },
       'ADD CONTACT',
-      'That is not a valid BitDM ID. Check for typos — the ID carries a '
+      'That is not a valid BitDM ID. Check for typos: the ID carries a '
           'checksum.',
     ),
   ];

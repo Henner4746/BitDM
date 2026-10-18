@@ -66,7 +66,7 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
       final iso = IsoDepAndroid.from(tag);
       if (iso == null) {
         throw const FormatException(
-            'Das ist kein Sicherheitsschluessel — die Karte spricht kein ISO-DEP.');
+            'Das ist kein Sicherheitsschluessel; die Karte spricht kein ISO-DEP.');
       }
 
       final transport = CtapNfcTransport((Uint8List apdu) => iso.transceive(apdu));
@@ -93,7 +93,7 @@ class _FidoProbeScreenState extends State<FidoProbeScreen> {
       final sticks = await UsbHidGeraet.liste();
       if (sticks.isEmpty) {
         throw const FormatException(
-            'Kein Sicherheitsschluessel eingesteckt. Bei USB-C direkt anstecken — ueber einen Adapter erkennt Android ihn oft nicht.');
+            'Kein Sicherheitsschluessel eingesteckt. Bei USB-C direkt anstecken; ueber einen Adapter erkennt Android ihn oft nicht.');
       }
       final geraet = await UsbHidGeraet.oeffne(name: sticks.first.name);
       final transport = CtapHidTransport(geraet);

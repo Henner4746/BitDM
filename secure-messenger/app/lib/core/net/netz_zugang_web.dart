@@ -113,7 +113,7 @@ Future<NetzAntwort> netzAnfrage(String methode, Uri uri, {String? json}) async {
   } catch (e) {
     // Ein TypeError, der nichts sagt — siehe NetzNichtErreichbar.
     throw const NetzNichtErreichbar('der Browser liess die Anfrage nicht zu '
-        '(kein Netz, oder der Relay erlaubt diese Herkunft nicht — CORS)');
+        '(kein Netz, oder der Relay erlaubt diese Herkunft nicht: CORS)');
   }
   final text = (await antwort.text().toDart).toDart;
   return NetzAntwort(antwort.status, text);

@@ -180,8 +180,17 @@ extension _Bausteine on _HomeState {
   Widget bullet(String s) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('—', style: TextStyle(color: p.accent, fontSize: 12)),
-          const SizedBox(width: 8),
+          // GEZEICHNET, NICHT GESETZT, wie der Aufnahmepunkt. Bis 18.10.2026
+          // stand hier ein Gedankenstrich als Zeichen; ein gezeichneter Punkt
+          // haengt an keiner Schrift (im Browser kein Ersatzkaestchen) und
+          // sitzt auf Hoehe der ersten Zeile (mono 12 ist rund 18 hoch).
+          Padding(
+            padding: const EdgeInsets.only(top: 7),
+            child: Container(
+                width: 5, height: 5,
+                decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(1))),
+          ),
+          const SizedBox(width: 10),
           Expanded(child: Text(s, style: mono(size: 12, color: p.dim))),
         ]),
       );

@@ -58,7 +58,7 @@ Future<CtapTransport> _ueberUsb() async {
   final sticks = await UsbHidGeraet.liste();
   if (sticks.isEmpty) {
     throw const KeinStickException(
-        'Kein Sicherheitsschluessel eingesteckt. Bei USB-C direkt anstecken — '
+        'Kein Sicherheitsschluessel eingesteckt. Bei USB-C direkt anstecken; '
         'ueber einen Adapter erkennt Android ihn oft nicht.');
   }
   return CtapHidTransport(await UsbHidGeraet.oeffne(name: sticks.first.name));
@@ -80,7 +80,7 @@ Future<CtapTransport> _ueberNfc(Duration frist) async {
       final iso = IsoDepAndroid.from(tag);
       if (iso == null) {
         gefunden.completeError(const KeinStickException(
-            'Das ist kein Sicherheitsschluessel — die Karte spricht kein '
+            'Das ist kein Sicherheitsschluessel; die Karte spricht kein '
             'ISO-DEP.'));
         return;
       }

@@ -113,7 +113,7 @@ class Bip39 {
         _bytesToBits(_sha256Sync(entropy)).substring(0, checksumBits.length);
     if (expected != checksumBits) {
       throw const MnemonicException(
-          'Pruefsumme stimmt nicht — vertippt oder Woerter vertauscht?');
+          'Pruefsumme stimmt nicht. Vertippt oder Woerter vertauscht?');
     }
     return entropy;
   }

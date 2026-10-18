@@ -123,7 +123,7 @@ class HmacSecret {
     // 16 Byte AAGUID, dann zwei Byte Laenge, dann die Kennung selbst.
     final authData = _bytes(antwort[2]);
     if (authData.length < 55) {
-      throw const FormatException('authData zu kurz — kein Zugang angelegt');
+      throw const FormatException('authData zu kurz, kein Zugang angelegt');
     }
     final laenge = (authData[53] << 8) | authData[54];
     if (authData.length < 55 + laenge) {
@@ -206,7 +206,7 @@ class HmacSecret {
     final hatErweiterungen = (flags & 0x80) != 0;
     if (!hatErweiterungen) {
       throw const FormatException(
-          'Der Stick lieferte kein hmac-secret — kennt er die Erweiterung?');
+          'Der Stick lieferte kein hmac-secret. Kennt er die Erweiterung?');
     }
 
     // Ein angehaengter Zugang (Bit 6) steht VOR den Erweiterungen und ist
@@ -215,7 +215,7 @@ class HmacSecret {
     // moeglich — deshalb hier ein klarer Fehler statt eines Ratespiels.
     if ((flags & 0x40) != 0) {
       throw const FormatException(
-          'Unerwarteter Zugang in der Antwort — nicht behandelt');
+          'Unerwarteter Zugang in der Antwort, nicht behandelt');
     }
 
     final karte = CtapCborLeser.lies(authData, 37);

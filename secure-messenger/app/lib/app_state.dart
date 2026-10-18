@@ -2607,11 +2607,11 @@ class AppState extends ChangeNotifier {
     // nicht" (Tor an, Proxy 127.0.0.1:9050) — und war so nicht zu erkennen.
     final tor = Netzweg.proxy;
     if (e is SocketException && tor != null && (e.address?.isLoopback ?? false)) {
-      text = 'Tor-Proxy ${tor.host}:${tor.port} antwortet nicht (laeuft Orbot?) — ${e.osError?.message ?? e.message}';
+      text = 'Tor-Proxy ${tor.host}:${tor.port} antwortet nicht (laeuft Orbot?): ${e.osError?.message ?? e.message}';
     }
     if (text.startsWith('$art: ')) text = text.substring(art.length + 2);
     if (text.length > 160) text = '${text.substring(0, 160)}…';
-    letzteTechnischeMeldung = '$art — $text';
+    letzteTechnischeMeldung = '$art: $text';
   }
 
   /// Bringt einen Fehler in eine Form, die die Oberflaeche uebersetzen kann.

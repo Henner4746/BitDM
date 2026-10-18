@@ -288,7 +288,7 @@ extension _Nahbereich on _HomeState {
           Befund.gut => 'OK',
           Befund.schlecht => '!',
           Befund.hinweis => '·',
-          Befund.uebersprungen => '–',
+          Befund.uebersprungen => '-',
         };
 
     return SingleChildScrollView(

@@ -217,18 +217,18 @@ class Teil {
         .toList();
     if (token.length < 6 || token[0] != 'BITDM' || token[1] != 'TEIL') {
       throw const TeilgeheimnisException(
-          'kein BitDM-Teil — der Text muss mit "BITDM-TEIL" beginnen');
+          'kein BitDM-Teil; der Text muss mit "BITDM-TEIL" beginnen');
     }
     final version = int.tryParse(token[2]);
     if (version != formatVersion && version != formatVersionAlt) {
       throw TeilgeheimnisException(
-          'unbekannte Formatversion "${token[2]}" — App aktualisieren?');
+          'unbekannte Formatversion "${token[2]}". App aktualisieren?');
     }
     final schwelle = int.tryParse(token[3]);
     final x = int.tryParse(token[4]);
     if (schwelle == null || x == null) {
       throw const TeilgeheimnisException(
-          'Schwelle oder Teilnummer ist keine Zahl — vertippt?');
+          'Schwelle oder Teilnummer ist keine Zahl. Vertippt?');
     }
 
     // Alles nach der Teilnummer ist Nutzlast + 4 Zeichen Pruefsumme; die
@@ -244,7 +244,7 @@ class Teil {
     // umgekehrt) ist ein Tippfehler wie jeder andere und faellt hier auf.
     if (_pruefsumme(version!, schwelle, x, nutzlast) != pruefsumme) {
       throw const TeilgeheimnisException(
-          'Pruefsumme stimmt nicht — der Teil ist vertippt oder unvollstaendig');
+          'Pruefsumme stimmt nicht; der Teil ist vertippt oder unvollstaendig');
     }
 
     final bytes = _base32Dekodieren(nutzlast);
@@ -389,7 +389,7 @@ Uint8List setzeZusammen(List<Teil> teile) {
     if (f == null) continue;
     if (fp != null && !_gleich(fp, f)) {
       throw const TeilgeheimnisException(
-          'die Teile widersprechen sich — mindestens einer ist beschaedigt');
+          'die Teile widersprechen sich; mindestens einer ist beschaedigt');
     }
     fp = f;
   }
@@ -417,7 +417,7 @@ Uint8List setzeZusammen(List<Teil> teile) {
       if (_interpolieren(basis, gewichteExtra[e], i) != extra[e].y[i]) {
         geheimnis.fillRange(0, laenge, 0);
         throw TeilgeheimnisException(
-            'die Teile widersprechen sich — mindestens einer ist beschaedigt '
+            'die Teile widersprechen sich; mindestens einer ist beschaedigt '
             '(auffaellig: Teil ${extra[e].x})');
       }
     }
@@ -425,7 +425,7 @@ Uint8List setzeZusammen(List<Teil> teile) {
   if (fp != null && !_gleich(_fingerabdruckVon(geheimnis), fp)) {
     geheimnis.fillRange(0, laenge, 0);
     throw const TeilgeheimnisException(
-        'das zusammengesetzte Geheimnis passt nicht zum Fingerabdruck — '
+        'das zusammengesetzte Geheimnis passt nicht zum Fingerabdruck; '
         'mindestens ein Teil ist beschaedigt oder veraendert');
   }
   return geheimnis;
@@ -548,7 +548,7 @@ Uint8List _base32Dekodieren(String text) {
     final wert = _base32Alphabet.indexOf(text[i]);
     if (wert < 0) {
       throw TeilgeheimnisException(
-          'ungueltiges Zeichen "${text[i]}" im Teil — erlaubt sind A-Z und 2-7');
+          'ungueltiges Zeichen "${text[i]}" im Teil; erlaubt sind A-Z und 2-7');
     }
     puffer = (puffer << 5) | wert;
     bits += 5;

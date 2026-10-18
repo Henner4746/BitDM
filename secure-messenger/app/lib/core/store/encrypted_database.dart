@@ -63,7 +63,7 @@ class StaleStateException implements Exception {
   const StaleStateException(this.erwartet, this.gefunden);
   @override
   String toString() => 'StaleStateException: erwartete Stand $erwartet, '
-      'gefunden $gefunden — der Zustand im Arbeitsspeicher ist veraltet';
+      'gefunden $gefunden; der Zustand im Arbeitsspeicher ist veraltet';
 }
 
 class EncryptedDatabase {

@@ -175,13 +175,13 @@ class CtapHidTransport implements CtapTransport {
       if (_leseKanal(p) != kanal) continue;
       if ((p[4] & 0x80) != 0) {
         throw const FormatException(
-            'Anfang statt Fortsetzung — Antwort durcheinander');
+            'Anfang statt Fortsetzung, Antwort durcheinander');
       }
       if ((p[4] & 0x7F) != nummer) {
         // Ein fehlendes Stueck still zu ueberspringen waere schlimmer als
         // abzubrechen: das Ergebnis waere stellenweise falsches CBOR.
         throw FormatException(
-            'Fortsetzung ${p[4] & 0x7F} statt $nummer — ein Paket fehlt');
+            'Fortsetzung ${p[4] & 0x7F} statt $nummer, ein Paket fehlt');
       }
       final rest = laenge - daten.length;
       daten.addAll(p.sublist(5, min(paketGroesse, 5 + rest)));

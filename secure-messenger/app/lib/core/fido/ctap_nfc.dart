@@ -72,7 +72,7 @@ class CtapNfcTransport implements CtapTransport {
 
   static void _pruefeStatuswort(Uint8List antwort) {
     if (antwort.length < 2) {
-      throw const FormatException('Antwort zu kurz — kein Statuswort');
+      throw const FormatException('Antwort zu kurz, kein Statuswort');
     }
     final sw1 = antwort[antwort.length - 2];
     final sw2 = antwort[antwort.length - 1];

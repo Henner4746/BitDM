@@ -79,7 +79,7 @@ class BitdmAddress {
     for (var i = 0; i < checksumBytes; i++) {
       if (checksum[i] != expected[i]) {
         throw const InvalidAddressFormatException(
-            'Pruefsumme stimmt nicht — vertippt?');
+            'Pruefsumme stimmt nicht. Vertippt?');
       }
     }
     return Uint8List.fromList(key);

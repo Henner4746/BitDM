@@ -314,7 +314,7 @@ extension _Anhaenge on _HomeState {
       // lieber der Name als eine leere Blase.
       return Align(
           alignment: Alignment.centerLeft,
-          child: anhangKopf(m.text, 0, statt: '—'));
+          child: anhangKopf(m.text, 0, statt: '?'));
     }
 
     final f = st.fortschritt[m.id];
