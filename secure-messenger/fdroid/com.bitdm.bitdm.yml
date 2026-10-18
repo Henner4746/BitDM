@@ -32,7 +32,10 @@ Builds:
       - apt-get update
       - apt-get install -y openjdk-21-jdk-headless
       - update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
+      - apt-get install -y gcc libc6-dev protobuf-compiler
     output: build/app/outputs/flutter-apk/app-release.apk
+    srclibs:
+      - rustup@1.29.1
     rm:
       - secure-messenger/app/linux
       - secure-messenger/app/windows
@@ -53,6 +56,7 @@ Builds:
       - secure-messenger/app/.pub-cache
     build:
       - export PUB_CACHE=$(pwd)/.pub-cache
+      - bash ../fdroid/libsignal-quellbau.sh $$rustup$$
       - .flutter/bin/flutter build apk --release --target-platform android-arm,android-arm64
     ndk: r28c
 

@@ -1,0 +1,35 @@
+--- a/hook/build.dart
++++ b/hook/build.dart
+@@ -584,6 +584,32 @@
+ /// Returns the Uri to the local library if a host-matching build is found, null
+ /// otherwise.
+ Uri? _findLocalBuild(Uri packageRoot, OS targetOS, Architecture targetArch) {
++  // BitDM-Quellbau (secure-messenger/fdroid/libsignal-quellbau.sh): Android
++  // nimmt NUR die Bibliothek, die das Skript aus genau diesem rust/-Ordner
++  // gebaut hat. Fehlt sie, bricht der Bau ab. Heruntergeladen wird nie.
++  // Den Stempel `.crate-version` prueft der Aufrufer wie nach `make build`.
++  if (targetOS == OS.android) {
++    final triple = switch (targetArch) {
++      Architecture.arm64 => 'aarch64-linux-android',
++      Architecture.arm => 'armv7-linux-androideabi',
++      Architecture.x64 => 'x86_64-linux-android',
++      _ => throw HookException(
++        'BitDM-Quellbau: keine Android-Architektur $targetArch',
++      ),
++    };
++    final path = packageRoot.resolve(
++      'rust/target/$triple/release/${_getLibraryFileName(targetOS)}',
++    );
++    if (!File.fromUri(path).existsSync()) {
++      throw HookException(
++        'BitDM-Quellbau: ${path.toFilePath()} fehlt. Zuerst '
++        'secure-messenger/fdroid/libsignal-quellbau.sh laufen lassen; '
++        'dieser Hook laedt keine Binaerdatei herunter.',
++      );
++    }
++    return path;
++  }
++
+   if (targetOS != OS.current || targetArch != Architecture.current) {
+     return null;
+   }
