@@ -67,10 +67,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      # Wie im Server-Auftrag von ci.yml: Snyk liest die INSTALLIERTEN Pakete.
+      # Snyk liest die INSTALLIERTEN Pakete, darum dieselbe Fassung wie auf dem
+      # Server (3.10, siehe sonar-project.properties). Mit 3.12 fehlten
+      # exceptiongroup und tomli (nur < 3.11), und Snyk brach mit
+      # SNYK-OS-PYTHON-0013 ab (erster Lauf 18.10.2026).
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
       - name: libsodium fuer XEdDSA
         run: sudo apt-get update && sudo apt-get install -y libsodium23
       - name: Relay-Pakete installieren
@@ -79,13 +82,15 @@ jobs:
         with:
           snyk-version: v1.1308.1
 
+      # --skip-unresolved: colorama steht nur fuer Windows in requirements.txt
+      # (sys_platform == 'win32') und ist hier zu Recht nicht installiert.
       - name: Relay (Python) pruefen
         id: relay
         run: |
           set +e
           snyk test --file=secure-messenger/server/requirements.txt --package-manager=pip \
             --command=python --project-name=bitdm-relay --severity-threshold=high \
-            --sarif-file-output=snyk-relay.sarif
+            --skip-unresolved --sarif-file-output=snyk-relay.sarif
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           # 0 = nichts ab high, 1 = Luecke ab high, alles andere = Fehler beim Pruefen.
@@ -108,7 +113,7 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'schedule'
         run: |
           snyk monitor --file=secure-messenger/server/requirements.txt --package-manager=pip \
-            --command=python --project-name=bitdm-relay || true
+            --command=python --project-name=bitdm-relay --skip-unresolved || true
 
       - name: Relay-Ergebnis hochladen
         if: always() && hashFiles('snyk-relay.sarif') != ''

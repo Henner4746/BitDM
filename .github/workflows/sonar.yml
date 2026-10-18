@@ -65,6 +65,34 @@ jobs:
         working-directory: secure-messenger/app
         run: flutter pub get --enforce-lockfile
 
+      # VORHER KLAR SAGEN, WAS FEHLT. Beim ersten Lauf (18.10.2026) meldete der
+      # Scanner nur "403 Forbidden" beim Holen der Java-Laufzeit. Dieser Schritt
+      # prueft Token, Organisation und Projekt einzeln; das Token selbst taucht
+      # nirgends auf (GitHub schwaerzt es ohnehin).
+      - name: Zugang zu SonarQube Cloud pruefen
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          ORG=$(sed -n 's/^sonar.organization=//p' sonar-project.properties | tr -d '\r')
+          PROJ=$(sed -n 's/^sonar.projectKey=//p' sonar-project.properties | tr -d '\r')
+          api() { curl -s -u "$SONAR_TOKEN:" "https://sonarcloud.io/api/$1"; }
+          if ! api authentication/validate | grep -q '"valid":true'; then
+            echo "::error::SONAR_TOKEN wird von SonarQube Cloud nicht angenommen. Neu erzeugen unter My Account -> Security und mit 'gh secret set SONAR_TOKEN --repo Henner4746/BitDM' eintragen."
+            exit 1
+          fi
+          echo "Token: gueltig"
+          if ! api "organizations/search?organizations=$ORG" | grep -q "\"key\":\"$ORG\""; then
+            echo "::error::Organisation '$ORG' gibt es nicht oder das Token sieht sie nicht. Den Schluessel unter sonarcloud.io -> Organisation -> Information mit sonar-project.properties vergleichen."
+            exit 1
+          fi
+          echo "Organisation $ORG: vorhanden"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -u "$SONAR_TOKEN:" "https://sonarcloud.io/api/components/show?component=$PROJ")
+          if [ "$code" != "200" ]; then
+            echo "::error::Projekt '$PROJ' fehlt in SonarQube Cloud (HTTP $code). Dort '+ -> Analyze new project -> BitDM' mit 'With GitHub Actions' anlegen."
+            exit 1
+          fi
+          echo "Projekt $PROJ: vorhanden"
+
       # Ab v6 laeuft die Aktion nicht mehr in einem Docker-Container und sieht
       # damit die eben geholten Pakete (Sonar-Doku zu Dart).
       - uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
