@@ -22,7 +22,7 @@ dir zeigt, sind der öffentliche Teil davon.
 
 Das hat eine Folge, die man leicht überliest und kaum überschätzen kann:
 **kein Server kann dir den falschen Schlüssel unterschieben.** Er müsste dafür
-die Adresse ändern — und die Adresse hast du bereits. Es gibt kein Verzeichnis,
+die Adresse ändern, und die Adresse hast du bereits. Es gibt kein Verzeichnis,
 das man vergiften könnte, weil es kein Verzeichnis gibt.
 
 ```
@@ -45,7 +45,7 @@ anzuhängen. Der Nebeneffekt sind 24 statt 16 Bit Vertipper-Erkennung.
 ## Wie eine Nachricht reist
 
 Es gibt drei Wege, und welchen eine Nachricht nimmt, entscheidet genau eine
-Stelle — `app/lib/core/nah/wegwahl.dart`. Nie zwei Wege für dieselbe Nachricht:
+Stelle: `app/lib/core/nah/wegwahl.dart`. Nie zwei Wege für dieselbe Nachricht:
 das wären zwei Verschlüsselungen eines Textes und zwei Schlüsselketten
 nebeneinander im Double Ratchet.
 
@@ -89,7 +89,7 @@ Telefonnummer zu einem Schlüssel zugeordnet hat.
 
 **2 · Es geht auch ganz ohne Server.** Zwei Telefone, die nebeneinanderliegen,
 tauschen Nachrichten über Bluetooth LE aus. Auf zwei Geräten mit abgeschalteten
-mobilen Daten gemessen: **325 Byte in 1,35 Sekunden** — die eine Messung auf
+mobilen Daten gemessen: **325 Byte in 1,35 Sekunden**, die eine Messung auf
 dieser Seite, für die es kein Protokoll im Repository gibt. Die Funkstrecke
 darunter wurde auf denselben zwei Telefonen getrennt gemessen und ist
 aufgeschrieben: **120 ms bis der andere gefunden ist, 700 Byte in 202 ms** über
@@ -107,7 +107,7 @@ gemeinsames_Geheimnis = X25519( eigener privater Identitätsschlüssel, sein öf
 
 Wer das Geheimnis hat, erkennt seinen Kontakt. Wer es nicht hat, sieht sechs
 Byte Rauschen, die sich jede Viertelstunde ändern. Der eigene Schlüssel des
-Senders steckt in der Eingabe, Alice sendet also etwas anderes aus als Bob — ein
+Senders steckt in der Eingabe, Alice sendet also etwas anderes aus als Bob; ein
 mitgeschnittenes Leuchtfeuer lässt sich nicht abspielen, um die Gegenseite zu
 spielen. Beim Suchen werden drei Fenster geprüft und nicht eines, weil zwei
 Telefone niemals dieselbe Uhr haben und ein Gerät, das jede Viertelstunde für
@@ -122,7 +122,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash
 
 Ein ungelesenes Skript in eine Shell zu pipen ist eine Vertrauensfrage, und die
 richtige Antwort darauf ist Misstrauen. Lade es herunter, lies es, führe es dann
-aus — oder sieh dir erst jeden Schritt an, ohne dass etwas verändert wird:
+aus. Oder sieh dir erst jeden Schritt an, ohne dass etwas verändert wird:
 
 ```bash
 curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
@@ -136,13 +136,13 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 |---|---|---|
 | Signal-Protokoll, X3DH + Double Ratchet | läuft | `libsignal_protocol_dart` 0.8.2, eine Dart-Portierung aus der Gemeinschaft, **nicht** Signals eigene geprüfte Bibliothek |
 | Nachrichten über den Relay | läuft | Ende zu Ende über den laufenden Relay |
-| Nahbereich, ohne Netz | **in einer Richtung bewiesen** | 325 B / 1,35 s zwischen zwei Geräten, beide offline — die eine Angabe hier ohne Protokoll im Repository; unabhängig bezeugt von einem ESP32-Aufbau als fremdem Gerät |
+| Nahbereich, ohne Netz | **in einer Richtung bewiesen** | 325 B / 1,35 s zwischen zwei Geräten, beide offline (die eine Angabe hier ohne Protokoll im Repository); unabhängig bezeugt von einem ESP32-Aufbau als fremdem Gerät |
 | Nahbereich, zweite Richtung | **funktioniert** | 26.09.2026: ein Galaxy S25 Ultra im Modus *nur in der Nähe* schickte von sich aus Signal-verschlüsselte Nachrichten per Bluetooth 5.4 an einen PC mit dem echten BitDM-Kern; der PC entschlüsselte, antwortete per Bluetooth, Zustell- und Lesebestätigungen kamen ebenso zurück (`app/test_manuell/pc_kontakt_test.dart`, `tools/pc_kontakt/`) |
 | Schalter "Nur in der Nähe" | läuft | die App öffnet überhaupt keine Relay-Verbindung; `test/core/nur_nahbereich_test.dart`, `test/nah/schalter_test.dart`, `test/nah/schalter_echt_test.dart` |
 | Anhänge | läuft | eigenes verschlüsseltes Zwischenlager, nie über den Relay |
 | Aktualisierung über eine bestehende Installation | läuft | 1.5.0+11 → 1.5.1+12, Identität und Kontakte blieben erhalten |
-| Wiederherstellung auf einem neuen Gerät | läuft | 12 BIP39-Wörter holen Identität und Adresse zurück, nicht Kontakte und Verlauf — die kommen nur aus der verschlüsselten Sicherung |
-| Desktop-Programm | läuft, als weiteres Gerät | die Windows-Datei schließt sich mit denselben 12 Wörtern als weiteres Gerät derselben Adresse an und sieht ab dann alles Neue, aber keinen alten Verlauf — siehe [Bekannte Lücken](#bekannte-lücken) |
+| Wiederherstellung auf einem neuen Gerät | läuft | 12 BIP39-Wörter holen Identität und Adresse zurück, nicht Kontakte und Verlauf; die kommen nur aus der verschlüsselten Sicherung |
+| Desktop-Programm | läuft, als weiteres Gerät | die Windows-Datei schließt sich mit denselben 12 Wörtern als weiteres Gerät derselben Adresse an und sieht ab dann alles Neue, aber keinen alten Verlauf (siehe [Bekannte Lücken](#bekannte-lücken)) |
 | Unabhängige Sicherheitsprüfung | **keine** | — |
 
 Für den Nahbereichs-Beweis stand **absichtlich ein ESP32 auf der Gegenseite.**
@@ -159,7 +159,7 @@ Beide Seiten brauchen BLE 5.0.
 | Plattform | Zustand | Nahbereich über BLE | Aufwecken per Push | Angebotene Sperrfaktoren |
 |---|---|---|---|---|
 | **Android 9+** | veröffentlicht, signiertes APK | Android 12+ | UnifiedPush | App-Passwort, Fingerabdruck, Geräte-PIN, Hardware-Schlüssel |
-| **Windows x64** | veröffentlicht, unsignierter Installer und Zip | nein | nein — die Verbindung bleibt stattdessen offen | App-Passwort |
+| **Windows x64** | veröffentlicht, unsignierter Installer und Zip | nein | nein (die Verbindung bleibt stattdessen offen) | App-Passwort |
 | **Linux** | veröffentlicht, tar.gz; im Container unter Xvfb getestet, noch nicht auf einem echten Desktop | nein | nein | App-Passwort |
 | **Web** | läuft unter [bitdm.net/app](https://bitdm.net/app/), eingeschränkt | nein | nein | App-Passwort |
 
@@ -171,7 +171,7 @@ sprach auf einem PC von "der PIN, dem Muster oder dem Passwort dieses
 Telefons".
 
 
-**Funktionen neben dem Kern** — Antworten, Reaktionen, Bearbeiten, Für alle
+**Funktionen neben dem Kern:** Antworten, Reaktionen, Bearbeiten, Für alle
 löschen, Umfragen, Gruppen (bis 20), Sprachnachrichten (Android), geplante und
 angeheftete Nachrichten, Notiz an mich, Tipp-Anzeige, Suche, verschlüsselte
 Sicherung, Panik-Passwort. Was davon woher kommt, was bewusst fehlt und welche
@@ -202,7 +202,7 @@ apksigner verify --print-certs bitdm-1.9.1.apk
 ```
 
 Der erste Wert deckt nur diese eine Datei. Der zweite deckt jede künftige
-Fassung — Android nimmt eine Aktualisierung nur an, wenn sie denselben
+Fassung: Android nimmt eine Aktualisierung nur an, wenn sie denselben
 Signierschlüssel trägt. **Wenn dieser zweite Wert sich jemals ändert, ist es
 nicht mehr dieselbe App.**
 
@@ -211,15 +211,18 @@ darunter verweigert die App ihn mit einem klaren Grund, statt nach der
 Standortberechtigung zu fragen, die eine BLE-Suche dort sonst verlangt.
 
 **Updates von selbst:** [Obtainium](https://github.com/ImranR98/Obtainium) holt
-jede neue Fassung direkt aus den GitHub-Releases — dieselbe Datei wie oben, von
+jede neue Fassung direkt aus den GitHub-Releases, dieselbe Datei wie oben, von
 Android gegen denselben Signierschlüssel geprüft.
 [BitDM in Obtainium hinzufügen](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.bitdm.bitdm%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FHenner4746%2FBitDM%22%2C%22author%22%3A%22Henner4746%22%2C%22name%22%3A%22BitDM%22%7D) (der Link geht über Obtainiums
 eigene Weiterleitungsseite, weil GitHub `obtainium://`-Links entfernt; auf
 [bitdm.net](https://bitdm.net) öffnet der Knopf Obtainium direkt).
 
-**F-Droid:** Die Aufnahme ist beantragt
-([fdroiddata!52566](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566)) und wartet auf die Prüfung; F-Droids eigener Bau von
-1.9.1 ist bitgleich mit der APK oben. Google Play: nicht eingereicht.
+**F-Droid und Google Play:** In keinem der beiden offiziellen Kataloge. Du kannst
+stattdessen unser eigenes F-Droid-Verzeichnis hinzufügen (Adresse und
+Fingerabdruck auf [bitdm.net](https://bitdm.net/#download)); es liefert dieselbe
+APK. Gebaut wird sie trotzdem reproduzierbar mit F-Droids eigenen Werkzeugen
+(`fdroid build`, Workflow `.github/workflows/android-fdroid.yml`); F-Droids
+Testbau von 1.9.1 war bitgleich mit der APK oben.
 
 ### Windows
 
@@ -236,7 +239,7 @@ Installer [`bitdm-windows-setup-1.9.1.exe`](https://bitdm.net/bitdm-windows-setu
 SmartScreen wird davor warnen, und daran ist hier nichts zu ändern: das
 Signieren von Windows-Programmen braucht ein Authenticode-Zertifikat von einer
 kommerziellen CA, und der Android-Schlüssel ersetzt das nicht. Die Antwort ist
-dieselbe wie bei Play Protect — die Prüfsumme veröffentlichen, damit aus der
+dieselbe wie bei Play Protect: die Prüfsumme veröffentlichen, damit aus der
 Warnung etwas wird, das du nachprüfen kannst, statt etwas, das du glauben
 musst.
 
@@ -246,7 +249,7 @@ schließt sich deiner Identität als weiteres Gerät an: Sie sieht ab dann alles
 Neue, aber keinen alten Verlauf, und das Telefon bleibt angemeldet.
 
 Der Installer entsteht aus
-[`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss) — er
+[`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss). Er
 installiert nach `%LOCALAPPDATA%`, ohne Administratorrechte zu verlangen, und
 legt keinen Autostart-Eintrag an.
 
@@ -269,7 +272,7 @@ Auspacken und `./bitdm` starten. Gebraucht werden GTK 3, libsecret und
 dahinter ein entsperrter Schlüsselbund (GNOME Keyring oder ein anderer Secret
 Service).
 
-**Getestet am 17.10.2026 — in einem Debian-13-Container unter Xvfb, nicht auf
+**Getestet am 17.10.2026, in einem Debian-13-Container unter Xvfb, nicht auf
 einem echten Desktop.** Genau dieses Archiv (sha256 oben), mit entsperrtem
 GNOME Keyring: Es startet, legt eine Identität an, setzt ein App-Passwort,
 kommt nach einem Neustart gesperrt hoch, weist ein falsches Passwort ab, öffnet
@@ -282,21 +285,21 @@ Neustart.
 
 ### Web
 
-<https://bitdm.net/app/> — dieselbe App für den Browser übersetzt, ohne fremdes
+<https://bitdm.net/app/>: dieselbe App für den Browser übersetzt, ohne fremdes
 CDN ausgeliefert. Die Grenzen stehen unter [Bekannte Lücken](#bekannte-lücken).
 
 ---
 
-## Was es schützt — und was nicht
+## Was es schützt und was nicht
 
 Hier genau zu sein zählt mehr, als stark zu klingen.
 
 **Geschützt**
 
-- Der Inhalt von Nachrichten, gegen jeden einschließlich des Relay-Betreibers — Ende zu Ende, mit Vorwärtssicherheit
-- Das Unterschieben eines falschen Schlüssels durch einen Server — die Adresse *ist* der Schlüssel
-- Das Zuordnen von Verkehr im Nahbereich — wechselnde Leuchtfeuer statt Kennungen
-- Der Inhalt von Anhängen gegenüber dem Zwischenlager — es hält Chiffrat und sieht nie einen Schlüssel
+- Der Inhalt von Nachrichten, gegen jeden einschließlich des Relay-Betreibers: Ende zu Ende, mit Vorwärtssicherheit
+- Das Unterschieben eines falschen Schlüssels durch einen Server: Die Adresse *ist* der Schlüssel
+- Das Zuordnen von Verkehr im Nahbereich: wechselnde Leuchtfeuer statt Kennungen
+- Der Inhalt von Anhängen gegenüber dem Zwischenlager: Es hält Chiffrat und sieht nie einen Schlüssel
 
 **Nicht geschützt**
 
@@ -305,11 +308,11 @@ Hier genau zu sein zählt mehr, als stark zu klingen.
   sie senden. Ein eigener Relay löscht diese Spur nicht. Er ändert, wer sie
   hält: du statt uns, und dein Hoster sieht die Verbindungen weiterhin. Am
   Relay vorbei führt nur der Schalter
-  **Nur in der Nähe**: er öffnet überhaupt keine Relay-Verbindung — keine
-  Registrierung, kein Abfragen, kein Push-Endpunkt, kein Zwischenlager. Seine
+  **Nur in der Nähe**: er öffnet überhaupt keine Relay-Verbindung (keine
+  Registrierung, kein Abfragen, kein Push-Endpunkt, kein Zwischenlager). Seine
   Grenze gehört zum Entwurf: er verbietet den Server, er baut keinen zweiten
   Weg. Schalte ihn ohne Bluetooth ein, und Nachrichten bleiben in der
-  Warteschlange stehen. Er ersetzt auch den Flugmodus nicht — er spricht nur
+  Warteschlange stehen. Er ersetzt auch den Flugmodus nicht; er spricht nur
   für BitDM.
 - **Ein übernommenes Gerät.** Die Schlüssel liegen im Android-Schlüsselspeicher;
   Root oder eine bösartige Tastatur hebeln jeden Messenger aus, diesen
@@ -329,7 +332,7 @@ Hier genau zu sein zählt mehr, als stark zu klingen.
 Der Nahbereich hat **keine Anwesenheitsanzeige,** und zwar absichtlich: der
 Teil, der weiß, wer in Reichweite ist, gibt das nicht an die Oberfläche weiter,
 und eine Nachricht zeigt, wie sie gereist ist, nie wer in der Nähe war. Was es
-gibt, ist ein **Schalter je Kontakt** — du kannst für eine bestimmte Person
+gibt, ist ein **Schalter je Kontakt**: Du kannst für eine bestimmte Person
 unsichtbar werden. Aus heißt, dass an diesen Kontakt kein Leuchtfeuer geht *und*
 von ihm keines erwartet wird; beide Richtungen zusammen, weil die andere
 Regelung dich ihn nicht mehr finden ließe, ihm aber weiterhin zeigte, wo du
@@ -349,7 +352,7 @@ flutter build windows --release    # → build/windows/x64/runner/Release/
 ```
 
 Braucht Flutter mit Dart-SDK ^3.12.2 und JDK 17. Dein APK wird nicht Byte für
-Byte zur veröffentlichten Prüfsumme passen — es ist mit *deinem* Schlüssel
+Byte zur veröffentlichten Prüfsumme passen: Es ist mit *deinem* Schlüssel
 signiert, nicht mit unserem. Eine abweichende Prüfsumme ist hier normal.
 
 Die Windows-Ausgabe ist ein Verzeichnis und keine einzelne Datei. `bitdm.exe`
@@ -377,15 +380,15 @@ die Angriffe: Registrierung ohne Besitznachweis, falsche Signaturen,
 übergroße Umschläge, doppelte Zustellung.
 
 <details>
-<summary><strong>Zwei Fallen beim Bauen des Android-APK unter Windows</strong> — ein blockiertes <code>build/</code>-Verzeichnis und eine überschriebene <code>GeneratedPluginRegistrant.java</code></summary>
+<summary><strong>Zwei Fallen beim Bauen des Android-APK unter Windows</strong>: ein blockiertes <code>build/</code>-Verzeichnis und eine überschriebene <code>GeneratedPluginRegistrant.java</code></summary>
 
 Jede ist drei fehlgeschlagene Versuche wert, wenn man kalt hineinläuft.
 
-- `Unable to delete directory … mergeReleaseAssets` — ein Gradle-Daemon hält
+- `Unable to delete directory … mergeReleaseAssets`: Ein Gradle-Daemon hält
   Dateien fest. Abhilfe: `cd android && ./gradlew --stop`, dann `build/`
   löschen. **Nicht** wahllos Prozesse abschießen; `adb` stirbt mit ihnen und
   nimmt ein angeschlossenes Telefon mit.
-- `Package dev.flutter.plugins.integration_test does not exist` — ein früherer
+- `Package dev.flutter.plugins.integration_test does not exist`: Ein früherer
   Gerätetest hat `GeneratedPluginRegistrant.java` umgeschrieben. Nur
   `flutter clean` hilft; `flutter pub get` erzeugt dieselbe Datei erneut.
 
@@ -424,7 +427,7 @@ curl -fsSL https://raw.githubusercontent.com/Henner4746/BitDM/main/secure-messen
 > zwischen Instanzen. Zwei Leute an verschiedenen Relays können sich nicht
 > schreiben.
 
-Anhänge brauchen ein zweites, getrenntes Zwischenlager — richte den Relay ein
+Anhänge brauchen ein zweites, getrenntes Zwischenlager. Richte den Relay ein
 und vergiss das Lager, dann scheitern Anhänge mit einem Fehler, der wie ein
 Netzproblem aussieht. Siehe
 [`docs/ZWISCHENLAGER.md`](secure-messenger/docs/ZWISCHENLAGER.md).
@@ -458,7 +461,7 @@ PLAN.md                  Entwurfsprotokoll — stellenweise älter als der Code
 ```
 
 In `core/nah/` steckt das interessante Problem. Android gibt **jeder Rolle eine
-eigene Zufalls-BLE-Adresse** — eine Aussendung, eine zweite Aussendung und eine
+eigene Zufalls-BLE-Adresse**: Eine Aussendung, eine zweite Aussendung und eine
 ausgehende GATT-Verbindung sind für die Gegenseite drei verschiedene Adressen.
 Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
 
@@ -478,7 +481,7 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   echten Telefonen erprobt werden.
 - **Die Fernlöschung wirkt nur bei entsperrter, verbundener App.** Ein
   gesperrtes Telefon hat den Datenbankschlüssel nicht im Speicher und kann die
-  Anfragen nicht lesen — das ist die Sperre, die ihre Arbeit tut, und heißt: ein
+  Anfragen nicht lesen; das ist die Sperre, die ihre Arbeit tut, und heißt: ein
   beschlagnahmtes, gesperrtes Telefon wird nicht aus der Ferne gelöscht.
 - **Windows installiert je Benutzer** (ohne Adminrechte); jedes Programm unter
   demselben Benutzer könnte die Dateien ändern, und ohne Signatur prüft danach
@@ -487,7 +490,7 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   (29.07.2026) und Telefon↔PC in beide Richtungen (26.09.2026; der PC mit dem
   echten Kern und einer Windows-Bluetooth-Brücke). Zwei aktuelle Telefone
   gegeneinander sind seit 1.8.x nicht neu gemessen.
-- **Mehrere Geräte, aber kein Abmelden — auch nicht nach einem Diebstahl.**
+- **Mehrere Geräte, aber kein Abmelden, auch nicht nach einem Diebstahl.**
   Eine zweite Installation mit denselben 12 Wörtern *schließt sich der Adresse
   an*, sie übernimmt sie nicht: der Relay führt bis zu fünf Geräte je Adresse
   (`BITDM_GERAETE_MAX`), jedes mit eigenem Schlüsselbündel, und jede Nachricht
@@ -510,7 +513,7 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   den 12 Wörtern und Textnachrichten zwischen zwei Browsern gehen (headless
   gegen einen lokalen Relay geprüft). Die Datenbank liegt verschlüsselt in
   IndexedDB (SQLite3MultipleCiphers als WASM). Ohne App-Passwort liegt die
-  Identität nur im Arbeitsspeicher und ist beim Neuladen weg — mit Absicht,
+  Identität nur im Arbeitsspeicher und ist beim Neuladen weg. Mit Absicht,
   weil der Schlüsselspeicher des Browsers den Schlüssel direkt neben die Daten
   legen würde. Keine Anhänge, keine Sprachnachrichten, kein Nahfunk, kein Push,
   kein Screenshot-Schutz. Der Relay selbst schickt keine CORS-Kopfzeilen; das
@@ -526,21 +529,21 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
 - **Unter Windows und Linux öffnet der Anhangknopf kein Auswahlfenster.**
   Anhänge aussuchen und öffnen geht nur unter Android; am PC ist der Knopf
   trotzdem zu sehen.
-- **Die Windows-Dateien sind unsigniert** — Installer wie Zip.
+- **Die Windows-Dateien sind unsigniert**, Installer wie Zip.
 - **Gruppen mit Grenzen:** bis 20 Mitglieder, Verteilung über Einzelsitzungen
-  (keine Sender Keys — Begründung in `docs/FUNKTIONSVERGLEICH.md`).
-- **Nicht in Google Play; die Aufnahme bei F-Droid ist beantragt**
-  ([fdroiddata!52566](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566), in Prüfung).
+  (keine Sender Keys; Begründung in `docs/FUNKTIONSVERGLEICH.md`).
+- **Nicht in Google Play und nicht im offiziellen F-Droid-Katalog.** Das eigene
+  F-Droid-Verzeichnis auf bitdm.net liefert dieselbe APK.
 
 ---
 
 ## Lizenz
 
-**AGPL-3.0** — [LICENSE](LICENSE).
+**AGPL-3.0** ([LICENSE](LICENSE)).
 
 Absichtlich nicht die GPL. Die GPL greift beim *Verbreiten* eines Programms.
 Wer den Relay verändert und ihn nur betreibt, verbreitet nichts und müsste die
-Änderung nie veröffentlichen — und der Relay ist genau der Teil, der sieht, wer
+Änderung nie veröffentlichen. Und der Relay ist genau der Teil, der sieht, wer
 wann online ist. Die AGPL schließt diese Lücke, und das hält "betreib es selbst"
 durchsetzbar.
 

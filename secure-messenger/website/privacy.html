@@ -15,7 +15,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Datenschutz & Impressum — BitDM</title>
+<title>Datenschutz & Impressum | BitDM</title>
 <meta name="description" content="Datenschutzerklärung und Impressum für BitDM und diese Website.">
 <link rel="canonical" href="https://bitdm.net/privacy.html">
 <meta name="theme-color" content="#0b0c12">
@@ -182,9 +182,9 @@ footer a{color:var(--muted)}
         encrypted and unreadable to the server.</p>
     </div>
     <p class="de">Was der Server dennoch sieht, steht weiter unten unter
-      „Verarbeitung auf dem Server" — vollständig und ohne Beschönigung.</p>
+      „Verarbeitung auf dem Server", vollständig und ohne Beschönigung.</p>
     <p class="en">What the server does see is listed below under „Processing on
-      the server" — completely and without glossing over.</p>
+      the server", completely and without glossing over.</p>
   </section>
 
   <section id="impressum">
@@ -216,7 +216,7 @@ footer a{color:var(--muted)}
       </div>
       <div class="plate-row">
         <dt><span class="de">App</span><span class="en">App</span></dt>
-        <dd>BitDM — <code>com.bitdm.bitdm</code></dd>
+        <dd>BitDM (<code>com.bitdm.bitdm</code>)</dd>
       </div>
     </dl>
   </section>
@@ -224,7 +224,7 @@ footer a{color:var(--muted)}
   <section>
     <h2><span class="de">Was die App auf dem Gerät speichert</span><span class="en">What the app stores on the device</span></h2>
     <ul class="de">
-      <li>Die <strong>zwölf Wörter</strong> — genauer: die Zufallszahl dahinter.
+      <li>Die <strong>zwölf Wörter</strong>, genauer: die Zufallszahl dahinter.
         Aus ihr entsteht der private Schlüssel, nicht umgekehrt. Sie liegt im
         Schlüsselspeicher des Geräts oder, wenn eine App-Sperre eingerichtet ist,
         in einem mit AES-256-GCM verschlossenen Fach.</li>
@@ -237,7 +237,7 @@ footer a{color:var(--muted)}
         der App. Sie verschwinden mit der Nachricht, zu der sie gehören.</li>
     </ul>
     <ul class="en">
-      <li>The <strong>twelve words</strong> — more precisely, the random number
+      <li>The <strong>twelve words</strong>, more precisely the random number
         behind them. The private key is derived from it, not the other way round.
         It sits in the device keystore or, once an app lock is set up, in a
         compartment closed with AES-256-GCM.</li>
@@ -250,11 +250,11 @@ footer a{color:var(--muted)}
     </ul>
     <p class="de">Nichts davon verlässt das Gerät. Das automatische Android-Backup
       ist für BitDM <strong>abgeschaltet</strong>, damit dieser Bestand nicht in
-      eine Cloud-Sicherung gerät. Beim Deinstallieren wird alles gelöscht — ohne
+      eine Cloud-Sicherung gerät. Beim Deinstallieren wird alles gelöscht. Ohne
       die zwölf Wörter ist die Identität dann endgültig verloren.</p>
     <p class="en">None of this leaves the device. Android auto-backup is
       <strong>disabled</strong> for BitDM so that this data cannot end up in a
-      cloud backup. Uninstalling deletes everything — without the twelve words
+      cloud backup. Uninstalling deletes everything. Without the twelve words,
       the identity is then permanently lost.</p>
   </section>
 
@@ -273,8 +273,8 @@ footer a{color:var(--muted)}
       </div>
       <div class="plate-row">
         <dt><span class="de">Zeit &amp; Größe</span><span class="en">Time &amp; size</span></dt>
-        <dd><span class="de">Zeitpunkt der Zustellung und Länge des verschlüsselten Pakets. Die ist auf Vielfache von 256 Byte aufgerundet — die genaue Länge einer Nachricht sieht er also nicht.</span>
-            <span class="en">Time of delivery and length of the encrypted packet. That length is rounded up to multiples of 256 bytes — so it does not see the exact length of a message.</span></dd>
+        <dd><span class="de">Zeitpunkt der Zustellung und Länge des verschlüsselten Pakets. Die ist auf Vielfache von 256 Byte aufgerundet, die genaue Länge einer Nachricht sieht er also nicht.</span>
+            <span class="en">Time of delivery and length of the encrypted packet. That length is rounded up to multiples of 256 bytes, so it does not see the exact length of a message.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Schlüsselpakete</span><span class="en">Key bundles</span></dt>
@@ -288,8 +288,8 @@ footer a{color:var(--muted)}
       </div>
       <div class="plate-row">
         <dt><span class="de">Anhangstücke</span><span class="en">Attachment pieces</span></dt>
-        <dd><span class="de">Anhänge gehen <strong>nicht</strong> über den Relay, sondern liegen auf einem eigenen Rechner (dateien.bitdm.net) — verschlüsselt, in Stücken von 16 MiB, ohne Dateinamen und ohne Angabe, zu wem sie gehören. Der Schlüssel kommt dort nie vorbei. Höchstens 14 Tage; abgeholte Stücke werden sofort weggeworfen.</span>
-            <span class="en">Attachments do <strong>not</strong> go through the relay; they rest on a separate machine (dateien.bitdm.net) — encrypted, in 16 MiB pieces, without file names and without any indication of whom they belong to. The key never passes through there. At most 14 days; fetched pieces are discarded immediately.</span></dd>
+        <dd><span class="de">Anhänge gehen <strong>nicht</strong> über den Relay, sondern liegen auf einem eigenen Rechner (dateien.bitdm.net), verschlüsselt, in Stücken von 16 MiB, ohne Dateinamen und ohne Angabe, zu wem sie gehören. Der Schlüssel kommt dort nie vorbei. Höchstens 14 Tage; abgeholte Stücke werden sofort weggeworfen.</span>
+            <span class="en">Attachments do <strong>not</strong> go through the relay; they rest on a separate machine (dateien.bitdm.net), encrypted, in 16 MiB pieces, without file names and without any indication of whom they belong to. The key never passes through there. At most 14 days; fetched pieces are discarded immediately.</span></dd>
       </div>
       <div class="plate-row">
         <dt><span class="de">Verbindungsdaten</span><span class="en">Connection logs</span></dt>
@@ -301,13 +301,13 @@ footer a{color:var(--muted)}
       Metadaten. Ende-zu-Ende-Verschlüsselung schützt den Inhalt, nicht die
       Tatsache der Kommunikation. Wer daraus ableiten will, wer mit wem spricht,
       könnte das grundsätzlich tun. Wir sammeln so wenig wie möglich und
-      bewahren so kurz wie möglich auf — aber wir behaupten nicht, dass gar
+      bewahren so kurz wie möglich auf, aber wir behaupten nicht, dass gar
       nichts anfällt.</p>
     <p class="en"><strong>Honestly:</strong> these connection records are
       metadata. End-to-end encryption protects content, not the fact that
       communication happened. Anyone wanting to infer who talks to whom could in
       principle do so. We collect as little as possible and keep it as briefly as
-      possible — but we do not claim that nothing accrues.</p>
+      possible, but we do not claim that nothing accrues.</p>
     <p class="de">Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Erbringung des
       Dienstes) sowie lit. f (Betriebssicherheit).</p>
     <p class="en">Legal basis: Art. 6(1)(b) GDPR (providing the service) and
@@ -327,20 +327,20 @@ footer a{color:var(--muted)}
     <p class="de">Auf unserem Server fällt beim Aufruf ein Protokolleintrag an
       (Zeitpunkt, aufgerufene Datei), gespeichert für 7 Tage. Weil die Seite
       über Cloudflare ausgeliefert wird, sieht unser Server dabei
-      <strong>keine Besucher-IP-Adressen</strong> — er sieht nur Cloudflare.
+      <strong>keine Besucher-IP-Adressen</strong>; er sieht nur Cloudflare.
       Siehe den nächsten Abschnitt.</p>
     <p class="en">Loading the page produces a log entry on our server (time,
       requested file), kept for 7 days. Because the page is delivered through
-      Cloudflare, our server sees <strong>no visitor IP addresses</strong> — it
+      Cloudflare, our server sees <strong>no visitor IP addresses</strong>; it
       only sees Cloudflare. See the next section.</p>
     <p class="de">Trägst du im Benachrichtigungsfeld eine E-Mail-Adresse ein,
       öffnet sich dein Mailprogramm. Es gibt <strong>keine Empfängerliste auf
-      einem Server</strong> — deine Adresse liegt nur dann in einem Postfach,
+      einem Server</strong>: deine Adresse liegt nur dann in einem Postfach,
       wenn du die Mail selbst abschickst, und wird nach der Benachrichtigung
       gelöscht.</p>
     <p class="en">If you enter an email address in the notification field, your
       mail client opens. There is <strong>no recipient list on a
-      server</strong> — your address only sits in a mailbox if you send the mail
+      server</strong>: your address only sits in a mailbox if you send the mail
       yourself, and is deleted after the notification.</p>
   </section>
 
@@ -380,7 +380,7 @@ footer a{color:var(--muted)}
         <dt><span class="de">Relay-Server</span><span class="en">Relay server</span></dt>
         <dd><span class="de">Steht in Deutschland und läuft <strong>ohne</strong>
             Cloudflare oder ein anderes Zwischennetz. Das ist Absicht: ein
-            vorgeschalteter Dienst würde sehen, wer wann mit wem verbunden ist —
+            vorgeschalteter Dienst würde sehen, wer wann mit wem verbunden ist,
             also genau die Metadaten, die wir so klein wie möglich halten.</span>
           <span class="en">Located in Germany and runs <strong>without</strong>
             Cloudflare or any other intermediary. That is deliberate: an
@@ -399,13 +399,13 @@ footer a{color:var(--muted)}
       erasure, restriction, data portability and objection, plus the right to
       lodge a complaint with a supervisory authority.</p>
     <p class="de"><strong>Praktischer Hinweis:</strong> Wir können dich nicht
-      identifizieren. Es gibt kein Konto und keinen Namen — nur öffentliche
+      identifizieren. Es gibt kein Konto und keinen Namen, nur öffentliche
       Schlüssel. Eine Auskunft zu „deinen" Daten setzt deshalb voraus, dass du
       nachweist, über den privaten Schlüssel zu einer Adresse zu verfügen.
       Deinstallieren löscht alle lokalen Daten sofort; serverseitig verfällt
       alles binnen 14 Tagen von selbst.</p>
     <p class="en"><strong>Practical note:</strong> we cannot identify you. There
-      is no account and no name — only public keys. Any request about „your" data
+      is no account and no name, only public keys. Any request about „your" data
       therefore requires you to prove control of the private key for an address.
       Uninstalling deletes all local data immediately; on the server everything
       expires by itself within 14 days.</p>
@@ -433,10 +433,10 @@ footer a{color:var(--muted)}
 
 <footer class="wrap">
   <p>
-    <span class="de">BitDM ist quelloffen unter AGPL-3.0 —
+    <span class="de">BitDM ist quelloffen unter AGPL-3.0:
       <a href="https://github.com/Henner4746/BitDM" rel="noopener">Quellcode auf GitHub</a>.
       Google Play und das Google-Play-Logo sind Marken von Google LLC.</span>
-    <span class="en">BitDM is open source under AGPL-3.0 —
+    <span class="en">BitDM is open source under AGPL-3.0:
       <a href="https://github.com/Henner4746/BitDM" rel="noopener">source on GitHub</a>.
       Google Play and the Google Play logo are trademarks of Google LLC.</span>
   </p>

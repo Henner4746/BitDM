@@ -22,7 +22,7 @@ public half of it.
 
 That has a consequence which is easy to miss and hard to overstate:
 **no server can hand you the wrong key.** To do that it would have to change
-the address — and you already have the address. There is no directory to
+the address, and you already have the address. There is no directory to
 poison, because there is no directory.
 
 ```
@@ -44,7 +44,7 @@ side effect is 24 bits of typo detection instead of 16.
 ## How a message travels
 
 There are three paths, and which one a message takes is decided in exactly one
-place — `app/lib/core/nah/wegwahl.dart`. Never two paths for the same message:
+place: `app/lib/core/nah/wegwahl.dart`. Never two paths for the same message:
 that would be two encryptions of one text, and two key chains side by side in
 the Double Ratchet.
 
@@ -86,7 +86,7 @@ that a server matched a phone number to a key.
 
 **2 · It works with no server at all.** Two phones next to each other exchange
 messages over Bluetooth LE. Measured on two devices with mobile data switched
-off: **325 bytes in 1.35 seconds** — the one measurement on this page for which
+off: **325 bytes in 1.35 seconds**, the one measurement on this page for which
 no log exists in the repository. The radio underneath was measured separately on
 the same two phones and is written down: **120 ms to find the peer, 700 bytes in
 202 ms** over GATT, and no system dialog at any point
@@ -103,7 +103,7 @@ shared_secret = X25519( own_private_identity, their_public_identity )
 
 Hold the secret and you recognise your contact. Don't, and you see six bytes of
 noise that change every quarter hour. The sender's own key is inside the input,
-so what Alice emits is not what Bob emits — a recorded beacon cannot be replayed
+so what Alice emits is not what Bob emits; a recorded beacon cannot be replayed
 to impersonate the other side. Three windows are checked when scanning, not
 one, because two phones never share a clock and a device that vanishes for a
 minute every quarter hour arrives at the user as "it works sometimes".
@@ -116,7 +116,7 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash
 ```
 
 Piping an unread script into a shell is a question of trust, and the right
-answer to it is suspicion. Download it, read it, then run it — or see every
+answer to it is suspicion. Download it, read it, then run it. Or see every
 step first without changing anything:
 
 ```bash
@@ -131,13 +131,13 @@ curl -fsSL https://bitdm.net/install.sh | sudo bash -s -- --dry-run
 |---|---|---|
 | Signal protocol, X3DH + Double Ratchet | working | `libsignal_protocol_dart` 0.8.2, a community Dart port, **not** Signal's own audited library |
 | Messages over the relay | working | end-to-end over the live relay |
-| Nearby transport, no network | **proven one direction** | 325 B / 1.35 s between two devices, both offline — the one figure here with no log in the repository; independently witnessed by an ESP32 rig acting as a foreign device |
+| Nearby transport, no network | **proven one direction** | 325 B / 1.35 s between two devices, both offline (the one figure here with no log in the repository); independently witnessed by an ESP32 rig acting as a foreign device |
 | Nearby, second direction | **working** | 26.09.2026: a Galaxy S25 Ultra in *nearby-only* mode sent Signal-encrypted messages on its own to a PC running the real BitDM core over Bluetooth 5.4; the PC decrypted, replied over Bluetooth, and delivery and read receipts came back the same way (`app/test_manuell/pc_kontakt_test.dart`, `tools/pc_kontakt/`) |
 | Nearby-only switch | working | the app opens no relay connection at all; `test/core/nur_nahbereich_test.dart`, `test/nah/schalter_test.dart`, `test/nah/schalter_echt_test.dart` |
 | Attachments | working | separate encrypted blob store, never through the relay |
 | Update over an existing install | working | 1.5.0+11 → 1.5.1+12, identity and contacts survived |
-| Recovery on a new device | working | 12 BIP39 words restore identity and address, not contacts or message history — those only come back from the encrypted backup |
-| Desktop client | runs, as an additional device | the Windows binary joins with the same 12 words as another device of the same address and sees everything new from then on, but no old history — see [Known gaps](#known-gaps) |
+| Recovery on a new device | working | 12 BIP39 words restore identity and address, not contacts or message history; those only come back from the encrypted backup |
+| Desktop client | runs, as an additional device | the Windows binary joins with the same 12 words as another device of the same address and sees everything new from then on, but no old history (see [Known gaps](#known-gaps)) |
 | Independent security audit | **none** | — |
 
 The nearby proof used an **ESP32 as the counterpart on purpose.** Two BitDM
@@ -152,7 +152,7 @@ Along the way that rig also measured something the specs do not make obvious:
 | Platform | State | Nearby over BLE | Push wake-up | Lock factors offered |
 |---|---|---|---|---|
 | **Android 9+** | released, signed APK | Android 12+ | UnifiedPush | app password, fingerprint, device PIN, hardware key |
-| **Windows x64** | released, unsigned installer and zip | no | no — the connection stays open instead | app password |
+| **Windows x64** | released, unsigned installer and zip | no | no (the connection stays open instead) | app password |
 | **Linux** | released, tar.gz; tested in a container under Xvfb, not yet on a real desktop | no | no | app password |
 | **Web** | runs at [bitdm.net/app](https://bitdm.net/app/), limited | no | no | app password |
 
@@ -163,7 +163,7 @@ could not work, and one of them said "the PIN, pattern or password of this
 phone" on a PC.
 
 
-**Features beyond the core** — replies, reactions, edits, delete for everyone,
+**Features beyond the core:** replies, reactions, edits, delete for everyone,
 polls, groups (up to 20), voice messages (Android), scheduled and pinned
 messages, note to self, typing indicator, search, encrypted backup, panic
 password. Where each comes from, what is deliberately missing and the known
@@ -195,7 +195,7 @@ apksigner verify --print-certs bitdm-1.9.1.apk
 ```
 
 The first value covers only this file. The second covers every future
-version — Android accepts an update only if it carries the same signing key.
+version: Android accepts an update only if it carries the same signing key.
 **If that second value ever changes, it is no longer the same app.**
 
 Requires **Android 9 or newer.** Nearby mode needs **Android 12**; below that
@@ -203,13 +203,15 @@ the app refuses it with a plain reason instead of asking for the location
 permission a BLE scan would otherwise require.
 
 **Automatic updates:** [Obtainium](https://github.com/ImranR98/Obtainium)
-fetches every new version straight from the GitHub releases — the same file as
+fetches every new version straight from the GitHub releases, the same file as
 above, checked by Android against the same signing key.
 [Add BitDM to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.bitdm.bitdm%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FHenner4746%2FBitDM%22%2C%22author%22%3A%22Henner4746%22%2C%22name%22%3A%22BitDM%22%7D) (the link goes through Obtainium's own
 redirect page, because GitHub strips `obtainium://` links; on
 [bitdm.net](https://bitdm.net) the button opens Obtainium directly).
 
-**F-Droid and Google Play:** BitDM is in neither. The APK above is still built
+**F-Droid and Google Play:** BitDM is in neither official catalogue. You can add
+our own F-Droid repository instead (address and fingerprint on
+[bitdm.net](https://bitdm.net/#download)); it serves the same APK. That APK is still built
 reproducibly with F-Droid's own tooling (`fdroid build`, workflow
 `.github/workflows/android-fdroid.yml`); F-Droid's test build of 1.9.1 came out
 bit-identical to it.
@@ -228,7 +230,7 @@ Installer [`bitdm-windows-setup-1.9.1.exe`](https://bitdm.net/bitdm-windows-setu
 
 SmartScreen will warn about it, and that cannot be fixed here: Windows code
 signing needs an Authenticode certificate from a commercial CA, and the Android
-key is no substitute. The answer is the same one as for Play Protect — publish
+key is no substitute. The answer is the same one as for Play Protect: publish
 the hash, so the warning becomes something you can check rather than something
 you have to believe.
 
@@ -238,7 +240,7 @@ it sees everything new from then on, but no old history, and the phone stays
 signed in.
 
 The installer comes from
-[`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss) — it installs
+[`app/windows/bitdm.iss`](secure-messenger/app/windows/bitdm.iss). It installs
 into `%LOCALAPPDATA%` without asking for admin rights and adds no autostart
 entry.
 
@@ -260,7 +262,7 @@ checks that the file came out of that workflow for the tag `v1.9.1`.
 Unpack and run `./bitdm`. It needs GTK 3, libsecret and an unlocked keyring
 behind it (GNOME Keyring or another Secret Service).
 
-**Tested on 17.10.2026 — in a Debian 13 container under Xvfb, not on a real
+**Tested on 17.10.2026, in a Debian 13 container under Xvfb, not on a real
 desktop.** This archive (sha256 above), with an unlocked GNOME Keyring: it
 starts, creates an identity, sets an app password, comes back locked after a
 restart, rejects a wrong password, opens with the right one and still shows a
@@ -272,21 +274,21 @@ restart.
 
 ### Web
 
-<https://bitdm.net/app/> — the same app compiled for the browser, served
+<https://bitdm.net/app/>: the same app compiled for the browser, served
 without any third-party CDN. See the limits under [Known gaps](#known-gaps).
 
 ---
 
-## What it protects — and what it does not
+## What it protects, and what it does not
 
 Being specific here matters more than sounding strong.
 
 **Protected**
 
-- Message content, against anyone including the relay operator — end-to-end, forward-secret
-- Key substitution by a server — the address *is* the key
-- Traffic correlation in nearby mode — rotating beacons, not identifiers
-- Attachment content against the blob store — it holds ciphertext and never sees a key
+- Message content, against anyone including the relay operator: end-to-end, forward-secret
+- Key substitution by a server: the address *is* the key
+- Traffic correlation in nearby mode: rotating beacons, not identifiers
+- Attachment content against the blob store: it holds ciphertext and never sees a key
 
 **Not protected**
 
@@ -295,10 +297,10 @@ Being specific here matters more than sounding strong.
   Running your own relay does not remove that record. It changes who holds it:
   you instead of us, and your hosting provider still sees the connections. The
   one way around the relay is the **nearby-only** switch, which opens no relay
-  connection at all — no registration, no polling, no push endpoint, no blob
+  connection at all: no registration, no polling, no push endpoint, no blob
   store. Its limit is part of the design: it forbids the server, it does not
   build a second path. Turn it on without Bluetooth and messages stay queued.
-  It is also not a substitute for airplane mode — it speaks for BitDM only.
+  It is also not a substitute for airplane mode; it speaks for BitDM only.
 - **A compromised device.** Keys live in the Android keystore; root or a
   malicious keyboard defeats any messenger, including this one.
 - **The fact that you use BitDM.** BLE advertising is visible as *some* device
@@ -313,8 +315,8 @@ Being specific here matters more than sounding strong.
 
 Nearby mode has **no presence display,** deliberately: the component that knows
 who is in range does not pass that on to the interface, and a message shows how
-it travelled, never who was around. What does exist is a **per-contact switch**
-— you can go invisible to one person in particular. Off means no beacon is sent
+it travelled, never who was around. What does exist is a **per-contact switch**:
+you can go invisible to one person in particular. Off means no beacon is sent
 to that contact *and* none is expected from them; both directions together,
 because the other arrangement would stop you finding them while still showing
 them where you are. Messages to that contact then always take the relay.
@@ -333,7 +335,7 @@ flutter build windows --release    # → build/windows/x64/runner/Release/
 ```
 
 Needs Flutter with Dart SDK ^3.12.2 and JDK 17. Your APK will not match the
-published hash byte for byte — it will be signed with *your* key, not ours. A
+published hash byte for byte: it will be signed with *your* key, not ours. A
 differing hash is normal here.
 
 The Windows output is a directory, not a single file. `bitdm.exe` is 90 KiB and
@@ -359,15 +361,15 @@ registration without proof of possession, wrong signatures, overwriting someone
 else's bundle, prekey drain, oversized envelopes, double delivery.
 
 <details>
-<summary><strong>Two traps when building the Android APK on Windows</strong> — a locked <code>build/</code> directory, and a rewritten <code>GeneratedPluginRegistrant.java</code></summary>
+<summary><strong>Two traps when building the Android APK on Windows</strong>: a locked <code>build/</code> directory, and a rewritten <code>GeneratedPluginRegistrant.java</code></summary>
 
 Each one is worth three failed attempts if you hit it cold.
 
-- `Unable to delete directory … mergeReleaseAssets` — a Gradle daemon is
+- `Unable to delete directory … mergeReleaseAssets`: a Gradle daemon is
   holding files. Fix: `cd android && ./gradlew --stop`, then delete `build/`.
   **Do not** kill processes wholesale; `adb` dies with them and takes a
   connected phone with it.
-- `Package dev.flutter.plugins.integration_test does not exist` — a previous
+- `Package dev.flutter.plugins.integration_test does not exist`: a previous
   device test rewrote `GeneratedPluginRegistrant.java`. Only `flutter clean`
   helps; `flutter pub get` regenerates the same file.
 
@@ -404,7 +406,7 @@ curl -fsSL https://raw.githubusercontent.com/Henner4746/BitDM/main/secure-messen
 > **Everyone involved needs the same relay.** There is no federation between
 > instances. Two people on different relays cannot message each other.
 
-Attachments need a second, separate blob store — set up the relay and forget
+Attachments need a second, separate blob store. Set up the relay and forget
 the store and attachments fail with an error that looks like a network
 problem. See [`docs/ZWISCHENLAGER.md`](secure-messenger/docs/ZWISCHENLAGER.md).
 
@@ -437,7 +439,7 @@ PLAN.md                  design log — older than the code in places
 ```
 
 `core/nah/` is where the interesting problem lives. Android hands **each role
-its own random BLE address** — advertising, a second advertiser, and an
+its own random BLE address**: advertising, a second advertiser, and an
 outgoing GATT connection are three different addresses as far as the peer is
 concerned. Two separate bugs in this project had that single root cause.
 
@@ -455,7 +457,7 @@ concerned. Two separate bugs in this project had that single root cause.
   fixed service identifiers; the content is encrypted, but presence is visible
   to any scanner. Rotating identifiers need testing on real phones first.
 - **Remote wipe only acts on an unlocked, connected app.** A locked phone has no
-  database key in memory and cannot read the requests — that is the lock doing
+  database key in memory and cannot read the requests; that is the lock doing
   its job, and it means a seized, locked phone is not wiped remotely.
 - **Windows installs per user** (no admin rights), so any program running as
   the same user could modify the files; together with the missing signature
@@ -464,7 +466,7 @@ concerned. Two separate bugs in this project had that single root cause.
   and phone↔PC in both directions (26.09.2026, the PC running the real core with
   a Windows Bluetooth bridge). Two current phones against each other have not
   been re-measured since 1.8.x.
-- **Several devices, but no way to log one out — not even after a theft.** A
+- **Several devices, but no way to log one out, not even after a theft.** A
   second install with the same 12 words *joins the address* rather than taking
   it over: the relay keeps up to five devices per address
   (`BITDM_GERAETE_MAX`), each with its own key bundle, and every message goes to
@@ -486,7 +488,7 @@ concerned. Two separate bugs in this project had that single root cause.
   messages between two browsers work (tested headless against a local relay).
   The database sits encrypted in IndexedDB (SQLite3MultipleCiphers as WASM).
   Without an app password the identity lives in memory only and is gone on
-  reload — on purpose, because the browser's key store would keep the key right
+  reload. On purpose, because the browser's key store would keep the key right
   next to the data. No attachments, voice messages, nearby, push or screenshot
   protection. The relay itself sends no CORS headers; nginx in front of
   relay.bitdm.net allows exactly the origin `https://bitdm.net`, so a web build
@@ -500,20 +502,21 @@ concerned. Two separate bugs in this project had that single root cause.
 - **On Windows and Linux the attach button opens no file dialog.** Choosing and
   opening attachments works on Android only; the desktop shows the button
   anyway.
-- **The Windows binaries are unsigned** — installer and zip alike.
+- **The Windows binaries are unsigned**, installer and zip alike.
 - **Groups are limited:** up to 20 members, fan-out over one-to-one sessions
-  (no sender keys — reasoning in `docs/FUNKTIONSVERGLEICH.md`).
-- **Not in Google Play or F-Droid.**
+  (no sender keys; reasoning in `docs/FUNKTIONSVERGLEICH.md`).
+- **Not in Google Play or the official F-Droid catalogue.** Our own F-Droid
+  repository on bitdm.net serves the same APK.
 
 ---
 
 ## License
 
-**AGPL-3.0** — [LICENSE](LICENSE).
+**AGPL-3.0** ([LICENSE](LICENSE)).
 
 Not GPL, deliberately. The GPL triggers on *distributing* a program. Someone
 who modifies the relay and merely operates it distributes nothing and would
-never have to publish the change — and the relay is precisely the component
+never have to publish the change. And the relay is precisely the component
 that sees who is online when. The AGPL closes that gap, which is what keeps
 "run it yourself" enforceable.
 
