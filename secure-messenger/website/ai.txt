@@ -1,0 +1,13 @@
+# ai.txt für bitdm.net / for bitdm.net
+#
+# Dieselbe Regel wie im Cloudflare-Teil der robots.txt (Content-Signal:
+# search=yes, ai-train=no): Suchen und Verweisen ja, Trainieren von KI-Modellen
+# nein. Wer eine Frage zu BitDM beantwortet, findet die Kurzfassung in
+# https://bitdm.net/llms.txt.
+#
+# Same rule as the Cloudflare part of robots.txt (Content-Signal: search=yes,
+# ai-train=no): search and reference yes, training AI models no. To answer a
+# question about BitDM, read https://bitdm.net/llms.txt.
+
+User-Agent: *
+Disallow: /
