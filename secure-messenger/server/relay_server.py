@@ -3317,6 +3317,21 @@ def push_endpunkt_gueltig(url: str) -> bool:
     return re.fullmatch(r"/up[A-Za-z0-9_-]+", teile.path) is not None
 
 
+# Laufende Anstoesse. asyncio haelt eine mit create_task gestartete Aufgabe
+# nur SCHWACH fest; ohne einen eigenen Verweis darf der Speicherbereiniger
+# sie mittendrin wegraeumen, und der Anstoss ginge still verloren (Hinweis in
+# der Python-Doku zu create_task; von SonarQube Cloud am 18.10.2026 als
+# python:S7502 gemeldet). Jede Aufgabe traegt sich hier ein und beim Ende
+# wieder aus.
+_laufende_anstoesse: set[asyncio.Task] = set()
+
+
+def stosse_im_hintergrund_an(user_id: str, device_id: int) -> None:
+    aufgabe = asyncio.create_task(stosse_an(user_id, device_id))
+    _laufende_anstoesse.add(aufgabe)
+    aufgabe.add_done_callback(_laufende_anstoesse.discard)
+
+
 async def stosse_an(user_id: str, device_id: int) -> None:
     # JE GERAET: der Anstoss-Endpunkt steht in der Geraetezeile und ist damit
     # von selbst geraetegenau. Ein Anstoss je gepufferter Zeile heisst bei
@@ -4267,7 +4282,7 @@ async def ws_endpoint(ws: WebSocket):
             #
             # NICHT ABWARTEN: der Absender hat sein ack schon. Wenn der
             # Push-Server hakt, darf das seine Verbindung nicht aufhalten.
-            asyncio.create_task(stosse_an(to, ziel_geraet))
+            stosse_im_hintergrund_an(to, ziel_geraet)
 
     except (WebSocketDisconnect, json.JSONDecodeError, RuntimeError):
         pass

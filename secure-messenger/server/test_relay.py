@@ -1508,6 +1508,32 @@ def test_toter_push_server_wird_bemerkt(relay, klage_frisch, monkeypatch, capsys
     assert "ConnectError" in ausgabe
 
 
+def test_anstoss_im_hintergrund_bleibt_festgehalten_bis_er_fertig_ist(relay, monkeypatch):
+    """SonarQube Cloud, python:S7502 (18.10.2026): der Anstoss lief als
+    nacktes asyncio.create_task ohne Verweis und durfte vom
+    Speicherbereiniger mittendrin weggeraeumt werden."""
+    import gc
+
+    rs = relay
+    angekommen = []
+
+    async def langsamer_anstoss(user_id, device_id):
+        await asyncio.sleep(0.05)
+        angekommen.append((user_id, device_id))
+
+    monkeypatch.setattr(rs, "stosse_an", langsamer_anstoss)
+
+    async def lauf():
+        rs.stosse_im_hintergrund_an("empfaenger", 3)
+        assert len(rs._laufende_anstoesse) == 1, "Aufgabe nicht festgehalten"
+        gc.collect()
+        await asyncio.sleep(0.2)
+        assert not rs._laufende_anstoesse, "fertige Aufgabe nicht ausgetragen"
+
+    asyncio.run(lauf())
+    assert angekommen == [("empfaenger", 3)]
+
+
 # --------------------------------------------------------------------------- #
 #  Befund E: gepufferte Nachrichten wurden geloescht, sobald sie im Socket
 #            standen — der Client bestaetigte nie
