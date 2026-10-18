@@ -99,6 +99,7 @@ extension _Thema on _HomeState {
     if (_abfolgeImFenster) size *= _schriftFaktor;
     return TextStyle(
       fontFamily: family,
+      fontFamilyFallback: symbolSchriften,
       fontVariations: [FontVariation('wght', weight.value.toDouble())],
       fontSize: size,
       fontWeight: weight,
