@@ -19,6 +19,24 @@ class Relay {
 
   Uri get uri => Uri.parse('http://127.0.0.1:$port');
 
+  /// Was jeder Test-Relay anders hat als der ausgelieferte.
+  ///
+  /// EIN GROSSER EIMER FUER DIE HERKUNFTSBREMSE. Im Test teilen sich alle
+  /// simulierten Nutzer einer Datei die Herkunft 127.0.0.1 und damit je
+  /// Familie einen Eimer (relay_server.py, herkunft_ok); im Betrieb hat jeder
+  /// Nutzer seine eigene. Mit den ausgelieferten 120 Marken und 2 je Sekunde
+  /// blieben am 18.10.2026 zwei_geraete_test.dart noch 7 Marken bei /prekey
+  /// und /geraeteliste (174 Abrufe in 31 s), real_core_test.dart und
+  /// nachrichten_funktionen_test.dart noch 9 bei /register (25 und 28
+  /// Anmeldungen zu je 5). Der naechste Fall waere mit 429 rot geworden — ein
+  /// Fehler der Testanordnung, nicht der App. Keine Datei brauchte mehr als
+  /// 174 Marken je Familie; 5000 reichen auch ohne Nachfuellen.
+  ///
+  /// Die Bremse selbst prueft test_relay.py mit den ausgelieferten Werten.
+  /// Ein App-Test, der sie am echten Relay braucht, setzt BITDM_RATE_BURST
+  /// ueber [umgebung] zurueck.
+  static const _testvorgaben = {'BITDM_RATE_BURST': '5000'};
+
   /// Startet den Relay. Gibt null zurueck, wenn Python oder die
   /// Abhaengigkeiten fehlen — der Aufrufer soll das laut sagen, statt
   /// stillschweigend nichts zu pruefen.
@@ -27,11 +45,12 @@ class Relay {
   /// Marken-Anfrage mit "Zwischenlager nicht eingerichtet" ab — richtig so,
   /// aber fuer einen Anhang-Test muss es dastehen.
   ///
-  /// [umgebung] reicht weitere Umgebungsvariablen durch. Gebraucht fuer
-  /// BITDM_GERAETE_MAX: die Obergrenze steht sonst bei 5, und ein Test, der
-  /// sie erreicht, muesste sechs vollstaendige Clients aufsetzen — sechs
-  /// Datenbanken, sechs Identitaeten, sechs Anmeldungen fuer eine Zahl, die
-  /// der Betreiber ohnehin per Umgebungsvariable setzt (relay_server.py:186).
+  /// [umgebung] reicht weitere Umgebungsvariablen durch und geht vor
+  /// [_testvorgaben]. Gebraucht fuer BITDM_GERAETE_MAX: die Obergrenze steht
+  /// sonst bei 5, und ein Test, der sie erreicht, muesste sechs vollstaendige
+  /// Clients aufsetzen — sechs Datenbanken, sechs Identitaeten, sechs
+  /// Anmeldungen fuer eine Zahl, die der Betreiber ohnehin per
+  /// Umgebungsvariable setzt (relay_server.py:186).
   static Future<Relay?> starten({
     String? blobGeheimnis,
     Map<String, String>? umgebung,
@@ -54,6 +73,7 @@ class Relay {
         ],
         environment: {
           'BITDM_DB': '${tmp.path}/relay.db',
+          ..._testvorgaben,
           if (blobGeheimnis != null) 'BITDM_BLOB_SECRET': blobGeheimnis,
           ...?umgebung,
         },
