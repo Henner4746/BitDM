@@ -1,0 +1,73 @@
+# SonarQube Cloud: statische Analyse von Dart (App), Kotlin (Android),
+# Python (Relay), JavaScript/HTML (Web-Huelle, Seite) und Shell (Betrieb).
+# Seit 18.10.2026. Ergebnis unter https://sonarcloud.io/project/overview?id=Henner4746_BitDM
+#
+# Braucht das Repo-Secret SONAR_TOKEN (Anleitung: secure-messenger/docs/SONAR-SNYK.md).
+# Ohne Token, etwa bei einem Pull-Request aus einem fremden Fork, wird die
+# Analyse uebersprungen statt rot.
+#
+# In SonarQube Cloud MUSS die "Automatic Analysis" aus sein, sonst lehnt der
+# Server diesen Lauf ab ("CI analysis while Automatic Analysis is enabled").
+name: SonarQube Cloud
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  token:
+    runs-on: ubuntu-latest
+    outputs:
+      da: ${{ steps.pruefen.outputs.da }}
+    steps:
+      - id: pruefen
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "da=ja" >> "$GITHUB_OUTPUT"
+          else
+            echo "da=nein" >> "$GITHUB_OUTPUT"
+            echo "::notice::SONAR_TOKEN fehlt, Analyse uebersprungen (siehe secure-messenger/docs/SONAR-SNYK.md)."
+          fi
+
+  analyse:
+    needs: token
+    if: needs.token.outputs.da == 'ja'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Die ganze Geschichte: Sonar ordnet Befunde ueber git blame neuem
+          # oder altem Code zu und kommentiert Pull-Requests nur mit ihr.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Sonar verlangt fuer Dart die aufgeloesten Pakete (pubspec.lock), sonst
+      # fehlen Typen und die Befunde werden unvollstaendig. Dieselbe
+      # Flutter-Fassung wie in ci.yml und im Submodul secure-messenger/app/.flutter.
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: '3.44.8'
+          channel: stable
+          cache: true
+      - name: Pakete holen
+        working-directory: secure-messenger/app
+        run: flutter pub get --enforce-lockfile
+
+      # Ab v6 laeuft die Aktion nicht mehr in einem Docker-Container und sieht
+      # damit die eben geholten Pakete (Sonar-Doku zu Dart).
+      - uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io

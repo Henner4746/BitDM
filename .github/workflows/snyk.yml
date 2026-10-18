@@ -1,0 +1,130 @@
+# Snyk: bekannte Luecken in Abhaengigkeiten und statische Codepruefung.
+# Seit 18.10.2026. Ergebnisse in https://app.snyk.io und unter
+# Security -> Code scanning dieses Repos.
+#
+# Was Snyk bei BitDM pruefen kann (Stand Oktober 2026, Snyk-Doku):
+#   Relay (Python)    snyk test gegen requirements.txt       -> voll
+#   App (Dart, pub)   snyk sbom test gegen eine Stueckliste  -> "experimental"
+#   Code              snyk code test: Python, Kotlin, JS     -> Dart nur im
+#                     Enterprise-Plan, faellt hier also weg
+# Android-Gradle ist nicht dabei: Snyk braucht dafuer einen vollstaendigen
+# Flutter-Android-Bau.
+#
+# ROT WIRD DER LAUF NUR bei einer Luecke ab "high" im Relay. Code und
+# Stueckliste melden und laden hoch, halten aber nichts auf: die Codepruefung
+# kennt Fehlalarme, die Stueckliste ist bei Snyk noch experimentell. Wer das
+# verschaerfen will, nimmt bei den beiden Schritten `|| true` heraus.
+#
+# Braucht das Repo-Secret SNYK_TOKEN (Anleitung: secure-messenger/docs/SONAR-SNYK.md).
+# Ohne Token wird uebersprungen statt rot.
+name: Snyk
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Woechentlich, weil neue Luecken in ALTEN Abhaengigkeiten auftauchen, auch
+  # wenn niemand etwas aendert.
+  schedule:
+    - cron: '7 5 * * 4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snyk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  token:
+    runs-on: ubuntu-latest
+    outputs:
+      da: ${{ steps.pruefen.outputs.da }}
+    steps:
+      - id: pruefen
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -n "$SNYK_TOKEN" ]; then
+            echo "da=ja" >> "$GITHUB_OUTPUT"
+          else
+            echo "da=nein" >> "$GITHUB_OUTPUT"
+            echo "::notice::SNYK_TOKEN fehlt, Pruefung uebersprungen (siehe secure-messenger/docs/SONAR-SNYK.md)."
+          fi
+
+  pruefen:
+    needs: token
+    if: needs.token.outputs.da == 'ja'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      # Wie im Server-Auftrag von ci.yml: Snyk liest die INSTALLIERTEN Pakete.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: libsodium fuer XEdDSA
+        run: sudo apt-get update && sudo apt-get install -y libsodium23
+      - name: Relay-Pakete installieren
+        run: pip install --require-hashes -r secure-messenger/server/requirements.txt
+      - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
+        with:
+          snyk-version: v1.1308.1
+
+      - name: Relay (Python) pruefen
+        id: relay
+        run: |
+          set +e
+          snyk test --file=secure-messenger/server/requirements.txt --package-manager=pip \
+            --command=python --project-name=bitdm-relay --severity-threshold=high \
+            --sarif-file-output=snyk-relay.sarif
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = nichts ab high, 1 = Luecke ab high, alles andere = Fehler beim Pruefen.
+          if [ "$code" -gt 1 ]; then exit "$code"; fi
+
+      - name: App (Dart) Stueckliste pruefen
+        run: |
+          python3 secure-messenger/app/tool/sbom_pub.py \
+            secure-messenger/app/pubspec.lock sbom-pub.cdx.json
+          snyk sbom test --experimental --file=sbom-pub.cdx.json || true
+
+      - name: Code (Python, Kotlin, JavaScript) pruefen
+        # Nicht bei jedem Pull-Request: der kostenlose Plan zaehlt Codepruefungen.
+        if: github.event_name != 'pull_request'
+        run: snyk code test --sarif-file-output=snyk-code.sarif || true
+
+      - name: Bei Snyk dauerhaft beobachten
+        # Nur fuer main: Snyk meldet sich dann per Mail, wenn fuer eine schon
+        # eingesetzte Fassung spaeter eine Luecke bekannt wird.
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        run: |
+          snyk monitor --file=secure-messenger/server/requirements.txt --package-manager=pip \
+            --command=python --project-name=bitdm-relay || true
+
+      - name: Relay-Ergebnis hochladen
+        if: always() && hashFiles('snyk-relay.sarif') != ''
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          sarif_file: snyk-relay.sarif
+          category: snyk-relay
+      - name: Code-Ergebnis hochladen
+        if: always() && hashFiles('snyk-code.sarif') != ''
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code
+
+      - name: Luecke ab high im Relay?
+        if: steps.relay.outputs.code == '1'
+        run: |
+          echo "::error::Snyk meldet im Relay eine Luecke ab 'high'. Einzelheiten oben bei 'Relay (Python) pruefen' und unter Security -> Code scanning."
+          exit 1
