@@ -297,14 +297,14 @@ Hier genau zu sein zählt mehr, als stark zu klingen.
 - Das Unterschieben eines falschen Schlüssels durch einen Server — die Adresse *ist* der Schlüssel
 - Das Zuordnen von Verkehr im Nahbereich — wechselnde Leuchtfeuer statt Kennungen
 - Der Inhalt von Anhängen gegenüber dem Zwischenlager — es hält Chiffrat und sieht nie einen Schlüssel
-- Metadaten am Relay, *sofern du deinen eigenen betreibst*
 
 **Nicht geschützt**
 
-- **Wer mit wem redet, an einem Relay, der nicht dir gehört.** Ein Relay kann
-  keine Inhalte lesen, sieht aber notwendigerweise, welche Adressen wann eine
-  Verbindung aufbauen und wie viel sie senden. Dagegen gibt es zwei Antworten.
-  Selbst betreiben — das kostet einen einzigen Befehl. Und der Schalter
+- **Wer wann mit wem redet.** Ein Relay kann keine Inhalte lesen, sieht aber
+  notwendigerweise, welche Adressen wann eine Verbindung aufbauen und wie viel
+  sie senden. Ein eigener Relay löscht diese Spur nicht. Er ändert, wer sie
+  hält: du statt uns, und dein Hoster sieht die Verbindungen weiterhin. Am
+  Relay vorbei führt nur der Schalter
   **Nur in der Nähe**: er öffnet überhaupt keine Relay-Verbindung — keine
   Registrierung, kein Abfragen, kein Push-Endpunkt, kein Zwischenlager. Seine
   Grenze gehört zum Entwurf: er verbietet den Server, er baut keinen zweiten
@@ -321,8 +321,10 @@ Hier genau zu sein zählt mehr, als stark zu klingen.
   deine Identität, nicht die Tatsache, dass ein Gerät sendet. Android wechselt
   die Bluetooth-Adresse von selbst, aber wer lange genug im selben Raum steht,
   kann Geräte trotzdem auseinanderhalten.
-- **Alles, was eine gerichtliche Anordnung an den Betreiber deines Relays
-  herausholen würde.** Betreib ihn selbst.
+- **Alles, was eine gerichtliche Anordnung an den Betreiber des Relays
+  herausholen würde:** welche Adressen sich wann verbunden und wie viel sie
+  gesendet haben. Betreibst du den Relay selbst, geht die Anordnung an dich
+  oder deinen Hoster.
 
 Der Nahbereich hat **keine Anwesenheitsanzeige,** und zwar absichtlich: der
 Teil, der weiß, wer in Reichweite ist, gibt das nicht an die Oberfläche weiter,
@@ -363,9 +365,11 @@ Installationsprogramm statt eines Zip:
 Tests:
 
 ```bash
-cd secure-messenger/app && flutter test      # 820 Tests: App + Krypto + Nahbereich
-cd secure-messenger && py -m pytest server/test_relay.py server/test_blob.py -q   # 35 + 25
+cd secure-messenger/app && flutter test      # App + Krypto + Nahbereich
+cd secure-messenger && py -m pytest server/test_relay.py server/test_blob.py -q   # Relay + Zwischenlager
 ```
+
+Wie viele Tests jede Seite hat, steht an einer Stelle: unter [Aufbau](#aufbau).
 
 Die Relay-Tests prüfen nicht bloß, dass die Zustellung funktioniert. Sie prüfen
 die Angriffe: Registrierung ohne Besitznachweis, falsche Signaturen,
@@ -437,14 +441,16 @@ secure-messenger/
     core/nah/              Nahbereich: Leuchtfeuer, BLE-Funk, Zerlegen, Wegwahl
     core/anhang/           Anhänge: Stückkrypto, Rezept, Zwischenlager-Anbindung
     core/store/            verschlüsselte lokale Datenbank
-  app/test/              120 Dateien, 28.741 Zeilen — 1.308 Tests in der CI (15.10.2026)
+  app/test/              120 Dateien, 28.741 Zeilen — 1.308 Tests in der CI (16.10.2026)
   app/integration_test/  2 Dateien, 428 Zeilen — Anhang-Durchsatz auf echter Hardware
   app/android/…/kotlin/  9 Dateien, 3.062 Zeilen — BLE, Schlüsselspeicher,
                          Vordergrunddienst (plus 2 Testdateien)
   app/windows/           CMake, Runner und bitdm.iss für das Installationsprogramm
-  app/linux/  app/web/   Projektdateien; kein veröffentlichter Build
+  app/linux/             Runner; das Release-tar.gz baut .github/workflows/linux.yml
+  app/web/               Hülle für bitdm.net/app, gebaut wie in deploy/webapp/README.md
   app/tool/symbol/       3 Python-Skripte, die das App-Symbol rendern und verteilen
-  server/                Python-Relay + Zwischenlager, 4.508 Zeilen einschließlich Tests
+  server/                Python-Relay + Zwischenlager, 3.794 Zeilen; Tests 4.225 Zeilen,
+                         154 Tests in der CI (16.10.2026)
   docs/                  Betrieb, Bedrohungsnotizen, Messungen
   website/               bitdm.net
 LICENSE                  AGPL-3.0
@@ -517,6 +523,9 @@ Zwei getrennte Fehler in diesem Projekt hatten genau diese eine Ursache.
   Benachrichtigungen), andere Distributionen und 1.9.1 selbst gegen
   relay.bitdm.net. Ohne entsperrten Schlüsselbund bleibt das Fenster leer, ohne
   Fehlermeldung.
+- **Unter Windows und Linux öffnet der Anhangknopf kein Auswahlfenster.**
+  Anhänge aussuchen und öffnen geht nur unter Android; am PC ist der Knopf
+  trotzdem zu sehen.
 - **Die Windows-Dateien sind unsigniert** — Installer wie Zip.
 - **Gruppen mit Grenzen:** bis 20 Mitglieder, Verteilung über Einzelsitzungen
   (keine Sender Keys — Begründung in `docs/FUNKTIONSVERGLEICH.md`).

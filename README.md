@@ -287,18 +287,18 @@ Being specific here matters more than sounding strong.
 - Key substitution by a server — the address *is* the key
 - Traffic correlation in nearby mode — rotating beacons, not identifiers
 - Attachment content against the blob store — it holds ciphertext and never sees a key
-- Metadata at the relay, *if you run your own*
 
 **Not protected**
 
-- **Who talks to whom, at a relay you do not control.** A relay cannot read
-  content, but it necessarily sees which addresses connect when and how much
-  they send. Two answers exist. Self-hosting, which costs a single command. And
-  the **nearby-only** switch, which opens no relay connection at all — no
-  registration, no polling, no push endpoint, no blob store. Its limit is part
-  of the design: it forbids the server, it does not build a second path. Turn it
-  on without Bluetooth and messages stay queued. It is also not a substitute for
-  airplane mode — it speaks for BitDM only.
+- **Who talks to whom, and when.** A relay cannot read content, but it
+  necessarily sees which addresses connect when and how much they send.
+  Running your own relay does not remove that record. It changes who holds it:
+  you instead of us, and your hosting provider still sees the connections. The
+  one way around the relay is the **nearby-only** switch, which opens no relay
+  connection at all — no registration, no polling, no push endpoint, no blob
+  store. Its limit is part of the design: it forbids the server, it does not
+  build a second path. Turn it on without Bluetooth and messages stay queued.
+  It is also not a substitute for airplane mode — it speaks for BitDM only.
 - **A compromised device.** Keys live in the Android keystore; root or a
   malicious keyboard defeats any messenger, including this one.
 - **The fact that you use BitDM.** BLE advertising is visible as *some* device
@@ -307,7 +307,9 @@ Being specific here matters more than sounding strong.
   identity, not the fact that a device is transmitting. Android rotates the
   Bluetooth address by itself, but someone standing in the same room long
   enough can still tell devices apart.
-- **Anything a court order to your relay host would reveal.** Run it yourself.
+- **Anything a court order to the relay operator would reveal:** which
+  addresses connected when, and how much they sent. Run the relay yourself and
+  that order goes to you or your hosting provider instead.
 
 Nearby mode has **no presence display,** deliberately: the component that knows
 who is in range does not pass that on to the interface, and a message shows how
@@ -346,9 +348,11 @@ For an installer instead of a zip:
 Tests:
 
 ```bash
-cd secure-messenger/app && flutter test      # 820 tests: app + crypto + nearby
-cd secure-messenger && py -m pytest server/test_relay.py server/test_blob.py -q   # 35 + 25
+cd secure-messenger/app && flutter test      # app + crypto + nearby
+cd secure-messenger && py -m pytest server/test_relay.py server/test_blob.py -q   # relay + blob store
 ```
+
+How many tests each side has is listed once, under [Layout](#layout).
 
 The relay tests do not just check that delivery works. They check the attacks:
 registration without proof of possession, wrong signatures, overwriting someone
@@ -416,14 +420,16 @@ secure-messenger/
     core/nah/              nearby: beacons, BLE radio, chunking, route choice
     core/anhang/           attachments: chunk crypto, recipe, blob store client
     core/store/            encrypted local database
-  app/test/              120 files, 28,741 lines — 1,308 tests in CI (15.10.2026)
+  app/test/              120 files, 28,741 lines — 1,308 tests in CI (16.10.2026)
   app/integration_test/  2 files, 428 lines — attachment throughput on real hardware
   app/android/…/kotlin/  9 files, 3,062 lines — BLE, keystore, foreground service
                          (plus 2 test files)
   app/windows/           CMake, runner, and bitdm.iss for the installer
-  app/linux/  app/web/   project files; no published build
+  app/linux/             runner; the release tar.gz comes from .github/workflows/linux.yml
+  app/web/               shell for bitdm.net/app, built as in deploy/webapp/README.md
   app/tool/symbol/       3 Python scripts that render and distribute the app icon
-  server/                Python relay + blob store, 4,508 lines including tests
+  server/                Python relay + blob store, 3,794 lines; tests 4,225 lines,
+                         154 tests in CI (16.10.2026)
   docs/                  operations, threat notes, measurements
   website/               bitdm.net
 LICENSE                  AGPL-3.0
@@ -491,6 +497,9 @@ concerned. Two separate bugs in this project had that single root cause.
   desktop (Wayland, GPU drivers, notifications), other distributions, and 1.9.1
   itself against relay.bitdm.net. Without an unlocked keyring the window stays
   empty and shows no error.
+- **On Windows and Linux the attach button opens no file dialog.** Choosing and
+  opening attachments works on Android only; the desktop shows the button
+  anyway.
 - **The Windows binaries are unsigned** — installer and zip alike.
 - **Groups are limited:** up to 20 members, fan-out over one-to-one sessions
   (no sender keys — reasoning in `docs/FUNKTIONSVERGLEICH.md`).
