@@ -5554,3 +5554,22 @@ def test_sv11_install_sh_verweist_auf_keine_einstellung_die_es_nicht_gibt():
     app = Path(__file__).resolve().parent.parent / "app" / "lib" / "main.dart"
     assert "String.fromEnvironment(\n  'BITDM_RELAY'," in app.read_text(encoding="utf-8"), \
         "der Hinweis nennt einen Schalter, den die App so nicht mehr hat"
+
+
+# ------------------------------------------------ SV-8  Push-Endpunkt: Port, Nutzer
+
+def test_sv8_push_endpunkt_ohne_fremden_port_und_ohne_nutzer(relay):
+    """Geprueft waren nur Schema, Host und Pfad. Ohne BITDM_PUSH_TARGET ging
+    der leere POST an jeden Port der Maschine hinter push.bitdm.net."""
+    rs = relay
+    for gut in ("https://push.bitdm.net/upAbc_-1",
+                "https://push.bitdm.net:443/upAbc",
+                "https://push.bitdm.net/upAbc?up=1"):
+        assert rs.push_endpunkt_gueltig(gut), gut
+    for schlecht in ("https://push.bitdm.net:22/upAbc",
+                     "https://push.bitdm.net:8443/upAbc",
+                     "https://push.bitdm.net:99999/upAbc",
+                     "https://nutzer@push.bitdm.net/upAbc",
+                     "https://nutzer:geheim@push.bitdm.net/upAbc",
+                     "https://:@push.bitdm.net/upAbc"):
+        assert not rs.push_endpunkt_gueltig(schlecht), schlecht

@@ -3538,6 +3538,19 @@ def push_endpunkt_gueltig(url: str) -> bool:
         return False
     if teile.hostname not in PUSH_ERLAUBTE_HOSTS:
         return False
+    # KEIN EIGENER PORT, KEINE BENUTZERANGABE (Audit vom 16.10.2026, SV-8).
+    # Geprueft waren nur Schema, Host und Pfad: "https://push.bitdm.net:22/up..."
+    # ging durch, und ohne BITDM_PUSH_TARGET ginge der leere POST genau
+    # dorthin - an jeden Port der Maschine hinter push.bitdm.net, sobald der
+    # Relay einmal hinaus darf. UnifiedPush-Endpunkte haben beides nie.
+    # `.port` wirft bei einem Port ausserhalb 0..65535 (":99999").
+    try:
+        port = teile.port
+    except ValueError:
+        return False
+    if port not in (None, 443) or teile.username is not None \
+            or teile.password is not None:
+        return False
     # UnifiedPush-Themen heissen "up" + Zufallszeichen. Alles andere waere
     # kein Anstoss-Endpunkt, sondern irgendein Pfad auf dem Push-Server.
     return re.fullmatch(r"/up[A-Za-z0-9_-]+", teile.path) is not None
