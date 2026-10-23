@@ -21,3 +21,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # meta legt das Flutter-SDK fest (flutter_test). Ein Sprung hier allein
+      # macht `flutter pub get` unloesbar (PR #12). Nur zusammen mit
+      # flutter-version in ci.yml heben.
+      - dependency-name: meta
