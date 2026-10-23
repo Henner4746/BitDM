@@ -35,7 +35,17 @@ class Relay {
   /// Die Bremse selbst prueft test_relay.py mit den ausgelieferten Werten.
   /// Ein App-Test, der sie am echten Relay braucht, setzt BITDM_RATE_BURST
   /// ueber [umgebung] zurueck.
-  static const _testvorgaben = {'BITDM_RATE_BURST': '5000'};
+  ///
+  /// DER NAME DES TEST-RELAYS (Audit KR-2, seit 23.10.2026): mit ihm nennt die
+  /// Challenge 127.0.0.1, und jeder Test hier meldet sich in der neuen Form
+  /// mit Kontext an - Registrierung, WebSocket, Geraeteliste, mehrere
+  /// Geraete. Die alte Form der App 2.0.0 prueft test_relay.py; ein App-Test,
+  /// der sie am echten Relay braucht, setzt BITDM_RELAY_NAMEN ueber
+  /// [umgebung] auf ''.
+  static const _testvorgaben = {
+    'BITDM_RATE_BURST': '5000',
+    'BITDM_RELAY_NAMEN': '127.0.0.1',
+  };
 
   /// Startet den Relay. Gibt null zurueck, wenn Python oder die
   /// Abhaengigkeiten fehlen — der Aufrufer soll das laut sagen, statt
