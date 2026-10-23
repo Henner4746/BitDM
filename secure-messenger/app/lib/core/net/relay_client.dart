@@ -296,6 +296,15 @@ class RelayClient {
       if (gs != null)
         'geraete_signatur': base64.encode(gs.sign(
             message: [...utf8.encode(anmeldePraefix), ...nachricht])),
+      // DER SIGNIERTE PREKEY, AN DIESES GERAET GEBUNDEN
+      // (docs/GERAETEABMELDUNG.md §12.5 a). Kontakte pruefen sie gegen den
+      // Schluessel aus der Liste; ohne sie koennte der Relay das Buendel
+      // eines abgemeldeten Geraets unter dieser Kennung ausliefern. Ein Relay
+      // vor 2.0.1 ignoriert das Feld.
+      if (gs != null)
+        'spk_geraete_sig': base64.encode(gs.sign(
+            message: spkNachricht(address, bundle.deviceId ?? 1,
+                bundle.signedPreKeyId, bundle.signedPreKey))),
     });
     return antwort['one_time_prekeys'] as int? ?? 0;
   }

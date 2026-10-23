@@ -36,6 +36,7 @@ import 'crypto/address.dart';
 import 'crypto/bip39.dart';
 import 'crypto/key_derivation.dart';
 import 'crypto/signal_errors.dart';
+import 'crypto/sitzungsdatensatz.dart';
 import 'crypto/signal_identity.dart';
 import 'fern_codewort.dart';
 import 'messenger_core.dart';
@@ -368,6 +369,41 @@ class RealMessengerCore implements MessengerCore {
   /// von einem unbekannten Geraet kam.
   final _listeGefragt = <String, DateTime>{};
 
+  /// Was Stempel je Adresse angekuendigt haben (docs/GERAETEABMELDUNG.md
+  /// §12.3 Regel 2), null = nichts Offenes. Spiegel von meta
+  /// `geraeteliste_ank:<adresse>`.
+  final _ankuendigungen = <String, Ankuendigung?>{};
+
+  /// Laufende Nachfragen nach der Liste einer Adresse — eine je Adresse.
+  final _listenAbrufe = <String, Future<void>>{};
+
+  /// Wann die Liste einer Adresse wieder nachgeladen werden darf, weil ein
+  /// Stempel mehr kennt (§12.3). Getrennt von [_listeGefragt], siehe
+  /// `_holeListeNach`.
+  final _stempelGefragt = <String, DateTime>{};
+
+  /// Wann die eigene Liste zuletzt an eine Adresse nachgeschickt wurde
+  /// (Heilen, §12.3 Regel 4).
+  final _listeNachgeschickt = <String, DateTime>{};
+
+  /// "adresse:geraet" -> bis wann es uebersprungen wird, weil der Relay es
+  /// nicht kannte, obwohl es in der signierten Liste steht (§12.5 c).
+  final _relayKenntNicht = <String, DateTime>{};
+
+  /// Die Epoche der eigenen Liste, die der Relay zuletzt NICHT auslieferte
+  /// (§12.4) — null, wenn er liefert, was wir kennen.
+  int? _relayVerschweigt;
+
+  /// Bis zu welcher eigenen Epoche schon mit dem Relay verglichen wurde.
+  int? _verglichenBis;
+
+  /// Ab wann ein FEHLENDER Geraetenachweis abgewiesen wird — am Buendel
+  /// (§12.5 a) und an der Erstnachricht (§12.5 b). Ein FALSCHER wird immer
+  /// abgewiesen. Bis 2.0.1 Uebergang (Fassungen davor signieren nichts);
+  /// Pflicht ab 2.0.2, nach dem Pflicht-Fenster. Fuer Tests umschaltbar.
+  @visibleForTesting
+  static bool geraeteNachweisPflicht = false;
+
   var _geraeteStand = ListenStand.unbekannt;
   final _geraeteCtl = StreamController<ListenStand>.broadcast();
   Uint8List? _hinzufuegeCode;
@@ -666,7 +702,7 @@ class RealMessengerCore implements MessengerCore {
     final db = EncryptedDatabase.open(databasePath, keys.databaseKey);
     _ruheSchluessel = Uint8List.fromList(keys.attachmentKey);
     _infoSchluessel = Uint8List.fromList(keys.deviceInfoKey);
-    _listen.clear();
+    _vergissListenZustand();
     _geraeteSchluessel = null;
     // Wer zuletzt in der Liste stand, ist bis zum naechsten Verbinden
     // Mitglied; ob es noch stimmt, sagt die Liste beim Relay.
@@ -2016,6 +2052,9 @@ class RealMessengerCore implements MessengerCore {
     var neueSitzung = false;
     try {
       final huelle = Envelope.fromBytes(umschlag);
+      // Der Basisschluessel einer Erstnachricht — gegen ihn prueft
+      // [_sitzungsNachweisGilt] den Nachweis des Absendergeraets.
+      Uint8List? basis;
       // VOR LIBSIGNAL: passt der Schluessel einer Erstnachricht zum Absender?
       //
       // Die Anbindung prueft das nicht (signal_errors.dart `FremdeIdentitaet`).
@@ -2034,6 +2073,7 @@ class RealMessengerCore implements MessengerCore {
         if (absender != BitdmAddress.normalize(von)) {
           throw FremdeIdentitaet(von);
         }
+        basis = erst.baseKey();
       }
       // DIE SITZUNG DES GERAETEPAARS, nicht "die Sitzung mit dieser Adresse".
       // Gegen die falsche zu probieren waere kein Fehlversuch, den man
@@ -2056,6 +2096,17 @@ class RealMessengerCore implements MessengerCore {
           // — siehe BitdmSignalStore.schnappschuss.
           if (vorher != null) store.stelleWiederHer(vorher);
           throw const ErneutEingespielt();
+        }
+        // DER SITZUNGSNACHWEIS (docs/GERAETEABMELDUNG.md §12.5 b). Die
+        // Kennung des Absendergeraets setzt der Relay (`from_device`); eine
+        // Erstnachricht des abgemeldeten Tablets unter der Kennung des
+        // Laptops ersetzte sonst die echte Sitzung, und jede Antwort "an den
+        // Laptop" laese das Tablet. IN DER SPERRE und vor jedem
+        // Festschreiben: nur so laesst sich die neue Sitzung spurlos
+        // zuruecknehmen.
+        if (vorher != null && !_sitzungsNachweisGilt(von, vonGeraet, basis!, klar)) {
+          store.stelleWiederHer(vorher);
+          throw FremdesGeraet(von, vonGeraet);
         }
         return klar;
       });
@@ -2083,6 +2134,23 @@ class RealMessengerCore implements MessengerCore {
       _bestaetigeEmpfang(nachweisFuer);
       return;
     }
+
+    // ═══════════════════════════ DIE LISTENSTEMPEL (docs/GERAETEABMELDUNG.md §12.3)
+    //
+    // Kuendigt der Stempel eine neuere Fassung der Liste des Absenders an,
+    // merkt der Kern sich das und laedt nach. Ist unsere Liste veraltet und
+    // kennt dieses Geraet die angekuendigte Fassung nicht, wird die Nutzlast
+    // verworfen: ein abgemeldetes Geraet, das der Relay weiter ausliefert,
+    // spricht sonst weiter als Besitzer. Der Sitzungsfortschritt bleibt, der
+    // Relay bekommt seinen Nachweis — derselbe Umschlag kaeme sonst wieder.
+    if (!_nimmStempel(von, vonGeraet, payload)) {
+      chats.speichereNurSitzung(store);
+      _bestaetigeEmpfang(nachweisFuer);
+      return;
+    }
+    // Eine eigene Fassung, die DIESES Geraet abmeldet (Art 20). Erst ganz am
+    // Ende ausgefuehrt: die Abmeldung schliesst die Datenbank.
+    Geraeteliste? abgemeldetDurch;
 
     // ═══════════════════════════ VOM EIGENEN ZWEITGERAET ODER VON JEMANDEM?
     //
@@ -2119,6 +2187,10 @@ class RealMessengerCore implements MessengerCore {
         _nimmGruppenStand(von, payload, store);
       } else if (payload.kind == PayloadKind.gruppenAustritt) {
         _nimmAustritt(von, payload, store);
+      } else if (payload.kind == PayloadKind.geraeteliste) {
+        // Vor dem Zweig fuer die eigene Adresse: auch die eigenen Geraete
+        // schicken sich ihre Liste (§12.3 Regel 1).
+        abgemeldetDurch = _nimmListeEndeZuEnde(von, payload);
       } else if (von == myId) {
         _nimmSpiegel(payload);
       } else {
@@ -2180,6 +2252,9 @@ class RealMessengerCore implements MessengerCore {
             break;
           case PayloadKind.loeschanfrage:
             _nimmLoeschanfrage(von, payload);
+          case PayloadKind.geraeteliste:
+            // Schon oben genommen.
+            break;
           case PayloadKind.spiegel:
             // Ein Spiegel von einer FREMDEN Adresse ergibt keinen Sinn: er
             // gehoert in einen Chat, ueber den der Absender nichts zu sagen
@@ -2226,6 +2301,7 @@ class RealMessengerCore implements MessengerCore {
     unawaited(_richteNaheEin());
 
     _bestaetigeEmpfang(nachweisFuer);
+    if (abgemeldetDurch != null) await _wirdAbgemeldet(abgemeldetDurch);
   }
 
   /// Sagt dem Relay, dass dieser Umschlag dauerhaft liegt.
@@ -4883,7 +4959,29 @@ class RealMessengerCore implements MessengerCore {
     final store = _store;
     if (store == null) throw const NotInitializedException();
 
+    // DIE LISTE DES EMPFAENGERS IST VERALTET (docs/GERAETEABMELDUNG.md §12.3):
+    // ein Stempel hat eine neuere Fassung angekuendigt. Erst nachsehen, ob
+    // der Relay sie inzwischen hat — sonst ginge diese Nachricht nur an die
+    // Geraete, die die Ankuendigung gestempelt haben, obwohl die Liste eine
+    // Antwort entfernt laege. NICHT, wenn die Geraetepruefung unten ohnehin
+    // faellig ist: die holt die Liste mit, und jeder Abruf kostet eine Marke
+    // der Herkunftsbremse des Relays.
+    final frischtAuf =
+        an != myId && !_prefs.nurNahbereich && _geraeteFaellig(an);
+    if (_listeVeraltet(an) &&
+        (!frischtAuf || _bekannteGeraete(store, an).isEmpty)) {
+      await _holeListeNach(an);
+    }
+    if (!identical(_store, store)) throw const NotInitializedException();
+
     var ziele = _bekannteGeraete(store, an);
+
+    if (ziele.isEmpty && _listeVeraltet(an)) {
+      // Ohne Buendelabruf: der braechte nur Geraete, an die jetzt ohnehin
+      // nichts geht, und kostete jedes Mal ihre Einmalschluessel.
+      return const Wegbescheid(Weg.liegt,
+          'die Geraeteliste dieser Adresse ist veraltet und noch nicht da');
+    }
 
     if (ziele.isEmpty) {
       if (_prefs.nurNahbereich) {
@@ -4930,7 +5028,7 @@ class RealMessengerCore implements MessengerCore {
           'diese Adresse hat kein anderes Geraet',
         );
       }
-    } else if (an != myId && !_prefs.nurNahbereich && _geraeteFaellig(an)) {
+    } else if (frischtAuf) {
       // AUFFRISCHEN, ABER NIE AUF KOSTEN DES VERSANDS: schlaegt es fehl, geht
       // die Nachricht an die bekannten Geraete hinaus. Die eigene Adresse ist
       // ausgenommen — die frischt `connect()` auf, nicht das Fenster.
@@ -4940,7 +5038,19 @@ class RealMessengerCore implements MessengerCore {
     // EINMAL VERPACKT UND MEHRFACH VERSCHLUESSELT. `toBytes` fuellt auf 256er-
     // Bloecke auf und ist damit nicht umsonst; das Ergebnis ist fuer alle
     // Geraete dasselbe, nur die Verschluesselung unterscheidet sich.
-    final klartext = p.toBytes();
+    //
+    // MIT DEN LISTENSTEMPELN DES AUGENBLICKS (§12.3): welche Fassung der
+    // eigenen Liste gilt und welche der Liste des Empfaengers wir kennen.
+    // Eine Ausnahme vom "einmal verpackt": eine Sitzung, fuer die libsignal
+    // noch PreKey-Nachrichten schickt, bekommt den Sitzungsnachweis dazu
+    // ([_klartextFuer], §12.5 b).
+    final stempel = _stempelFuer(an);
+    final gestempelt = p.gestempelt(
+      listenEpoche: stempel.le,
+      listenHash: stempel.lh,
+      kenntEpoche: stempel.ke,
+    );
+    final klartext = gestempelt.toBytes();
 
     var ueberRelay = false;
     var ueberNaehe = false;
@@ -4954,7 +5064,8 @@ class RealMessengerCore implements MessengerCore {
       for (final g in ziele) {
         final ziel = ProtocolAddress(name: an, deviceId: g);
         final ct = await _signalExklusiv(() async {
-          final ct = await _chiffre(store).encrypt(ziel, klartext);
+          final ct = await _chiffre(store).encrypt(
+              ziel, await _klartextFuer(store, ziel, gestempelt, klartext));
           _signalRepo!.commit(store);
           return ct;
         });
@@ -4997,11 +5108,27 @@ class RealMessengerCore implements MessengerCore {
         einesLiegt = einesLiegt || bescheid.weg == Weg.liegt;
         gruende.add('$g ${bescheid.grund}');
 
-        // DER RELAY KENNT DIESES GERAET NICHT MEHR. Die Sitzung dazu ist damit
-        // wertlos — sie stehen zu lassen hiesse, bei jeder weiteren Nachricht
+        // DER RELAY KENNT DIESES GERAET NICHT MEHR.
+        //
+        // MIT SIGNIERTER LISTE ENTSCHEIDET SIE, NICHT DER RELAY
+        // (docs/GERAETEABMELDUNG.md §12.5 c). Bis 2.0.0 fiel hier die Sitzung
+        // — und der naechste Versand baute sie aus einem Buendel neu, das der
+        // Relay waehlt: das des abgemeldeten Geraets unter dieser Kennung
+        // (§12.1 a). Jetzt bleibt sie, das Geraet wird bis zur naechsten
+        // Auffrischung uebersprungen, und die Liste wird nachgeladen. Fehlt
+        // es dort, faellt die Sitzung ueber `_nimmListe`.
+        //
+        // OHNE LISTE wie bisher: dann ist der Relay die einzige Quelle, und
+        // eine Sitzung stehen zu lassen hiesse, bei jeder weiteren Nachricht
         // erneut dagegen zu verschluesseln und erneut abgewiesen zu werden.
         if (bescheid.grund.contains(zielgeraetUnbekannt)) {
-          await store.deleteSession(ziel);
+          final liste = _listeVon(an);
+          if (liste != null && liste.kennungen.contains(g)) {
+            _relayKenntNicht['$an:$g'] = DateTime.now().add(geraeteFenster);
+            unawaited(_holeListeNach(an));
+          } else {
+            await store.deleteSession(ziel);
+          }
           _chats?.setzeGeraeteGeprueft(an, 0);
         }
       }
@@ -5155,6 +5282,8 @@ class RealMessengerCore implements MessengerCore {
     // Eine Loeschanfrage gilt EINEM Geraet des Besitzers; gespiegelt zaehlte
     // sie auf dessen anderen Geraeten ein zweites Mal.
     PayloadKind.loeschanfrage ||
+    // Die eigene Liste geht ohnehin an die eigenen Geraete (§12.3).
+    PayloadKind.geraeteliste ||
     PayloadKind.spiegel => false,
   };
 
@@ -5176,6 +5305,21 @@ class RealMessengerCore implements MessengerCore {
     // Geraet 7 steht in keiner Liste, die der Relay faelschen koennte.
     final liste = _listeVon(an);
     if (liste != null) g.removeWhere((x) => !liste.kennungen.contains(x));
+    // VERALTET (§12.3 Regel 3): ein Stempel kuendigt eine neuere Fassung an,
+    // die wir noch nicht haben. Dann nur an Geraete, die sie selbst gestempelt
+    // haben — ein abgemeldetes, das der Relay weiter ausliefert, gehoert
+    // nicht dazu.
+    final nur = _nurAn(an);
+    if (nur != null) g.removeWhere((x) => !nur.contains(x));
+    // Der Relay kannte es eben nicht (§12.5 c): bis zur naechsten
+    // Auffrischung auslassen, die Sitzung bleibt.
+    if (_relayKenntNicht.isNotEmpty) {
+      final jetzt = DateTime.now();
+      g.removeWhere((x) {
+        final bis = _relayKenntNicht['$an:$x'];
+        return bis != null && jetzt.isBefore(bis);
+      });
+    }
     return g;
   }
 
@@ -5280,6 +5424,8 @@ class RealMessengerCore implements MessengerCore {
             .take(geraeteMax)) {
       if (an == myId && b.deviceId == geraetId) continue;
       if (liste != null && !liste.kennungen.contains(b.deviceId)) continue;
+      final nur = _nurAn(an);
+      if (nur != null && !nur.contains(b.deviceId)) continue;
       // KENNUNG AUSSERHALB 1..127: ein Geraet mit einer App vor 2.0.0.
       // libsignal nimmt die Kennung nicht; ueberspringen wie ein Geraet ohne
       // Kyber, statt den Versand an alle anderen umzuwerfen.
@@ -5287,6 +5433,11 @@ class RealMessengerCore implements MessengerCore {
       if (an == myId && await _istEigenesBuendel(store, b)) continue;
       final ziel = ProtocolAddress(name: an, deviceId: b.deviceId);
       if (!await store.containsSession(ziel)) {
+        // DAS BUENDEL GEHOERT ZUM GERAET DER LISTE (§12.5 a). Sonst baut der
+        // Kontakt eine Sitzung "zum Laptop", die nur das abgemeldete Tablet
+        // ausrechnen kann — sein Buendel ist vom Identitaetsschluessel ja
+        // genauso unterschrieben.
+        if (!_buendelPasstZurListe(an, b, liste)) continue;
         final PreKeyBundle buendel;
         try {
           buendel = PreKeyBundleBridge.fromRelay(b, deviceId: b.deviceId);
@@ -5360,11 +5511,23 @@ class RealMessengerCore implements MessengerCore {
       // und zwar OHNE Vermerk — sonst gaelte die Liste sechs Stunden lang als
       // geprueft, obwohl niemand geprueft hat.
       if (liste == null) return bekannt;
+      // Was der Relay wieder kennt, wird wieder beliefert (§12.5 c).
+      for (final g in liste) {
+        _relayKenntNicht.remove('$an:$g');
+      }
       // DIE SIGNIERTE GERAETELISTE DER GEGENSTELLE, wenn unser Relay Listen
-      // kennt. Erst sie verraet eine Abmeldung, die der Relay verschweigen
-      // wuerde — die Kennungen von oben kommen nur vom Relay.
+      // kennt. Sie verraet eine Abmeldung, die die Kennungen von oben (nur
+      // vom Relay, frei waehlbar) verschweigen koennten — aber NUR, wenn der
+      // Relay die neue Fassung auch ausliefert. Verschweigt er sie, hilft
+      // hier nichts; dagegen stehen die Listenstempel Ende-zu-Ende
+      // (docs/GERAETEABMELDUNG.md §12, `_nimmStempel`). Bis 2.0.0 behauptete
+      // dieser Kommentar das Gegenteil.
       if (hatGeraeteliste) {
         _nimmListe(an, await relay.holeGeraeteliste(an));
+        // Frisch geholt: ein Stempel in der naechsten Minute fragt nicht
+        // noch einmal (`_holeListeNach`).
+        _stempelGefragt[an] =
+            DateTime.now().add(const Duration(minutes: 1));
         bekannt = _bekannteGeraete(store, an);
       }
       if (liste.toSet().difference(bekannt.toSet()).isEmpty) {
@@ -5692,7 +5855,7 @@ class RealMessengerCore implements MessengerCore {
     beendeHinzufuegen();
     _infoSchluessel = null;
     _geraeteSchluessel = null;
-    _listen.clear();
+    _vergissListenZustand();
     _geraeteStand = ListenStand.unbekannt;
     await _raeumeVerbindungAb();
     await _haltNahe();
@@ -5801,7 +5964,7 @@ class RealMessengerCore implements MessengerCore {
     if (info != null) info.fillRange(0, info.length, 0);
     _infoSchluessel = null;
     _geraeteSchluessel = null;
-    _listen.clear();
+    _vergissListenZustand();
     await _raeumeVerbindungAb();
     // Der Funk geht mit, aus demselben Grund wie die Verbindung: solange die
     // App zu ist, koennte niemand eine ankommende Nachricht entschluesseln,

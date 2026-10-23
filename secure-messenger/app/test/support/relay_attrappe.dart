@@ -51,6 +51,10 @@ class Relaylage {
   /// nicht" — das Verhalten von vor dem Umbau.
   List<int>? liste;
 
+  /// Wie [liste], aber je Adresse — hat Vorrang, wo gesetzt. Sonst gaelte
+  /// dieselbe Antwort fuer die eigene Adresse und jede Gegenstelle.
+  final listeJe = <String, List<int>>{};
+
   /// Wenn gesetzt, wirft die Geraeteliste, statt zu antworten.
   RelayException? listeFehler;
   int listeAbrufe = 0;
@@ -72,6 +76,10 @@ class Relaylage {
 
   final gesendet = <({String an, int geraet, Uint8List umschlag})>[];
 
+  /// Jeder Versuch, auch die abgewiesenen — in [gesendet] stehen nur die
+  /// angenommenen.
+  final versucht = <({String an, int geraet})>[];
+
   /// Wie lange ein HTTP-Umlauf dauert.
   ///
   /// NICHT NULL BEI DEN REIHENFOLGE-FAELLEN. Eine Attrappe, die sofort
@@ -92,6 +100,17 @@ class Relaylage {
   bool kenntListen = false;
   final listen = <String, Map<String, Object?>>{};
   final beitritte = <String, List<Map<String, Object?>>>{};
+
+  /// DER RELAY, DER EINE ABMELDUNG VERSCHWEIGT (docs/GERAETEABMELDUNG.md
+  /// §12): er nimmt jede neue Fassung an und bestaetigt sie, liefert aber
+  /// weiter aus, was in [listen] steht.
+  bool verschweigtListen = false;
+
+  /// Was der Relay angenommen, aber verschwiegen hat — je Adresse die letzte.
+  final verschwiegen = <String, Map<String, Object?>>{};
+
+  /// An diese Geraete antwortet der Relay "Zielgeraet unbekannt" (§12.5 c).
+  Set<int> unbekannteGeraete = {};
 }
 
 class RelayAttrappe implements RelayClient {
@@ -126,7 +145,11 @@ class RelayAttrappe implements RelayClient {
     if (!lage.kenntListen) {
       throw const RelayException('Not Found', statusCode: 404);
     }
-    lage.listen[liste.adresse] = liste.alsJson();
+    if (lage.verschweigtListen) {
+      lage.verschwiegen[liste.adresse] = liste.alsJson();
+    } else {
+      lage.listen[liste.adresse] = liste.alsJson();
+    }
     return liste.epoche;
   }
 
@@ -162,7 +185,7 @@ class RelayAttrappe implements RelayClient {
     if (lage.umlauf > Duration.zero) await Future<void>.delayed(lage.umlauf);
     final f = lage.listeFehler;
     if (f != null) throw f;
-    return lage.liste;
+    return lage.listeJe[userId] ?? lage.liste;
   }
 
   @override
@@ -187,8 +210,13 @@ class RelayAttrappe implements RelayClient {
     // KEIN `to_device` HEISST GERAET 1 (Spezifikation §3) — dieselbe Regel wie
     // auf der Leitung, sonst zaehlte dieser Buchhalter anders als der Server.
     final g = geraet ?? 1;
+    lage.versucht.add((an: to, geraet: g));
     if (lage.sendeFehlerFuerGeraet.contains(g)) {
       throw RelayException('Zustellung an Geraet $g abgelehnt');
+    }
+    if (lage.unbekannteGeraete.contains(g)) {
+      // Derselbe Text wie vom echten Relay (relay_server.py, Rahmen `error`).
+      throw const RelayException('Zielgeraet unbekannt');
     }
     lage.gesendet.add((an: to, geraet: g, umschlag: c));
   }

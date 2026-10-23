@@ -33,6 +33,40 @@ const String beitrittPraefix = 'BitDM-Beitritt-v1\n';
 const String anmeldePraefix = 'BitDM-Geraet-Anmeldung-v1\n';
 const String nachweisPraefix = 'BitDM-Beitritt-Nachweis-v1\n';
 
+/// Der signierte Prekey, zusaetzlich vom Geraeteschluessel unterschrieben
+/// (docs/GERAETEABMELDUNG.md §12.5 a). Gegenstueck: relay_server.py
+/// `PREKEY_PRAEFIX` und `spk_nachricht`.
+const String prekeyPraefix = 'BitDM-Prekey-v1\n';
+
+/// Der Sitzungsnachweis in der ersten Nutzlast einer neuen Sitzung (§12.5 b).
+/// Nur zwischen Apps; der Relay sieht ihn nie.
+const String sitzungPraefix = 'BitDM-Sitzung-v1\n';
+
+/// Was der Geraeteschluessel am signierten Prekey unterschreibt. [spkB64] ist
+/// der Prekey (33 Byte) als base64, so wie er im Buendel steht.
+Uint8List spkNachricht(String adresse, int geraet, int spkId, String spkB64) =>
+    Uint8List.fromList(
+        utf8.encode('$prekeyPraefix$adresse\n$geraet\n$spkId\n$spkB64'));
+
+/// Was der Geraeteschluessel des ABSENDERS in der ersten Nutzlast einer
+/// Sitzung unterschreibt: wer an wen, Geraet fuer Geraet, und der
+/// Basisschluessel dieser einen Sitzung. Damit gilt die Unterschrift fuer
+/// genau eine Sitzung und laesst sich nirgends sonst wiederverwenden.
+Uint8List sitzungsNachricht({
+  required String absender,
+  required int absenderGeraet,
+  required String empfaenger,
+  required int empfaengerGeraet,
+  required List<int> basisschluessel,
+}) =>
+    Uint8List.fromList(utf8.encode('$sitzungPraefix$absender\n$absenderGeraet\n'
+        '$empfaenger\n$empfaengerGeraet\n${base64.encode(basisschluessel)}'));
+
+/// Die ersten 12 Byte von SHA-256 ueber die signierten Zeichen einer Liste,
+/// base64 (16 Zeichen) — der Listenstempel `lh` (§12.3).
+String listenKurzHash(String roh) => base64.encode(
+    const DartSha256().hashSync(utf8.encode(roh)).bytes.sublist(0, 12));
+
 /// Groesser als der Relay je zulaesst (GERAETE_MAX 5). Der Relay entscheidet
 /// die echte Grenze; hier geht es nur darum, Unsinn nicht zu verarbeiten.
 const int _geraeteHoechstens = 32;
@@ -188,6 +222,9 @@ class Geraeteliste {
   final Uint8List sigGeraet;
 
   Set<int> get kennungen => {for (final e in geraete) e.id};
+
+  /// Der Stempel `lh` dieser Fassung (§12.3).
+  String get kurzHash => listenKurzHash(roh);
 
   Uint8List? schluesselVon(int id) {
     for (final e in geraete) {
@@ -379,6 +416,34 @@ class Geraeteliste {
     // hat der Relay geprueft, und faelschen koennte sie nur, wer die Woerter
     // hat; der koennte ohnehin zuruecksetzen.
     return liste;
+  }
+}
+
+/// Was die Listenstempel einer Adresse angekuendigt haben, das wir noch nicht
+/// als Liste haben (docs/GERAETEABMELDUNG.md §12.3 Regel 2).
+///
+/// [geraete] sind die Kennungen, die GENAU diese Fassung gestempelt haben —
+/// sie kennen sie also. Solange die Liste fehlt, geht nur an sie etwas.
+class Ankuendigung {
+  Ankuendigung(this.epoche, this.hash, Set<int> geraete)
+      : geraete = {...geraete};
+
+  final int epoche;
+  final String hash;
+  final Set<int> geraete;
+
+  Map<String, Object?> alsJson() =>
+      {'e': epoche, 'h': hash, 'g': (geraete.toList()..sort())};
+
+  /// Null bei allem, was nicht so aussieht — eine kaputte Zeile in `meta`
+  /// heisst "nichts angekuendigt", nicht Absturz.
+  static Ankuendigung? lies(Object? j) {
+    if (j is! Map) return null;
+    final e = j['e'], h = j['h'], g = j['g'];
+    if (e is! int || h is! String || g is! List || g.any((x) => x is! int)) {
+      return null;
+    }
+    return Ankuendigung(e, h, g.cast<int>().toSet());
   }
 }
 

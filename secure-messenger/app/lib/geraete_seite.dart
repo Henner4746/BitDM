@@ -161,6 +161,15 @@ class _GeraeteInhalt extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (!st.hatGeraeteliste) stil.hinweis(t('geraeteKeineListe')),
+            // DER RELAY LIEFERT UNSERE LETZTE AENDERUNG NICHT AUS
+            // (docs/GERAETEABMELDUNG.md §12.4). Kontakte erfahren sie trotzdem,
+            // Ende-zu-Ende — aber der Besitzer soll wissen, dass sein Server
+            // luegt oder hinterherhinkt.
+            if (st.relayVerschweigtListe != null)
+              KeyedSubtree(
+                key: const ValueKey('hinweis-relay-verschweigt'),
+                child: stil.hinweis(t('geraeteRelayVerschweigt')),
+              ),
             for (final g in geraete)
               Container(
                 key: ValueKey('geraet-${g.id}'),

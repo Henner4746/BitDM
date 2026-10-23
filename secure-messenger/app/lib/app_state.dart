@@ -177,6 +177,17 @@ class AppState extends ChangeNotifier {
 
   List<GeraetAnzeige> get eigeneGeraete => _echt?.eigeneGeraete ?? const [];
 
+  /// Die Epoche der eigenen Liste, die der Relay nicht ausliefert — oder null
+  /// (docs/GERAETEABMELDUNG.md §12.4).
+  int? get relayVerschweigtListe => _echt?.relayVerschweigtListe;
+
+  /// Gibt es von der Gegenstelle dieses Chats zwei Fassungen derselben
+  /// Epoche (§12.3 Regel 5)? Der Kern meldet das als
+  /// [ContactEventType.deviceListConflict], das laedt neu.
+  bool geraetelisteWiderspruch(String chatId) =>
+      !Gruppe.istGruppenId(chatId) &&
+      (_echt?.geraetelisteWiderspruch(chatId) ?? false);
+
   /// Der Code, den dieses Geraet gerade fuer ein neues zeigt — oder null.
   String? get beitrittscode => _echt?.beitrittscode;
 

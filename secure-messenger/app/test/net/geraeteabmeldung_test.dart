@@ -38,14 +38,8 @@ void main() {
   late Directory tmp;
   var n = 0;
 
-  // EIN GROSSER EIMER FUER DIE HERKUNFTSBREMSE. Alle Faelle teilen sich einen
-  // Relay und eine Herkunft (127.0.0.1); jede Anmeldung und jede Fassung der
-  // Liste kostet 5 Marken, und nach drei Faellen war der Eimer leer (429 im
-  // vierten). Die Bremse prueft test_relay.py; hier geht es um die Abmeldung.
-  setUpAll(() async => relay = await Relay.starten(umgebung: {
-        'BITDM_RATE_BURST': '5000',
-        'BITDM_RATE_REFILL': '500',
-      }));
+  // Die Herkunftsbremse hat hier genug Luft: siehe Relay._testvorgaben.
+  setUpAll(() async => relay = await Relay.starten());
   tearDownAll(() async => relay?.beenden());
 
   setUp(() => tmp = Directory.systemTemp.createTempSync('bitdm_abmeldung'));

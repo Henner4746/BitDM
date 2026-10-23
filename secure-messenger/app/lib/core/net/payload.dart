@@ -130,7 +130,18 @@ enum PayloadKind {
   /// Vertrauenskontakte, wie der Besitzer festgelegt hat, binnen 24 Stunden
   /// darum bitten, laeuft ein Countdown (siehe Fernloeschung in models.dart).
   /// Eine aeltere Fassung kennt die Art nicht und verwirft sie still.
-  loeschanfrage(19);
+  loeschanfrage(19),
+
+  /// DIE SIGNIERTE GERAETELISTE DES ABSENDERS, Ende-zu-Ende
+  /// (docs/GERAETEABMELDUNG.md §12.3). In `x` steht sie so, wie der Relay sie
+  /// ausliefert: `{"liste","sig_identitaet","sig_geraet"}` als JSON.
+  ///
+  /// Sie traegt ihre Beweise selbst — beide Signaturen, die Kette —, deshalb
+  /// ist gleich, wer sie ueberbringt. Sie gibt es, weil der Relay eine neue
+  /// Fassung verschweigen kann: dann erfahren Kontakte und eigene Geraete sie
+  /// hierueber vom Besitzer. Nie im Verlauf, nie gespiegelt. 2.0.0 kennt die
+  /// Art nicht und verwirft sie still.
+  geraeteliste(20);
 
   const PayloadKind(this.code);
   final int code;
@@ -148,6 +159,20 @@ final _kennungTaugt = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
 
 /// Wie eine Gruppenkennung aussehen darf — dieselbe Regel wie Gruppe.istGruppenId.
 final _gruppeTaugt = RegExp(r'^g-[A-Za-z0-9_-]{22}$');
+
+/// Die groesste Epoche, genau auch im Browser (wie in geraeteliste.dart).
+const int _epocheHoechstens = 9007199254740992;
+
+/// base64 von genau [laenge] Byte — oder null.
+Uint8List? _b64Genau(Object? w, int laenge) {
+  if (w is! String) return null;
+  try {
+    final roh = base64.decode(w);
+    return roh.length == laenge ? roh : null;
+  } on FormatException {
+    return null;
+  }
+}
 
 class Payload {
   final PayloadKind kind;
@@ -208,6 +233,31 @@ class Payload {
   /// Bei den drei Gruppenarten: welche Gruppe.
   final String? gruppe;
 
+  // ─────────────── Listenstempel (docs/GERAETEABMELDUNG.md §12.3 und §12.5 b)
+  //
+  // Setzt NIE der Aufrufer, sondern `_sendePayload` im Kern unmittelbar vor
+  // dem Verschluesseln — sie beschreiben den Stand im Augenblick des Sendens,
+  // nicht des Verfassens. Eine aeltere Fassung ueberliest sie.
+
+  /// `le`: die Epoche der EIGENEN Geraeteliste des Absenders. Nur, wenn er
+  /// darin steht.
+  final int? listenEpoche;
+
+  /// `lh`: die ersten 12 Byte von SHA-256 ueber die signierten Zeichen dieser
+  /// Fassung, base64. Zwei verschiedene Fassungen derselben Epoche verraten
+  /// sich daran.
+  final String? listenHash;
+
+  /// `ke`: welche Epoche der Liste des EMPFAENGERS der Absender kennt (0:
+  /// keine). Liegt sie hinter der echten, schickt der Empfaenger seine Liste
+  /// nach.
+  final int? kenntEpoche;
+
+  /// `gs`: der Sitzungsnachweis (§12.5 b) — nur in der Nutzlast an EIN
+  /// Geraet, solange libsignal fuer diese Sitzung noch PreKey-Nachrichten
+  /// schickt. Signatur des Geraeteschluessels, base64.
+  final String? sitzungsNachweis;
+
   Payload({
     required this.kind,
     required this.messageId,
@@ -218,7 +268,58 @@ class Payload {
     this.chatId,
     this.antwortAuf,
     this.gruppe,
+    this.listenEpoche,
+    this.listenHash,
+    this.kenntEpoche,
+    this.sitzungsNachweis,
   });
+
+  /// Dieselbe Nutzlast mit den Stempeln des Augenblicks. Alles andere bleibt
+  /// Zeichen fuer Zeichen — Kennung und Zeit tragen die Entdoppelung.
+  Payload gestempelt({
+    int? listenEpoche,
+    String? listenHash,
+    int? kenntEpoche,
+    String? sitzungsNachweis,
+  }) =>
+      Payload(
+        kind: kind,
+        messageId: messageId,
+        sentAt: sentAt,
+        text: text,
+        refs: refs,
+        ttlSeconds: ttlSeconds,
+        chatId: chatId,
+        antwortAuf: antwortAuf,
+        gruppe: gruppe,
+        listenEpoche: listenEpoche,
+        listenHash: listenHash,
+        kenntEpoche: kenntEpoche,
+        sitzungsNachweis: sitzungsNachweis,
+      );
+
+  /// Die eigene signierte Geraeteliste, fuer Kontakte und eigene Geraete.
+  /// [liste] ist `Geraeteliste.alsJson()`.
+  factory Payload.geraeteliste(
+          String messageId, Map<String, Object?> liste, DateTime sentAt) =>
+      Payload(
+        kind: PayloadKind.geraeteliste,
+        messageId: messageId,
+        sentAt: sentAt,
+        text: jsonEncode(liste),
+      );
+
+  /// Die Liste aus einer Nutzlast der Art 20 — ungeprueft; das tut der Kern
+  /// mit `Geraeteliste.pruefe`. Null, wenn `x` kein JSON-Objekt ist.
+  Map<String, Object?>? get geraetelisteRoh {
+    if (kind != PayloadKind.geraeteliste) return null;
+    try {
+      final j = jsonDecode(text);
+      return j is Map ? j.cast<String, Object?>() : null;
+    } on FormatException {
+      return null;
+    }
+  }
 
   factory Payload.text(String messageId, String text, DateTime sentAt,
           {Duration? lebensdauer, String? antwortAuf}) =>
@@ -429,6 +530,10 @@ class Payload {
       if (ttlSeconds != null) 'l': ttlSeconds,
       if (antwortAuf != null) 'a': antwortAuf,
       if (gruppe != null) 'g': gruppe,
+      if (listenEpoche != null) 'le': listenEpoche,
+      if (listenHash != null) 'lh': listenHash,
+      if (kenntEpoche != null) 'ke': kenntEpoche,
+      if (sitzungsNachweis != null) 'gs': sitzungsNachweis,
     });
     final inhalt = <int>[kind.code, ...utf8.encode(json)];
 
@@ -612,6 +717,30 @@ class Payload {
         g is String &&
         _gruppeTaugt.hasMatch(g);
 
+    // DIE LISTENSTEMPEL (§12.3, §12.5 b). Freiwillig — fehlen sie, ist es
+    // eine Fassung vor 2.0.1. Stehen sie da und taugen nicht, ist das KEIN
+    // stilles Weglassen: ein fehlender Stempel und ein kaputter waeren sonst
+    // dasselbe, und der Kern entscheidet an ihnen, wem er glaubt.
+    final le = j['le'];
+    final lh = j['lh'];
+    final ke = j['ke'];
+    final gs = j['gs'];
+    if (le != null && (le is! int || le < 1 || le > _epocheHoechstens)) {
+      throw const PayloadFormatException('Listenepoche taugt nicht');
+    }
+    if ((le == null) != (lh == null) || (lh != null && _b64Genau(lh, 12) == null)) {
+      throw const PayloadFormatException('Listenhash taugt nicht');
+    }
+    if (ke != null && (ke is! int || ke < 0 || ke > _epocheHoechstens)) {
+      throw const PayloadFormatException('bekannte Epoche taugt nicht');
+    }
+    if (gs != null && _b64Genau(gs, 64) == null) {
+      throw const PayloadFormatException('Sitzungsnachweis taugt nicht');
+    }
+    if (kind == PayloadKind.geraeteliste && (text is! String || text.isEmpty)) {
+      throw const PayloadFormatException('Geraeteliste ohne Inhalt');
+    }
+
     return Payload(
       gruppe: (istGruppenArt || quittungAusGruppe) ? g as String : null,
       kind: kind,
@@ -622,6 +751,10 @@ class Payload {
       ttlSeconds: gueltigeTtl,
       chatId: c as String?,
       antwortAuf: antwort,
+      listenEpoche: le as int?,
+      listenHash: lh as String?,
+      kenntEpoche: ke as int?,
+      sitzungsNachweis: gs as String?,
     );
   }
 }

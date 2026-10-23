@@ -320,6 +320,14 @@ extension _Unterhaltung on _HomeState {
           padding: const EdgeInsets.fromLTRB(17, 0, 17, 8),
           child: _hinweisKasten(t('peerNeedsUpdate'), warnend: false),
         ),
+      // ZWEI FASSUNGEN DERSELBEN GERAETELISTE (docs/GERAETEABMELDUNG.md
+      // §12.3 Regel 5). Warnend: das erzeugt kein ehrlicher Server.
+      if (st.geraetelisteWiderspruch(cid))
+        Padding(
+          key: const ValueKey('hinweis-geraeteliste-widerspruch'),
+          padding: const EdgeInsets.fromLTRB(17, 0, 17, 8),
+          child: _hinweisKasten(t('geraetelisteWiderspruch')),
+        ),
       if (chatFehlerText() != null)
         Container(
           width: double.infinity,
