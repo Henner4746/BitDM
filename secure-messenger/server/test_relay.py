@@ -722,6 +722,10 @@ def relay(tmp_path, monkeypatch):
     # (kyber_pflicht). Steht er auf dem Rechner, auf dem die Tests laufen,
     # zufaellig auf 1, fielen alle Anmeldungen ohne Kyber durch.
     monkeypatch.delenv("BITDM_KYBER_PFLICHT", raising=False)
+    # Dasselbe fuer die Anmeldung mit Kontext (KR-2): stuende der Schalter auf
+    # dem Testrechner, fielen alle Anmeldungen in der alten Form durch.
+    monkeypatch.delenv("BITDM_ANMELDUNG_PFLICHT", raising=False)
+    monkeypatch.delenv("BITDM_RELAY_NAMEN", raising=False)
     try:
         yield rs
     finally:
@@ -5310,3 +5314,226 @@ def test_sv2_die_menge_je_adresse_bleibt(relay, monkeypatch):
         {"type": "blob_marke", "kennung": "a" * 52, "groesse": 4096}])
     assert [m.get("reason") for m in raus if m.get("type") == "error"] == \
         ["Tagesmenge erschoepft"]
+
+
+# ------------------------------------------------ KR-2  Anmeldung mit Kontext
+#
+# Die Bytes stehen hier ABSICHTLICH ausgeschrieben und nicht ueber
+# rs.ws_anmelde_nachricht gebaut: sonst teilten Test und Server dieselbe
+# Annahme (siehe canonical_bytes oben). Dieselben Zeichen muss die App bauen.
+
+RELAY_NAMEN_T = "relay.test,abcdefghijklmnop.onion"
+
+
+def _ws_kontext(host, user_id, geraet, nonce):
+    return (b"BitDM-Relay-Anmeldung-v1\n"
+            + f"{host}\n{user_id}\n{geraet}\n".encode() + nonce)
+
+
+def _reg_kontext(host, nonce, inhalt):
+    return b"BitDM-Relay-Registrierung-v1\n" + f"{host}\n".encode() + nonce + inhalt
+
+
+class _KontextSocket(_StummerSocket):
+    """Beantwortet die Challenge in der NEUEN Form (KR-2).
+
+    `relay` geht als Feld hinaus, `signiert_relay` in die signierten Bytes -
+    weichen sie ab, ist es die weitergereichte Challenge eines anderen
+    Relays."""
+
+    def __init__(self, user_id, priv, *, relay, signiert_relay=None,
+                 signiert_geraet=None, **kw):
+        super().__init__(user_id, priv, **kw)
+        self._relay = relay
+        self._signiert_relay = relay if signiert_relay is None else signiert_relay
+        self._kontext_geraet = signiert_geraet
+        self.challenge = None
+
+    async def send_json(self, obj):
+        if obj.get("type") != "challenge":
+            return await super().send_json(obj)
+        self.gesendet.append(obj)
+        self.challenge = obj
+        nonce = base64.b64decode(obj["nonce"])
+        geraet = self._kontext_geraet or self._geraet or 1
+        zu = _ws_kontext(self._signiert_relay, self.query_params["user_id"],
+                         geraet, nonce)
+        antwort = {"signature": b64(sign(self._priv, zu))}
+        if self._relay is not None:
+            antwort["relay"] = self._relay
+        if self._geraete_priv is not None:
+            antwort["geraete_signatur"] = b64(sign(
+                self._geraete_priv, ANMELDE_PRAEFIX_T + zu))
+        self._antworten.insert(0, antwort)
+
+
+def _angemeldet(sock):
+    ergebnis = [m for m in sock.gesendet if m.get("type") == "auth_result"]
+    return bool(ergebnis) and ergebnis[0]["ok"] is True
+
+
+def test_kr2_die_challenge_nennt_die_namen_des_relays(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", " Relay.Test , abcdefghijklmnop.onion,")
+    sock = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test")
+    asyncio.run(rs.ws_endpoint(sock))
+    assert sock.challenge["relay"] == ["relay.test", "abcdefghijklmnop.onion"]
+    antwort = rs.register_challenge(
+        rs.ChallengeRequest(user_id=henrik["user_id"]), _Anfrage())
+    assert antwort["relay"] == ["relay.test", "abcdefghijklmnop.onion"]
+
+
+def test_kr2_ohne_namen_bleibt_die_challenge_wie_bisher(relay, monkeypatch):
+    """Ein Relay ohne BITDM_RELAY_NAMEN schickt Byte fuer Byte die alte
+    Challenge - und die App signiert dann die alte Form."""
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.delenv("BITDM_RELAY_NAMEN", raising=False)
+    sock = _StummerSocket(henrik["user_id"], henrik["priv"])
+    asyncio.run(rs.ws_endpoint(sock))
+    assert set(sock.gesendet[0]) == {"type", "nonce"}
+    assert set(rs.register_challenge(
+        rs.ChallengeRequest(user_id=henrik["user_id"]), _Anfrage())) == {"nonce"}
+
+
+def test_kr2_die_neue_form_meldet_an(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    for name in ("relay.test", "abcdefghijklmnop.onion"):
+        sock = _KontextSocket(henrik["user_id"], henrik["priv"], relay=name)
+        asyncio.run(rs.ws_endpoint(sock))
+        assert _angemeldet(sock), name
+
+
+def test_kr2_die_challenge_eines_anderen_relays_gilt_hier_nicht(relay, monkeypatch):
+    """Der Befund: Relay A reicht die Challenge von B (hier: diesem Relay) an
+    das Opfer weiter. Das Opfer signiert mit dem Namen, unter dem es A
+    erreicht hat - B nimmt das nicht an, unter keinem Feld."""
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    for feld in ("relay-a.test", "relay.test", None):
+        sock = _KontextSocket(henrik["user_id"], henrik["priv"], relay=feld,
+                              signiert_relay="relay-a.test")
+        asyncio.run(rs.ws_endpoint(sock))
+        assert not _angemeldet(sock), feld
+        assert sock.geschlossen == 4403
+
+
+def test_kr2_die_neue_form_bindet_das_geraet(relay, monkeypatch):
+    """Geraet 1 steht ausdruecklich in den Bytes, auch ohne Kennung in der
+    Query. Eine Signatur fuer Geraet 1 gilt nicht fuer Geraet 2."""
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1)
+    _lege_an(rs, henrik, geraet=2)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    eins = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test")
+    asyncio.run(rs.ws_endpoint(eins))
+    assert _angemeldet(eins)
+    fremd = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test",
+                           geraet=2, signiert_geraet=1)
+    asyncio.run(rs.ws_endpoint(fremd))
+    assert not _angemeldet(fremd)
+    zwei = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test",
+                          geraet=2)
+    asyncio.run(rs.ws_endpoint(zwei))
+    assert _angemeldet(zwei)
+
+
+def test_kr2_die_alte_form_der_app_2_0_0_gilt_weiter(relay, monkeypatch):
+    """Die ausgelieferte App 2.0.0 signiert roh. Sie darf nicht ausgesperrt
+    werden, auch nicht von einem Relay, der die neue Form kennt."""
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1)
+    _lege_an(rs, henrik, geraet=3)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    monkeypatch.delenv("BITDM_ANMELDUNG_PFLICHT", raising=False)
+    for geraet in (None, 3):
+        sock = _StummerSocket(henrik["user_id"], henrik["priv"], geraet=geraet)
+        asyncio.run(rs.ws_endpoint(sock))
+        assert _angemeldet(sock), geraet
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _registriere_mit(rs, henrik, nonce)["ok"] is True
+
+
+def test_kr2_der_schalter_weist_die_alte_form_ab(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    monkeypatch.setenv("BITDM_ANMELDUNG_PFLICHT", "1")
+    alt = _StummerSocket(henrik["user_id"], henrik["priv"])
+    asyncio.run(rs.ws_endpoint(alt))
+    assert not _angemeldet(alt) and alt.geschlossen == 4403
+    neu = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test")
+    asyncio.run(rs.ws_endpoint(neu))
+    assert _angemeldet(neu)
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _status(lambda: _registriere_mit(rs, henrik, nonce)) == 403
+
+
+def _registriere_kontext(rs, user, nonce, host_feld, host_signiert=None,
+                         gs=None, geraet=None):
+    bundle = _bundle_mit(user, geraet)
+    inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
+    zu = _reg_kontext(host_signiert or host_feld, nonce, inhalt)
+    gsig = None if gs is None else b64(sign(gs["priv"], ANMELDE_PRAEFIX_T + zu))
+    return rs.register(rs.RegisterRequest(
+        bundle=bundle, signature=b64(sign(user["priv"], zu)),
+        geraete_signatur=gsig, relay=host_feld), _Anfrage())
+
+
+def test_kr2_registrierung_in_der_neuen_form(relay, monkeypatch):
+    rs = relay
+    henrik = _echter_user()
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _registriere_kontext(rs, henrik, nonce, "relay.test")["ok"] is True
+
+
+def test_kr2_registrierung_fuer_einen_anderen_relay_gilt_nicht(relay, monkeypatch):
+    rs = relay
+    henrik = _echter_user()
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _status(lambda: _registriere_kontext(
+        rs, henrik, nonce, "relay-a.test")) == 403
+    assert _status(lambda: _registriere_kontext(
+        rs, henrik, nonce, "relay.test", host_signiert="relay-a.test")) == 403
+    # Das Nonce hat keiner der Versuche verbraucht.
+    assert nonce in rs.offene_nonces(henrik["user_id"])
+
+
+def test_kr2_registrierung_mit_geraeteliste_in_der_neuen_form(relay, monkeypatch):
+    """Der Geraeteschluessel unterschreibt dieselben Bytes wie die Identitaet,
+    hinter ANMELDE_PRAEFIX - in der neuen Form also die neue Nachricht."""
+    rs = relay
+    henrik = _echter_user()
+    handy = _geraet()
+    _setze(rs, _liste(henrik, 1, {1: handy}, 1))
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _registriere_kontext(rs, henrik, nonce, "relay.test", gs=handy)["ok"] is True
+    sock = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test",
+                          geraete_priv=handy["priv"])
+    asyncio.run(rs.ws_endpoint(sock))
+    assert _angemeldet(sock)
+
+
+def test_kr2_die_nachrichten_sind_die_der_app(relay):
+    """DIESELBEN ZEICHEN muss relay_client.dart bauen. Weicht eine Seite ab,
+    scheitert jede Anmeldung in der neuen Form mit 4403 bzw. 403."""
+    rs = relay
+    n = bytes(range(32))
+    assert rs.ws_anmelde_nachricht("relay.bitdm.net", "abcd", 1, n) == \
+        b"BitDM-Relay-Anmeldung-v1\nrelay.bitdm.net\nabcd\n1\n" + n
+    assert rs.registrier_nachricht("relay.bitdm.net", n, b"\xff" * 32) == \
+        b"BitDM-Relay-Registrierung-v1\nrelay.bitdm.net\n" + n + b"\xff" * 32

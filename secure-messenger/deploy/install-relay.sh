@@ -135,6 +135,10 @@ Environment=BITDM_DB=$STATE/relay.db
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 $PUSH_ENV
+# Unter welchem Namen die App diesen Relay erreicht: nur dafuer gilt die
+# Anmeldung mit Kontext (Audit KR-2, siehe ANMELDUNG_WS_PRAEFIX). Mit
+# Onion-Dienst dessen Adresse mit Komma anhaengen.
+Environment=BITDM_RELAY_NAMEN=$DOMAIN
 
 # NUR 127.0.0.1. Niemals 0.0.0.0 — das war am 12.07.2026 auf dieser Maschine
 # die Einbruchsursache. Erreichbar ist der Dienst ausschliesslich ueber nginx.

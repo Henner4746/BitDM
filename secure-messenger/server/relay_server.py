@@ -493,6 +493,103 @@ ANMELDE_PRAEFIX = b"BitDM-Geraet-Anmeldung-v1\n"
 # Identitaetsschluessel signiert ist es ja auch.
 PREKEY_PRAEFIX = b"BitDM-Prekey-v1\n"
 
+# --------------------------------------------------------------------------- #
+#  Anmeldung mit Kontext  (Audit vom 16.10.2026, KR-2 / SV-9; seit 23.10.2026)
+# --------------------------------------------------------------------------- #
+#
+# BIS 2.0.0 SIGNIERT DIE APP DAS NONCE DIESES SERVERS ROH: bei /ws `nonce`
+# bzw. `nonce || uint32be(geraet)`, bei /register `nonce || sha256(buendel)`.
+# Ohne Zweck und ohne Empfaenger. Ein boesartiger Relay A reicht dann die
+# Challenge von Relay B an das Opfer weiter, bekommt die Signatur und meldet
+# sich damit bei B als das Opfer an: Warteschlange abholen (und damit
+# loeschen), Geraet mit 4409 verdraengen, ein eigenes Buendel registrieren.
+# Mitlesen kann er nicht. Die zweite Haelfte des Befunds - das Signieren
+# fremder Formate (33 Byte `0x05 || K`, 64 Byte Registrierung) - schliesst die
+# App seit 2.0.0 selbst: ein Nonce hat genau 32 Byte (relay_client.dart,
+# nonceLaenge).
+#
+# DIE NEUE FORM nennt Zweck, Relay, Adresse und Geraet:
+#
+#   /ws:       "BitDM-Relay-Anmeldung-v1\n"     host "\n" adresse "\n" geraet "\n" nonce
+#   /register: "BitDM-Relay-Registrierung-v1\n" host "\n" nonce sha256(buendel)
+#
+# `host` ist der Name, unter dem die APP den Relay erreicht hat (ihre eigene
+# Basis-URL, nicht ein Wert dieses Servers), und dieser Server nimmt nur die
+# Namen an, die in BITDM_RELAY_NAMEN stehen. Eine Signatur fuer A gilt damit
+# bei B nicht.
+#
+# BEIDE FORMEN WERDEN ANGENOMMEN. Die App 2.0.0 ist ausgeliefert und kennt nur
+# die alte; sie darf hier nicht ausgesperrt werden. Welche Form kommt, sagt
+# der Client selbst: mit dem Feld `relay` (der Name) die neue, ohne die alte.
+# Erst BITDM_ANMELDUNG_PFLICHT=1 weist die alte ab - das ist der Schalter fuer
+# den Tag, an dem keine App vor der neuen Form mehr unterwegs ist.
+#
+# Die Challenge nennt dazu die Namen, die dieser Relay annimmt (Feld `relay`
+# in der Challenge bzw. in der Antwort auf /register/challenge). Eine App
+# signiert die neue Form nur, wenn ihr eigener Name darin steht - so sperrt
+# ein vergessener Name (etwa die Onion-Adresse) niemanden aus, er faellt auf
+# die alte Form zurueck. Das ist kein Herunterhandeln, das ein Angreifer
+# braucht: einem Relay, der die Liste weglaesst, gibt die App nur, was sie
+# ihm heute schon gibt, und am Tag des Schalters nimmt B das nicht mehr an.
+ANMELDUNG_WS_PRAEFIX = b"BitDM-Relay-Anmeldung-v1\n"
+REGISTRIERUNG_PRAEFIX = b"BitDM-Relay-Registrierung-v1\n"
+
+# Ein Hostname, eine IPv4- oder eine IPv6-Adresse (ohne Klammern, so liefert
+# Dart Uri.host sie). Kein Zeilenumbruch, kein Port: der Relay hinter nginx
+# kennt den Port nicht, unter dem man ihn erreicht.
+RELAY_NAME_MUSTER = re.compile(r"[a-z0-9.:-]{1,253}")
+
+
+def relay_namen() -> tuple[str, ...]:
+    """Die Namen, unter denen dieser Relay die neue Anmeldeform annimmt.
+
+    BITDM_RELAY_NAMEN, durch Kommas getrennt, z. B.
+    "relay.bitdm.net,<onion>.onion". Leer heisst: keine neue Form, nur die
+    alte - und die Challenge nennt dann auch keine Namen.
+
+    BEI JEDEM AUFRUF GELESEN, aus demselben Grund wie kyber_pflicht().
+    """
+    roh = os.getenv("BITDM_RELAY_NAMEN", "")
+    namen = (n.strip().lower() for n in roh.split(","))
+    return tuple(n for n in namen if RELAY_NAME_MUSTER.fullmatch(n))
+
+
+def anmeldung_pflicht() -> bool:
+    """Ob die alte Anmeldeform (ohne Kontext) abgewiesen wird.
+
+    Nur genau "1" schaltet ein, wie bei kyber_pflicht(): eine Fehlbedienung
+    soll im Zweifel alte Apps weiter anmelden, statt sie auszusperren.
+    """
+    return os.getenv("BITDM_ANMELDUNG_PFLICHT", "") == "1"
+
+
+def ws_anmelde_nachricht(host: str, user_id: str, geraet: int,
+                         nonce: bytes) -> bytes:
+    """Was die App bei /ws in der neuen Form signiert. Dieselben Bytes baut
+    relay_client.dart (anmeldeNachricht)."""
+    return (ANMELDUNG_WS_PRAEFIX
+            + f"{host}\n{user_id}\n{geraet}\n".encode("ascii") + nonce)
+
+
+def registrier_nachricht(host: str, nonce: bytes, inhalt: bytes) -> bytes:
+    """Was die App bei /register in der neuen Form signiert. Adresse und
+    Geraet stehen schon im Buendel (canonical_bytes), also im Hash."""
+    return REGISTRIERUNG_PRAEFIX + f"{host}\n".encode("ascii") + nonce + inhalt
+
+
+def angemeldeter_relay(feld: object) -> tuple[bool, str | None]:
+    """Welche Form ein Client gewaehlt hat. Rueckgabe: (zulaessig, host).
+
+    host None ist die alte Form - zulaessig, solange anmeldung_pflicht() aus
+    ist. Ein Name, den dieser Relay nicht fuehrt, ist nie zulaessig: genau
+    das ist die weitergereichte Challenge eines anderen Relays.
+    """
+    if feld is None:
+        return not anmeldung_pflicht(), None
+    if not isinstance(feld, str) or feld not in relay_namen():
+        return False, None
+    return True, feld
+
 # Eine Liste mit 5 Geraeten ist rund 1,3 KB (je Eintrag 44 Zeichen Schluessel
 # und hoechstens GERAETE_INFO_MAX Info). 4096 laesst Luft und haelt jeden
 # Unsinn draussen, bevor json.loads ihn sieht.
@@ -1886,10 +1983,15 @@ class PreKeyBundle(BaseModel):
 class RegisterRequest(BaseModel):
     bundle: PreKeyBundle
     signature: str                        # base64, XEdDSA ueber nonce||sha256(bundle)
-    # Der Geraeteschluessel ueber ANMELDE_PRAEFIX || nonce || sha256(bundle).
+    # Der Geraeteschluessel ueber ANMELDE_PRAEFIX || nonce || sha256(bundle)
+    # (in der neuen Form ANMELDE_PRAEFIX || registrier_nachricht(...)).
     # Nur verlangt, wenn die Adresse eine Geraeteliste hat (siehe register).
     # NICHT in canonical_bytes: die Bytes alter Clients bleiben, wie sie sind.
     geraete_signatur: str | None = Field(default=None, max_length=200)
+    # Der Name, unter dem die App diesen Relay erreicht hat - gesetzt heisst:
+    # signiert ist registrier_nachricht(relay, ...), nicht nonce || hash
+    # (KR-2, siehe ANMELDUNG_WS_PRAEFIX). Fehlt bei Apps bis 2.0.0.
+    relay: str | None = Field(default=None, max_length=253)
     # Der Geraeteschluessel ueber spk_nachricht(...) (GERAETEABMELDUNG.md
     # §12.5 a). Nur mit Liste geprueft und gespeichert; Kontakte pruefen ihn
     # selbst gegen die Liste. Ebenfalls NICHT in canonical_bytes.
@@ -2477,7 +2579,10 @@ def register_challenge(req: ChallengeRequest, request: Request):
         nonce = issue_nonce(req.user_id, req.device_id, nonce_herkunft(request))
     except Ueberlastet as exc:
         raise HTTPException(503, "Relay ueberlastet, bitte spaeter erneut") from exc
-    return {"nonce": b64e(nonce)}
+    # Dieselbe Ankuendigung wie in der WS-Challenge, siehe
+    # ANMELDUNG_WS_PRAEFIX. Apps bis 2.0.0 lesen nur `nonce`.
+    namen = relay_namen()
+    return {"nonce": b64e(nonce), **({"relay": list(namen)} if namen else {})}
 
 
 def oeffentlicher_schluessel_ok(roh: bytes) -> bool:
@@ -2677,6 +2782,19 @@ def register(req: RegisterRequest, request: Request):
     except Exception as exc:
         raise HTTPException(400, "signature ist kein gueltiges base64") from exc
 
+    # Alte oder neue Form (KR-2, siehe ANMELDUNG_WS_PRAEFIX). VOR den Nonces:
+    # ein fremder Relay-Name kostet dann weder Pruefungen noch ein Nonce.
+    zulaessig, host = angemeldeter_relay(req.relay)
+    if not zulaessig:
+        raise HTTPException(403, "Besitznachweis ohne passenden Relay-Namen")
+
+    def besitz_nachricht(n: bytes) -> bytes:
+        """Die Bytes, die der Identitaetsschluessel (und mit Liste der
+        Geraeteschluessel hinter ANMELDE_PRAEFIX) signiert hat."""
+        if host is not None:
+            return registrier_nachricht(host, n, inhalt)
+        return n + inhalt
+
     # Das Nonce haengt am (Adresse, Geraet)-Paar. Ein Geraet kann sich damit
     # nicht mit dem Nonce eines anderen anmelden, und zwei Geraete derselben
     # Adresse nehmen sich ihre Nonces nicht mehr gegenseitig weg.
@@ -2692,7 +2810,8 @@ def register(req: RegisterRequest, request: Request):
 
     inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
     treffer = next((n for n in kandidaten
-                    if verify_signature(identity_key, n + inhalt, signature)), None)
+                    if verify_signature(identity_key, besitz_nachricht(n),
+                                        signature)), None)
     if treffer is None:
         raise HTTPException(403, "Besitznachweis fehlgeschlagen")
     if not verbrauche_nonce(bundle.user_id, bundle.device_id, treffer):
@@ -2736,7 +2855,7 @@ def register(req: RegisterRequest, request: Request):
             # alle Geraete der Adresse, auch ein abgemeldetes. Ueber dieselben
             # Bytes wie der Besitznachweis, also an dieses Nonce und dieses
             # Buendel gebunden.
-            if not geraete_signatur_ok(schluessel, treffer + inhalt,
+            if not geraete_signatur_ok(schluessel, besitz_nachricht(treffer),
                                        req.geraete_signatur):
                 raise HTTPException(403, "Geraeteschluessel fehlt oder passt nicht")
             # DER SIGNIERTE PREKEY, AN DEN GERAETESCHLUESSEL GEBUNDEN
@@ -3578,7 +3697,11 @@ async def _vorraum(ws: WebSocket):
 
     # ---- Challenge-Response ----
     nonce = secrets.token_bytes(32)
-    await ws.send_json({"type": "challenge", "nonce": b64e(nonce)})
+    # `relay` nur, wenn dieser Relay die neue Form kennt (siehe
+    # ANMELDUNG_WS_PRAEFIX). Apps bis 2.0.0 lesen nur `nonce`.
+    namen = relay_namen()
+    await ws.send_json({"type": "challenge", "nonce": b64e(nonce),
+                        **({"relay": list(namen)} if namen else {})})
     try:
         # 10 statt 30 Sekunden, siehe WS_ANMELDEFRIST.
         reply = await asyncio.wait_for(lies_rahmen(ws), timeout=WS_ANMELDEFRIST)
@@ -3609,7 +3732,20 @@ async def _vorraum(ws: WebSocket):
     #
     # device_id ist an dieser Stelle nachweislich eine gespeicherte Kennung
     # (die Abfrage oben hat getroffen), passt also in 4 Byte unsigned.
-    erwartet = nonce if roh_geraet is None else nonce + device_id.to_bytes(4, "big")
+    #
+    # DIE NEUE FORM (KR-2) nennt das Geraet ausdruecklich, also auch Geraet 1
+    # ohne Kennung in der Query - eine Signatur fuer Geraet A ist damit nie
+    # eine fuer B. Welche Form gilt, sagt das Feld `relay` der Antwort.
+    zulaessig, host = angemeldeter_relay(reply.get("relay"))
+    if not zulaessig:
+        await ws.send_json({"type": "auth_result", "ok": False})
+        await ws.close(code=4403)
+        return None
+    if host is not None:
+        erwartet = ws_anmelde_nachricht(host, user_id, device_id, nonce)
+    else:
+        erwartet = (nonce if roh_geraet is None
+                    else nonce + device_id.to_bytes(4, "big"))
 
     if not verify_signature(identity_key, erwartet, signature):
         await ws.send_json({"type": "auth_result", "ok": False})
