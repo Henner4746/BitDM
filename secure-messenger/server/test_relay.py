@@ -5537,3 +5537,20 @@ def test_kr2_die_nachrichten_sind_die_der_app(relay):
         b"BitDM-Relay-Anmeldung-v1\nrelay.bitdm.net\nabcd\n1\n" + n
     assert rs.registrier_nachricht("relay.bitdm.net", n, b"\xff" * 32) == \
         b"BitDM-Relay-Registrierung-v1\nrelay.bitdm.net\n" + n + b"\xff" * 32
+
+
+# ------------------------------------------------ SV-11  Hinweis in install.sh
+
+def test_sv11_install_sh_verweist_auf_keine_einstellung_die_es_nicht_gibt():
+    """Am Ende stand "Settings > Receiving > server address". Die App hat
+    diese Einstellung seit dem 26.07.2026 nicht mehr (EIGENER-SERVER.md); wer
+    einen Relay aufsetzte, suchte sie vergeblich und erfuhr nicht, warum.
+    Der Relay wird beim BAUEN der App gewaehlt."""
+    website = Path(__file__).resolve().parent.parent / "website"
+    install = (website / "install.sh").read_text(encoding="utf-8")
+    assert "Settings > Receiving" not in install
+    assert "server address" not in install
+    assert "--dart-define=BITDM_RELAY=https://$DOMAIN" in install
+    app = Path(__file__).resolve().parent.parent / "app" / "lib" / "main.dart"
+    assert "String.fromEnvironment(\n  'BITDM_RELAY'," in app.read_text(encoding="utf-8"), \
+        "der Hinweis nennt einen Schalter, den die App so nicht mehr hat"
