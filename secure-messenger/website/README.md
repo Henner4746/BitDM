@@ -16,6 +16,7 @@ website/
 ├─ robots.txt      alles lesbar ausser /app/
 ├─ sitemap.xml     alle Seiten oben + llms.txt, je mit .html
 ├─ 1e0f…5274.txt   IndexNow-Schlüssel (öffentlich mit Absicht, siehe unten)
+├─ favicon.ico     Seitenzeichen 16/32/48 px, favicon.svg dasselbe als Vektor
 ├─ bilder/         App-Icon
 ├─ fonts/          Doto + Chivo Mono (SIL OFL, lokal eingebettet)
 └─ README.md
@@ -203,6 +204,13 @@ Adressen. Für Suchmaschinen ist das eine Dublette. Die gültige Form ist die
 mit `.html` — so steht sie in der Sitemap, in `og:url`, in `llms.txt` und als
 `<link rel="canonical">` im Kopf jeder Seite, und so verlinkt die Startseite.
 Die endungslose Form bleibt erreichbar, damit alte Links nicht brechen.
+
+**Das Seitenzeichen liegt als Datei vor, nicht im HTML.** Bis Oktober 2026
+stand es als `data:`-Bild im `<link rel="icon">`. Browser zeigen das, Google
+aber nicht: für die Suchergebnisse braucht es eine abrufbare Adresse, und
+`/favicon.ico` lieferte 404 (so in den Crawling-Statistiken der Search
+Console). Jetzt verweist jede Seite auf `/favicon.ico` (48 px, für Google) und
+`/favicon.svg`.
 
 `/etc/nginx/conf.d/bitdm-noip-log.conf`:
 
