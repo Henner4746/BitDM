@@ -322,7 +322,9 @@ IDENTITAETEN_MAX = int(os.getenv("BITDM_IDENTITIES_MAX", 50_000))
 #    hinter einer IPv4 bzw. in einem /48 teilen sich mehrere Kunden den Eimer.
 #    Er trifft deshalb NUR neue Adressen - wer schon da ist, erneuert sein
 #    Buendel und legt Geraete an wie bisher -, und 100 am Tag sind fuer einen
-#    Relay dieser Groesse viel.
+#    Relay dieser Groesse viel. Eine Marke kostet nur eine Adresse, die
+#    wirklich angelegt wird (seit 24.10.2026, siehe neue_adresse_ok): eine
+#    scheiternde Registrierung leert den geteilten Eimer nicht.
 # 2. EINE ADRESSE, DIE SICH NIE VERBUNDEN HAT (last_seen = 0), geht nach
 #    NIE_VERBUNDEN_TTL statt nach GERAET_TTL. Eine App meldet sich direkt
 #    nach dem Registrieren per /ws an; wer das zwei Tage lang nicht tut, war
@@ -1529,6 +1531,22 @@ def _take(key: str, capacity: float, refill: float, cost: float) -> bool:
         return ok
 
 
+def _gib_zurueck(key: str, capacity: float, refill: float, cost: float) -> None:
+    """Legt eine Marke zurueck, die _take genommen hat, deren Zweck aber nicht
+    zustande kam. Nie ueber die Fassung hinaus."""
+    with _speichersperre:
+        eintrag = _buckets.get(key)
+        if eintrag is None:
+            # Weggeraeumt wird nur ein wieder voller Eimer (voll_ab): nichts
+            # zu erstatten, und ein neuer Eintrag fuellte nur den Speicher.
+            return
+        now = time.monotonic()
+        tokens, last, _ = eintrag
+        tokens = min(capacity, tokens + (now - last) * refill + cost)
+        voll_ab = (now + (capacity - tokens) / refill) if refill > 0 else float("inf")
+        _buckets[key] = (tokens, now, voll_ab)
+
+
 def rate_limit_ok(key: str, cost: float = 1.0) -> bool:
     """Grobes Missbrauchsnetz je IP."""
     return _take(key, float(RATE_CAPACITY), RATE_REFILL_PER_SEC, cost)
@@ -1727,22 +1745,54 @@ def _melde_das_dach(adressen: int) -> None:
           f"(BITDM_IDENTITIES_MAX, Audit SV-3)")
 
 
-def neue_adresse_ok(request: Request) -> bool:
-    """Der enge Eimer fuer NEUE Adressen (SV-3, siehe NEUE_ADRESSEN_JE_TAG).
+def _eimer_neuer_adressen(request: Request) -> list[tuple[str, float, float]]:
+    """Aus welchen Eimern eine neue Adresse von hier zahlt: je Eintrag
+    (Schluessel, Fassung, Nachfuellung je Sekunde).
 
     Je Herkunft, IPv6 je /48. Ueber den Onion-Dienst zuerst der Eimer des
     Circuits (wenn tor ihn nennt), dann der gemeinsame aller Tor-Nutzer.
     """
     tag = 24 * 3600.0
+    eimer = []
     schluessel = limit_schluessel(request, v6_praefix=48)
-    if schluessel is not None and not _take(
-            f"neu:{schluessel}", float(NEUE_ADRESSEN_JE_TAG),
-            NEUE_ADRESSEN_JE_TAG / tag, 1.0):
-        return False
+    if schluessel is not None:
+        eimer.append((f"neu:{schluessel}", float(NEUE_ADRESSEN_JE_TAG),
+                      NEUE_ADRESSEN_JE_TAG / tag))
     if kommt_ueber_onion(request):
-        return _take("neu:onion", float(NEUE_ADRESSEN_ONION_JE_TAG),
-                     NEUE_ADRESSEN_ONION_JE_TAG / tag, 1.0)
+        eimer.append(("neu:onion", float(NEUE_ADRESSEN_ONION_JE_TAG),
+                      NEUE_ADRESSEN_ONION_JE_TAG / tag))
+    return eimer
+
+
+def neue_adresse_ok(request: Request) -> bool:
+    """Der enge Eimer fuer NEUE Adressen (SV-3, siehe NEUE_ADRESSEN_JE_TAG).
+
+    Nimmt aus jedem Eimer der Herkunft eine Marke, oder aus keinem: scheitert
+    der zweite (der gemeinsame Onion-Eimer), bekommt der erste seine Marke
+    zurueck. Sonst kostete eine Absage doch eine Marke.
+
+    NUR RUFEN, WENN DIE ADRESSE GLEICH ANGELEGT WIRD (register, direkt vor dem
+    INSERT). Bis zum 24.10.2026 kam der Aufruf vor allen Pruefungen, und jede
+    Registrierung, die danach noch scheiterte (Kyber, Geraeteliste,
+    Adressdach), kostete die ganze Herkunft eine Marke: ein dauerhaft
+    scheiternder Client hinter einer geteilten IPv4 (Carrier-Grade-NAT) hielt
+    den Eimer fuer alle anderen dort leer.
+    """
+    genommen = []
+    for schluessel, fassung, nachfuellung in _eimer_neuer_adressen(request):
+        if not _take(schluessel, fassung, nachfuellung, 1.0):
+            for zurueck in genommen:
+                _gib_zurueck(*zurueck, 1.0)
+            return False
+        genommen.append((schluessel, fassung, nachfuellung))
     return True
+
+
+def neue_adresse_zurueck(request: Request) -> None:
+    """Erstattet die Marke von neue_adresse_ok, wenn die Adresse danach doch
+    nicht angelegt wurde (das Buendel liess sich nicht speichern)."""
+    for schluessel, fassung, nachfuellung in _eimer_neuer_adressen(request):
+        _gib_zurueck(schluessel, fassung, nachfuellung, 1.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -2909,18 +2959,6 @@ def register(req: RegisterRequest, request: Request):
                                         signature)), None)
     if treffer is None:
         raise HTTPException(403, "Besitznachweis fehlgeschlagen")
-    # EINE NEUE ADRESSE kostet zusaetzlich aus dem engen Eimer (SV-3, siehe
-    # NEUE_ADRESSEN_JE_TAG). Erst nach dem Besitznachweis: Muell ohne
-    # Signatur leert niemandem den Eimer. Ob die Adresse neu ist, steht hier
-    # nur ungefaehr fest - eine gleichzeitige erste Registrierung derselben
-    # Adresse zahlt schlimmstenfalls doppelt. Kurz unter der Sperre, weil die
-    # Verbindung geteilt ist (siehe schreibsperre).
-    with schreibsperre:
-        neu = db.execute("SELECT 1 FROM identities WHERE user_id=? LIMIT 1",
-                         (bundle.user_id,)).fetchone() is None
-    if neu and not neue_adresse_ok(request):
-        raise HTTPException(429, "zu viele neue Adressen von hier, "
-                                 "bitte spaeter erneut")
     if not verbrauche_nonce(bundle.user_id, bundle.device_id, treffer):
         # Zwischen Pruefen und Verbrauchen hat ein gleichzeitiger Aufruf mit
         # derselben Signatur das Nonce genommen (oder es ist gerade
@@ -2942,6 +2980,10 @@ def register(req: RegisterRequest, request: Request):
     # Nur mit Liste und nur geprueft gesetzt, siehe unten. Ohne Liste gibt es
     # keinen Schluessel, gegen den sie gelten koennte.
     spk_sig_speichern: bytes | None = None
+    # Ob diese Anfrage eine Marke fuer eine neue Adresse genommen hat, die
+    # zurueckgeht, falls das Buendel sich doch nicht speichern laesst.
+    marke_genommen = False
+    angelegt = False
 
     with schreibsperre:
         # DIE GERAETELISTE (GERAETEABMELDUNG.md §8.4), und zwar INNERHALB der
@@ -3017,6 +3059,24 @@ def register(req: RegisterRequest, request: Request):
                 _melde_das_dach(wie_viele)
                 raise HTTPException(507, "Dieser Relay nimmt keine neuen "
                                          "Adressen mehr auf")
+            # DIE MARKE FUER EINE NEUE ADRESSE (SV-3, NEUE_ADRESSEN_JE_TAG)
+            # erst hier, als letzte Pruefung vor dem INSERT. Jede Absage
+            # davor - Besitznachweis, Kyber, Geraeteliste, Adressdach -
+            # kostet die Herkunft nichts; sonst hielte ein dauerhaft
+            # scheiternder Client hinter einer geteilten IP den Eimer fuer
+            # alle dort leer.
+            #
+            # Unter schreibsperre, in der auch jeder INSERT in `identities`
+            # liegt: "Adresse noch unbekannt" und "Marke genommen" sind damit
+            # ein Schritt. Zwei gleichzeitige erste Registrierungen derselben
+            # Adresse zahlen einmal (die zweite sieht die Zeile der ersten),
+            # und mehr Adressen als Marken kommen auch parallel nicht durch -
+            # _take selbst haelt _speichersperre. Kein await dazwischen: der
+            # Endpunkt ist synchron und laeuft im Threadpool.
+            if not neue_adresse_ok(request):
+                raise HTTPException(429, "zu viele neue Adressen von hier, "
+                                         "bitte spaeter erneut")
+            marke_genommen = True
             if wie_viele + 1 >= DACH_WARNUNG_AB * IDENTITAETEN_MAX:
                 _melde_das_dach(wie_viele + 1)
 
@@ -3119,6 +3179,7 @@ def register(req: RegisterRequest, request: Request):
                     [(bundle.user_id, geraet, kid, schluessel, signatur)
                      for kid, schluessel, signatur in kyber_neu],
                 )
+            angelegt = True
         except (sqlite3.Error, ValueError, OverflowError) as exc:
             # OverflowError gehoert dazu, seit die Kennungen im Rumpf keine
             # Obergrenze haben: registration_id, signed_prekey_id und key_id
@@ -3136,6 +3197,12 @@ def register(req: RegisterRequest, request: Request):
             # wer nachsehen muss, hat das Journal.
             print(f"[!] /register: Bundle nicht gespeichert ({type(exc).__name__})")
             raise HTTPException(400, "Bundle konnte nicht gespeichert werden") from exc
+        finally:
+            # Zurueckgerollt heisst: keine neue Adresse, also auch keine
+            # Marke (SV-3). Noch unter schreibsperre, damit kein anderer
+            # Aufruf dazwischen den leeren Eimer sieht und abgewiesen wird.
+            if marke_genommen and not angelegt:
+                neue_adresse_zurueck(request)
         # Nach dem Commit, noch unter der Sperre — siehe _kyber_zeilen.
         kyber_zeilen_aendern(len(kyber_neu) - kyber_alt)
 

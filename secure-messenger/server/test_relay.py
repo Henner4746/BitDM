@@ -5839,3 +5839,144 @@ def test_sv3_das_dach_meldet_sich_bevor_es_voll_ist(relay, monkeypatch, capsys):
     assert len(zeilen) == 1, "hoechstens einmal je Stunde"
     assert "80 %" in zeilen[0] and "4 von 5" in zeilen[0]
     assert "198.51" not in zeilen[0], "keine Herkunft im Journal"
+
+
+# ---------------------------------- SV-3  Die Marke kostet erst die neue Adresse
+#
+# Nachpruefung vom 24.10.2026: neue_adresse_ok lief VOR den Pruefungen, die
+# eine Registrierung noch scheitern lassen. Jeder Fehlversuch kostete die
+# ganze Herkunft eine Marke, und ein dauerhaft scheiternder Client hinter
+# einer geteilten IPv4 (Carrier-Grade-NAT) hielt den Eimer fuer alle leer.
+
+def _registriere_von(rs, user, anfrage, geraet=None, gs=None, **aenderungen):
+    """Eine Registrierung ueber den echten Endpunkt, von `anfrage` aus: mit
+    eigener Challenge, Aenderungen am Buendel und optional Geraeteschluessel."""
+    nonce = _challenge(rs, user, anfrage, geraet)
+    bundle = _bundle_mit(user, geraet, **aenderungen)
+    inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
+    gsig = None if gs is None else b64(
+        sign(gs["priv"], ANMELDE_PRAEFIX_T + nonce + inhalt))
+    return rs.register(rs.RegisterRequest(
+        bundle=bundle, signature=b64(sign(user["priv"], nonce + inhalt)),
+        geraete_signatur=gsig), anfrage)
+
+
+def _falsche_kyber_signatur(rs, user, anfrage):
+    teil = _kyber(user)
+    teil["kyber_prekey_sig"] = b64(
+        sign(os.urandom(32), base64.b64decode(teil["kyber_prekey"])))
+    return _registriere_von(rs, user, anfrage, **teil)
+
+
+def _ohne_geraeteschluessel(rs, user, anfrage):
+    # Die App legt die Liste vor der ersten Anmeldung an: eine Adresse ohne
+    # Zeile in `identities`, aber mit Liste, ist noch NEU.
+    _setze(rs, _liste(user, 1, {1: _geraet()}, 1))
+    return _registriere_von(rs, user, anfrage)
+
+
+def _riesige_kennung(rs, user, anfrage):
+    # Scheitert erst beim INSERT (OverflowError) - also NACH der Marke.
+    return _registriere_von(rs, user, anfrage, registration_id=10**30)
+
+
+@pytest.mark.parametrize("fehlversuch, status", [
+    (_falsche_kyber_signatur, 400),
+    (_ohne_geraeteschluessel, 403),
+    (_riesige_kennung, 400),
+], ids=["kyber", "geraeteliste", "insert"])
+def test_sv3_ein_fehlversuch_kostet_keine_marke(relay, monkeypatch, fehlversuch,
+                                                status):
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 1)
+    hier = _Kopf(x_forwarded_for="198.51.100.30")
+    for _ in range(3):
+        stoerer = make_user()
+        assert _status(lambda: fehlversuch(rs, stoerer, hier)) == status
+    assert rs.db.execute("SELECT COUNT(*) FROM identities").fetchone()[0] == 0
+    # Die eine Marke des Tages ist noch da.
+    assert _neue_adresse(rs, hier) == 200
+    assert _neue_adresse(rs, hier) == 429
+
+
+def test_sv3_ein_volles_dach_kostet_keine_marke(relay, monkeypatch):
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 1)
+    monkeypatch.setattr(rs, "IDENTITAETEN_MAX", 1)
+    hier = _Kopf(x_forwarded_for="198.51.100.31")
+    _lege_an(rs, make_user())
+    for _ in range(3):
+        assert _neue_adresse(rs, hier) == 507
+    monkeypatch.setattr(rs, "IDENTITAETEN_MAX", 50_000)
+    assert _neue_adresse(rs, hier) == 200
+    assert _neue_adresse(rs, hier) == 429
+
+
+def test_sv3_die_grenze_gilt_genau(relay, monkeypatch):
+    """Genau NEUE_ADRESSEN_JE_TAG neue Adressen je Herkunft und Tag (100),
+    auch mit Fehlversuchen dazwischen - nicht eine mehr, nicht eine weniger."""
+    rs = relay
+    # Nur die allgemeine Bremse (5 von 120 je Registrierung) aus dem Weg
+    # raeumen; um die geht es hier nicht.
+    monkeypatch.setattr(rs, "RATE_CAPACITY", 100_000)
+    hier = _Kopf(x_forwarded_for="198.51.100.32")
+    grenze = rs.NEUE_ADRESSEN_JE_TAG
+    assert grenze == 100
+    for i in range(grenze):
+        if i % 10 == 0:
+            assert _status(lambda: _falsche_kyber_signatur(
+                rs, make_user(), hier)) == 400
+        assert _neue_adresse(rs, hier) == 200, f"Adresse {i + 1}"
+    assert _neue_adresse(rs, hier) == 429
+    adressen = rs.db.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM identities").fetchone()[0]
+    assert adressen == grenze
+
+
+def test_sv3_auch_gleichzeitig_nicht_mehr_adressen_als_marken(relay, monkeypatch):
+    """Pruefen und Abbuchen sind ein Schritt: zwanzig gleichzeitige
+    Registrierungen bei fuenf Marken legen genau fuenf Adressen an."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 5)
+    hier = _Kopf(x_forwarded_for="198.51.100.33")
+    vorbereitet = []
+    for _ in range(20):
+        user = make_user()
+        nonce = _challenge(rs, user, hier)
+        bundle = _bundle_mit(user)
+        sig = sign(user["priv"],
+                   nonce + hashlib.sha256(bundle.canonical_bytes()).digest())
+        vorbereitet.append(rs.RegisterRequest(bundle=bundle, signature=b64(sig)))
+    start = threading.Barrier(len(vorbereitet))
+    ergebnisse = []
+
+    def lauf(anfrage):
+        start.wait()
+        ergebnisse.append(_status(lambda: rs.register(anfrage, hier)))
+
+    faeden = [threading.Thread(target=lauf, args=(a,)) for a in vorbereitet]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join()
+    assert sorted(ergebnisse) == [200] * 5 + [429] * 15
+    assert rs.db.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM identities").fetchone()[0] == 5
+
+
+def test_sv3_eine_bekannte_adresse_zahlt_keine_marke(relay, monkeypatch):
+    """Buendel erneuern und weitere Geraete anlegen kostet nichts - auch
+    nicht, solange noch Marken da sind (nicht nur: geht trotz leerem Eimer)."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 2)
+    hier = _Kopf(x_forwarded_for="198.51.100.34")
+    henrik = make_user()
+    assert _neue_adresse(rs, hier, henrik) == 200
+    for _ in range(3):
+        assert _status(lambda: _registriere_von(rs, henrik, hier)) == 200
+    for geraet in (2, 3):
+        assert _status(lambda: _registriere_von(
+            rs, henrik, hier, geraet=geraet)) == 200
+    # Von zwei Marken ist genau eine weg: die fuer henrik.
+    assert _neue_adresse(rs, hier) == 200
+    assert _neue_adresse(rs, hier) == 429
