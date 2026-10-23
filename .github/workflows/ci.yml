@@ -28,9 +28,11 @@ jobs:
     # `py` nimmt sonst das neueste Python auf dem Runner, nicht das von
     # setup-python. Seit Python 3.15 dort liegt, fand pip fuer xeddsa kein
     # Wheel mehr, und die Testhilfen haetten Relay und Zwischenlager mit 3.15
-    # gestartet. PY_PYTHON legt den Starter auf dieselbe Fassung fest.
+    # gestartet. PY_PYTHON legt `py` fest, PY_PYTHON3 `py -3` (so ruft
+    # test/support/python_befehl.dart den Relay auf) — beide auf dieselbe Fassung.
     env:
       PY_PYTHON: '3.12'
+      PY_PYTHON3: '3.12'
     defaults:
       run:
         working-directory: secure-messenger/app
