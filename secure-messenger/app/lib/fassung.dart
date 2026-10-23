@@ -7,7 +7,7 @@
 // fuer die eigene, laengst installierte Fassung.
 
 /// Die Fassung dieser App, ohne Baunummer.
-const String appFassung = '2.0.0';
+const String appFassung = '2.0.1';
 
 /// Vergleicht zwei Fassungen nach Semantic Versioning: negativ, wenn [a]
 /// aelter ist als [b], positiv, wenn neuer, 0 bei gleich. Null, wenn eine der
