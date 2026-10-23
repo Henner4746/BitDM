@@ -6,9 +6,21 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 
 ## 2.0.1 (unveröffentlicht)
 
+**Erst den Relay aktualisieren, dann die App.** Der Relay dieser Fassung speichert eine zusätzliche Signatur je Gerät und prüft sie bei der Anmeldung (siehe Geräteliste unten). Das ist additiv: Ältere Apps schicken das Feld nicht und laufen weiter, ein älterer Relay ignoriert es. Neue Endpunkte gibt es nicht, an der nginx-Liste ändert sich nichts.
+
 **App-Sperre: zwei Lücken aus der Sicherheitsprüfung vom 18.10.2026.**
 - **Einen Faktor hinzufügen verlangt jetzt eine frische Anmeldung**, genau wie das Entfernen. Bis 2.0.0 konnte jemand mit dem kurz entsperrten Telefon ein eigenes App-Passwort anlegen und sich damit ausweisen: für die zwölf Wörter, die Sperrfrist, die Fernlöschung und die Teilgeheimnisse. Dasselbe gilt für das Panik-Wort. Ein neu angelegter Faktor zählt erst nach dem nächsten Entsperren als Ausweis.
 - **Die Sperre greift jetzt auch im Hintergrund.** Bis 2.0.0 ging die App erst beim Zurückkommen zu. Bei „Sofort“ blieben die Schlüssel offen, solange sie im Hintergrund lag. Jetzt sperrt sie bei „Sofort“ beim Weglegen und sonst, sobald die Frist um ist. **Der Hintergrundempfang verlängert die Frist nicht:** Bei 1 oder 5 Minuten empfängt die App nur in dieser Zeit. Dauerhaft geht es nur mit „Nie“. Die Einstellungen sagen das jetzt dazu.
+
+**Geräteliste: ein Relay, der eine Abmeldung verschweigt** (Befund aus derselben Prüfung). Bis 2.0.0 bekamen Kontakte die signierte Geräteliste nur über den Relay. Nahm er eine neue Fassung an und lieferte weiter die alte aus, verschlüsselten die Kontakte weiter an das abgemeldete Gerät, und es konnte weiter als Besitzer schreiben. Protokoll und Grenzen: [`secure-messenger/docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md) §12.
+- **Die Liste geht jetzt auch Ende-zu-Ende.** Jede Nachricht trägt einen Stempel der eigenen Liste, und nach jeder Änderung geht die Liste selbst an die Kontakte. Wer einen neueren Stempel sieht, als seine Liste hergibt, schickt nur noch an Geräte, die diesen Stempel tragen, und nimmt nur von ihnen an.
+- **„Geräte verwalten“ warnt**, wenn der Relay die eigene letzte Änderung nicht ausliefert. Gibt es von einem Kontakt zwei widersprüchliche Listen, sagt der Chat das dazu.
+- **Sitzungen hängen am Geräteschlüssel.** Der signierte Prekey ist zusätzlich mit dem Geräteschlüssel signiert, und jede Erstnachricht trägt einen Nachweis. Ein abgemeldetes Gerät kann so auch mit Hilfe des Relays keine Sitzung unter der Kennung eines anderen Geräts aufbauen. Eine falsche Signatur wird nie angenommen. Eine fehlende wird erst ab 2.0.2 abgewiesen, damit Geräte mit älterer App bis dahin erreichbar bleiben.
+- **„Zielgerät unbekannt“ vom Relay löscht die Sitzung nicht mehr**, wenn das Gerät in der signierten Liste steht.
+- **Was bleibt:** Hat ein Kontakt seit der Abmeldung nichts vom Besitzer bekommen, weiß er nicht, dass ihm etwas fehlt. Verwirft der Relay alles vom Besitzer an einen Kontakt, sieht man das nur daran, dass die eigenen Nachrichten dort keinen zweiten Haken bekommen.
+
+**Relay**
+- certifi auf 2026.10.23. Die bisher gesperrte Fassung 2026.7.22 hat eine kritische Lücke. Alle anderen Abhängigkeiten bleiben, wie sie waren.
 
 ## 2.0.0 (18.10.2026)
 
