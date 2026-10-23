@@ -726,6 +726,10 @@ def relay(tmp_path, monkeypatch):
     # dem Testrechner, fielen alle Anmeldungen in der alten Form durch.
     monkeypatch.delenv("BITDM_ANMELDUNG_PFLICHT", raising=False)
     monkeypatch.delenv("BITDM_RELAY_NAMEN", raising=False)
+    # Die Anstoesse (SV-7): wer gerade angestossen wird, und der gemeinsame
+    # Client - beides gehoert zum einzelnen Test.
+    monkeypatch.setattr(rs, "_anstoss_nochmal", {}, raising=False)
+    monkeypatch.setattr(rs, "_push_klient", None, raising=False)
     try:
         yield rs
     finally:
@@ -5648,3 +5652,98 @@ def test_sv5_die_bremse_zaehlt_weiter_je_64(relay):
     assert rs.limit_schluessel(_Kopf(x_forwarded_for="2001:db8:7:3::1")) == \
         "2001:db8:7:3::/64"
     assert rs.nonce_herkunft(_Kopf(x_forwarded_for="203.0.113.7")) == "203.0.113.7"
+
+
+# ------------------------------------------------ SV-7  Anstoesse ohne Flut
+
+def _mit_endpunkt(rs, user, geraet=1):
+    _lege_an(rs, user, geraet=geraet)
+    with rs.db:
+        rs.db.execute("UPDATE identities SET push_endpoint=?"
+                      " WHERE user_id=? AND device_id=?",
+                      ("https://push.bitdm.net/upGeheim123", user["user_id"], geraet))
+
+
+def test_sv7_ein_client_fuer_alle_anstoesse(relay, klage_frisch, monkeypatch):
+    """Vorher baute JEDER Anstoss einen eigenen httpx.AsyncClient - samt
+    TLS-Kontext, synchron auf dem Event-Loop (gemessen 180 ms)."""
+    rs = relay
+    empfaenger = make_user()
+    _mit_endpunkt(rs, empfaenger)
+    gebaut = []
+    echt = rs.httpx.AsyncClient
+
+    class Zaehler(echt):
+        def __init__(self, *a, **kw):
+            gebaut.append(1)
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(rs.httpx, "AsyncClient", Zaehler)
+    gesehen = []
+    srv = _push_server(gesehen)
+    try:
+        monkeypatch.setattr(
+            rs, "PUSH_ZIEL_BASIS", f"http://127.0.0.1:{srv.server_address[1]}")
+
+        async def lauf():
+            for _ in range(5):
+                await rs.stosse_an(empfaenger["user_id"], 1)
+            # getattr: so laeuft die Gegenprobe gegen den alten Stand bis zur
+            # eigentlichen Frage, statt an einem fehlenden Namen zu scheitern.
+            schliessen = getattr(rs, "schliesse_push_klient", None)
+            if schliessen is not None:
+                await schliessen()
+
+        asyncio.run(lauf())
+    finally:
+        srv.shutdown()
+    assert len(gesehen) == 5
+    assert len(gebaut) == 1, f"{len(gebaut)} Clients fuer fuenf Anstoesse"
+
+
+def test_sv7_eine_flut_an_ein_geraet_weckt_es_nicht_hundertmal(relay, monkeypatch):
+    """Hoechstens ein Anstoss je Geraet unterwegs, und danach hoechstens einer
+    fuer alles, was waehrenddessen kam."""
+    rs = relay
+    angestossen = []
+
+    async def langsamer_anstoss(user_id, device_id):
+        angestossen.append((user_id, device_id))
+        await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(rs, "stosse_an", langsamer_anstoss)
+
+    async def lauf():
+        for _ in range(100):
+            rs.stosse_im_hintergrund_an("empfaenger", 1)
+        assert len(rs._laufende_anstoesse) == 1
+        await asyncio.sleep(0.3)
+        assert not rs._laufende_anstoesse and not rs._anstoss_nochmal
+        # Was NACH dem Wecken kommt, bekommt wieder einen.
+        rs.stosse_im_hintergrund_an("empfaenger", 1)
+        await asyncio.sleep(0.1)
+
+    asyncio.run(lauf())
+    assert angestossen == [("empfaenger", 1)] * 3
+
+
+def test_sv7_die_zahl_gleichzeitiger_anstoesse_ist_gedeckelt(relay, klage_frisch,
+                                                            monkeypatch, capsys):
+    rs = relay
+    monkeypatch.setattr(rs, "PUSH_LAUFEND_MAX", 3)
+    angestossen = []
+
+    async def langsamer_anstoss(user_id, device_id):
+        angestossen.append(device_id)
+        await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(rs, "stosse_an", langsamer_anstoss)
+
+    async def lauf():
+        for geraet in range(10):
+            rs.stosse_im_hintergrund_an("empfaenger", geraet)
+        await asyncio.sleep(0.2)
+
+    asyncio.run(lauf())
+    assert sorted(angestossen) == [0, 1, 2]
+    assert "Anstoesse gleichzeitig" in capsys.readouterr().out

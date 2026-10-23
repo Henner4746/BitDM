@@ -145,6 +145,7 @@ Alle mit Vorgabe; ueberschreiben per `Environment=` in der Unit
 | `BITDM_BLOB_MAX` | 33 MiB | groesstes Stueck je Marke — **muss zu `bitdm-blob` passen** |
 | `BITDM_BLOB_QUOTA` | 25 GiB | Marken je Adresse und Tag |
 | `BITDM_BLOB_QUOTA_TOTAL` | 200 GiB | **seit 23.10.2026 im Lager** (`bitdm-blob`): geschriebene Bytes je Tag; der Relay liest es nicht mehr (Audit SV-2) |
+| `BITDM_PUSH_PARALLEL` | 200 | Geraete, die gleichzeitig angestossen werden; je Geraet hoechstens ein Anstoss unterwegs plus einer fuer alles, was waehrenddessen kam (Audit SV-7). Darueber entfaellt der Anstoss, die Nachricht bleibt in der Warteschlange |
 | `BITDM_RELAY_NAMEN` | leer | Namen, unter denen die App diesen Relay erreicht, durch Kommas getrennt (z. B. `relay.bitdm.net,<onion>.onion`). Nur dafuer nimmt der Relay die Anmeldung mit Kontext an (Audit KR-2); leer = nur die alte Form. `install-relay.sh` traegt die Domain ein, die Onion-Adresse von Hand anhaengen |
 | `BITDM_ANMELDUNG_PFLICHT` | aus | genau `1`: die alte Anmeldeform ohne Kontext (Apps bis 2.0.0) wird abgewiesen. **Erst einschalten, wenn keine solche App mehr unterwegs ist** |
 

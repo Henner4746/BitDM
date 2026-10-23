@@ -2337,6 +2337,8 @@ async def lifespan(app: FastAPI):
     finally:
         task.cancel()
         pflege.cancel()
+        # Der gemeinsame Client der Anstoesse (SV-7) und seine Verbindungen.
+        await schliesse_push_klient()
         # Ein Worker kann noch mitten in einer Transaktion stehen; ohne die
         # Sperre bekaeme er "Cannot operate on a closed database".
         with schreibsperre:
@@ -3589,11 +3591,81 @@ def push_endpunkt_gueltig(url: str) -> bool:
 # wieder aus.
 _laufende_anstoesse: set[asyncio.Task] = set()
 
+# HOECHSTENS EIN ANSTOSS JE GERAET UNTERWEGS, und hoechstens so viele Geraete
+# gleichzeitig (seit 23.10.2026, Audit vom 16.10.2026, SV-7).
+#
+# Vorher startete JEDE gepufferte Zeile eine eigene Aufgabe, ohne Deckel:
+# wer an ein abwesendes Geraet mit Push-Endpunkt flutete - auch an eine
+# eigene Zweitadresse -, hielt beliebig viele Aufgaben und Verbindungen zum
+# Push-Server offen. Ein Geraet muss aber nur EINMAL geweckt werden, um alles
+# abzuholen, was liegt.
+#
+# (Adresse, Geraet) -> ob waehrend des laufenden Anstosses noch eine Zeile
+# kam. Dann geht nach dem laufenden GENAU EIN weiterer hinaus: eine Zeile, die
+# nach dem Wecken eintraf, darf nicht ohne Anstoss liegen bleiben, falls das
+# Geraet sich inzwischen schon wieder getrennt hat. Nur auf dem Event-Loop
+# veraendert, braucht also keine Sperre.
+_anstoss_nochmal: dict[tuple[str, int], bool] = {}
+
+# Wie viele Geraete gleichzeitig angestossen werden. Darueber entfaellt der
+# Anstoss: die Nachricht liegt in der Warteschlange, und die App holt sie
+# beim naechsten Start - genau wie bei einem Push-Server, der nicht antwortet.
+PUSH_LAUFEND_MAX = int(os.getenv("BITDM_PUSH_PARALLEL", 200))
+
 
 def stosse_im_hintergrund_an(user_id: str, device_id: int) -> None:
-    aufgabe = asyncio.create_task(stosse_an(user_id, device_id))
+    schluessel = (user_id, device_id)
+    if schluessel in _anstoss_nochmal:
+        _anstoss_nochmal[schluessel] = True
+        return
+    if len(_anstoss_nochmal) >= PUSH_LAUFEND_MAX:
+        _push_ging_daneben(f"mehr als {PUSH_LAUFEND_MAX} Anstoesse gleichzeitig")
+        return
+    _anstoss_nochmal[schluessel] = False
+    aufgabe = asyncio.create_task(_stosse_an_bis_nichts_nachkam(user_id, device_id))
     _laufende_anstoesse.add(aufgabe)
     aufgabe.add_done_callback(_laufende_anstoesse.discard)
+
+
+async def _stosse_an_bis_nichts_nachkam(user_id: str, device_id: int) -> None:
+    schluessel = (user_id, device_id)
+    try:
+        while True:
+            await stosse_an(user_id, device_id)
+            if not _anstoss_nochmal.get(schluessel):
+                return
+            _anstoss_nochmal[schluessel] = False
+    finally:
+        _anstoss_nochmal.pop(schluessel, None)
+
+
+# EIN Client fuer alle Anstoesse, statt einer je Anstoss (SV-7).
+#
+# httpx.AsyncClient baut beim Anlegen einen TLS-Kontext samt CA-Buendel,
+# synchron, also auf dem Event-Loop: gemessen 180 ms (Windows), unter Linux
+# weniger, aber nicht null - je gepufferter Nachricht. Auch auf
+# relay.bitdm.net, wo der POST ueber die Schleife und ohne TLS geht.
+#
+# MIT DER SCHLEIFE GEMERKT: eine Verbindung im Pool gehoert zu der Schleife,
+# auf der sie aufgebaut wurde. Im Betrieb gibt es genau eine; die Tests
+# starten je asyncio.run eine neue und bekommen dann einen neuen Client.
+_push_klient: tuple[asyncio.AbstractEventLoop, httpx.AsyncClient] | None = None
+
+
+def push_klient() -> httpx.AsyncClient:
+    global _push_klient
+    schleife = asyncio.get_running_loop()
+    if _push_klient is None or _push_klient[0] is not schleife:
+        _push_klient = (schleife, httpx.AsyncClient(timeout=PUSH_TIMEOUT))
+    return _push_klient[1]
+
+
+async def schliesse_push_klient() -> None:
+    """Beim Herunterfahren (lifespan)."""
+    global _push_klient
+    if _push_klient is not None:
+        klient, _push_klient = _push_klient[1], None
+        await klient.aclose()
 
 
 async def stosse_an(user_id: str, device_id: int) -> None:
@@ -3614,11 +3686,10 @@ async def stosse_an(user_id: str, device_id: int) -> None:
     if row is None or not row[0]:
         return
     try:
-        async with httpx.AsyncClient(timeout=PUSH_TIMEOUT) as client:
-            # NICHT follow_redirects=True. httpx folgt ab Werk nicht; ein
-            # Umzug wuerde den POST sonst an einen beliebigen Host tragen und
-            # den Host-Pin aus PUSH_ERLAUBTE_HOSTS aushebeln.
-            antwort = await client.post(anstoss_ziel(row[0]), content=b"")
+        # NICHT follow_redirects=True. httpx folgt ab Werk nicht; ein
+        # Umzug wuerde den POST sonst an einen beliebigen Host tragen und
+        # den Host-Pin aus PUSH_ERLAUBTE_HOSTS aushebeln.
+        antwort = await push_klient().post(anstoss_ziel(row[0]), content=b"")
     except Exception as exc:
         # Ein Anstoss, der nicht ankommt, ist kein Fehler des Absenders — die
         # Nachricht liegt in der Warteschlange und wird beim naechsten Start
