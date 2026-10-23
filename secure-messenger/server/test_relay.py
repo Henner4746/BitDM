@@ -722,6 +722,17 @@ def relay(tmp_path, monkeypatch):
     # (kyber_pflicht). Steht er auf dem Rechner, auf dem die Tests laufen,
     # zufaellig auf 1, fielen alle Anmeldungen ohne Kyber durch.
     monkeypatch.delenv("BITDM_KYBER_PFLICHT", raising=False)
+    # Dasselbe fuer die Anmeldung mit Kontext (KR-2): stuende der Schalter auf
+    # dem Testrechner, fielen alle Anmeldungen in der alten Form durch.
+    monkeypatch.delenv("BITDM_ANMELDUNG_PFLICHT", raising=False)
+    monkeypatch.delenv("BITDM_RELAY_NAMEN", raising=False)
+    # Die Anstoesse (SV-7): wer gerade angestossen wird, und der gemeinsame
+    # Client - beides gehoert zum einzelnen Test.
+    monkeypatch.setattr(rs, "_anstoss_nochmal", {}, raising=False)
+    monkeypatch.setattr(rs, "_push_klient", None, raising=False)
+    # Die Meldung "Adressdach fast voll" (SV-3) kommt hoechstens einmal je
+    # Stunde - je Test von vorn.
+    monkeypatch.setattr(rs, "_dach_gemeldet", None, raising=False)
     try:
         yield rs
     finally:
@@ -2994,11 +3005,23 @@ def test_tarnverkehr_wird_still_verworfen(relay):
 
 class _Kopf:
     """Eine Anfrage mit frei waehlbaren Kopfzeilen (klein geschrieben, wie
-    Starlette sie liefert)."""
+    Starlette sie liefert).
 
-    def __init__(self, **kopfzeilen):
+    `x_forwarded_for` steht zusaetzlich in `client`: so macht es uvicorn mit
+    `--proxy-headers --forwarded-allow-ips 127.0.0.1`, wenn nginx auf der
+    Schleife der Gegenueber ist. Mit `gegenueber` steht stattdessen der
+    unmittelbare Gegenueber dort - ein Relay, der ohne nginx lauscht und der
+    Kopfzeile deshalb nicht glaubt (SV-10)."""
+
+    def __init__(self, gegenueber=None, **kopfzeilen):
         self.headers = {k.replace("_", "-"): v for k, v in kopfzeilen.items()}
-        self.client = None
+        host = gegenueber or kopfzeilen.get("x_forwarded_for")
+        self.client = _Gegenueber(host) if host else None
+
+
+class _Gegenueber:
+    def __init__(self, host):
+        self.host = host
 
 
 def _registriere_mit(rs, user, nonce, priv=None, geraet=None, anfrage=None):
@@ -3451,24 +3474,11 @@ def test_marken_gelten_nur_fuer_stuecke(relay, monkeypatch):
     assert fehler == ["Groesse ungueltig", "Kennung ungueltig"]
 
 
-def test_die_tagesmenge_des_ganzen_relays(relay, monkeypatch):
-    rs = relay
-    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
-    monkeypatch.setattr(rs, "BLOB_TAGESMENGE_GESAMT", 100)
-    # Hier geht es um die Rechnung, nicht um die Mindestmenge je Marke.
-    monkeypatch.setattr(rs, "BLOB_MINDESTMENGE", 1)
-    alice = make_user()
-    _lege_an(rs, alice)
-    with rs.db:
-        rs.db.execute("INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
-                      ("jemand-anderes", 90, time.time()))
-    raus = _sitzung(rs, alice, [
-        {"type": "blob_marke", "kennung": "a" * 52, "groesse": 20},
-        {"type": "blob_marke", "kennung": "b" * 52, "groesse": 5},
-    ])
-    assert [m.get("kennung") for m in raus
-            if m.get("reason") == "Zwischenlager fuer heute ausgelastet"] == ["a" * 52]
-    assert [m["kennung"] for m in raus if m.get("type") == "blob_marke_ok"] == ["b" * 52]
+# test_die_tagesmenge_des_ganzen_relays stand hier bis zum 23.10.2026. Sie
+# hielt fest, dass Marken ANDERER Adressen eine Adresse aussperren - genau das
+# ist SV-2 aus dem Audit vom 16.10.2026. Die Gegenprobe steht jetzt unten bei
+# test_sv2_marken_anderer_adressen_sperren_niemanden_aus, die Menge des ganzen
+# Relays in test_blob.py (das Lager zaehlt sie).
 
 
 def test_eine_winzige_marke_kostet_die_mindestmenge(relay, monkeypatch):
@@ -5199,3 +5209,835 @@ def test_spk_nachricht_ist_die_der_app(relay):
     Weicht eine Seite ab, scheitert jede Anmeldung mit Signatur an 403."""
     assert relay.spk_nachricht("ABCD", 7, 42, "BQ==") == \
         b"BitDM-Prekey-v1\nABCD\n7\n42\nBQ=="
+
+
+# --------------------------------------------------------------------------- #
+#  Audit vom 16.10.2026, Relay-Teil  (SV-1, SV-2, KR-2, SV-3, SV-5, SV-7,
+#  SV-8, SV-10; 23.10.2026)
+# --------------------------------------------------------------------------- #
+#
+# Je Befund mindestens ein Test, der ohne die Behebung rot ist. Gegengeprueft,
+# indem die Behebung testweise zurueckgenommen wurde.
+
+
+# ------------------------------------------------ SV-1  Keine Summe auf dem Loop
+
+def test_sv1_marken_einer_stunde_sind_eine_zeile(relay, monkeypatch):
+    """Eine Zeile je Adresse und Stunde statt einer je Marke.
+
+    Vorher bis zu 25 600 Zeilen je Adresse und Tag, und die Summe je Marke
+    lief ueber alle davon: 76 ms auf dem Event-Loop (Audit, mess_blob_sum.py).
+    Hoechstens zwei Zeilen, falls der Test genau ueber eine volle Stunde
+    laeuft."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": c * 52, "groesse": 10} for c in "abcde"
+    ])
+    assert len([m for m in raus if m.get("type") == "blob_marke_ok"]) == 5
+    zeilen, summe = rs.db.execute(
+        "SELECT COUNT(*), SUM(groesse) FROM blob_marken WHERE user_id=?",
+        (alice["user_id"],)).fetchone()
+    assert zeilen <= 2, f"{zeilen} Zeilen fuer fuenf Marken"
+    assert summe == 5 * rs.BLOB_MINDESTMENGE
+    assert rs.blob_menge_heute(alice["user_id"]) == 5 * rs.BLOB_MINDESTMENGE
+
+
+def test_sv1_keine_summe_ueber_den_ganzen_relay(relay, monkeypatch):
+    """Jede Abfrage auf blob_marken im Handler betrifft genau EINE Adresse.
+
+    Die Summe ueber den ganzen Relay lief ueber bis zu 204 800 Zeilen,
+    gemessen 498 ms je Marke - synchron, also fuer alle Verbindungen."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    gesehen = []
+    rs.db.set_trace_callback(gesehen.append)
+    try:
+        raus = _sitzung(rs, alice, [
+            {"type": "blob_marke", "kennung": "a" * 52, "groesse": 10}])
+    finally:
+        rs.db.set_trace_callback(None)
+    assert [m for m in raus if m.get("type") == "blob_marke_ok"]
+    auf_marken = [s for s in gesehen if "blob_marken" in s]
+    assert auf_marken, "der Test sieht die Abfragen nicht"
+    assert all("user_id" in s for s in auf_marken), auf_marken
+
+
+def test_sv1_alte_einzelzeilen_zaehlen_weiter(relay, monkeypatch):
+    """Beim Aufspielen liegen noch Zeilen je Marke in der Tabelle. Sie zaehlen
+    bis zu ihrem Ablauf mit; niemand bekommt durch das Update eine frische
+    Tagesmenge geschenkt."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    monkeypatch.setattr(rs, "BLOB_TAGESMENGE", 3 * rs.BLOB_MINDESTMENGE)
+    alice = make_user()
+    _lege_an(rs, alice)
+    with rs.db:
+        rs.db.executemany(
+            "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+            [(alice["user_id"], rs.BLOB_MINDESTMENGE, time.time() - 60 * i)
+             for i in range(2)])
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": c * 52, "groesse": 10} for c in "ab"])
+    assert [m["kennung"][0] for m in raus if m.get("type") == "blob_marke_ok"] == ["a"]
+    assert [m.get("reason") for m in raus if m.get("type") == "error"] == \
+        ["Tagesmenge erschoepft"]
+
+
+def test_sv1_aufgeraeumt_wird_nach_dem_fenster(relay):
+    rs = relay
+    jetzt = time.time()
+    with rs.db:
+        rs.db.executemany(
+            "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+            [("alt", 1, jetzt - rs.BLOB_FENSTER - 1), ("frisch", 1, jetzt - 24 * 3600 - 1)])
+    rs.purge_expired()
+    assert [r[0] for r in rs.db.execute("SELECT user_id FROM blob_marken")] == ["frisch"]
+
+
+# ------------------------------------------------ SV-2  Tagesmenge ohne Upload
+
+def test_sv2_marken_anderer_adressen_sperren_niemanden_aus(relay, monkeypatch):
+    """Der Befund selbst: neun kostenlose Adressen holten sich je 25 GiB an
+    Marken, luden nichts hoch, und der ganze Relay war 24 Stunden lang
+    "ausgelastet". Die Menge des ganzen Relays zaehlt jetzt das Lager, nach
+    Bytes, die wirklich ankommen (test_blob.py, test_sv2_*)."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    with rs.db:
+        rs.db.executemany(
+            "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+            [(f"stoerer-{i}", rs.BLOB_TAGESMENGE, time.time()) for i in range(9)])
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": "a" * 52, "groesse": 4096}])
+    assert [m.get("reason") for m in raus if m.get("type") == "error"] == []
+    assert [m["kennung"] for m in raus if m.get("type") == "blob_marke_ok"] == ["a" * 52]
+
+
+def test_sv2_die_menge_je_adresse_bleibt(relay, monkeypatch):
+    """Die Gegenprobe: die eigene Tagesmenge zaehlt weiter beim Ausstellen.
+    Wer Marken verfallen laesst, verbraucht SEIN Kontingent."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    with rs.db:
+        rs.blob_menge_anrechnen(alice["user_id"], rs.BLOB_TAGESMENGE)
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": "a" * 52, "groesse": 4096}])
+    assert [m.get("reason") for m in raus if m.get("type") == "error"] == \
+        ["Tagesmenge erschoepft"]
+
+
+# ------------------------------------------------ KR-2  Anmeldung mit Kontext
+#
+# Die Bytes stehen hier ABSICHTLICH ausgeschrieben und nicht ueber
+# rs.ws_anmelde_nachricht gebaut: sonst teilten Test und Server dieselbe
+# Annahme (siehe canonical_bytes oben). Dieselben Zeichen muss die App bauen.
+
+RELAY_NAMEN_T = "relay.test,abcdefghijklmnop.onion"
+
+
+def _ws_kontext(host, user_id, geraet, nonce):
+    return (b"BitDM-Relay-Anmeldung-v1\n"
+            + f"{host}\n{user_id}\n{geraet}\n".encode() + nonce)
+
+
+def _reg_kontext(host, nonce, inhalt):
+    return b"BitDM-Relay-Registrierung-v1\n" + f"{host}\n".encode() + nonce + inhalt
+
+
+class _KontextSocket(_StummerSocket):
+    """Beantwortet die Challenge in der NEUEN Form (KR-2).
+
+    `relay` geht als Feld hinaus, `signiert_relay` in die signierten Bytes -
+    weichen sie ab, ist es die weitergereichte Challenge eines anderen
+    Relays."""
+
+    def __init__(self, user_id, priv, *, relay, signiert_relay=None,
+                 signiert_geraet=None, **kw):
+        super().__init__(user_id, priv, **kw)
+        self._relay = relay
+        self._signiert_relay = relay if signiert_relay is None else signiert_relay
+        self._kontext_geraet = signiert_geraet
+        self.challenge = None
+
+    async def send_json(self, obj):
+        if obj.get("type") != "challenge":
+            return await super().send_json(obj)
+        self.gesendet.append(obj)
+        self.challenge = obj
+        nonce = base64.b64decode(obj["nonce"])
+        geraet = self._kontext_geraet or self._geraet or 1
+        zu = _ws_kontext(self._signiert_relay, self.query_params["user_id"],
+                         geraet, nonce)
+        antwort = {"signature": b64(sign(self._priv, zu))}
+        if self._relay is not None:
+            antwort["relay"] = self._relay
+        if self._geraete_priv is not None:
+            antwort["geraete_signatur"] = b64(sign(
+                self._geraete_priv, ANMELDE_PRAEFIX_T + zu))
+        self._antworten.insert(0, antwort)
+
+
+def _angemeldet(sock):
+    ergebnis = [m for m in sock.gesendet if m.get("type") == "auth_result"]
+    return bool(ergebnis) and ergebnis[0]["ok"] is True
+
+
+def test_kr2_die_challenge_nennt_die_namen_des_relays(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", " Relay.Test , abcdefghijklmnop.onion,")
+    sock = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test")
+    asyncio.run(rs.ws_endpoint(sock))
+    assert sock.challenge["relay"] == ["relay.test", "abcdefghijklmnop.onion"]
+    antwort = rs.register_challenge(
+        rs.ChallengeRequest(user_id=henrik["user_id"]), _Anfrage())
+    assert antwort["relay"] == ["relay.test", "abcdefghijklmnop.onion"]
+
+
+def test_kr2_ohne_namen_bleibt_die_challenge_wie_bisher(relay, monkeypatch):
+    """Ein Relay ohne BITDM_RELAY_NAMEN schickt Byte fuer Byte die alte
+    Challenge - und die App signiert dann die alte Form."""
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.delenv("BITDM_RELAY_NAMEN", raising=False)
+    sock = _StummerSocket(henrik["user_id"], henrik["priv"])
+    asyncio.run(rs.ws_endpoint(sock))
+    assert set(sock.gesendet[0]) == {"type", "nonce"}
+    assert set(rs.register_challenge(
+        rs.ChallengeRequest(user_id=henrik["user_id"]), _Anfrage())) == {"nonce"}
+
+
+def test_kr2_die_neue_form_meldet_an(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    for name in ("relay.test", "abcdefghijklmnop.onion"):
+        sock = _KontextSocket(henrik["user_id"], henrik["priv"], relay=name)
+        asyncio.run(rs.ws_endpoint(sock))
+        assert _angemeldet(sock), name
+
+
+def test_kr2_die_challenge_eines_anderen_relays_gilt_hier_nicht(relay, monkeypatch):
+    """Der Befund: Relay A reicht die Challenge von B (hier: diesem Relay) an
+    das Opfer weiter. Das Opfer signiert mit dem Namen, unter dem es A
+    erreicht hat - B nimmt das nicht an, unter keinem Feld."""
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    for feld in ("relay-a.test", "relay.test", None):
+        sock = _KontextSocket(henrik["user_id"], henrik["priv"], relay=feld,
+                              signiert_relay="relay-a.test")
+        asyncio.run(rs.ws_endpoint(sock))
+        assert not _angemeldet(sock), feld
+        assert sock.geschlossen == 4403
+
+
+def test_kr2_die_neue_form_bindet_das_geraet(relay, monkeypatch):
+    """Geraet 1 steht ausdruecklich in den Bytes, auch ohne Kennung in der
+    Query. Eine Signatur fuer Geraet 1 gilt nicht fuer Geraet 2."""
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1)
+    _lege_an(rs, henrik, geraet=2)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    eins = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test")
+    asyncio.run(rs.ws_endpoint(eins))
+    assert _angemeldet(eins)
+    fremd = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test",
+                           geraet=2, signiert_geraet=1)
+    asyncio.run(rs.ws_endpoint(fremd))
+    assert not _angemeldet(fremd)
+    zwei = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test",
+                          geraet=2)
+    asyncio.run(rs.ws_endpoint(zwei))
+    assert _angemeldet(zwei)
+
+
+def test_kr2_die_alte_form_der_app_2_0_0_gilt_weiter(relay, monkeypatch):
+    """Die ausgelieferte App 2.0.0 signiert roh. Sie darf nicht ausgesperrt
+    werden, auch nicht von einem Relay, der die neue Form kennt."""
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik, geraet=1)
+    _lege_an(rs, henrik, geraet=3)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    monkeypatch.delenv("BITDM_ANMELDUNG_PFLICHT", raising=False)
+    for geraet in (None, 3):
+        sock = _StummerSocket(henrik["user_id"], henrik["priv"], geraet=geraet)
+        asyncio.run(rs.ws_endpoint(sock))
+        assert _angemeldet(sock), geraet
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _registriere_mit(rs, henrik, nonce)["ok"] is True
+
+
+def test_kr2_der_schalter_weist_die_alte_form_ab(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    monkeypatch.setenv("BITDM_ANMELDUNG_PFLICHT", "1")
+    alt = _StummerSocket(henrik["user_id"], henrik["priv"])
+    asyncio.run(rs.ws_endpoint(alt))
+    assert not _angemeldet(alt) and alt.geschlossen == 4403
+    neu = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test")
+    asyncio.run(rs.ws_endpoint(neu))
+    assert _angemeldet(neu)
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _status(lambda: _registriere_mit(rs, henrik, nonce)) == 403
+
+
+def _registriere_kontext(rs, user, nonce, host_feld, host_signiert=None,
+                         gs=None, geraet=None):
+    bundle = _bundle_mit(user, geraet)
+    inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
+    zu = _reg_kontext(host_signiert or host_feld, nonce, inhalt)
+    gsig = None if gs is None else b64(sign(gs["priv"], ANMELDE_PRAEFIX_T + zu))
+    return rs.register(rs.RegisterRequest(
+        bundle=bundle, signature=b64(sign(user["priv"], zu)),
+        geraete_signatur=gsig, relay=host_feld), _Anfrage())
+
+
+def test_kr2_registrierung_in_der_neuen_form(relay, monkeypatch):
+    rs = relay
+    henrik = _echter_user()
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _registriere_kontext(rs, henrik, nonce, "relay.test")["ok"] is True
+
+
+def test_kr2_registrierung_fuer_einen_anderen_relay_gilt_nicht(relay, monkeypatch):
+    rs = relay
+    henrik = _echter_user()
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _status(lambda: _registriere_kontext(
+        rs, henrik, nonce, "relay-a.test")) == 403
+    assert _status(lambda: _registriere_kontext(
+        rs, henrik, nonce, "relay.test", host_signiert="relay-a.test")) == 403
+    # Das Nonce hat keiner der Versuche verbraucht.
+    assert nonce in rs.offene_nonces(henrik["user_id"])
+
+
+def test_kr2_registrierung_mit_geraeteliste_in_der_neuen_form(relay, monkeypatch):
+    """Der Geraeteschluessel unterschreibt dieselben Bytes wie die Identitaet,
+    hinter ANMELDE_PRAEFIX - in der neuen Form also die neue Nachricht."""
+    rs = relay
+    henrik = _echter_user()
+    handy = _geraet()
+    _setze(rs, _liste(henrik, 1, {1: handy}, 1))
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", RELAY_NAMEN_T)
+    nonce = _challenge(rs, henrik, _Anfrage())
+    assert _registriere_kontext(rs, henrik, nonce, "relay.test", gs=handy)["ok"] is True
+    sock = _KontextSocket(henrik["user_id"], henrik["priv"], relay="relay.test",
+                          geraete_priv=handy["priv"])
+    asyncio.run(rs.ws_endpoint(sock))
+    assert _angemeldet(sock)
+
+
+def test_kr2_die_nachrichten_sind_die_der_app(relay):
+    """DIESELBEN ZEICHEN muss relay_client.dart bauen. Weicht eine Seite ab,
+    scheitert jede Anmeldung in der neuen Form mit 4403 bzw. 403."""
+    rs = relay
+    n = bytes(range(32))
+    assert rs.ws_anmelde_nachricht("relay.bitdm.net", "abcd", 1, n) == \
+        b"BitDM-Relay-Anmeldung-v1\nrelay.bitdm.net\nabcd\n1\n" + n
+    assert rs.registrier_nachricht("relay.bitdm.net", n, b"\xff" * 32) == \
+        b"BitDM-Relay-Registrierung-v1\nrelay.bitdm.net\n" + n + b"\xff" * 32
+
+
+# ------------------------------------------------ SV-11  Hinweis in install.sh
+
+def test_sv11_install_sh_verweist_auf_keine_einstellung_die_es_nicht_gibt():
+    """Am Ende stand "Settings > Receiving > server address". Die App hat
+    diese Einstellung seit dem 26.07.2026 nicht mehr (EIGENER-SERVER.md); wer
+    einen Relay aufsetzte, suchte sie vergeblich und erfuhr nicht, warum.
+    Der Relay wird beim BAUEN der App gewaehlt."""
+    website = Path(__file__).resolve().parent.parent / "website"
+    install = (website / "install.sh").read_text(encoding="utf-8")
+    assert "Settings > Receiving" not in install
+    assert "server address" not in install
+    assert "--dart-define=BITDM_RELAY=https://$DOMAIN" in install
+    app = Path(__file__).resolve().parent.parent / "app" / "lib" / "main.dart"
+    assert "String.fromEnvironment(\n  'BITDM_RELAY'," in app.read_text(encoding="utf-8"), \
+        "der Hinweis nennt einen Schalter, den die App so nicht mehr hat"
+
+
+# ------------------------------------------------ SV-8  Push-Endpunkt: Port, Nutzer
+
+def test_sv8_push_endpunkt_ohne_fremden_port_und_ohne_nutzer(relay):
+    """Geprueft waren nur Schema, Host und Pfad. Ohne BITDM_PUSH_TARGET ging
+    der leere POST an jeden Port der Maschine hinter push.bitdm.net."""
+    rs = relay
+    for gut in ("https://push.bitdm.net/upAbc_-1",
+                "https://push.bitdm.net:443/upAbc",
+                "https://push.bitdm.net/upAbc?up=1"):
+        assert rs.push_endpunkt_gueltig(gut), gut
+    for schlecht in ("https://push.bitdm.net:22/upAbc",
+                     "https://push.bitdm.net:8443/upAbc",
+                     "https://push.bitdm.net:99999/upAbc",
+                     "https://nutzer@push.bitdm.net/upAbc",
+                     "https://nutzer:geheim@push.bitdm.net/upAbc",
+                     "https://:@push.bitdm.net/upAbc"):
+        assert not rs.push_endpunkt_gueltig(schlecht), schlecht
+
+
+# ------------------------------------------------ SV-10  Herkunft nicht aus der Kopfzeile
+
+def test_sv10_ohne_nginx_hilft_eine_gefaelschte_kopfzeile_nichts(relay, monkeypatch):
+    """Ein Relay, der versehentlich ohne nginx nach aussen lauscht: uvicorn
+    glaubt X-Forwarded-For dann nicht, und der Relay darf es auch nicht.
+    Vorher genuegten `X-Forwarded-For: 127.0.0.1` und `X-BitDM-Onion: 1`, und
+    jede Bremse je Herkunft war aus."""
+    rs = relay
+    angreifer = dict(gegenueber="203.0.113.7", x_forwarded_for="127.0.0.1",
+                     x_bitdm_onion="1", x_bitdm_kreis="fc00:dead:beef:4dad::2a")
+    assert rs.client_ip(_Kopf(**angreifer)) == "203.0.113.7"
+    assert not rs.kommt_ueber_onion(_Kopf(**angreifer))
+    assert rs.limit_schluessel(_Kopf(**angreifer)) == "203.0.113.7"
+    # Und die Bremse greift: ein Eimer mit einer Marke, ohne Nachfuellen.
+    monkeypatch.setattr(rs, "RATE_CAPACITY", 1)
+    monkeypatch.setattr(rs, "RATE_REFILL_PER_SEC", 0.0)
+    rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))),
+                          _Kopf(**angreifer))
+    with pytest.raises(rs.HTTPException) as fehler:
+        rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))),
+                              _Kopf(**{**angreifer, "x_forwarded_for": "198.51.100.9"}))
+    assert fehler.value.status_code == 429
+
+
+def test_sv10_hinter_nginx_zaehlt_was_uvicorn_eintraegt(relay):
+    """Die Gegenprobe: hinter nginx steht die echte IP in `client`, so wie
+    uvicorn sie aus der Kopfzeile von nginx uebernimmt."""
+    rs = relay
+    hinter_nginx = _Kopf(x_forwarded_for="198.51.100.20")
+    assert rs.client_ip(hinter_nginx) == "198.51.100.20"
+    ueber_tor = _Kopf(x_forwarded_for="127.0.0.1", x_bitdm_onion="1")
+    assert rs.kommt_ueber_onion(ueber_tor)
+
+
+# ------------------------------------------------ SV-5  Nonce-Herkunft je /48
+
+def test_sv5_ein_heimanschluss_verdraengt_das_nonce_nicht(relay):
+    """Der Befund: 16 /64 aus EINEM Anschluss waren 16 Herkuenfte, 128 fremde
+    Nonces fuellten das Dach des Paares, und das des Opfers fiel. Je /48 ist
+    der ganze Anschluss eine Herkunft und verdraengt nur sich selbst."""
+    rs = relay
+    opfer = make_user()
+    beim_opfer = _Kopf(x_forwarded_for="198.51.100.20")
+    nonce = _challenge(rs, opfer, beim_opfer)
+    for netz in range(rs.NONCE_HERKUENFTE):
+        stoerer = _Kopf(x_forwarded_for=f"2001:db8:7:{netz:x}::1")
+        for _ in range(rs.NONCE_PLAETZE):
+            _challenge(rs, opfer, stoerer)
+    assert nonce in rs.offene_nonces(opfer["user_id"])
+    assert _registriere_mit(rs, opfer, nonce, anfrage=beim_opfer)["ok"] is True
+
+
+def test_sv5_die_bremse_zaehlt_weiter_je_64(relay):
+    """Nur die Nonces zaehlen je /48. Die Bremse bliebe sonst fuer ganze
+    Mobilfunknetze ein einziger Eimer."""
+    rs = relay
+    assert rs.nonce_herkunft(_Kopf(x_forwarded_for="2001:db8:7:3::1")) == \
+        "2001:db8:7::/48"
+    assert rs.limit_schluessel(_Kopf(x_forwarded_for="2001:db8:7:3::1")) == \
+        "2001:db8:7:3::/64"
+    assert rs.nonce_herkunft(_Kopf(x_forwarded_for="203.0.113.7")) == "203.0.113.7"
+
+
+# ------------------------------------------------ SV-7  Anstoesse ohne Flut
+
+def _mit_endpunkt(rs, user, geraet=1):
+    _lege_an(rs, user, geraet=geraet)
+    with rs.db:
+        rs.db.execute("UPDATE identities SET push_endpoint=?"
+                      " WHERE user_id=? AND device_id=?",
+                      ("https://push.bitdm.net/upGeheim123", user["user_id"], geraet))
+
+
+def test_sv7_ein_client_fuer_alle_anstoesse(relay, klage_frisch, monkeypatch):
+    """Vorher baute JEDER Anstoss einen eigenen httpx.AsyncClient - samt
+    TLS-Kontext, synchron auf dem Event-Loop (gemessen 180 ms)."""
+    rs = relay
+    empfaenger = make_user()
+    _mit_endpunkt(rs, empfaenger)
+    gebaut = []
+    echt = rs.httpx.AsyncClient
+
+    class Zaehler(echt):
+        def __init__(self, *a, **kw):
+            gebaut.append(1)
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(rs.httpx, "AsyncClient", Zaehler)
+    gesehen = []
+    srv = _push_server(gesehen)
+    try:
+        monkeypatch.setattr(
+            rs, "PUSH_ZIEL_BASIS", f"http://127.0.0.1:{srv.server_address[1]}")
+
+        async def lauf():
+            for _ in range(5):
+                await rs.stosse_an(empfaenger["user_id"], 1)
+            # getattr: so laeuft die Gegenprobe gegen den alten Stand bis zur
+            # eigentlichen Frage, statt an einem fehlenden Namen zu scheitern.
+            schliessen = getattr(rs, "schliesse_push_klient", None)
+            if schliessen is not None:
+                await schliessen()
+
+        asyncio.run(lauf())
+    finally:
+        srv.shutdown()
+    assert len(gesehen) == 5
+    assert len(gebaut) == 1, f"{len(gebaut)} Clients fuer fuenf Anstoesse"
+
+
+def test_sv7_eine_flut_an_ein_geraet_weckt_es_nicht_hundertmal(relay, monkeypatch):
+    """Hoechstens ein Anstoss je Geraet unterwegs, und danach hoechstens einer
+    fuer alles, was waehrenddessen kam."""
+    rs = relay
+    angestossen = []
+
+    async def langsamer_anstoss(user_id, device_id):
+        angestossen.append((user_id, device_id))
+        await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(rs, "stosse_an", langsamer_anstoss)
+
+    async def lauf():
+        for _ in range(100):
+            rs.stosse_im_hintergrund_an("empfaenger", 1)
+        assert len(rs._laufende_anstoesse) == 1
+        await asyncio.sleep(0.3)
+        assert not rs._laufende_anstoesse and not rs._anstoss_nochmal
+        # Was NACH dem Wecken kommt, bekommt wieder einen.
+        rs.stosse_im_hintergrund_an("empfaenger", 1)
+        await asyncio.sleep(0.1)
+
+    asyncio.run(lauf())
+    assert angestossen == [("empfaenger", 1)] * 3
+
+
+def test_sv7_die_zahl_gleichzeitiger_anstoesse_ist_gedeckelt(relay, klage_frisch,
+                                                            monkeypatch, capsys):
+    rs = relay
+    monkeypatch.setattr(rs, "PUSH_LAUFEND_MAX", 3)
+    angestossen = []
+
+    async def langsamer_anstoss(user_id, device_id):
+        angestossen.append(device_id)
+        await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(rs, "stosse_an", langsamer_anstoss)
+
+    async def lauf():
+        for geraet in range(10):
+            rs.stosse_im_hintergrund_an("empfaenger", geraet)
+        await asyncio.sleep(0.2)
+
+    asyncio.run(lauf())
+    assert sorted(angestossen) == [0, 1, 2]
+    assert "Anstoesse gleichzeitig" in capsys.readouterr().out
+
+
+# ------------------------------------------------ SV-3  Das Adressdach
+
+def _neue_adresse(rs, anfrage, user=None):
+    """Eine vollstaendige Registrierung einer NEUEN Adresse von `anfrage`.
+    Rueckgabe: HTTP-Status (200 = angenommen)."""
+    user = user or make_user()
+    return _status(lambda: _registriere_mit(
+        rs, user, _challenge(rs, user, anfrage), anfrage=anfrage))
+
+
+def test_sv3_ein_anschluss_legt_nicht_beliebig_viele_adressen_an(relay, monkeypatch):
+    """Der Befund: je /64 gezaehlt und mit der allgemeinen Bremse (rund
+    34 500 am Tag) fuellte ein Heimanschluss das Dach in Minuten. Jetzt hat
+    eine NEUE Adresse ihren eigenen Eimer je Anschluss (/48)."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 3, raising=False)
+    for netz in range(3):
+        assert _neue_adresse(rs, _Kopf(x_forwarded_for=f"2001:db8:9:{netz}::1")) == 200
+    assert _neue_adresse(rs, _Kopf(x_forwarded_for="2001:db8:9:ff::1")) == 429
+    # Ein anderer Anschluss ist davon unberuehrt.
+    assert _neue_adresse(rs, _Kopf(x_forwarded_for="2001:db8:a::1")) == 200
+
+
+def test_sv3_wer_schon_da_ist_kommt_weiter_durch(relay, monkeypatch):
+    """Der Eimer trifft nur NEUE Adressen. Buendel erneuern und weitere
+    Geraete anmelden geht wie bisher - sonst waere die Bremse fuer die
+    eigenen Nutzer eines Netzes eine Abschaltung."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 1, raising=False)
+    hier = _Kopf(x_forwarded_for="198.51.100.20")
+    henrik = make_user()
+    assert _neue_adresse(rs, hier, henrik) == 200
+    assert _neue_adresse(rs, hier) == 429
+    for _ in range(3):
+        assert _status(lambda: _registriere_mit(
+            rs, henrik, _challenge(rs, henrik, hier), anfrage=hier)) == 200
+    assert _status(lambda: _registriere_mit(
+        rs, henrik, _challenge(rs, henrik, hier, geraet=2), geraet=2,
+        anfrage=hier)) == 200
+
+
+def test_sv3_ueber_tor_teilen_sich_alle_circuits_ein_dach(relay, monkeypatch):
+    """Ein Circuit ist billig zu wechseln, und ohne Circuit-Kennung gab es
+    ueber Tor gar keine Bremse."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_ONION_JE_TAG", 2, raising=False)
+    kreis = lambda n: _Kopf(x_forwarded_for="127.0.0.1", x_bitdm_onion="1",
+                            x_bitdm_kreis=f"fc00:dead:beef:4dad::{n:x}")
+    assert _neue_adresse(rs, kreis(1)) == 200
+    assert _neue_adresse(rs, kreis(2)) == 200
+    assert _neue_adresse(rs, kreis(3)) == 429
+    ohne_kreis = _Kopf(x_forwarded_for="127.0.0.1", x_bitdm_onion="1")
+    assert _neue_adresse(rs, ohne_kreis) == 429
+    # Ueber das oeffentliche Netz geht es weiter.
+    assert _neue_adresse(rs, _Kopf(x_forwarded_for="203.0.113.7")) == 200
+
+
+def test_sv3_eine_nie_verbundene_adresse_geht_nach_zwei_tagen(relay):
+    """Gehalten wurde das Dach mit einer Erneuerung im Monat, ohne sich je
+    anzumelden. Eine App meldet sich direkt nach dem Registrieren per /ws an."""
+    rs = relay
+    nie, frisch, lebt = make_user(), make_user(), make_user()
+    jetzt = time.time()
+    # getattr: die Gegenprobe gegen den alten Stand laeuft so bis zur Frage.
+    ttl = getattr(rs, "NIE_VERBUNDEN_TTL", 48 * 3600)
+    _lege_an(rs, nie)
+    _lege_an(rs, frisch)
+    _lege_an(rs, lebt, last_seen=jetzt - 5 * 24 * 3600)
+    with rs.db:
+        rs.db.execute("UPDATE identities SET last_seen=0, updated_at=? WHERE user_id=?",
+                      (jetzt - ttl - 60, nie["user_id"]))
+        rs.db.execute("UPDATE identities SET last_seen=0, updated_at=? WHERE user_id=?",
+                      (jetzt - ttl + 600, frisch["user_id"]))
+    assert rs.raeume_vergessene_geraete() == 1
+    uebrig = {r[0] for r in rs.db.execute("SELECT user_id FROM identities")}
+    assert uebrig == {frisch["user_id"], lebt["user_id"]}
+
+
+def test_sv3_das_dach_meldet_sich_bevor_es_voll_ist(relay, monkeypatch, capsys):
+    rs = relay
+    monkeypatch.setattr(rs, "IDENTITAETEN_MAX", 5)
+    for i in range(5):
+        assert _neue_adresse(rs, _Kopf(x_forwarded_for=f"198.51.100.{i + 1}")) == 200
+    zeilen = [z for z in capsys.readouterr().out.splitlines() if "Adressdach" in z]
+    assert len(zeilen) == 1, "hoechstens einmal je Stunde"
+    assert "80 %" in zeilen[0] and "4 von 5" in zeilen[0]
+    assert "198.51" not in zeilen[0], "keine Herkunft im Journal"
+
+
+# ---------------------------------- SV-3  Die Marke kostet erst die neue Adresse
+#
+# Nachpruefung vom 24.10.2026: neue_adresse_ok lief VOR den Pruefungen, die
+# eine Registrierung noch scheitern lassen. Jeder Fehlversuch kostete die
+# ganze Herkunft eine Marke, und ein dauerhaft scheiternder Client hinter
+# einer geteilten IPv4 (Carrier-Grade-NAT) hielt den Eimer fuer alle leer.
+
+def _registriere_von(rs, user, anfrage, geraet=None, gs=None, **aenderungen):
+    """Eine Registrierung ueber den echten Endpunkt, von `anfrage` aus: mit
+    eigener Challenge, Aenderungen am Buendel und optional Geraeteschluessel."""
+    nonce = _challenge(rs, user, anfrage, geraet)
+    bundle = _bundle_mit(user, geraet, **aenderungen)
+    inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
+    gsig = None if gs is None else b64(
+        sign(gs["priv"], ANMELDE_PRAEFIX_T + nonce + inhalt))
+    return rs.register(rs.RegisterRequest(
+        bundle=bundle, signature=b64(sign(user["priv"], nonce + inhalt)),
+        geraete_signatur=gsig), anfrage)
+
+
+def _falsche_kyber_signatur(rs, user, anfrage):
+    teil = _kyber(user)
+    teil["kyber_prekey_sig"] = b64(
+        sign(os.urandom(32), base64.b64decode(teil["kyber_prekey"])))
+    return _registriere_von(rs, user, anfrage, **teil)
+
+
+def _ohne_geraeteschluessel(rs, user, anfrage):
+    # Die App legt die Liste vor der ersten Anmeldung an: eine Adresse ohne
+    # Zeile in `identities`, aber mit Liste, ist noch NEU.
+    _setze(rs, _liste(user, 1, {1: _geraet()}, 1))
+    return _registriere_von(rs, user, anfrage)
+
+
+def _riesige_kennung(rs, user, anfrage):
+    # Scheitert erst beim INSERT (OverflowError) - also NACH der Marke.
+    return _registriere_von(rs, user, anfrage, registration_id=10**30)
+
+
+@pytest.mark.parametrize("fehlversuch, status", [
+    (_falsche_kyber_signatur, 400),
+    (_ohne_geraeteschluessel, 403),
+    (_riesige_kennung, 400),
+], ids=["kyber", "geraeteliste", "insert"])
+def test_sv3_ein_fehlversuch_kostet_keine_marke(relay, monkeypatch, fehlversuch,
+                                                status):
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 1)
+    hier = _Kopf(x_forwarded_for="198.51.100.30")
+    for _ in range(3):
+        stoerer = make_user()
+        assert _status(lambda: fehlversuch(rs, stoerer, hier)) == status
+    assert rs.db.execute("SELECT COUNT(*) FROM identities").fetchone()[0] == 0
+    # Die eine Marke des Tages ist noch da.
+    assert _neue_adresse(rs, hier) == 200
+    assert _neue_adresse(rs, hier) == 429
+
+
+def test_sv3_ein_volles_dach_kostet_keine_marke(relay, monkeypatch):
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 1)
+    monkeypatch.setattr(rs, "IDENTITAETEN_MAX", 1)
+    hier = _Kopf(x_forwarded_for="198.51.100.31")
+    _lege_an(rs, make_user())
+    for _ in range(3):
+        assert _neue_adresse(rs, hier) == 507
+    monkeypatch.setattr(rs, "IDENTITAETEN_MAX", 50_000)
+    assert _neue_adresse(rs, hier) == 200
+    assert _neue_adresse(rs, hier) == 429
+
+
+def test_sv3_die_grenze_gilt_genau(relay, monkeypatch):
+    """Genau NEUE_ADRESSEN_JE_TAG neue Adressen je Herkunft und Tag (100),
+    auch mit Fehlversuchen dazwischen - nicht eine mehr, nicht eine weniger."""
+    rs = relay
+    # Nur die allgemeine Bremse (5 von 120 je Registrierung) aus dem Weg
+    # raeumen; um die geht es hier nicht.
+    monkeypatch.setattr(rs, "RATE_CAPACITY", 100_000)
+    hier = _Kopf(x_forwarded_for="198.51.100.32")
+    grenze = rs.NEUE_ADRESSEN_JE_TAG
+    assert grenze == 100
+    for i in range(grenze):
+        if i % 10 == 0:
+            assert _status(lambda: _falsche_kyber_signatur(
+                rs, make_user(), hier)) == 400
+        assert _neue_adresse(rs, hier) == 200, f"Adresse {i + 1}"
+    assert _neue_adresse(rs, hier) == 429
+    adressen = rs.db.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM identities").fetchone()[0]
+    assert adressen == grenze
+
+
+def test_sv3_auch_gleichzeitig_nicht_mehr_adressen_als_marken(relay, monkeypatch):
+    """Pruefen und Abbuchen sind ein Schritt: zwanzig gleichzeitige
+    Registrierungen bei fuenf Marken legen genau fuenf Adressen an."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 5)
+    hier = _Kopf(x_forwarded_for="198.51.100.33")
+    vorbereitet = []
+    for _ in range(20):
+        user = make_user()
+        nonce = _challenge(rs, user, hier)
+        bundle = _bundle_mit(user)
+        sig = sign(user["priv"],
+                   nonce + hashlib.sha256(bundle.canonical_bytes()).digest())
+        vorbereitet.append(rs.RegisterRequest(bundle=bundle, signature=b64(sig)))
+    start = threading.Barrier(len(vorbereitet))
+    ergebnisse = []
+
+    def lauf(anfrage):
+        start.wait()
+        ergebnisse.append(_status(lambda: rs.register(anfrage, hier)))
+
+    faeden = [threading.Thread(target=lauf, args=(a,)) for a in vorbereitet]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join()
+    assert sorted(ergebnisse) == [200] * 5 + [429] * 15
+    assert rs.db.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM identities").fetchone()[0] == 5
+
+
+def test_sv3_eine_bekannte_adresse_zahlt_keine_marke(relay, monkeypatch):
+    """Buendel erneuern und weitere Geraete anlegen kostet nichts - auch
+    nicht, solange noch Marken da sind (nicht nur: geht trotz leerem Eimer)."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 2)
+    hier = _Kopf(x_forwarded_for="198.51.100.34")
+    henrik = make_user()
+    assert _neue_adresse(rs, hier, henrik) == 200
+    for _ in range(3):
+        assert _status(lambda: _registriere_von(rs, henrik, hier)) == 200
+    for geraet in (2, 3):
+        assert _status(lambda: _registriere_von(
+            rs, henrik, hier, geraet=geraet)) == 200
+    # Von zwei Marken ist genau eine weg: die fuer henrik.
+    assert _neue_adresse(rs, hier) == 200
+    assert _neue_adresse(rs, hier) == 429
+
+
+# ------------------------------- Befund 8  Relay-Namen mit Port oder Unsinn
+#
+# Nachpruefung vom 24.10.2026: RELAY_NAME_MUSTER liess "relay.bitdm.net:443"
+# als Namen durch. Die App nennt ihren Namen ohne Port, fand sich nicht in der
+# Liste und fiel still auf die alte Form zurueck - mit
+# BITDM_ANMELDUNG_PFLICHT=1 waere sie ausgesperrt worden.
+
+FALSCHE_RELAY_NAMEN_T = [
+    "relay.bitdm.net:443", "abcdefghijklmnop.onion:80", "[::1]",
+    "10.0.0.300", "-x.test", "a..b", "fe80::1%eth0", "relay.test.",
+]
+
+
+def test_relay_namen_mit_port_werden_nicht_uebernommen(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", ",".join(
+        FALSCHE_RELAY_NAMEN_T + [" Relay.Test ", "2001:DB8::1", "192.0.2.7", ""]))
+    assert rs.relay_namen() == ("relay.test", "2001:db8::1", "192.0.2.7")
+    # Die Challenge nennt nur die gueltigen, und wer sich mit dem Namen samt
+    # Port meldet, kommt nicht durch.
+    antwort = rs.register_challenge(
+        rs.ChallengeRequest(user_id=henrik["user_id"]), _Anfrage())
+    assert antwort["relay"] == ["relay.test", "2001:db8::1", "192.0.2.7"]
+    assert rs.angemeldeter_relay("relay.bitdm.net:443") == (False, None)
+    assert rs.angemeldeter_relay("relay.test") == (True, "relay.test")
+
+
+def test_relay_namen_werden_beim_start_gemeldet(tmp_path, monkeypatch, capsys):
+    """Ueber den echten lifespan: gemeldet werden muss es beim START, und ein
+    falscher Eintrag darf den Relay nicht vom Netz nehmen."""
+    from fastapi.testclient import TestClient
+    import relay_server as rs
+
+    monkeypatch.setattr(rs, "DB_PATH", tmp_path / "relay.db")
+    monkeypatch.setattr(rs, "db", None, raising=False)
+    monkeypatch.setattr(rs, "_queue_zeilen", 0)
+    monkeypatch.setattr(rs, "_kyber_zeilen", 0)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN",
+                       "relay.bitdm.net:443,relay.test,abcdefghijklmnop.onion")
+    with TestClient(rs.app) as client:
+        assert client.get("/health").status_code == 200
+    zeilen = capsys.readouterr().out.splitlines()
+    laut = [z for z in zeilen if z.startswith("[!]") and "BITDM_RELAY_NAMEN" in z]
+    assert len(laut) == 1 and "'relay.bitdm.net:443'" in laut[0]
+    gueltig = [z for z in zeilen if z.startswith("[i] Relay-Namen")]
+    assert gueltig == ["[i] Relay-Namen fuer die Anmeldung mit Kontext: "
+                       "relay.test, abcdefghijklmnop.onion"]
+
+
+def test_ohne_relay_namen_sagt_der_start_das_auch(relay, monkeypatch, capsys):
+    rs = relay
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", "relay.bitdm.net:443")
+    rs.melde_relay_namen()
+    aus = capsys.readouterr().out
+    assert "[!] BITDM_RELAY_NAMEN" in aus
+    assert "Keine Relay-Namen" in aus
+    assert rs.relay_namen() == ()

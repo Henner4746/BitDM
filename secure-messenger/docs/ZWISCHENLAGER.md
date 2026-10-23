@@ -88,7 +88,7 @@ fällt aus. `durchstich_zwischenlager.py` ist genau dafür da.
 | Größtes **Stück** je Marke/PUT | 33 MiB | `BITDM_BLOB_MAX`, beidseitig (Relay **und** Lager) |
 | Größte Datei | 5 GiB | nur in der App (`AnhangVersand.hoechstGroesse`), 160 Stücke zu 32 MiB |
 | Tagesmenge je Adresse | 25 GiB | `BITDM_BLOB_QUOTA`, Relay |
-| Tagesmenge des ganzen Relays | 200 GiB | `BITDM_BLOB_QUOTA_TOTAL`, Relay |
+| Tagesmenge des ganzen Lagers (geschriebene Bytes) | 200 GiB | `BITDM_BLOB_QUOTA_TOTAL`, **Lager** (bis 23.10.2026 Relay) |
 | Gültigkeit einer Marke | 12 h, **einmal** benutzbar | `BITDM_BLOB_MARKE_TTL`, Relay |
 | Aufbewahrung | 14 Tage | `BITDM_BLOB_TTL`, Kehrmaschine |
 | Bruchstücke | 1 Tag | `BITDM_BLOB_TEIL_TTL`, Kehrmaschine |
@@ -120,21 +120,40 @@ hält Fremde draußen — aber eine Adresse anzulegen kostet nichts als ein
 Schlüsselpaar. Ohne Mengengrenze könnte sich jemand ein paar Adressen machen
 und die Platte in einer Nacht füllen.
 
-Sie gilt **je Adresse** (25 GiB) — und seit 25.09.2026 zusätzlich für den
-**ganzen Relay** (200 GiB). Die zweite Grenze ist, was hier früher abgelehnt
-wurde: eine globale Grenze macht aus einer Mengengrenze eine Abschaltung für
-alle, sobald jemand sie ausschöpft. Ohne sie reichten aber vierzig Adressen für
-1 TiB am Tag, und die Platte (rund 940 GB frei) wäre in einer Nacht voll — dann
-weist das Lager mit 507 ab, ebenfalls für alle, und zwar bis die Kehrmaschine
-aufräumt. Deshalb steht sie hoch: 200 GiB am Tag lassen der Platte mindestens
-vier Tage, und der Storage-Waechter meldet schon bei 80 GB frei. Wer sie
-erreicht, bekommt `Zwischenlager fuer heute ausgelastet` statt
-`Tagesmenge erschoepft`.
+Sie gilt **je Adresse** (25 GiB, im Relay) — und seit 25.09.2026 zusätzlich
+für das **ganze Lager** (200 GiB). Die zweite Grenze ist, was hier früher
+abgelehnt wurde: eine globale Grenze macht aus einer Mengengrenze eine
+Abschaltung für alle, sobald jemand sie ausschöpft. Ohne sie reichten aber
+vierzig Adressen für 1 TiB am Tag, und die Platte (rund 940 GB frei) wäre in
+einer Nacht voll — dann weist das Lager mit 507 ab, ebenfalls für alle, und
+zwar bis die Kehrmaschine aufräumt. Deshalb steht sie hoch: 200 GiB am Tag
+lassen der Platte mindestens vier Tage, und der Storage-Waechter meldet schon
+bei 80 GB frei.
 
-Gezählt wird beim **Ausstellen**, nicht beim Hochladen — der Relay erfährt nie,
-ob wirklich hochgeladen wurde. Wer sich Marken holt und verfallen lässt,
-verbraucht sein eigenes Kontingent. Das ist die richtige Richtung für den
-Irrtum.
+**Die Menge je Adresse zählt der Relay beim Ausstellen**, nicht beim
+Hochladen — er erfährt nie, ob wirklich hochgeladen wurde. Wer sich Marken
+holt und verfallen lässt, verbraucht sein eigenes Kontingent. Das ist die
+richtige Richtung für den Irrtum.
+
+**Die Menge des ganzen Lagers zählt seit 23.10.2026 das Lager selbst, nach
+geschriebenen Bytes** (Audit vom 16.10.2026, SV-2). Bis dahin zählte der Relay
+auch sie beim Ausstellen, und dort war der Irrtum nicht mehr der eigene: neun
+kostenlose Adressen holten sich in Sekunden 200 GiB an Marken, luden nichts
+hoch, und danach bekam jeder Nutzer 24 Stunden lang „ausgelastet“. Im Lager
+kommt nur an, wer hochlädt; wer die Grenze ausschöpfen will, muss die Bytes
+schicken. Ist sie erreicht, antwortet das Lager auf den Upload mit 507
+`Zwischenlager fuer heute ausgelastet` — für die App dasselbe wie eine volle
+Platte („später noch einmal“). Gezählt wird je angefangener Stunde; nach einem
+Neustart zählt das Lager aus den Änderungszeiten der Dateien nach.
+**Beim Aufspielen zuerst das Lager, dann den Relay**: in umgekehrter
+Reihenfolge gäbe es dazwischen keine Grenze für das ganze Lager außer
+`BITDM_BLOB_MIN_FREE`.
+
+Seit demselben Tag hält der Relay die Tagesmenge je Adresse in **einer Zeile
+je Adresse und Stunde** statt einer je Marke (SV-1). Die Summe lief vorher
+synchron im WebSocket-Handler über bis zu 25 600 Zeilen je Adresse und über
+204 800 für den ganzen Relay — gemessen bis zu 498 ms je Marke, in denen keine
+andere Verbindung bedient wurde.
 
 ## Warum nginx herunterlädt und nicht der Dienst
 

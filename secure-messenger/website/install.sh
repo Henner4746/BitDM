@@ -214,12 +214,21 @@ fi
 
 # ── What the operator needs to know now ──────────────────────────────────
 say ""
-say "${bold}Done.${off}${DRY:+ (dry run — nothing was changed)} Enter this in the app:"
+say "${bold}Done.${off}${DRY:+ (dry run — nothing was changed)}"
 say ""
-say "    Settings > Receiving > server address"
-say "    ${bold}wss://$DOMAIN${off}"
+# The app has NO setting for its relay (removed on 26.07.2026, see
+# docs/EIGENER-SERVER.md). This used to send the operator to such a setting;
+# they found nothing and were not told why (audit of 16.10.2026, SV-11). The
+# relay is chosen when the app is BUILT.
+say "The BitDM apps from bitdm.net, GitHub and F-Droid only talk to"
+say "relay.bitdm.net; there is no setting for another server. To use this"
+say "relay, build the app yourself with:"
 say ""
-say "Clearing the field and applying returns you to the default at any time."
+say "    ${bold}flutter build apk --dart-define=BITDM_RELAY=https://$DOMAIN${off}"
+say ""
+say "(add --dart-define=BITDM_RELAY_ONION=https://<address>.onion if you run"
+say "the onion service, and put that address into BITDM_RELAY_NAMEN of the"
+say "relay unit as well)."
 say ""
 warn "Attachments also need a blob store, and there is no script for that yet."
 say "      Without one they fail with an error that looks like a network problem."

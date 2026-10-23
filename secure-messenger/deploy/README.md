@@ -112,7 +112,10 @@ mindestens ein /64, und jede Adresse darin ist frei waehlbar — je voller
 Adresse gezaehlt war jedes Limit fuer IPv6 praktisch abgeschaltet. Die Zonen
 heissen deshalb jetzt `bitdm_relay_req64`/`bitdm_relay_conn64`: nginx
 verweigert beim reload eine bestehende Zone mit geaendertem Schluessel, und
-`nginx -t` merkt das nicht vorher.
+`nginx -t` merkt das nicht vorher. Nur die Plaetze fuer Challenge-Nonces
+zaehlen im Relay seit 23.10.2026 je **/48** (`nonce_herkunft`, Audit SV-5):
+sonst brachte ein einziger Heimanschluss die 16 Herkuenfte zusammen, die das
+Nonce eines Opfers verdraengen.
 
 **Ueber Tor gibt es keine Bremse je IP** — dort kommen alle von 127.0.0.1, und
 eine Bremse je IP waere eine einzige fuer alle Tor-Nutzer. Stattdessen:
@@ -141,7 +144,13 @@ Alle mit Vorgabe; ueberschreiben per `Environment=` in der Unit
 | `BITDM_LIVE_BURST` / `BITDM_LIVE_REFILL` | 600 / 20 pro s | Live-Durchreichen an alte Clients (ohne Empfangsnachweis), je Absender |
 | `BITDM_BLOB_MAX` | 33 MiB | groesstes Stueck je Marke — **muss zu `bitdm-blob` passen** |
 | `BITDM_BLOB_QUOTA` | 25 GiB | Marken je Adresse und Tag |
-| `BITDM_BLOB_QUOTA_TOTAL` | 200 GiB | Marken des ganzen Relays je Tag |
+| `BITDM_BLOB_QUOTA_TOTAL` | 200 GiB | **seit 23.10.2026 im Lager** (`bitdm-blob`): geschriebene Bytes je Tag; der Relay liest es nicht mehr (Audit SV-2) |
+| `BITDM_NEUE_ADRESSEN` | 100 | **neue** Adressen je Herkunft und Tag (IPv6 je /48); Erneuern und weitere Geraete zaehlen nicht (Audit SV-3) |
+| `BITDM_NEUE_ADRESSEN_ONION` | 500 | neue Adressen je Tag ueber den Onion-Dienst, fuer alle Tor-Nutzer zusammen |
+| `BITDM_NIE_VERBUNDEN_TTL` | 48 h | eine Adresse, die sich nach dem Registrieren nie per `/ws` angemeldet hat, wird danach geraeumt (sonst `BITDM_GERAET_TTL`, 30 Tage) |
+| `BITDM_PUSH_PARALLEL` | 200 | Geraete, die gleichzeitig angestossen werden; je Geraet hoechstens ein Anstoss unterwegs plus einer fuer alles, was waehrenddessen kam (Audit SV-7). Darueber entfaellt der Anstoss, die Nachricht bleibt in der Warteschlange |
+| `BITDM_RELAY_NAMEN` | leer | Namen, unter denen die App diesen Relay erreicht, durch Kommas getrennt (z. B. `relay.bitdm.net,<onion>.onion`). Nur dafuer nimmt der Relay die Anmeldung mit Kontext an (Audit KR-2); leer = nur die alte Form. `install-relay.sh` traegt die Domain ein, die Onion-Adresse von Hand anhaengen. **Ohne Port** (`relay.bitdm.net`, nicht `relay.bitdm.net:443`): ungueltige Eintraege werden beim Start abgelehnt und mit `[!]` im Journal gemeldet, die angenommenen Namen stehen dort mit `[i] Relay-Namen` |
+| `BITDM_ANMELDUNG_PFLICHT` | aus | genau `1`: die alte Anmeldeform ohne Kontext (Apps bis 2.0.0) wird abgewiesen. **Erst einschalten, wenn keine solche App mehr unterwegs ist** |
 
 **`LimitNOFILE` hochsetzen.** Jede WebSocket ist ein Dateideskriptor. Mit dem
 Vorraum-Deckel (1000) plus den angemeldeten Verbindungen reichen die frueheren

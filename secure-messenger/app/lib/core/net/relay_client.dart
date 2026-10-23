@@ -201,6 +201,61 @@ class RelayClient {
   /// Begruendung bei `case 'challenge'`.
   static const int nonceLaenge = 32;
 
+  // ═══════════════════════ ANMELDUNG MIT KONTEXT (Audit 16.10.2026, KR-2)
+  //
+  // Die 32-Byte-Pruefung oben verhindert, dass der Identitaetsschluessel
+  // fremde FORMATE signiert. Sie verhindert nicht, dass ein boesartiger
+  // Relay A die Challenge von Relay B weiterreicht: 32 Byte von B sind auch
+  // 32 Byte. A haette dann eine Signatur, mit der er sich bei B als dieser
+  // Nutzer anmeldet. Die neue Form nennt deshalb Zweck, Relay, Adresse und
+  // Geraet:
+  //
+  //   /ws:       "BitDM-Relay-Anmeldung-v1\n" host "\n" adresse "\n" geraet "\n" nonce
+  //   /register: "BitDM-Relay-Registrierung-v1\n" host "\n" nonce sha256(buendel)
+  //
+  // `host` ist [baseUri].host - der Name, unter dem DIESE App den Relay
+  // erreicht hat, nie ein Wert, den der Relay schickt. Eine Signatur fuer A
+  // nennt A, und B nimmt sie nicht an (relay_server.py, angemeldeter_relay).
+  //
+  // NUR, WENN DER RELAY DEN NAMEN NENNT (Feld `relay` der Challenge). Ein
+  // Relay vor dieser Fassung kennt die neue Form nicht und haette jede
+  // Anmeldung abgelehnt; ein Relay, dem der eigene Name fehlt (etwa die
+  // Onion-Adresse), ebenso. Dann bleibt es bei der alten Form, wie bis 2.0.0.
+  // Einem Relay, der die Liste absichtlich weglaesst, gibt die App damit nur,
+  // was sie ihm bisher auch gab - und ein Relay mit
+  // BITDM_ANMELDUNG_PFLICHT=1 nimmt die alte Form nicht mehr an.
+
+  /// Vorsatz der neuen Form bei `/ws`. Dieselben Zeichen in relay_server.py.
+  static const String anmeldungWsPraefix = 'BitDM-Relay-Anmeldung-v1\n';
+
+  /// Vorsatz der neuen Form bei `/register`.
+  static const String registrierungPraefix = 'BitDM-Relay-Registrierung-v1\n';
+
+  /// Was bei `/ws` in der neuen Form signiert wird.
+  static Uint8List anmeldeNachricht(
+          String host, String adresse, int geraet, List<int> nonce) =>
+      Uint8List.fromList([
+        ...utf8.encode('$anmeldungWsPraefix$host\n$adresse\n$geraet\n'),
+        ...nonce,
+      ]);
+
+  /// Was bei `/register` in der neuen Form signiert wird. [nonceUndHash] ist
+  /// die alte Nachricht, `nonce || sha256(buendel)`.
+  static Uint8List registrierNachricht(String host, List<int> nonceUndHash) =>
+      Uint8List.fromList([
+        ...utf8.encode('$registrierungPraefix$host\n'),
+        ...nonceUndHash,
+      ]);
+
+  /// Der eigene Relay-Name, wenn der Relay ihn fuer die neue Form nennt.
+  /// Sonst null: dann gilt die alte Form.
+  String? kontextName(Object? angekuendigt) {
+    if (angekuendigt is! List) return null;
+    final host = baseUri.host.toLowerCase();
+    if (host.isEmpty) return null;
+    return angekuendigt.contains(host) ? host : null;
+  }
+
   /// Welches Geraet dieser Adresse hier spricht. NULL HEISST GERAET 1.
   ///
   /// ═══════════════ DIE EINE REGEL, DIE DIE UMSTELLUNG TRAEGT
@@ -286,13 +341,19 @@ class RelayClient {
     // XEdDSA ueber den Identitaetsschluessel. Seit 2.0.0 aus der offiziellen
     // libsignal; der Relay prueft sie unveraendert (am 16.10.2026 mit 40
     // Signaturen beider Vorzeichen nachgewiesen, docs/LIBSIGNAL-UMSTIEG.md).
-    final nachricht = bundle.registrationChallenge(Uint8List.fromList(nonce));
+    // Mit Kontext, wenn der Relay den eigenen Namen nennt (siehe
+    // [anmeldungWsPraefix]); sonst die alte Form.
+    final kontext = kontextName(challenge['relay']);
+    final roh = bundle.registrationChallenge(Uint8List.fromList(nonce));
+    final nachricht =
+        kontext == null ? roh : registrierNachricht(kontext, roh);
     final signatur = identity.keyPair.sign(message: nachricht);
     final gs = geraeteSchluessel;
 
     final antwort = await _postJson('/register', {
       'bundle': bundle.toJson(),
       'signature': base64.encode(signatur),
+      'relay': ?kontext,
       if (gs != null)
         'geraete_signatur': base64.encode(gs.sign(
             message: [...utf8.encode(anmeldePraefix), ...nachricht])),
@@ -509,11 +570,10 @@ class RelayClient {
         // 32 Byte ist, was der Server schickt (`secrets.token_bytes(32)`).
         // Alles andere ist kein Nonce, sondern ein Versuch.
         //
-        // DAS IST DIE HAELFTE DER BEHEBUNG. Die andere ist ein fester
-        // Kontext in der Signatur („BitDM-ws-v1“ ‖ Relay-Host ‖ Adresse ‖
-        // Geraet ‖ nonce). Die braucht eine Aenderung am Server und kommt
-        // getrennt; ohne sie bleibt die Signatur ueber ein 32-Byte-Nonce
-        // eines Relays bei einem anderen Relay verwendbar.
+        // DAS IST DIE HAELFTE DER BEHEBUNG. Die andere ist der feste
+        // Kontext in der Signatur (Relay-Name, Adresse, Geraet), siehe
+        // [anmeldungWsPraefix] - nur mit ihm ist die Signatur ueber ein
+        // 32-Byte-Nonce eines Relays bei keinem anderen verwendbar.
         if (nonce.length != nonceLaenge) {
           _events.add(const RelayProtocolError(
               'Challenge mit unzulaessiger Nonce-Laenge'));
@@ -533,15 +593,22 @@ class RelayClient {
         //
         // Bei Geraet 1 steht sie NICHT in der Query, es werden also die
         // heutigen 32 Byte signiert. Siehe [geraeteKennung].
+        //
+        // IN DER NEUEN FORM (KR-2) steht das Geraet immer in den Bytes, auch
+        // Geraet 1 - der Relay setzt dort fuer eine fehlende Kennung 1 ein.
         final g = geraeteKennung;
-        final zuSignieren = g == null
-            ? Uint8List.fromList(nonce)
-            : Uint8List.fromList([
-                ...nonce,
-                ...(ByteData(4)..setUint32(0, g, Endian.big))
-                    .buffer
-                    .asUint8List(),
-              ]);
+        final kontext = kontextName(m['relay']);
+        final Uint8List zuSignieren;
+        if (kontext != null) {
+          zuSignieren = anmeldeNachricht(kontext, address, g ?? 1, nonce);
+        } else if (g == null) {
+          zuSignieren = Uint8List.fromList(nonce);
+        } else {
+          zuSignieren = Uint8List.fromList([
+            ...nonce,
+            ...(ByteData(4)..setUint32(0, g, Endian.big)).buffer.asUint8List(),
+          ]);
+        }
         final sig = identity.keyPair.sign(message: zuSignieren);
         // Mit Geraeteliste dieselben Bytes noch einmal, mit dem
         // Geraeteschluessel (§8.4). Ohne Liste geht das Feld gar nicht hinaus.
@@ -558,6 +625,7 @@ class RelayClient {
         // {'type': 'auth_result', 'ok': True}.
         _ws?.sende(jsonEncode({
           'signature': base64.encode(sig),
+          'relay': ?kontext,
           'empfangsnachweis': true,
           if (gs != null)
             'geraete_signatur': base64.encode(gs.sign(

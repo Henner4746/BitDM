@@ -306,6 +306,36 @@ LIVE_REFILL_PER_SEC = float(os.getenv("BITDM_LIVE_REFILL", 20.0))
 OTK_MAX_JE_BUENDEL = int(os.getenv("BITDM_OTK_MAX", 200))
 IDENTITAETEN_MAX = int(os.getenv("BITDM_IDENTITIES_MAX", 50_000))
 
+# DAS DACH LIESS SICH VON EINEM AKTEUR FUELLEN UND HALTEN (Audit vom
+# 16.10.2026, SV-3). Eine Registrierung kostete je Herkunft 5 von 120 Marken
+# der allgemeinen Bremse, rund 34 500 am Tag; bei IPv6 war jedes /64 eine
+# eigene Herkunft (ein Heimanschluss hat 256), ueber Tor ohne Circuit-Kennung
+# gab es gar keine. Nach wenigen Minuten nahm der Relay niemanden mehr auf,
+# und gehalten wurde das mit einer Erneuerung im Monat. Seit 23.10.2026 drei
+# Riegel:
+#
+# 1. NEUE ADRESSEN haben einen eigenen, engen Eimer: NEUE_ADRESSEN_JE_TAG je
+#    Herkunft und Tag, bei IPv6 je /48 - ein ganzer Anschluss, nicht ein /64.
+#    Ueber den Onion-Dienst zusaetzlich ein GEMEINSAMER Eimer
+#    (NEUE_ADRESSEN_ONION_JE_TAG): ein Circuit ist billig zu wechseln. Den
+#    Preis kennt die Bremse oben schon (Carrier-Grade-NAT, deploy/README.md):
+#    hinter einer IPv4 bzw. in einem /48 teilen sich mehrere Kunden den Eimer.
+#    Er trifft deshalb NUR neue Adressen - wer schon da ist, erneuert sein
+#    Buendel und legt Geraete an wie bisher -, und 100 am Tag sind fuer einen
+#    Relay dieser Groesse viel. Eine Marke kostet nur eine Adresse, die
+#    wirklich angelegt wird (seit 24.10.2026, siehe neue_adresse_ok): eine
+#    scheiternde Registrierung leert den geteilten Eimer nicht.
+# 2. EINE ADRESSE, DIE SICH NIE VERBUNDEN HAT (last_seen = 0), geht nach
+#    NIE_VERBUNDEN_TTL statt nach GERAET_TTL. Eine App meldet sich direkt
+#    nach dem Registrieren per /ws an; wer das zwei Tage lang nicht tut, war
+#    keine. Kommt sie doch, bekommt sie 4401 und registriert sich neu.
+# 3. AB DACH_WARNUNG_AB DES DACHS meldet der Relay es im Journal, hoechstens
+#    einmal je Stunde - damit es nicht still voll wird.
+NEUE_ADRESSEN_JE_TAG = int(os.getenv("BITDM_NEUE_ADRESSEN", 100))
+NEUE_ADRESSEN_ONION_JE_TAG = int(os.getenv("BITDM_NEUE_ADRESSEN_ONION", 500))
+NIE_VERBUNDEN_TTL = int(os.getenv("BITDM_NIE_VERBUNDEN_TTL", 48 * 3600))
+DACH_WARNUNG_AB = 0.8
+
 
 # --------------------------------------------------------------------------- #
 #  Kyber-Prekeys  (PQXDH, seit 16.10.2026 — docs/LIBSIGNAL-UMSTIEG.md)
@@ -493,6 +523,178 @@ ANMELDE_PRAEFIX = b"BitDM-Geraet-Anmeldung-v1\n"
 # Identitaetsschluessel signiert ist es ja auch.
 PREKEY_PRAEFIX = b"BitDM-Prekey-v1\n"
 
+# --------------------------------------------------------------------------- #
+#  Anmeldung mit Kontext  (Audit vom 16.10.2026, KR-2 / SV-9; seit 23.10.2026)
+# --------------------------------------------------------------------------- #
+#
+# BIS 2.0.0 SIGNIERT DIE APP DAS NONCE DIESES SERVERS ROH: bei /ws `nonce`
+# bzw. `nonce || uint32be(geraet)`, bei /register `nonce || sha256(buendel)`.
+# Ohne Zweck und ohne Empfaenger. Ein boesartiger Relay A reicht dann die
+# Challenge von Relay B an das Opfer weiter, bekommt die Signatur und meldet
+# sich damit bei B als das Opfer an: Warteschlange abholen (und damit
+# loeschen), Geraet mit 4409 verdraengen, ein eigenes Buendel registrieren.
+# Mitlesen kann er nicht. Die zweite Haelfte des Befunds - das Signieren
+# fremder Formate (33 Byte `0x05 || K`, 64 Byte Registrierung) - schliesst die
+# App seit 2.0.0 selbst: ein Nonce hat genau 32 Byte (relay_client.dart,
+# nonceLaenge).
+#
+# DIE NEUE FORM nennt Zweck, Relay, Adresse und Geraet:
+#
+#   /ws:       "BitDM-Relay-Anmeldung-v1\n"     host "\n" adresse "\n" geraet "\n" nonce
+#   /register: "BitDM-Relay-Registrierung-v1\n" host "\n" nonce sha256(buendel)
+#
+# `host` ist der Name, unter dem die APP den Relay erreicht hat (ihre eigene
+# Basis-URL, nicht ein Wert dieses Servers), und dieser Server nimmt nur die
+# Namen an, die in BITDM_RELAY_NAMEN stehen. Eine Signatur fuer A gilt damit
+# bei B nicht.
+#
+# BEIDE FORMEN WERDEN ANGENOMMEN. Die App 2.0.0 ist ausgeliefert und kennt nur
+# die alte; sie darf hier nicht ausgesperrt werden. Welche Form kommt, sagt
+# der Client selbst: mit dem Feld `relay` (der Name) die neue, ohne die alte.
+# Erst BITDM_ANMELDUNG_PFLICHT=1 weist die alte ab - das ist der Schalter fuer
+# den Tag, an dem keine App vor der neuen Form mehr unterwegs ist.
+#
+# Die Challenge nennt dazu die Namen, die dieser Relay annimmt (Feld `relay`
+# in der Challenge bzw. in der Antwort auf /register/challenge). Eine App
+# signiert die neue Form nur, wenn ihr eigener Name darin steht - so sperrt
+# ein vergessener Name (etwa die Onion-Adresse) niemanden aus, er faellt auf
+# die alte Form zurueck. Das ist kein Herunterhandeln, das ein Angreifer
+# braucht: einem Relay, der die Liste weglaesst, gibt die App nur, was sie
+# ihm heute schon gibt, und am Tag des Schalters nimmt B das nicht mehr an.
+ANMELDUNG_WS_PRAEFIX = b"BitDM-Relay-Anmeldung-v1\n"
+REGISTRIERUNG_PRAEFIX = b"BitDM-Relay-Registrierung-v1\n"
+
+# Ein Hostname, eine IPv4- oder eine IPv6-Adresse (ohne Klammern, so liefert
+# Dart Uri.host sie). Kein Zeilenumbruch, kein Port: der Relay hinter nginx
+# kennt den Port nicht, unter dem man ihn erreicht.
+#
+# BIS ZUM 24.10.2026 war das EIN Zeichenmuster, [a-z0-9.:-]{1,253}. Der
+# Doppelpunkt stand fuer IPv6 drin und liess so auch "relay.bitdm.net:443"
+# durch. Die App nennt ihren Namen ohne Port (Uri.host), fand sich in der
+# Liste nicht und fiel still auf die alte Form zurueck - mit
+# BITDM_ANMELDUNG_PFLICHT=1 waere sie ausgesperrt worden, ohne dass der
+# Betreiber je einen Hinweis bekommen haette. Jetzt gilt ein Doppelpunkt nur
+# in einer echten IPv6-Adresse, und was nicht passt, meldet melde_relay_namen()
+# beim Start.
+RELAY_NAME_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+
+
+def relay_name_ok(name: str) -> bool:
+    """Ob `name` (schon klein geschrieben) als Relay-Name taugt: ein Hostname
+    aus Labels nach RFC 1123, eine IPv4- oder eine IPv6-Adresse."""
+    if not name or len(name) > 253:
+        return False
+    if ":" in name:
+        # Nur IPv6. "%" (Zonenkennung) nimmt ipaddress an, Uri.host liefert
+        # sie aber nicht - und "host:port" scheitert genau hier.
+        if "%" in name:
+            return False
+        try:
+            ipaddress.IPv6Address(name)
+        except ValueError:
+            return False
+        return True
+    labels = name.split(".")
+    if not all(RELAY_NAME_LABEL.fullmatch(label) for label in labels):
+        return False
+    if all(label.isdigit() for label in labels):
+        # Sieht aus wie eine IPv4-Adresse, dann muss es auch eine sein:
+        # "10.0.0.300" ist ein Tippfehler, kein Hostname.
+        try:
+            ipaddress.IPv4Address(name)
+        except ValueError:
+            return False
+    return True
+
+
+def _lies_relay_namen() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """BITDM_RELAY_NAMEN, aufgeteilt in (gueltig, abgelehnt). Leere Eintraege
+    (etwa ein Komma am Ende) sind keins von beiden."""
+    gueltig: list[str] = []
+    abgelehnt: list[str] = []
+    for eintrag in os.getenv("BITDM_RELAY_NAMEN", "").split(","):
+        name = eintrag.strip().lower()
+        if name:
+            (gueltig if relay_name_ok(name) else abgelehnt).append(name)
+    return tuple(gueltig), tuple(abgelehnt)
+
+
+def relay_namen() -> tuple[str, ...]:
+    """Die Namen, unter denen dieser Relay die neue Anmeldeform annimmt.
+
+    BITDM_RELAY_NAMEN, durch Kommas getrennt, z. B.
+    "relay.bitdm.net,<onion>.onion". Leer heisst: keine neue Form, nur die
+    alte - und die Challenge nennt dann auch keine Namen. Ungueltige Eintraege
+    (relay_name_ok) werden nie uebernommen; gemeldet werden sie einmal beim
+    Start (melde_relay_namen), nicht bei jeder Anfrage.
+
+    BEI JEDEM AUFRUF GELESEN, aus demselben Grund wie kyber_pflicht().
+    """
+    return _lies_relay_namen()[0]
+
+
+def melde_relay_namen() -> None:
+    """Beim Start einmal ins Journal: welche Namen gelten, und laut, welche
+    Eintraege abgelehnt wurden.
+
+    Abgelehnt heisst NICHT abgestuerzt: ein Tippfehler in einem Namen soll
+    den Relay nicht fuer alle anderen Namen und fuer die alte Form vom Netz
+    nehmen. Die Namen sind nicht geheim (die Challenge nennt sie jedem); ein
+    abgelehnter Eintrag steht gekuerzt da, falls versehentlich etwas anderes
+    in der Variable gelandet ist.
+    """
+    gueltig, abgelehnt = _lies_relay_namen()
+    for eintrag in abgelehnt:
+        kurz = eintrag if len(eintrag) <= 80 else eintrag[:80] + "..."
+        print(f"[!] BITDM_RELAY_NAMEN: Eintrag {kurz!r} abgelehnt und NICHT "
+              f"uebernommen - kein Hostname und keine IP-Adresse (einen Port "
+              f"kennt die App hier nicht). Apps, die den Relay so erreichen, "
+              f"melden sich in der alten Form an; mit "
+              f"BITDM_ANMELDUNG_PFLICHT=1 gar nicht mehr.")
+    if gueltig:
+        print(f"[i] Relay-Namen fuer die Anmeldung mit Kontext: "
+              f"{', '.join(gueltig)}")
+    else:
+        print("[i] Keine Relay-Namen (BITDM_RELAY_NAMEN): nur die alte "
+              "Anmeldeform")
+
+
+def anmeldung_pflicht() -> bool:
+    """Ob die alte Anmeldeform (ohne Kontext) abgewiesen wird.
+
+    Nur genau "1" schaltet ein, wie bei kyber_pflicht(): eine Fehlbedienung
+    soll im Zweifel alte Apps weiter anmelden, statt sie auszusperren.
+    """
+    return os.getenv("BITDM_ANMELDUNG_PFLICHT", "") == "1"
+
+
+def ws_anmelde_nachricht(host: str, user_id: str, geraet: int,
+                         nonce: bytes) -> bytes:
+    """Was die App bei /ws in der neuen Form signiert. Dieselben Bytes baut
+    relay_client.dart (anmeldeNachricht)."""
+    return (ANMELDUNG_WS_PRAEFIX
+            + f"{host}\n{user_id}\n{geraet}\n".encode("ascii") + nonce)
+
+
+def registrier_nachricht(host: str, nonce: bytes, inhalt: bytes) -> bytes:
+    """Was die App bei /register in der neuen Form signiert. Adresse und
+    Geraet stehen schon im Buendel (canonical_bytes), also im Hash."""
+    return REGISTRIERUNG_PRAEFIX + f"{host}\n".encode("ascii") + nonce + inhalt
+
+
+def angemeldeter_relay(feld: object) -> tuple[bool, str | None]:
+    """Welche Form ein Client gewaehlt hat. Rueckgabe: (zulaessig, host).
+
+    host None ist die alte Form - zulaessig, solange anmeldung_pflicht() aus
+    ist. Ein Name, den dieser Relay nicht fuehrt, ist nie zulaessig: genau
+    das ist die weitergereichte Challenge eines anderen Relays.
+    """
+    if feld is None:
+        return not anmeldung_pflicht(), None
+    if not isinstance(feld, str) or feld not in relay_namen():
+        return False, None
+    return True, feld
+
 # Eine Liste mit 5 Geraeten ist rund 1,3 KB (je Eintrag 44 Zeichen Schluessel
 # und hoechstens GERAETE_INFO_MAX Info). 4096 laesst Luft und haelt jeden
 # Unsinn draussen, bevor json.loads ihn sieht.
@@ -569,20 +771,40 @@ BLOB_MARKE_TTL = int(os.getenv("BITDM_BLOB_MARKE_TTL", 12 * 3600))
 # Kontingent behaelt. 25 GiB sind rund 775 Stuecke zu 33 MiB.
 BLOB_TAGESMENGE = int(os.getenv("BITDM_BLOB_QUOTA", 25 * 1024**3))
 
-# Wie viel der GANZE Relay pro Tag an Marken ausstellt, ueber alle Adressen.
+# DIE MENGE DES GANZEN RELAYS ZAEHLT SEIT 23.10.2026 DAS LAGER, nicht mehr
+# dieser Server (blob_server.py, TAGESMENGE_GESAMT; Audit vom 16.10.2026,
+# SV-2). Hier stand bis dahin BLOB_TAGESMENGE_GESAMT: 200 GiB an MARKEN je
+# Tag, gezaehlt beim Ausstellen. Eine Marke kostet aber keinen Upload - neun
+# kostenlose Adressen holten sich in Sekunden 200 GiB an Marken, luden nichts
+# hoch, und danach bekam 24 Stunden lang JEDER "Zwischenlager fuer heute
+# ausgelastet". Die Grenze sollte die Geschwindigkeit begrenzen, mit der sich
+# die Platte fuellt; gefuellt werden musste dafuer nichts.
 #
-# Die Menge je Adresse haelt einen Einzelnen auf, aber eine Adresse kostet
-# nichts: mit vierzig Adressen waeren es 1 TiB am Tag, die Platte des Lagers
-# (rund 940 GB frei) waere in einer Nacht voll. Das Lager weist dann zwar mit
-# 507 ab (MIN_FREI_BYTES), aber ab da fuer ALLE bis zur Kehrmaschine.
+# Das Lager zaehlt die Bytes, die wirklich ankommen. Wer dort die Tagesmenge
+# ausschoepfen will, muss sie hochladen - genau der Preis, den die Grenze
+# setzen sollte. `BITDM_BLOB_QUOTA_TOTAL` gehoert deshalb in die Unit des
+# Lagers; hier liest sie niemand mehr.
 #
-# DER PREIS ist bekannt: diese Grenze ist eine Abschaltung fuer alle, sobald
-# jemand sie ausschoepft — genau das, was docs/ZWISCHENLAGER.md gegen eine
-# globale Grenze einwendet. Deshalb steht sie hoch: 200 GiB am Tag lassen
-# der vollen Platte mindestens vier Tage, und der Storage-Waechter meldet
-# schon bei 80 GB frei. Sie begrenzt die GESCHWINDIGKEIT, mit der sich die
-# Platte fuellen laesst, nicht den ehrlichen Betrieb.
-BLOB_TAGESMENGE_GESAMT = int(os.getenv("BITDM_BLOB_QUOTA_TOTAL", 200 * 1024**3))
+# Und die Summe ueber den ganzen Relay lief synchron im WebSocket-Handler,
+# ueber bis zu 204 800 Zeilen: gemessen 498 ms je Marke, in denen keine
+# andere Verbindung bedient wurde (SV-1). Mit ihr ist auch das weg.
+
+# Wie fein `blob_marken` die Tagesmenge je Adresse festhaelt: EINE Zeile je
+# Adresse und angefangener Stunde (seit 23.10.2026, SV-1).
+#
+# Vorher war es eine Zeile je Marke, bis zu 25 600 je Adresse und Tag. Die
+# Summe je Adresse lief ueber alle davon - 76 ms je Marke auf dem Event-Loop,
+# gemessen vom Audit. Jetzt sind es hoechstens 25 Zeilen (24 Stunden plus die
+# angefangene), und die Tabelle waechst mit der Zahl der Adressen, nicht mit
+# der Zahl der Marken. Nebenbei steht weniger darin: nicht mehr jede Marke
+# mit ihrer Sekunde, nur noch die Summe je Stunde.
+#
+# DER PREIS DER STUNDE: eine Stunde zaehlt ganz mit, solange auch nur ihr
+# Ende in den letzten 24 Stunden liegt. Eine Marke belastet die Tagesmenge
+# damit bis zu 25 statt 24 Stunden - die strengere Richtung, wie beim
+# Ausstellen.
+BLOB_STUNDE = 3600
+BLOB_FENSTER = 24 * 3600 + BLOB_STUNDE
 
 # Was eine Marke MINDESTENS von der Tagesmenge kostet (seit 14.10.2026).
 #
@@ -591,10 +813,12 @@ BLOB_TAGESMENGE_GESAMT = int(os.getenv("BITDM_BLOB_QUOTA_TOTAL", 200 * 1024**3))
 # blob_marken und, wenn hochgeladen, je eine Datei im Lager — die Grenze fuer
 # die Platte hielt, die fuer Zeilen und Dateien gab es nicht (Pruefung vom
 # 14.10.2026, B4). Mit 1 MiB je Marke sind es hoechstens 25 600 Marken je
-# Adresse und 204 800 fuer den ganzen Relay am Tag. Das IST das Zaehlerdach,
-# nur in derselben Einheit wie die Menge — ein zweiter Zaehler daneben haette
-# dieselbe Zahl anders ausgedrueckt. Ein ehrlicher Nutzer merkt es nicht:
-# hundert kleine Bilder am Tag kosten 100 MiB von 25 GiB.
+# Adresse am Tag. Das IST das Zaehlerdach, nur in derselben Einheit wie die
+# Menge - ein zweiter Zaehler daneben haette dieselbe Zahl anders
+# ausgedrueckt. Ein ehrlicher Nutzer merkt es nicht: hundert kleine Bilder am
+# Tag kosten 100 MiB von 25 GiB. (Zeilen in blob_marken kostet eine Marke
+# seit SV-1 keine mehr, siehe BLOB_STUNDE; das Dach gilt weiter fuer die
+# Dateien im Lager.)
 BLOB_MINDESTMENGE = int(os.getenv("BITDM_BLOB_MIN_CHARGE", 1024**2))
 
 # fullmatch und kein `$`: `^...$` mit .match() nimmt auch eine Kennung mit
@@ -627,20 +851,37 @@ def blob_marke(kennung: str, groesse: int, ablauf: int) -> str:
 
 
 def blob_menge_heute(user_id: str) -> int:
-    seit = time.time() - 24 * 3600
+    """Was diese Adresse in den letzten 24 Stunden an Marken bekommen hat.
+
+    Hoechstens 25 Zeilen ueber idx_blob_marken, siehe BLOB_STUNDE. Zeilen von
+    vor dem 23.10.2026 (eine je Marke) zaehlen genauso; sie sind nach
+    BLOB_FENSTER ohnehin weg.
+    """
+    seit = time.time() - BLOB_FENSTER
     return db.execute(
         "SELECT COALESCE(SUM(groesse), 0) FROM blob_marken WHERE user_id=? AND ts > ?",
         (user_id, seit),
     ).fetchone()[0]
 
 
-def blob_menge_heute_gesamt() -> int:
-    """Was der ganze Relay in den letzten 24 Stunden ausgestellt hat."""
-    seit = time.time() - 24 * 3600
-    return db.execute(
-        "SELECT COALESCE(SUM(groesse), 0) FROM blob_marken WHERE ts > ?",
-        (seit,),
-    ).fetchone()[0]
+def blob_menge_anrechnen(user_id: str, menge: int) -> None:
+    """Rechnet eine ausgestellte Marke an: auf die Zeile der laufenden Stunde.
+
+    Ruft NUR auf, wer die schreibsperre haelt, innerhalb von `with db:`.
+    UPDATE vor INSERT und kein UNIQUE-Index: unter der Sperre schreibt niemand
+    dazwischen, und ein eindeutiger Index muesste auf Bestandsdatenbanken erst
+    gegen die alten Einzelzeilen durchgesetzt werden.
+    """
+    stunde = int(time.time() // BLOB_STUNDE) * BLOB_STUNDE
+    cur = db.execute(
+        "UPDATE blob_marken SET groesse = groesse + ? WHERE user_id=? AND ts=?",
+        (menge, user_id, stunde),
+    )
+    if cur.rowcount == 0:
+        db.execute(
+            "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+            (user_id, menge, stunde),
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -979,8 +1220,9 @@ def init_db(path: Path) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_absender "
                  "ON queue(sender)")
     conn.execute("DROP INDEX IF EXISTS idx_queue_empfaenger")
-    # Fuer die Tagesmenge des ganzen Relays (blob_menge_heute_gesamt). Der
-    # bestehende Index beginnt mit user_id und hilft dort nicht.
+    # Fuer das Aufraeumen nach Zeit (purge_expired). Der bestehende Index
+    # beginnt mit user_id und hilft dort nicht. Angelegt wurde er fuer die
+    # Summe ueber den ganzen Relay; die gibt es seit SV-2 nicht mehr.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_blob_marken_ts "
                  "ON blob_marken(ts)")
 
@@ -1225,13 +1467,19 @@ def raeume_vergessene_geraete() -> int:
     Telefon macht die Adresse damit teilweise unbeschickbar.
     """
     cutoff = time.time() - GERAET_TTL
+    # Nie per /ws angemeldet (last_seen = 0) und seit NIE_VERBUNDEN_TTL nicht
+    # neu registriert: das war keine App (SV-3, siehe NEUE_ADRESSEN_JE_TAG).
+    # Bestandszeilen von vor dem Mehrgeraete-Umbau trifft es nicht, sie
+    # tragen den Zeitpunkt der Wanderung (wandere_auf_geraete).
+    nie_cutoff = time.time() - NIE_VERBUNDEN_TTL
     entfernte_zeilen = 0
     entfernte_kyber = 0
     with schreibsperre:
         with db:
             tot = db.execute(
-                f"SELECT user_id, device_id FROM identities WHERE {LEBENSZEICHEN} < ?",
-                (cutoff,),
+                f"SELECT user_id, device_id FROM identities WHERE {LEBENSZEICHEN} < ?"
+                f" OR (last_seen = 0 AND updated_at < ?)",
+                (cutoff, nie_cutoff),
             ).fetchall()
             for uid, geraet in tot:
                 q, k = loesche_geraet(uid, geraet)
@@ -1253,7 +1501,8 @@ def purge_expired() -> int:
         # Marken-Zeilen aelter als die Tagesfrist zaehlen fuer nichts mehr.
         # Sie stehenzulassen hiesse, ein Protokoll darueber zu fuehren, wer
         # wann wie viel abgelegt hat — ohne dass es noch einem Zweck diente.
-        db.execute("DELETE FROM blob_marken WHERE ts < ?", (time.time() - 24 * 3600,))
+        db.execute("DELETE FROM blob_marken WHERE ts < ?",
+                   (time.time() - BLOB_FENSTER,))
     return cur.rowcount
 
 
@@ -1357,6 +1606,22 @@ def _take(key: str, capacity: float, refill: float, cost: float) -> bool:
         return ok
 
 
+def _gib_zurueck(key: str, capacity: float, refill: float, cost: float) -> None:
+    """Legt eine Marke zurueck, die _take genommen hat, deren Zweck aber nicht
+    zustande kam. Nie ueber die Fassung hinaus."""
+    with _speichersperre:
+        eintrag = _buckets.get(key)
+        if eintrag is None:
+            # Weggeraeumt wird nur ein wieder voller Eimer (voll_ab): nichts
+            # zu erstatten, und ein neuer Eintrag fuellte nur den Speicher.
+            return
+        now = time.monotonic()
+        tokens, last, _ = eintrag
+        tokens = min(capacity, tokens + (now - last) * refill + cost)
+        voll_ab = (now + (capacity - tokens) / refill) if refill > 0 else float("inf")
+        _buckets[key] = (tokens, now, voll_ab)
+
+
 def rate_limit_ok(key: str, cost: float = 1.0) -> bool:
     """Grobes Missbrauchsnetz je IP."""
     return _take(key, float(RATE_CAPACITY), RATE_REFILL_PER_SEC, cost)
@@ -1395,12 +1660,21 @@ def live_limit_ok(user_id: str) -> bool:
 def client_ip(request: Request) -> str:
     """Client-IP hinter nginx.
 
-    Der Dienst lauscht ausschliesslich auf 127.0.0.1 und haengt hinter nginx;
-    X-Forwarded-For stammt daher aus vertrauenswuerdiger Quelle.
+    SEIT 23.10.2026 NICHT MEHR AUS DER KOPFZEILE (Audit vom 16.10.2026,
+    SV-10). Hier stand `X-Forwarded-For`, erster Eintrag, gleich von wem die
+    Verbindung kam - mit der Begruendung, der Dienst lausche nur auf
+    127.0.0.1. Lauscht ein selbst betriebener Relay aber versehentlich ohne
+    nginx nach aussen, genuegten `X-Forwarded-For: 127.0.0.1` und
+    `X-BitDM-Onion: 1`, und jede Bremse je Herkunft war aus.
+
+    Die Kopfzeile wertet uvicorn schon selbst aus, und zwar nur, wenn der
+    unmittelbare Gegenueber nginx auf der Schleife ist (`--proxy-headers
+    --forwarded-allow-ips 127.0.0.1` in der Unit, bei uvicorn ohnehin die
+    Vorgabe). `request.client` ist dann die IP, die nginx eingetragen hat;
+    von jedem anderen Gegenueber ist es dessen eigene. Damit gilt auch fuer
+    kommt_ueber_onion: `X-BitDM-*` zaehlt nur, wenn die Verbindung wirklich
+    ueber die Schleife kam.
     """
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unbekannt"
 
 
@@ -1465,7 +1739,7 @@ def tor_kreis(request: Request) -> str | None:
     return f"kreis:{int(adresse) & 0xFFFFFFFF}"
 
 
-def limit_schluessel(request: Request) -> str | None:
+def limit_schluessel(request: Request, v6_praefix: int = 64) -> str | None:
     """Wonach die Bremse je Herkunft zaehlt — oder None fuer "gar nicht".
 
     IPv6 JE /64. Ein Anschluss bekommt vom Anbieter mindestens ein /64,
@@ -1482,6 +1756,9 @@ def limit_schluessel(request: Request) -> str | None:
     (otk_limit_ok, msg_limit_ok, NONCE_PLAETZE), die Grenzen im Onion-vHost
     (limit_req/limit_conn), das Speicherdach (SPEICHER_MAX) und die Grenzen in
     tor selbst (HiddenServiceMaxStreams).
+
+    [v6_praefix] ist fuer die Herkunft der Nonces (nonce_herkunft, SV-5):
+    dort zaehlt ein ganzer Anschluss, nicht ein einzelnes /64.
     """
     if kommt_ueber_onion(request):
         return tor_kreis(request)
@@ -1493,17 +1770,30 @@ def limit_schluessel(request: Request) -> str | None:
     if adresse.version == 6:
         if adresse.ipv4_mapped is not None:
             return str(adresse.ipv4_mapped)
-        return str(ipaddress.ip_network(f"{adresse}/64", strict=False))
+        return str(ipaddress.ip_network(f"{adresse}/{v6_praefix}", strict=False))
     return str(adresse)
 
 
 def nonce_herkunft(request: Request) -> str:
-    """Wem ein Challenge-Nonce gehoert: dieselbe Einteilung wie die Bremse.
+    """Wem ein Challenge-Nonce gehoert: die Einteilung der Bremse, aber IPv6
+    JE /48 (seit 23.10.2026, Audit vom 16.10.2026, SV-5).
 
-    Ueber Tor ohne Circuit-Kennung teilen sich alle die Herkunft "onion" —
+    Je /64 gezaehlt hatte ein Stoerer mit einem einzigen Heimanschluss (/56,
+    also 256 /64) muehelos die NONCE_HERKUENFTE = 16 Herkuenfte beisammen:
+    128 fremde Nonces, und am Dach des Paares fiel das des Opfers. Je /48
+    braucht er 16 Anschluesse. Fuer die Bremse selbst bleibt es beim /64 -
+    dort wuerde ein /48 ganze Mobilfunknetze in einen Eimer werfen; hier
+    teilen sich nur Challenges FUER DIESELBE ADRESSE einen Platz.
+
+    NICHT GEWAEHLT: am Dach fremde Eintraege gar nicht mehr zu verdraengen.
+    Dann haelte ein Stoerer das Dach mit 16 Herkuenften dauerhaft voll, und
+    das Opfer bekaeme gar kein Nonce mehr - aus "gelegentlich" wuerde
+    "dauerhaft".
+
+    Ueber Tor ohne Circuit-Kennung teilen sich alle die Herkunft "onion" -
     das ist der Stand vor dem 14.10.2026, nicht schlechter.
     """
-    return limit_schluessel(request) or "onion"
+    return limit_schluessel(request, v6_praefix=48) or "onion"
 
 
 def herkunft_ok(request: Request, familie: str, cost: float = 1.0) -> bool:
@@ -1512,6 +1802,72 @@ def herkunft_ok(request: Request, familie: str, cost: float = 1.0) -> bool:
     if schluessel is None:
         return True
     return rate_limit_ok(f"{familie}:{schluessel}", cost)
+
+
+# Wann das Adressdach zuletzt gemeldet wurde (SV-3, DACH_WARNUNG_AB).
+_dach_gemeldet: float | None = None
+
+
+def _melde_das_dach(adressen: int) -> None:
+    """Hoechstens einmal je Stunde ins Journal. Ohne Adresse, nur die Zahl."""
+    global _dach_gemeldet
+    jetzt = time.monotonic()
+    if _dach_gemeldet is not None and jetzt - _dach_gemeldet < 3600:
+        return
+    _dach_gemeldet = jetzt
+    print(f"[!] Adressdach zu {100 * adressen // IDENTITAETEN_MAX} % belegt "
+          f"({adressen} von {IDENTITAETEN_MAX}) - wer fuellt es? "
+          f"(BITDM_IDENTITIES_MAX, Audit SV-3)")
+
+
+def _eimer_neuer_adressen(request: Request) -> list[tuple[str, float, float]]:
+    """Aus welchen Eimern eine neue Adresse von hier zahlt: je Eintrag
+    (Schluessel, Fassung, Nachfuellung je Sekunde).
+
+    Je Herkunft, IPv6 je /48. Ueber den Onion-Dienst zuerst der Eimer des
+    Circuits (wenn tor ihn nennt), dann der gemeinsame aller Tor-Nutzer.
+    """
+    tag = 24 * 3600.0
+    eimer = []
+    schluessel = limit_schluessel(request, v6_praefix=48)
+    if schluessel is not None:
+        eimer.append((f"neu:{schluessel}", float(NEUE_ADRESSEN_JE_TAG),
+                      NEUE_ADRESSEN_JE_TAG / tag))
+    if kommt_ueber_onion(request):
+        eimer.append(("neu:onion", float(NEUE_ADRESSEN_ONION_JE_TAG),
+                      NEUE_ADRESSEN_ONION_JE_TAG / tag))
+    return eimer
+
+
+def neue_adresse_ok(request: Request) -> bool:
+    """Der enge Eimer fuer NEUE Adressen (SV-3, siehe NEUE_ADRESSEN_JE_TAG).
+
+    Nimmt aus jedem Eimer der Herkunft eine Marke, oder aus keinem: scheitert
+    der zweite (der gemeinsame Onion-Eimer), bekommt der erste seine Marke
+    zurueck. Sonst kostete eine Absage doch eine Marke.
+
+    NUR RUFEN, WENN DIE ADRESSE GLEICH ANGELEGT WIRD (register, direkt vor dem
+    INSERT). Bis zum 24.10.2026 kam der Aufruf vor allen Pruefungen, und jede
+    Registrierung, die danach noch scheiterte (Kyber, Geraeteliste,
+    Adressdach), kostete die ganze Herkunft eine Marke: ein dauerhaft
+    scheiternder Client hinter einer geteilten IPv4 (Carrier-Grade-NAT) hielt
+    den Eimer fuer alle anderen dort leer.
+    """
+    genommen = []
+    for schluessel, fassung, nachfuellung in _eimer_neuer_adressen(request):
+        if not _take(schluessel, fassung, nachfuellung, 1.0):
+            for zurueck in genommen:
+                _gib_zurueck(*zurueck, 1.0)
+            return False
+        genommen.append((schluessel, fassung, nachfuellung))
+    return True
+
+
+def neue_adresse_zurueck(request: Request) -> None:
+    """Erstattet die Marke von neue_adresse_ok, wenn die Adresse danach doch
+    nicht angelegt wurde (das Buendel liess sich nicht speichern)."""
+    for schluessel, fassung, nachfuellung in _eimer_neuer_adressen(request):
+        _gib_zurueck(schluessel, fassung, nachfuellung, 1.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -1845,10 +2201,15 @@ class PreKeyBundle(BaseModel):
 class RegisterRequest(BaseModel):
     bundle: PreKeyBundle
     signature: str                        # base64, XEdDSA ueber nonce||sha256(bundle)
-    # Der Geraeteschluessel ueber ANMELDE_PRAEFIX || nonce || sha256(bundle).
+    # Der Geraeteschluessel ueber ANMELDE_PRAEFIX || nonce || sha256(bundle)
+    # (in der neuen Form ANMELDE_PRAEFIX || registrier_nachricht(...)).
     # Nur verlangt, wenn die Adresse eine Geraeteliste hat (siehe register).
     # NICHT in canonical_bytes: die Bytes alter Clients bleiben, wie sie sind.
     geraete_signatur: str | None = Field(default=None, max_length=200)
+    # Der Name, unter dem die App diesen Relay erreicht hat - gesetzt heisst:
+    # signiert ist registrier_nachricht(relay, ...), nicht nonce || hash
+    # (KR-2, siehe ANMELDUNG_WS_PRAEFIX). Fehlt bei Apps bis 2.0.0.
+    relay: str | None = Field(default=None, max_length=253)
     # Der Geraeteschluessel ueber spk_nachricht(...) (GERAETEABMELDUNG.md
     # §12.5 a). Nur mit Liste geprueft und gespeichert; Kontakte pruefen ihn
     # selbst gegen die Liste. Ebenfalls NICHT in canonical_bytes.
@@ -2122,6 +2483,9 @@ def raeume_beitritte_auf() -> int:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db
+    # Zuerst, damit ein falscher Name im Journal oben steht (Befund 8 der
+    # Nachpruefung vom 24.10.2026, siehe RELAY_NAME_LABEL).
+    melde_relay_namen()
     db = init_db(DB_PATH)
     purged = purge_expired()
     if purged:
@@ -2169,6 +2533,8 @@ async def lifespan(app: FastAPI):
     finally:
         task.cancel()
         pflege.cancel()
+        # Der gemeinsame Client der Anstoesse (SV-7) und seine Verbindungen.
+        await schliesse_push_klient()
         # Ein Worker kann noch mitten in einer Transaktion stehen; ohne die
         # Sperre bekaeme er "Cannot operate on a closed database".
         with schreibsperre:
@@ -2436,7 +2802,10 @@ def register_challenge(req: ChallengeRequest, request: Request):
         nonce = issue_nonce(req.user_id, req.device_id, nonce_herkunft(request))
     except Ueberlastet as exc:
         raise HTTPException(503, "Relay ueberlastet, bitte spaeter erneut") from exc
-    return {"nonce": b64e(nonce)}
+    # Dieselbe Ankuendigung wie in der WS-Challenge, siehe
+    # ANMELDUNG_WS_PRAEFIX. Apps bis 2.0.0 lesen nur `nonce`.
+    namen = relay_namen()
+    return {"nonce": b64e(nonce), **({"relay": list(namen)} if namen else {})}
 
 
 def oeffentlicher_schluessel_ok(roh: bytes) -> bool:
@@ -2636,6 +3005,19 @@ def register(req: RegisterRequest, request: Request):
     except Exception as exc:
         raise HTTPException(400, "signature ist kein gueltiges base64") from exc
 
+    # Alte oder neue Form (KR-2, siehe ANMELDUNG_WS_PRAEFIX). VOR den Nonces:
+    # ein fremder Relay-Name kostet dann weder Pruefungen noch ein Nonce.
+    zulaessig, host = angemeldeter_relay(req.relay)
+    if not zulaessig:
+        raise HTTPException(403, "Besitznachweis ohne passenden Relay-Namen")
+
+    def besitz_nachricht(n: bytes) -> bytes:
+        """Die Bytes, die der Identitaetsschluessel (und mit Liste der
+        Geraeteschluessel hinter ANMELDE_PRAEFIX) signiert hat."""
+        if host is not None:
+            return registrier_nachricht(host, n, inhalt)
+        return n + inhalt
+
     # Das Nonce haengt am (Adresse, Geraet)-Paar. Ein Geraet kann sich damit
     # nicht mit dem Nonce eines anderen anmelden, und zwei Geraete derselben
     # Adresse nehmen sich ihre Nonces nicht mehr gegenseitig weg.
@@ -2651,7 +3033,8 @@ def register(req: RegisterRequest, request: Request):
 
     inhalt = hashlib.sha256(bundle.canonical_bytes()).digest()
     treffer = next((n for n in kandidaten
-                    if verify_signature(identity_key, n + inhalt, signature)), None)
+                    if verify_signature(identity_key, besitz_nachricht(n),
+                                        signature)), None)
     if treffer is None:
         raise HTTPException(403, "Besitznachweis fehlgeschlagen")
     if not verbrauche_nonce(bundle.user_id, bundle.device_id, treffer):
@@ -2675,6 +3058,10 @@ def register(req: RegisterRequest, request: Request):
     # Nur mit Liste und nur geprueft gesetzt, siehe unten. Ohne Liste gibt es
     # keinen Schluessel, gegen den sie gelten koennte.
     spk_sig_speichern: bytes | None = None
+    # Ob diese Anfrage eine Marke fuer eine neue Adresse genommen hat, die
+    # zurueckgeht, falls das Buendel sich doch nicht speichern laesst.
+    marke_genommen = False
+    angelegt = False
 
     with schreibsperre:
         # DIE GERAETELISTE (GERAETEABMELDUNG.md §8.4), und zwar INNERHALB der
@@ -2695,7 +3082,7 @@ def register(req: RegisterRequest, request: Request):
             # alle Geraete der Adresse, auch ein abgemeldetes. Ueber dieselben
             # Bytes wie der Besitznachweis, also an dieses Nonce und dieses
             # Buendel gebunden.
-            if not geraete_signatur_ok(schluessel, treffer + inhalt,
+            if not geraete_signatur_ok(schluessel, besitz_nachricht(treffer),
                                        req.geraete_signatur):
                 raise HTTPException(403, "Geraeteschluessel fehlt oder passt nicht")
             # DER SIGNIERTE PREKEY, AN DEN GERAETESCHLUESSEL GEBUNDEN
@@ -2747,8 +3134,29 @@ def register(req: RegisterRequest, request: Request):
                 # 507, nicht 429: das ist keine Bremse, die nach einer Weile
                 # nachgibt, sondern eine volle Ablage. Der Unterschied gehoert
                 # in die Antwort, sonst versucht es der Client fuer immer.
+                _melde_das_dach(wie_viele)
                 raise HTTPException(507, "Dieser Relay nimmt keine neuen "
                                          "Adressen mehr auf")
+            # DIE MARKE FUER EINE NEUE ADRESSE (SV-3, NEUE_ADRESSEN_JE_TAG)
+            # erst hier, als letzte Pruefung vor dem INSERT. Jede Absage
+            # davor - Besitznachweis, Kyber, Geraeteliste, Adressdach -
+            # kostet die Herkunft nichts; sonst hielte ein dauerhaft
+            # scheiternder Client hinter einer geteilten IP den Eimer fuer
+            # alle dort leer.
+            #
+            # Unter schreibsperre, in der auch jeder INSERT in `identities`
+            # liegt: "Adresse noch unbekannt" und "Marke genommen" sind damit
+            # ein Schritt. Zwei gleichzeitige erste Registrierungen derselben
+            # Adresse zahlen einmal (die zweite sieht die Zeile der ersten),
+            # und mehr Adressen als Marken kommen auch parallel nicht durch -
+            # _take selbst haelt _speichersperre. Kein await dazwischen: der
+            # Endpunkt ist synchron und laeuft im Threadpool.
+            if not neue_adresse_ok(request):
+                raise HTTPException(429, "zu viele neue Adressen von hier, "
+                                         "bitte spaeter erneut")
+            marke_genommen = True
+            if wie_viele + 1 >= DACH_WARNUNG_AB * IDENTITAETEN_MAX:
+                _melde_das_dach(wie_viele + 1)
 
         if not schon_da and geraete_dieser_adresse >= GERAETE_MAX:
             # Neues GERAET einer bekannten Adresse, und die ist voll.
@@ -2849,6 +3257,7 @@ def register(req: RegisterRequest, request: Request):
                     [(bundle.user_id, geraet, kid, schluessel, signatur)
                      for kid, schluessel, signatur in kyber_neu],
                 )
+            angelegt = True
         except (sqlite3.Error, ValueError, OverflowError) as exc:
             # OverflowError gehoert dazu, seit die Kennungen im Rumpf keine
             # Obergrenze haben: registration_id, signed_prekey_id und key_id
@@ -2866,6 +3275,12 @@ def register(req: RegisterRequest, request: Request):
             # wer nachsehen muss, hat das Journal.
             print(f"[!] /register: Bundle nicht gespeichert ({type(exc).__name__})")
             raise HTTPException(400, "Bundle konnte nicht gespeichert werden") from exc
+        finally:
+            # Zurueckgerollt heisst: keine neue Adresse, also auch keine
+            # Marke (SV-3). Noch unter schreibsperre, damit kein anderer
+            # Aufruf dazwischen den leeren Eimer sieht und abgewiesen wird.
+            if marke_genommen and not angelegt:
+                neue_adresse_zurueck(request)
         # Nach dem Commit, noch unter der Sperre — siehe _kyber_zeilen.
         kyber_zeilen_aendern(len(kyber_neu) - kyber_alt)
 
@@ -3378,6 +3793,19 @@ def push_endpunkt_gueltig(url: str) -> bool:
         return False
     if teile.hostname not in PUSH_ERLAUBTE_HOSTS:
         return False
+    # KEIN EIGENER PORT, KEINE BENUTZERANGABE (Audit vom 16.10.2026, SV-8).
+    # Geprueft waren nur Schema, Host und Pfad: "https://push.bitdm.net:22/up..."
+    # ging durch, und ohne BITDM_PUSH_TARGET ginge der leere POST genau
+    # dorthin - an jeden Port der Maschine hinter push.bitdm.net, sobald der
+    # Relay einmal hinaus darf. UnifiedPush-Endpunkte haben beides nie.
+    # `.port` wirft bei einem Port ausserhalb 0..65535 (":99999").
+    try:
+        port = teile.port
+    except ValueError:
+        return False
+    if port not in (None, 443) or teile.username is not None \
+            or teile.password is not None:
+        return False
     # UnifiedPush-Themen heissen "up" + Zufallszeichen. Alles andere waere
     # kein Anstoss-Endpunkt, sondern irgendein Pfad auf dem Push-Server.
     return re.fullmatch(r"/up[A-Za-z0-9_-]+", teile.path) is not None
@@ -3391,11 +3819,81 @@ def push_endpunkt_gueltig(url: str) -> bool:
 # wieder aus.
 _laufende_anstoesse: set[asyncio.Task] = set()
 
+# HOECHSTENS EIN ANSTOSS JE GERAET UNTERWEGS, und hoechstens so viele Geraete
+# gleichzeitig (seit 23.10.2026, Audit vom 16.10.2026, SV-7).
+#
+# Vorher startete JEDE gepufferte Zeile eine eigene Aufgabe, ohne Deckel:
+# wer an ein abwesendes Geraet mit Push-Endpunkt flutete - auch an eine
+# eigene Zweitadresse -, hielt beliebig viele Aufgaben und Verbindungen zum
+# Push-Server offen. Ein Geraet muss aber nur EINMAL geweckt werden, um alles
+# abzuholen, was liegt.
+#
+# (Adresse, Geraet) -> ob waehrend des laufenden Anstosses noch eine Zeile
+# kam. Dann geht nach dem laufenden GENAU EIN weiterer hinaus: eine Zeile, die
+# nach dem Wecken eintraf, darf nicht ohne Anstoss liegen bleiben, falls das
+# Geraet sich inzwischen schon wieder getrennt hat. Nur auf dem Event-Loop
+# veraendert, braucht also keine Sperre.
+_anstoss_nochmal: dict[tuple[str, int], bool] = {}
+
+# Wie viele Geraete gleichzeitig angestossen werden. Darueber entfaellt der
+# Anstoss: die Nachricht liegt in der Warteschlange, und die App holt sie
+# beim naechsten Start - genau wie bei einem Push-Server, der nicht antwortet.
+PUSH_LAUFEND_MAX = int(os.getenv("BITDM_PUSH_PARALLEL", 200))
+
 
 def stosse_im_hintergrund_an(user_id: str, device_id: int) -> None:
-    aufgabe = asyncio.create_task(stosse_an(user_id, device_id))
+    schluessel = (user_id, device_id)
+    if schluessel in _anstoss_nochmal:
+        _anstoss_nochmal[schluessel] = True
+        return
+    if len(_anstoss_nochmal) >= PUSH_LAUFEND_MAX:
+        _push_ging_daneben(f"mehr als {PUSH_LAUFEND_MAX} Anstoesse gleichzeitig")
+        return
+    _anstoss_nochmal[schluessel] = False
+    aufgabe = asyncio.create_task(_stosse_an_bis_nichts_nachkam(user_id, device_id))
     _laufende_anstoesse.add(aufgabe)
     aufgabe.add_done_callback(_laufende_anstoesse.discard)
+
+
+async def _stosse_an_bis_nichts_nachkam(user_id: str, device_id: int) -> None:
+    schluessel = (user_id, device_id)
+    try:
+        while True:
+            await stosse_an(user_id, device_id)
+            if not _anstoss_nochmal.get(schluessel):
+                return
+            _anstoss_nochmal[schluessel] = False
+    finally:
+        _anstoss_nochmal.pop(schluessel, None)
+
+
+# EIN Client fuer alle Anstoesse, statt einer je Anstoss (SV-7).
+#
+# httpx.AsyncClient baut beim Anlegen einen TLS-Kontext samt CA-Buendel,
+# synchron, also auf dem Event-Loop: gemessen 180 ms (Windows), unter Linux
+# weniger, aber nicht null - je gepufferter Nachricht. Auch auf
+# relay.bitdm.net, wo der POST ueber die Schleife und ohne TLS geht.
+#
+# MIT DER SCHLEIFE GEMERKT: eine Verbindung im Pool gehoert zu der Schleife,
+# auf der sie aufgebaut wurde. Im Betrieb gibt es genau eine; die Tests
+# starten je asyncio.run eine neue und bekommen dann einen neuen Client.
+_push_klient: tuple[asyncio.AbstractEventLoop, httpx.AsyncClient] | None = None
+
+
+def push_klient() -> httpx.AsyncClient:
+    global _push_klient
+    schleife = asyncio.get_running_loop()
+    if _push_klient is None or _push_klient[0] is not schleife:
+        _push_klient = (schleife, httpx.AsyncClient(timeout=PUSH_TIMEOUT))
+    return _push_klient[1]
+
+
+async def schliesse_push_klient() -> None:
+    """Beim Herunterfahren (lifespan)."""
+    global _push_klient
+    if _push_klient is not None:
+        klient, _push_klient = _push_klient[1], None
+        await klient.aclose()
 
 
 async def stosse_an(user_id: str, device_id: int) -> None:
@@ -3416,11 +3914,10 @@ async def stosse_an(user_id: str, device_id: int) -> None:
     if row is None or not row[0]:
         return
     try:
-        async with httpx.AsyncClient(timeout=PUSH_TIMEOUT) as client:
-            # NICHT follow_redirects=True. httpx folgt ab Werk nicht; ein
-            # Umzug wuerde den POST sonst an einen beliebigen Host tragen und
-            # den Host-Pin aus PUSH_ERLAUBTE_HOSTS aushebeln.
-            antwort = await client.post(anstoss_ziel(row[0]), content=b"")
+        # NICHT follow_redirects=True. httpx folgt ab Werk nicht; ein
+        # Umzug wuerde den POST sonst an einen beliebigen Host tragen und
+        # den Host-Pin aus PUSH_ERLAUBTE_HOSTS aushebeln.
+        antwort = await push_klient().post(anstoss_ziel(row[0]), content=b"")
     except Exception as exc:
         # Ein Anstoss, der nicht ankommt, ist kein Fehler des Absenders — die
         # Nachricht liegt in der Warteschlange und wird beim naechsten Start
@@ -3537,7 +4034,11 @@ async def _vorraum(ws: WebSocket):
 
     # ---- Challenge-Response ----
     nonce = secrets.token_bytes(32)
-    await ws.send_json({"type": "challenge", "nonce": b64e(nonce)})
+    # `relay` nur, wenn dieser Relay die neue Form kennt (siehe
+    # ANMELDUNG_WS_PRAEFIX). Apps bis 2.0.0 lesen nur `nonce`.
+    namen = relay_namen()
+    await ws.send_json({"type": "challenge", "nonce": b64e(nonce),
+                        **({"relay": list(namen)} if namen else {})})
     try:
         # 10 statt 30 Sekunden, siehe WS_ANMELDEFRIST.
         reply = await asyncio.wait_for(lies_rahmen(ws), timeout=WS_ANMELDEFRIST)
@@ -3568,7 +4069,20 @@ async def _vorraum(ws: WebSocket):
     #
     # device_id ist an dieser Stelle nachweislich eine gespeicherte Kennung
     # (die Abfrage oben hat getroffen), passt also in 4 Byte unsigned.
-    erwartet = nonce if roh_geraet is None else nonce + device_id.to_bytes(4, "big")
+    #
+    # DIE NEUE FORM (KR-2) nennt das Geraet ausdruecklich, also auch Geraet 1
+    # ohne Kennung in der Query - eine Signatur fuer Geraet A ist damit nie
+    # eine fuer B. Welche Form gilt, sagt das Feld `relay` der Antwort.
+    zulaessig, host = angemeldeter_relay(reply.get("relay"))
+    if not zulaessig:
+        await ws.send_json({"type": "auth_result", "ok": False})
+        await ws.close(code=4403)
+        return None
+    if host is not None:
+        erwartet = ws_anmelde_nachricht(host, user_id, device_id, nonce)
+    else:
+        erwartet = (nonce if roh_geraet is None
+                    else nonce + device_id.to_bytes(4, "big"))
 
     if not verify_signature(identity_key, erwartet, signature):
         await ws.send_json({"type": "auth_result", "ok": False})
@@ -3972,25 +4486,17 @@ async def ws_endpoint(ws: WebSocket):
                 # Angerechnet wird mindestens BLOB_MINDESTMENGE, siehe dort. Die
                 # Marke selbst gilt weiter fuer genau `groesse` Bytes.
                 angerechnet = max(groesse, BLOB_MINDESTMENGE)
+                # Hoechstens 25 Zeilen, siehe BLOB_STUNDE. Eine Summe ueber
+                # den GANZEN Relay steht hier nicht mehr (SV-1/SV-2): die
+                # zaehlt das Lager, nach Bytes, die wirklich ankommen. Ist es
+                # voll, antwortet es auf den Upload mit 507, und die App zeigt
+                # das wie eine volle Platte ("spaeter noch einmal").
                 verbraucht = blob_menge_heute(user_id)
                 if verbraucht + angerechnet > BLOB_TAGESMENGE:
                     await ws.send_json({
                         "type": "error",
                         "reason": "Tagesmenge erschoepft",
                         "frei": max(0, BLOB_TAGESMENGE - verbraucht),
-                        **marken_ref,
-                    })
-                    continue
-                # Und die Menge des GANZEN Relays, siehe BLOB_TAGESMENGE_GESAMT.
-                # Eigener Wortlaut: "Tagesmenge erschoepft" hiesse fuer den
-                # Nutzer "du warst es", und das stimmt hier nicht. Aeltere
-                # Clients zeigen den Text einfach an.
-                gesamt = blob_menge_heute_gesamt()
-                if gesamt + angerechnet > BLOB_TAGESMENGE_GESAMT:
-                    await ws.send_json({
-                        "type": "error",
-                        "reason": "Zwischenlager fuer heute ausgelastet",
-                        "frei": 0,
                         **marken_ref,
                     })
                     continue
@@ -4012,10 +4518,7 @@ async def ws_endpoint(ws: WebSocket):
                 # Das await bleibt AUSSERHALB der Sperre — siehe die
                 # Begruendung bei schreibsperre.
                 with schreibsperre, db:
-                    db.execute(
-                        "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
-                        (user_id, angerechnet, time.time()),
-                    )
+                    blob_menge_anrechnen(user_id, angerechnet)
                 await ws.send_json({
                     "type": "blob_marke_ok",
                     "kennung": kennung,

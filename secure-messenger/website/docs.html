@@ -234,8 +234,8 @@ less install.sh &amp;&amp; sudo bash install.sh</code></pre>
   <section>
     <h2><span class="de">In der App eintragen</span><span class="en">Point the app at it</span></h2>
     <p>
-      <span class="de">Einstellungen &rsaquo; Empfangen &rsaquo; Serveradresse. Dort trägst du den Relay mit <code>wss://</code> ein, das Lager daneben. Wenn du das Feld leerst und übernimmst, bist du jederzeit wieder bei der Voreinstellung.</span>
-      <span class="en">Settings &rsaquo; Receiving &rsaquo; server address. Enter the relay there as a <code>wss://</code> address, with the store next to it. To go back to the default at any point, clear the field and apply.</span>
+      <span class="de">Eine Einstellung dafür gibt es in der App nicht. Die Apps von bitdm.net, GitHub und F-Droid sprechen nur mit relay.bitdm.net. Für deinen eigenen Relay baust du die App selbst: <code>flutter build apk --dart-define=BITDM_RELAY=https://deine-domain</code>. Das Lager leitet die App daraus ab (relay.X wird dateien.X), sonst gibst du es mit <code>--dart-define=BITDM_LAGER=…</code> an.</span>
+      <span class="en">The app has no setting for this. The apps from bitdm.net, GitHub and F-Droid only talk to relay.bitdm.net. For your own relay, build the app yourself: <code>flutter build apk --dart-define=BITDM_RELAY=https://your-domain</code>. The app derives the store from it (relay.X becomes dateien.X); otherwise pass it with <code>--dart-define=BITDM_LAGER=…</code>.</span>
     </p>
     <p>
       <span class="de"><code>http://</code> und <code>ws://</code> lässt die App nur im eigenen Netz zu. Ohne TLS kann jeder auf dem Weg mitlesen, wer wann mit wem spricht, und genau das willst du ja vermeiden.</span>
