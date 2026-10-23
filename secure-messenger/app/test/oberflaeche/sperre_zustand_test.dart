@@ -197,6 +197,8 @@ void main() {
 
     test('das Panik-Passwort loescht auch hier', () async {
       await st.fuegePasswortHinzu(echtes);
+      // Das Panik-Wort selbst nur mit frischem Nachweis (seit 18.10.2026).
+      expect(await st.bestaetigeMitPasswort(echtes), isTrue);
       await st.setzePanikPasswort(panik);
       expect(await st.bestaetigeMitPasswort(panik), isFalse);
       expect(st.hatIdentitaet, isFalse);

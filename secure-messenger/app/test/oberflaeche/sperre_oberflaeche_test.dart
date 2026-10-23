@@ -315,6 +315,8 @@ void main() {
     await starte(tester);
     await tester.runAsync(() async {
       await st.fuegeBiometrieHinzu();
+      // Seit 18.10.2026 nur mit frischem Nachweis (frischBestaetigt).
+      expect(await st.bestaetigeMitBiometrie(), isTrue);
       await st.setzePanikPasswort(satz);
       await st.sperreWieder();
     });

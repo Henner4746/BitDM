@@ -178,9 +178,11 @@ void main() {
     test('jeder oeffnet fuer sich — kein Faktor braucht einen anderen',
         () async {
       await tresor.fuegeHinzu(finger('Fingerabdruck'));
+      // Seit 18.10.2026 mit frischem Nachweis — siehe tresor_haertung_test.
       await tresor.fuegeHinzu(
           PassphraseFactor('ein ziemlich langes Passwort mit Zahlen 12345',
-              geraeteGebunden: false));
+              geraeteGebunden: false),
+          nachweis: await tresor.weiseNach(finger()));
 
       final frisch = VaultSecretStore(
           datei: vaultDateiIn(verzeichnis.path),
@@ -223,7 +225,8 @@ void main() {
       await tresor.fuegeHinzu(finger('erster'));
       final zweiteAblage = FakeAblage();
       await tresor.fuegeHinzu(
-          KeystoreFactor(ablage: zweiteAblage, label: 'zweiter'));
+          KeystoreFactor(ablage: zweiteAblage, label: 'zweiter'),
+          nachweis: await tresor.weiseNach(finger()));
 
       final frisch = VaultSecretStore(
           datei: vaultDateiIn(verzeichnis.path),
@@ -286,8 +289,9 @@ void main() {
     test('ein nicht-letzter laesst die anderen unberuehrt', () async {
       await tresor.fuegeHinzu(finger('erster'));
       final zweiteAblage = FakeAblage();
-      await tresor
-          .fuegeHinzu(KeystoreFactor(ablage: zweiteAblage, label: 'zweiter'));
+      await tresor.fuegeHinzu(
+          KeystoreFactor(ablage: zweiteAblage, label: 'zweiter'),
+          nachweis: await tresor.weiseNach(finger()));
       final ersterSlot = (await tresor.faecher())!.slots.first;
 
       await tresor.entferne(ersterSlot.id, faktor: finger());

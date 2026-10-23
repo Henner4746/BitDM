@@ -299,7 +299,12 @@ extension _Notfall on _HomeState {
                   return;
                 }
                 try {
-                  await st.setzePanikPasswort(eins.text);
+                  // Den Nachweis holte der Schalter vor diesem Dialog; ist er
+                  // beim Tippen verfallen, wird noch einmal gefragt.
+                  if (!await _mitNachweis(
+                      () => st.setzePanikPasswort(eins.text))) {
+                    return;
+                  }
                   if (ctx.mounted) Navigator.pop(ctx);
                 } on PanikWortUngueltigException catch (e) {
                   neu(() => fehler = t(e.grund == PanikWortFehler.zuKurz
