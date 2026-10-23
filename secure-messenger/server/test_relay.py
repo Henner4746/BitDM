@@ -2998,11 +2998,23 @@ def test_tarnverkehr_wird_still_verworfen(relay):
 
 class _Kopf:
     """Eine Anfrage mit frei waehlbaren Kopfzeilen (klein geschrieben, wie
-    Starlette sie liefert)."""
+    Starlette sie liefert).
 
-    def __init__(self, **kopfzeilen):
+    `x_forwarded_for` steht zusaetzlich in `client`: so macht es uvicorn mit
+    `--proxy-headers --forwarded-allow-ips 127.0.0.1`, wenn nginx auf der
+    Schleife der Gegenueber ist. Mit `gegenueber` steht stattdessen der
+    unmittelbare Gegenueber dort - ein Relay, der ohne nginx lauscht und der
+    Kopfzeile deshalb nicht glaubt (SV-10)."""
+
+    def __init__(self, gegenueber=None, **kopfzeilen):
         self.headers = {k.replace("_", "-"): v for k, v in kopfzeilen.items()}
-        self.client = None
+        host = gegenueber or kopfzeilen.get("x_forwarded_for")
+        self.client = _Gegenueber(host) if host else None
+
+
+class _Gegenueber:
+    def __init__(self, host):
+        self.host = host
 
 
 def _registriere_mit(rs, user, nonce, priv=None, geraet=None, anfrage=None):
@@ -5573,3 +5585,37 @@ def test_sv8_push_endpunkt_ohne_fremden_port_und_ohne_nutzer(relay):
                      "https://nutzer:geheim@push.bitdm.net/upAbc",
                      "https://:@push.bitdm.net/upAbc"):
         assert not rs.push_endpunkt_gueltig(schlecht), schlecht
+
+
+# ------------------------------------------------ SV-10  Herkunft nicht aus der Kopfzeile
+
+def test_sv10_ohne_nginx_hilft_eine_gefaelschte_kopfzeile_nichts(relay, monkeypatch):
+    """Ein Relay, der versehentlich ohne nginx nach aussen lauscht: uvicorn
+    glaubt X-Forwarded-For dann nicht, und der Relay darf es auch nicht.
+    Vorher genuegten `X-Forwarded-For: 127.0.0.1` und `X-BitDM-Onion: 1`, und
+    jede Bremse je Herkunft war aus."""
+    rs = relay
+    angreifer = dict(gegenueber="203.0.113.7", x_forwarded_for="127.0.0.1",
+                     x_bitdm_onion="1", x_bitdm_kreis="fc00:dead:beef:4dad::2a")
+    assert rs.client_ip(_Kopf(**angreifer)) == "203.0.113.7"
+    assert not rs.kommt_ueber_onion(_Kopf(**angreifer))
+    assert rs.limit_schluessel(_Kopf(**angreifer)) == "203.0.113.7"
+    # Und die Bremse greift: ein Eimer mit einer Marke, ohne Nachfuellen.
+    monkeypatch.setattr(rs, "RATE_CAPACITY", 1)
+    monkeypatch.setattr(rs, "RATE_REFILL_PER_SEC", 0.0)
+    rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))),
+                          _Kopf(**angreifer))
+    with pytest.raises(rs.HTTPException) as fehler:
+        rs.register_challenge(rs.ChallengeRequest(user_id=encode_id(os.urandom(32))),
+                              _Kopf(**{**angreifer, "x_forwarded_for": "198.51.100.9"}))
+    assert fehler.value.status_code == 429
+
+
+def test_sv10_hinter_nginx_zaehlt_was_uvicorn_eintraegt(relay):
+    """Die Gegenprobe: hinter nginx steht die echte IP in `client`, so wie
+    uvicorn sie aus der Kopfzeile von nginx uebernimmt."""
+    rs = relay
+    hinter_nginx = _Kopf(x_forwarded_for="198.51.100.20")
+    assert rs.client_ip(hinter_nginx) == "198.51.100.20"
+    ueber_tor = _Kopf(x_forwarded_for="127.0.0.1", x_bitdm_onion="1")
+    assert rs.kommt_ueber_onion(ueber_tor)

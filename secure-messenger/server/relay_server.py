@@ -1533,12 +1533,21 @@ def live_limit_ok(user_id: str) -> bool:
 def client_ip(request: Request) -> str:
     """Client-IP hinter nginx.
 
-    Der Dienst lauscht ausschliesslich auf 127.0.0.1 und haengt hinter nginx;
-    X-Forwarded-For stammt daher aus vertrauenswuerdiger Quelle.
+    SEIT 23.10.2026 NICHT MEHR AUS DER KOPFZEILE (Audit vom 16.10.2026,
+    SV-10). Hier stand `X-Forwarded-For`, erster Eintrag, gleich von wem die
+    Verbindung kam - mit der Begruendung, der Dienst lausche nur auf
+    127.0.0.1. Lauscht ein selbst betriebener Relay aber versehentlich ohne
+    nginx nach aussen, genuegten `X-Forwarded-For: 127.0.0.1` und
+    `X-BitDM-Onion: 1`, und jede Bremse je Herkunft war aus.
+
+    Die Kopfzeile wertet uvicorn schon selbst aus, und zwar nur, wenn der
+    unmittelbare Gegenueber nginx auf der Schleife ist (`--proxy-headers
+    --forwarded-allow-ips 127.0.0.1` in der Unit, bei uvicorn ohnehin die
+    Vorgabe). `request.client` ist dann die IP, die nginx eingetragen hat;
+    von jedem anderen Gegenueber ist es dessen eigene. Damit gilt auch fuer
+    kommt_ueber_onion: `X-BitDM-*` zaehlt nur, wenn die Verbindung wirklich
+    ueber die Schleife kam.
     """
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unbekannt"
 
 
