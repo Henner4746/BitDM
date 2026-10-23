@@ -76,8 +76,14 @@ void main() {
     } catch (_) {}
   });
 
+  /// Seit 18.10.2026 verlangt das Panik-Wort einen frischen Nachweis — die
+  /// Oberflaeche holt ihn ueber frischBestaetigt, bevor sie den Dialog zeigt.
+  Future<void> ausweisen() async =>
+      expect(await st.bestaetigeMitPasswort(echtes), isTrue);
+
   test('DAS PANIK-PASSWORT LOESCHT, DAS ECHTE OEFFNET', () async {
     await st.fuegePasswortHinzu(echtes);
+    await ausweisen();
     await st.setzePanikPasswort(panik);
     expect(st.hatPanikPasswort, isTrue);
 
@@ -100,6 +106,7 @@ void main() {
     // probiert das Panik-Fach mit dem ECHTEN Passwort zuerst — das darf
     // weder loeschen noch das Oeffnen verhindern.
     await st.fuegePasswortHinzu(echtes);
+    await ausweisen();
     await st.setzePanikPasswort(panik);
     final v = (await tresor.faecher())!;
     final umgedreht = KeyVault(slots: v.slots.reversed.toList());
@@ -118,6 +125,7 @@ void main() {
 
   test('VON AUSSEN SIEHT DAS PANIK-FACH AUS WIE EIN PASSWORT-FACH', () async {
     await st.fuegePasswortHinzu(echtes);
+    await ausweisen();
     await st.setzePanikPasswort(panik);
     final slots = (await tresor.faecher())!.slots;
     expect(slots, hasLength(2));
@@ -134,6 +142,7 @@ void main() {
 
   test('DAS ECHTE PASSWORT KANN NICHT ZUM PANIK-PASSWORT WERDEN', () async {
     await st.fuegePasswortHinzu(echtes);
+    await ausweisen();
     await expectLater(st.setzePanikPasswort(echtes),
         throwsA(isA<PanikGleichException>()));
     expect(st.hatPanikPasswort, isFalse);
@@ -145,6 +154,7 @@ void main() {
 
   test('DER LETZTE ECHTE FAKTOR NIMMT DAS PANIK-FACH MIT', () async {
     await st.fuegePasswortHinzu(echtes);
+    await ausweisen();
     await st.setzePanikPasswort(panik);
     // Den letzten Faktor nimmt der Tresor nur mit frischem Nachweis heraus
     // (die Oberflaeche holt ihn ueber frischBestaetigt).
@@ -161,6 +171,7 @@ void main() {
 
     test('EIN SATZ MIT LEERZEICHEN LOESCHT — genau so getippt wie eingerichtet', () async {
       await st.fuegePasswortHinzu(echtes);
+      await ausweisen();
       await st.setzePanikPasswort(satz);
       await st.sperreWieder();
       // Ohne das Leerzeichen, anders geschrieben: nichts passiert.
@@ -176,6 +187,7 @@ void main() {
 
     test('KURZ IST ERLAUBT — ab vier Zeichen, ohne Staerkeprobe', () async {
       await st.fuegePasswortHinzu(echtes);
+      await ausweisen();
       await expectLater(
           st.setzePanikPasswort('abc'),
           throwsA(isA<PanikWortUngueltigException>()
@@ -188,6 +200,7 @@ void main() {
 
     test('LEERZEICHEN AM RAND WERDEN ABGELEHNT, NICHT STILL ENTFERNT', () async {
       await st.fuegePasswortHinzu(echtes);
+      await ausweisen();
       await expectLater(
           st.setzePanikPasswort(' $satz'),
           throwsA(isA<PanikWortUngueltigException>()
@@ -201,6 +214,7 @@ void main() {
       await st.fuegeBiometrieHinzu();
       expect(st.sperreBietetPasswort, isFalse,
           reason: 'ohne Passwort-Fach gibt es auch kein Feld');
+      expect(await st.bestaetigeMitBiometrie(), isTrue);
       await st.setzePanikPasswort(satz);
       expect(st.hatFaktor(UnlockFactorKind.passphrase), isFalse,
           reason: 'die Einstellungen zeigten das Panik-Wort als Passwort');
@@ -231,7 +245,9 @@ void main() {
 
   test('EIN NEUES PANIK-PASSWORT ERSETZT DAS ALTE', () async {
     await st.fuegePasswortHinzu(echtes);
+    await ausweisen();
     await st.setzePanikPasswort(panik);
+    await ausweisen();
     await st.setzePanikPasswort('Birke-Nebel-Sand-Horn-3381');
     expect(st.faktoren, hasLength(2), reason: 'das alte Panik-Fach blieb stehen');
     await st.sperreWieder();

@@ -126,7 +126,11 @@ void main() {
 
     test('alle drei nebeneinander, jeder oeffnet allein', () async {
       await st.fuegeBiometrieHinzu();
+      // Jeder weitere Faktor seit 18.10.2026 nur mit frischem Nachweis — die
+      // Oberflaeche holt ihn ueber frischBestaetigt.
+      expect(await st.bestaetigeMitBiometrie(), isTrue);
       await st.fuegeGeraetePinHinzu();
+      expect(await st.bestaetigeMitBiometrie(), isTrue);
       await st.fuegePasswortHinzu(starkesPasswort);
       expect(st.faktoren, hasLength(3));
 
@@ -147,6 +151,7 @@ void main() {
       await st.fuegeBiometrieHinzu();
       final bioSlot = st.faktoren.single.id;
 
+      expect(await st.bestaetigeMitBiometrie(), isTrue);
       await st.fuegeGeraetePinHinzu();
 
       expect(st.faktoren, hasLength(2),
@@ -159,6 +164,7 @@ void main() {
     test('die Geraetesperre zu entfernen laesst den Fingerabdruck stehen',
         () async {
       await st.fuegeBiometrieHinzu();
+      expect(await st.bestaetigeMitBiometrie(), isTrue);
       await st.fuegeGeraetePinHinzu();
       final pinSlot = st.faktoren
           .firstWhere((s) => s.kind == UnlockFactorKind.deviceCredential);
@@ -180,6 +186,7 @@ void main() {
       // gesicherten Bereich, schreibt die eine der anderen den Schluessel um —
       // und die Anmeldung faellt still weg.
       await st.fuegeBiometrieHinzu();
+      expect(await st.bestaetigeMitBiometrie(), isTrue);
       await st.fuegeGeraetePinHinzu();
 
       expect(bioAblage.daten, hasLength(1));

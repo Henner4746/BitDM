@@ -21,7 +21,11 @@ gezogen wurde oder Cloudflare die Anfrage abweist.
 Start (auf dem Haupt-VPS, nach jedem `git -C /opt/bitdm pull`):
     python3 /opt/bitdm/secure-messenger/deploy/indexnow.py
     python3 .../indexnow.py https://bitdm.net/vs.html   # nur diese Adresse
+    python3 .../indexnow.py --seit ORIG_HEAD             # nur, was der Pull geaendert hat
     python3 .../indexnow.py --dry-run                    # nur zeigen, nichts senden
+
+`--seit` ist fuer den Git-Hook deploy/git-hooks/post-merge gedacht, der das
+nach jedem Pull von selbst tut (Einrichtung: website/README.md, IndexNow).
 
 Nur Standardbibliothek: laeuft mit dem System-Python, ohne venv.
 """
@@ -29,6 +33,7 @@ Nur Standardbibliothek: laeuft mit dem System-Python, ohne venv.
 import argparse
 import json
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -77,6 +82,37 @@ def adressen_aus_sitemap() -> list[str]:
     return adressen
 
 
+def adresse_fuer(datei: str) -> str:
+    """website/index.html ist die Startseite, alles andere liegt unter seinem Namen."""
+    return f"https://{HOST}/" if datei == "index.html" else f"https://{HOST}/{datei}"
+
+
+def adressen_seit(rev: str) -> list[str]:
+    """Adressen der Seiten, die sich seit `rev` geaendert haben.
+
+    Gemeldet wird, was in der Sitemap steht, dazu geloeschte .html-Seiten:
+    die Suchmaschine soll auch erfahren, dass es eine Adresse nicht mehr gibt.
+    Bilder, Schriften und Testseiten (_test-*.html) bleiben draussen.
+    """
+    try:
+        ausgabe = subprocess.run(
+            ["git", "-C", str(WEBSITE), "diff", "--name-status", "--relative", rev, "HEAD", "--", "."],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as fehler:
+        sys.exit(f"git diff seit {rev} fehlgeschlagen: {fehler}")
+    in_sitemap = set(adressen_aus_sitemap())
+    adressen = []
+    for zeile in ausgabe.splitlines():
+        status, _, datei = zeile.partition("\t")
+        datei = datei.split("\t")[-1]  # bei Umbenennungen (R100) zaehlt der neue Name
+        adresse = adresse_fuer(datei)
+        geloescht = status == "D" and datei.endswith(".html")
+        if (adresse in in_sitemap or geloescht) and adresse not in adressen:
+            adressen.append(adresse)
+    return adressen
+
+
 def hole(url: str, daten: bytes | None = None) -> tuple[int, str]:
     kopf = {"User-Agent": USER_AGENT}
     if daten is not None:
@@ -92,12 +128,21 @@ def hole(url: str, daten: bytes | None = None) -> tuple[int, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("adressen", nargs="*", help="nur diese Adressen melden (Standard: alle aus sitemap.xml)")
+    parser.add_argument("--seit", metavar="REV", help="nur Seiten melden, die sich seit diesem Git-Stand geaendert haben")
     parser.add_argument("--dry-run", action="store_true", help="Probe und Nutzlast zeigen, nichts senden")
     args = parser.parse_args()
+    if args.seit and args.adressen:
+        parser.error("entweder Adressen oder --seit, nicht beides")
 
     schluessel = finde_schluessel()
     schluessel_url = f"https://{HOST}/{schluessel}.txt"
-    adressen = args.adressen or adressen_aus_sitemap()
+    if args.seit:
+        adressen = adressen_seit(args.seit)
+        if not adressen:
+            print(f"Seit {args.seit} keine Seite von {HOST} geaendert, nichts zu melden.")
+            return 0
+    else:
+        adressen = args.adressen or adressen_aus_sitemap()
 
     fremd = [a for a in adressen if not a.startswith(f"https://{HOST}/")]
     if fremd:

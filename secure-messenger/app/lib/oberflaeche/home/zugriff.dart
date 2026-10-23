@@ -72,9 +72,14 @@ extension _Zugriff on _HomeState {
     if (art == null || laeuftZeile != null) return;
 
     final vorhanden = st.sichtbareFaktoren.where((s) => s.kind == art).toList();
+    // ERST AUSWEISEN, in beide Richtungen. Einen Faktor herausnehmen schwaecht
+    // die Sperre. Einen HINZUFUEGEN stellt einen neuen Ausweis aus: bis
+    // 18.10.2026 ging das ohne Rueckfrage, und wer das entsperrte Telefon kurz
+    // in der Hand hatte, legte ein eigenes Passwort an und liess sich damit
+    // die zwoelf Woerter zeigen. Ohne Faktor fragt [frischBestaetigt] nicht —
+    // dann gibt es nichts, womit man sich ausweisen koennte.
+    if (!await frischBestaetigt()) return;
     if (vorhanden.isNotEmpty) {
-      // Einen Faktor herausnehmen schwaecht die Sperre — also erst ausweisen.
-      if (!await frischBestaetigt()) return;
       await _entferneFaktor(key, vorhanden.first.id);
       return;
     }
@@ -117,7 +122,7 @@ extension _Zugriff on _HomeState {
         }
         return;
       }
-      await anlegen();
+      await _mitNachweis(anlegen);
     } on AnmeldungFehlgeschlagen catch (e) {
       // Ein Abbruch ist keine Panne, sondern eine Entscheidung — dafuer keine
       // rote Meldung.
@@ -132,6 +137,25 @@ extension _Zugriff on _HomeState {
       if (mounted) setState(() => lockFehler = '$e');
     } finally {
       if (mounted) setState(() => laeuftZeile = null);
+    }
+  }
+
+  /// Fuehrt [tun] aus — und holt EINMAL eine neue Bestaetigung, wenn der
+  /// Tresor einen frischen Nachweis verlangt.
+  ///
+  /// Den Nachweis holt [methodAct] schon beim Antippen der Zeile. Er gilt
+  /// aber nur zwei Minuten (VaultSecretStore.nachweisGueltigkeit), und wer
+  /// ein langes Passwort zweimal tippt oder den Stick erst suchen muss, ist
+  /// manchmal laenger. Dann lieber noch einmal fragen als mit einer
+  /// Fehlermeldung abbrechen. Rueckgabe: false, wenn der Nutzer abbricht.
+  Future<bool> _mitNachweis(Future<void> Function() tun) async {
+    try {
+      await tun();
+      return true;
+    } on NachweisNoetigException {
+      if (!await frischBestaetigt()) return false;
+      await tun();
+      return true;
     }
   }
 
@@ -190,7 +214,7 @@ extension _Zugriff on _HomeState {
     }
     setState(() => lockFehler = null);
     try {
-      await st.fuegePasswortHinzu(pw);
+      if (!await _mitNachweis(() => st.fuegePasswortHinzu(pw))) return;
       pwCtl.clear();
       pwCtl2.clear();
       if (mounted) setState(() => enroll = null);
@@ -224,10 +248,12 @@ extension _Zugriff on _HomeState {
       lockFehler = null;
     });
     try {
-      await st.fuegeStickHinzu(
-        weg: stickWeg,
-        pin: stickPinCtl.text.isEmpty ? null : stickPinCtl.text,
-      );
+      final pin = stickPinCtl.text.isEmpty ? null : stickPinCtl.text;
+      if (!await _mitNachweis(
+          () => st.fuegeStickHinzu(weg: stickWeg, pin: pin))) {
+        if (mounted) setState(() => stickSchritt = null);
+        return;
+      }
       stickPinCtl.clear();
       if (mounted) setState(() { enroll = null; stickSchritt = null; });
     } catch (e) {

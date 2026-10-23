@@ -461,6 +461,7 @@ class AppState extends ChangeNotifier {
       return false;
     } finally {
       _amFaktor = false;
+      _faktorFertig();
     }
     return _nachDemOeffnen();
   }
@@ -472,6 +473,19 @@ class AppState extends ChangeNotifier {
   /// Nur mit Faktor: ohne Sperre gibt es nichts, womit man sich ausweisen
   /// koennte, und die Oberflaeche fragt dann hoechstens nach.
   bool get brauchtFrischeAnmeldung => sichtbareFaktoren.isNotEmpty;
+
+  /// Ob ein Faktor dieser Art gerade als Ausweis taugt.
+  ///
+  /// Nicht jeder vorhandene: ein Faktor, der seit dem letzten Entsperren
+  /// dazukam, zaehlt erst nach dem naechsten
+  /// ([VaultSecretStore.taugtAlsNachweis]). Die Oberflaeche bietet ihn
+  /// deshalb gar nicht erst an, statt ihn mit "Entsperren fehlgeschlagen"
+  /// abzulehnen.
+  bool kannNachweisen(UnlockFactorKind art) {
+    final t = tresor;
+    return sichtbareFaktoren.any((s) =>
+        s.kind == art && (t == null || t.taugtAlsNachweis(s.id)));
+  }
 
   /// Weist sich mit dem Fingerabdruck aus — ohne neu zu entsperren.
   Future<bool> bestaetigeMitBiometrie() =>
@@ -512,6 +526,7 @@ class AppState extends ChangeNotifier {
       return false;
     } finally {
       _amFaktor = false;
+      _faktorFertig();
     }
   }
 
@@ -541,9 +556,19 @@ class AppState extends ChangeNotifier {
   /// nichts, es loest nur das Loeschen aus, und ein Wort, das man unter
   /// Druck sicher tippt, ist hier wichtiger als Entropie. Das Fach selbst
   /// ist trotzdem gebaut wie jedes Passwort-Fach (Argon2id, gleiche Werte).
+  ///
+  /// VERLANGT EINEN FRISCHEN NACHWEIS (seit 18.10.2026, die Oberflaeche holt
+  /// ihn ueber `frischBestaetigt`). Sonst [NachweisNoetigException] — und
+  /// zwar VOR der Probe gegen die echten Faecher: ohne Nachweis soll auch
+  /// nicht zu erfahren sein, ob ein Wort das echte Passwort ist.
   Future<void> setzePanikPasswort(String passwort) async {
     final t = tresor;
     if (t == null) throw const LockUnavailableException('nicht verfuegbar');
+    // Ohne Sperre lehnt der Tresor ohnehin ab (kein Panik-Fach ohne echten
+    // Faktor) — dann mit seinem eigenen Grund.
+    if (brauchtFrischeAnmeldung && !t.nachweisGilt(_nachweis)) {
+      throw const NachweisNoetigException();
+    }
     if (passwort.trim().length < panikMinLaenge) {
       throw const PanikWortUngueltigException(PanikWortFehler.zuKurz);
     }
@@ -564,7 +589,8 @@ class AppState extends ChangeNotifier {
       }
     }
     final alt = einstellungen.panikFach;
-    final slot = await t.fuegePanikHinzu(faktor);
+    final slot = await t.fuegePanikHinzu(faktor, nachweis: _nachweis);
+    _nachweis = null;
     if (alt != null && faktoren.any((s) => s.id == alt)) {
       await t.entferne(alt);
     }
@@ -661,17 +687,27 @@ class AppState extends ChangeNotifier {
     ));
   }
 
+  /// Gibt es schon einen Faktor, verlangt der Tresor einen frischen Nachweis
+  /// (die Oberflaeche holt ihn vorher ueber `frischBestaetigt`). Sonst
+  /// [NachweisNoetigException].
+  ///
+  /// Der Beleg bleibt bei einem Fehlschlag stehen — ein zu schwaches
+  /// Passwort soll nicht schon wieder den Fingerabdruck kosten. Ob er noch
+  /// gilt (einmal, zwei Minuten, bis zum Sperren), entscheidet der Tresor.
   Future<void> _fuegeHinzu(UnlockFactor faktor) async {
     final t = tresor;
     if (t == null) throw const LockUnavailableException('nicht verfuegbar');
     _amFaktor = true;
     try {
-      await t.fuegeHinzu(faktor);
+      await t.fuegeHinzu(faktor, nachweis: _nachweis);
+      _nachweis = null;
     } finally {
       _amFaktor = false;
       // Auch nach einem Fehlschlag neu einlesen: beim Stick kann der Zugang
       // schon angelegt sein, wenn erst das Holen des Geheimnisses scheitert.
       await _ladeFaktoren();
+      // DANACH: beim ersten Faktor gibt es erst jetzt etwas zu sperren.
+      _faktorFertig();
       notifyListeners();
     }
   }
@@ -821,6 +857,9 @@ class AppState extends ChangeNotifier {
     if (_imVordergrund == sichtbar) return;
     _imVordergrund = sichtbar;
     if (sichtbar) {
+      // Ab hier entscheidet [_sollWiederSperren] — mit derselben Rechnung.
+      _hintergrundSperre?.cancel();
+      _hintergrundSperre = null;
       unawaited(_beendeHintergrundempfang());
       // Zurueck aus der App, die einen Anhang geoeffnet hat: deren
       // Klartextkopie hat ausgedient ([anhangOeffnen]).
@@ -834,6 +873,9 @@ class AppState extends ChangeNotifier {
         unawaited(sperreWieder());
         return;
       }
+      // Schon im Hintergrund zugesperrt (oder gerade dabei): nichts, was
+      // jetzt folgt, darf den Kern noch anfassen.
+      if (gesperrt) return;
       // Was im Hintergrund in die offene Unterhaltung kam, ist jetzt gesehen.
       final offen = offeneUnterhaltung;
       if (offen != null && ungelesen.remove(offen) != null) {
@@ -846,6 +888,9 @@ class AppState extends ChangeNotifier {
       }
     } else {
       _weggelegtUm = DateTime.now();
+      // ZUERST: bei "sofort" ist danach nichts mehr offen, und der
+      // Hintergrundempfang unten startet gar nicht erst.
+      _planeHintergrundSperre();
       _verfallTakt?.cancel();
       _verfallTakt = null;
       // AM RECHNER UND IM BROWSER BLEIBT DIE LEITUNG. Dort gibt es weder
@@ -892,6 +937,12 @@ class AppState extends ChangeNotifier {
   /// Ob die App beim naechsten Weglegen sofort zusperrt.
   bool get _sperrtGleich =>
       faktoren.isNotEmpty && !_nieSperren && sperrfrist == Duration.zero;
+
+  /// Ob der Hintergrundempfang mit der Sperrfrist endet (1 oder 5 Minuten).
+  /// Die Frist wird dafuer NICHT verlaengert — siehe "Sperren im
+  /// Hintergrund". Die Einstellungen sagen das dazu.
+  bool get empfangEndetMitFrist =>
+      empfangMoeglich && faktoren.isNotEmpty && !_nieSperren;
 
   /// Die Anbindung an den Verteiler auf dem Telefon.
   ///
@@ -1089,10 +1140,90 @@ class AppState extends ChangeNotifier {
     // bleibt (oder ihn offen liegen laesst), kommt trotzdem an die Sperre.
     final zurueck = _systemDialogZurueck;
     final imDialog = _systemDialoge > 0 ||
-        (zurueck != null && DateTime.now().difference(zurueck) < const Duration(seconds: 3));
+        (zurueck != null && DateTime.now().difference(zurueck) < _systemDialogNachlauf);
     if (imDialog && fort < systemDialogHoechstens) return false;
     return fort >= sperrfrist;
   }
+
+  // ─────────────────────────────────────────────── Sperren im Hintergrund
+  //
+  // BIS 18.10.2026 GING DIE APP ERST BEIM ZURUECKKOMMEN ZU. [_sollWiederSperren]
+  // lief nur in `vordergrund(true)`: bei "sofort" blieben Entropie, Datenbank
+  // und Schluessel offen, solange die App im Hintergrund lag — Stunden, wenn
+  // sie so lange dort lag. Zu sehen war davon nichts (beim Zurueckkommen
+  // sperrte sie ja), aber wer den Prozess lesen kann, las in dieser Zeit alles.
+  // Das widersprach dem, was die App verspricht: "Wie lange die App im
+  // Hintergrund offen bleiben darf" (lockDelaySub) und "hat die App keinen
+  // Schluessel, sobald du sie weglegst" (bgConflict).
+  //
+  // Jetzt sperrt sie im Hintergrund selbst: bei "sofort" beim Weglegen, sonst
+  // per Wecker, sobald die Frist um ist. Beim Zurueckkommen wird der Wecker
+  // abgestellt, und es gilt wie bisher [_sollWiederSperren].
+  //
+  // DER HINTERGRUNDEMPFANG VERLAENGERT DIE FRIST NICHT. Entschieden am
+  // 18.10.2026: bei einer Minute oder fuenf Minuten empfaengt die App nur in
+  // dieser Zeit; danach ist sie zu und holt erst nach dem Entsperren nach.
+  // Wer dauerhaft im Hintergrund empfangen will, stellt "nie" ein — und
+  // entscheidet damit selbst, dass die Schluessel dafuer offen bleiben. Die
+  // Frist still zu verlaengern, weil gerade ein Takt laeuft, hiesse: die
+  // Einstellung sagt fuenf Minuten, und offen ist es die ganze Nacht.
+  //
+  // DIE AUSNAHMEN BLEIBEN, aber mit Obergrenze: waehrend ein Faktor bedient
+  // wird ([_amFaktor], etwa die USB-Freigabe) oder die eigene Dateiwahl offen
+  // ist ([imSystemDialog]), sperrt der Wecker hoechstens
+  // [systemDialogHoechstens] nach dem Weglegen — auch beim Faktor, der beim
+  // Zurueckkommen keine Obergrenze hat (dort bedient man ja die App).
+
+  /// Der Wecker fuer das Sperren im Hintergrund. Null im Vordergrund.
+  Timer? _hintergrundSperre;
+
+  /// Wie lange nach dem Ende einer Dateiwahl sie noch als offen gilt — siehe
+  /// [_systemDialogZurueck].
+  static const Duration _systemDialogNachlauf = Duration(seconds: 3);
+
+  /// Sperrt jetzt, oder stellt den Wecker auf den Zeitpunkt, zu dem die Frist
+  /// um ist. Tut nichts im Vordergrund, ohne Faktor, gesperrt oder bei "nie".
+  ///
+  /// Der Wecker ruft diese Methode selbst wieder auf, statt blind zu sperren:
+  /// endet die Ausnahme vorher, gilt ab dann die gewoehnliche Frist; dauert
+  /// sie an, die Obergrenze.
+  void _planeHintergrundSperre() {
+    _hintergrundSperre?.cancel();
+    _hintergrundSperre = null;
+    if (_imVordergrund || _entsorgt) return;
+    final weg = _weggelegtUm;
+    if (weg == null || faktoren.isEmpty || gesperrt || _nieSperren) return;
+    final jetzt = DateTime.now();
+    var faellig = weg.add(sperrfrist);
+    final aufschub = _aufschubBis(weg, jetzt);
+    if (aufschub != null && aufschub.isAfter(faellig)) faellig = aufschub;
+    final rest = faellig.difference(jetzt);
+    if (rest <= Duration.zero) {
+      // Der Anfang von [sperreWieder] laeuft ohne Warten: der Tresor ist zu,
+      // bevor diese Methode zurueckkehrt.
+      unawaited(sperreWieder());
+      return;
+    }
+    _hintergrundSperre = Timer(rest, _planeHintergrundSperre);
+  }
+
+  /// Bis wann die eigene Bedienung das Sperren im Hintergrund aufschiebt,
+  /// oder null. Nie ueber [systemDialogHoechstens] nach dem Weglegen hinaus.
+  DateTime? _aufschubBis(DateTime weg, DateTime jetzt) {
+    final grenze = weg.add(systemDialogHoechstens);
+    if (_amFaktor || _systemDialoge > 0) return grenze;
+    final zurueck = _systemDialogZurueck;
+    if (zurueck == null) return null;
+    final nachlauf = zurueck.add(_systemDialogNachlauf);
+    if (!nachlauf.isAfter(jetzt)) return null;
+    return nachlauf.isBefore(grenze) ? nachlauf : grenze;
+  }
+
+  /// Ein Faktor ist fertig bedient. Liegt die App dabei im Hintergrund, gilt
+  /// ab jetzt wieder die gewoehnliche Frist — dieselbe Rechnung, die beim
+  /// Zurueckkommen [_sollWiederSperren] anstellt (dort zaehlt [_amFaktor]
+  /// auch nur, solange er laeuft).
+  void _faktorFertig() => _planeHintergrundSperre();
 
   /// Wie viele vom Nutzer selbst geoeffnete Systemdialoge gerade offen sind.
   int _systemDialoge = 0;
@@ -1123,6 +1254,9 @@ class AppState extends ChangeNotifier {
     } finally {
       _systemDialoge--;
       _systemDialogZurueck = DateTime.now();
+      // Kam das Ergebnis, waehrend die App noch verdeckt ist (so liefert es
+      // Android), gilt ab jetzt nur noch der Nachlauf.
+      _planeHintergrundSperre();
     }
   }
 
@@ -1160,6 +1294,8 @@ class AppState extends ChangeNotifier {
   Future<void> sperreWieder() async {
     if (faktoren.isEmpty) return;
     _weggelegtUm = null;
+    _hintergrundSperre?.cancel();
+    _hintergrundSperre = null;
     _wiederverbindung?.cancel();
     _wiederverbindung = null;
     for (final a in _abos) {
@@ -1168,6 +1304,16 @@ class AppState extends ChangeNotifier {
     _abos.clear();
 
     tresor?.sperre();
+    // GESPERRT AB HIER, nicht erst nach dem Schliessen der Datenbank. Seit
+    // die App auch im Hintergrund sperrt, kann sie zurueckkommen, waehrend
+    // `core.lock()` noch laeuft — und `vordergrund(true)` raeumte dann
+    // abgelaufene Nachrichten auf und verband neu, gegen einen Kern, der
+    // gerade zugeht. Alles dort fragt `gesperrt`.
+    gesperrt = true;
+    // Im Hintergrund gesperrt: ein Dienst mit "Empfangsbereit" waere jetzt
+    // eine Behauptung ohne etwas dahinter (siehe [empfangMoeglich]). Im
+    // Vordergrund laeuft keiner — `vordergrund(true)` hat ihn schon beendet.
+    if (!_imVordergrund) unawaited(_beendeHintergrundempfang());
     await core.lock();
 
     // Auch das, was die Oberflaeche schon geholt hat, muss weg. Die Verlaeufe
@@ -1190,7 +1336,6 @@ class AppState extends ChangeNotifier {
     _vergissAngezeigtes();
     fernloeschung = const Fernloeschung();
 
-    gesperrt = true;
     notifyListeners();
   }
 
@@ -2976,6 +3121,7 @@ class AppState extends ChangeNotifier {
     _entsorgt = true;
     _wiederverbindung?.cancel();
     _wiederverbindung = null;
+    _hintergrundSperre?.cancel();
     _verfallTakt?.cancel();
     _empfangsTimer?.cancel();
     _fernTakt?.cancel();

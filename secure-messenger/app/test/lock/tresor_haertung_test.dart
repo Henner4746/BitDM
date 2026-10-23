@@ -268,11 +268,14 @@ void main() {
         () async {
       final t = tresor();
       await t.fuegeHinzu(finger());
-      await t.fuegeHinzu(pw(starkesPasswort));
+      // Seit 18.10.2026 je mit frischem Nachweis (Befund 6, Hinzufuegen).
+      await t.fuegeHinzu(pw(starkesPasswort),
+          nachweis: await t.weiseNach(finger()));
       final vorher = aufPlatte().slots;
       expect(vorher, hasLength(3));
 
-      final panik = await t.fuegePanikHinzu(pw(panikPasswort));
+      final panik = await t.fuegePanikHinzu(pw(panikPasswort),
+          nachweis: await t.weiseNach(finger()));
       final nachher = aufPlatte().slots;
       expect(nachher, hasLength(3), reason: 'die Zahl darf sich nicht aendern');
       expect(nachher[2].id, panik.id);
@@ -288,7 +291,8 @@ void main() {
     test('ohne Panik-Passwort rueckt wieder ein Platzhalter nach', () async {
       final t = tresor();
       await t.fuegeHinzu(pw(starkesPasswort));
-      final panik = await t.fuegePanikHinzu(pw(panikPasswort));
+      final panik = await t.fuegePanikHinzu(pw(panikPasswort),
+          nachweis: await t.weiseNach(pw(starkesPasswort)));
       await t.entferne(panik.id);
 
       final platte = aufPlatte().slotsOf(UnlockFactorKind.passphrase);
@@ -301,7 +305,8 @@ void main() {
         () async {
       final t = tresor();
       await t.fuegeHinzu(finger());
-      await t.fuegePanikHinzu(pw(panikPasswort));
+      await t.fuegePanikHinzu(pw(panikPasswort),
+          nachweis: await t.weiseNach(finger()));
       expect(aufPlatte().slotsOf(UnlockFactorKind.passphrase), hasLength(2));
     });
 
@@ -548,7 +553,10 @@ void main() {
 
     test('ein Nachweis gilt nur einmal', () async {
       final n = await t.weiseNach(pw(starkesPasswort));
-      await t.fuegeHinzu(finger());
+      // Das Hinzufuegen braucht einen EIGENEN Nachweis — [n] bleibt dafuer
+      // unberuehrt.
+      await t.fuegeHinzu(finger(),
+          nachweis: await t.weiseNach(pw(starkesPasswort)));
       final fingerFach = aufPlatte()
           .slots
           .firstWhere((s) => s.kind == UnlockFactorKind.biometric)
@@ -597,7 +605,8 @@ void main() {
     });
 
     test('das Panik-Passwort loest auch hier aus', () async {
-      await t.fuegePanikHinzu(pw(panikPasswort));
+      await t.fuegePanikHinzu(pw(panikPasswort),
+          nachweis: await t.weiseNach(pw(starkesPasswort)));
       await expectLater(t.weiseNach(pw(panikPasswort)),
           throwsA(isA<PanikAusgeloestException>()));
     });

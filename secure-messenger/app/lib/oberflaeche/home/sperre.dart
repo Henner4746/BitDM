@@ -171,7 +171,8 @@ extension _Sperre on _HomeState {
   }
 
   /// Verlangt eine FRISCHE Anmeldung, bevor etwas Folgenreiches passiert: die
-  /// Sperre aendern, die Fernloeschung aufhalten oder umstellen, die zwoelf
+  /// Sperre aendern (seit 18.10.2026 auch einen Faktor HINZUFUEGEN, siehe
+  /// [methodAct]), die Fernloeschung aufhalten oder umstellen, die zwoelf
   /// Woerter oder ihre Teile zeigen.
   ///
   /// EIN OFFENER BILDSCHIRM IST KEIN AUSWEIS. Wer das entsperrte Telefon
@@ -199,13 +200,18 @@ extension _Sperre on _HomeState {
       return ok == true;
     }
     // Nur, was hier auch geht — am Rechner bleibt vom Faktor-Satz nur das
-    // Passwort (siehe [_faktorGehtHier]).
+    // Passwort (siehe [_faktorGehtHier]). Und nur, was als Ausweis taugt: ein
+    // Faktor, der seit dem letzten Entsperren dazukam, zaehlt erst nach dem
+    // naechsten (AppState.kannNachweisen) — sonst stellte sich jeder, der
+    // einen anlegen kann, den Ausweis selbst aus.
+    final hier = zugriffsZeilen.where(_faktorGehtHier).toList();
     final arten = [
-      for (final k in zugriffsZeilen.where(_faktorGehtHier))
-        if (st.hatFaktor(zeilenArt[k]!)) k,
+      for (final k in hier)
+        if (st.kannNachweisen(zeilenArt[k]!)) k,
     ];
     if (arten.isEmpty) {
-      _hinweis(t('freshAuthNone'));
+      final nurNeue = hier.any((k) => st.hatFaktor(zeilenArt[k]!));
+      _hinweis(t(nurNeue ? 'freshAuthNew' : 'freshAuthNone'));
       return false;
     }
     var wahl = arten.first;
