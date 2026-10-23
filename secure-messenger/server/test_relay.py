@@ -5980,3 +5980,64 @@ def test_sv3_eine_bekannte_adresse_zahlt_keine_marke(relay, monkeypatch):
     # Von zwei Marken ist genau eine weg: die fuer henrik.
     assert _neue_adresse(rs, hier) == 200
     assert _neue_adresse(rs, hier) == 429
+
+
+# ------------------------------- Befund 8  Relay-Namen mit Port oder Unsinn
+#
+# Nachpruefung vom 24.10.2026: RELAY_NAME_MUSTER liess "relay.bitdm.net:443"
+# als Namen durch. Die App nennt ihren Namen ohne Port, fand sich nicht in der
+# Liste und fiel still auf die alte Form zurueck - mit
+# BITDM_ANMELDUNG_PFLICHT=1 waere sie ausgesperrt worden.
+
+FALSCHE_RELAY_NAMEN_T = [
+    "relay.bitdm.net:443", "abcdefghijklmnop.onion:80", "[::1]",
+    "10.0.0.300", "-x.test", "a..b", "fe80::1%eth0", "relay.test.",
+]
+
+
+def test_relay_namen_mit_port_werden_nicht_uebernommen(relay, monkeypatch):
+    rs = relay
+    henrik = make_user()
+    _lege_an(rs, henrik)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", ",".join(
+        FALSCHE_RELAY_NAMEN_T + [" Relay.Test ", "2001:DB8::1", "192.0.2.7", ""]))
+    assert rs.relay_namen() == ("relay.test", "2001:db8::1", "192.0.2.7")
+    # Die Challenge nennt nur die gueltigen, und wer sich mit dem Namen samt
+    # Port meldet, kommt nicht durch.
+    antwort = rs.register_challenge(
+        rs.ChallengeRequest(user_id=henrik["user_id"]), _Anfrage())
+    assert antwort["relay"] == ["relay.test", "2001:db8::1", "192.0.2.7"]
+    assert rs.angemeldeter_relay("relay.bitdm.net:443") == (False, None)
+    assert rs.angemeldeter_relay("relay.test") == (True, "relay.test")
+
+
+def test_relay_namen_werden_beim_start_gemeldet(tmp_path, monkeypatch, capsys):
+    """Ueber den echten lifespan: gemeldet werden muss es beim START, und ein
+    falscher Eintrag darf den Relay nicht vom Netz nehmen."""
+    from fastapi.testclient import TestClient
+    import relay_server as rs
+
+    monkeypatch.setattr(rs, "DB_PATH", tmp_path / "relay.db")
+    monkeypatch.setattr(rs, "db", None, raising=False)
+    monkeypatch.setattr(rs, "_queue_zeilen", 0)
+    monkeypatch.setattr(rs, "_kyber_zeilen", 0)
+    monkeypatch.setenv("BITDM_RELAY_NAMEN",
+                       "relay.bitdm.net:443,relay.test,abcdefghijklmnop.onion")
+    with TestClient(rs.app) as client:
+        assert client.get("/health").status_code == 200
+    zeilen = capsys.readouterr().out.splitlines()
+    laut = [z for z in zeilen if z.startswith("[!]") and "BITDM_RELAY_NAMEN" in z]
+    assert len(laut) == 1 and "'relay.bitdm.net:443'" in laut[0]
+    gueltig = [z for z in zeilen if z.startswith("[i] Relay-Namen")]
+    assert gueltig == ["[i] Relay-Namen fuer die Anmeldung mit Kontext: "
+                       "relay.test, abcdefghijklmnop.onion"]
+
+
+def test_ohne_relay_namen_sagt_der_start_das_auch(relay, monkeypatch, capsys):
+    rs = relay
+    monkeypatch.setenv("BITDM_RELAY_NAMEN", "relay.bitdm.net:443")
+    rs.melde_relay_namen()
+    aus = capsys.readouterr().out
+    assert "[!] BITDM_RELAY_NAMEN" in aus
+    assert "Keine Relay-Namen" in aus
+    assert rs.relay_namen() == ()

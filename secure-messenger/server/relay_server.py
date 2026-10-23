@@ -567,7 +567,56 @@ REGISTRIERUNG_PRAEFIX = b"BitDM-Relay-Registrierung-v1\n"
 # Ein Hostname, eine IPv4- oder eine IPv6-Adresse (ohne Klammern, so liefert
 # Dart Uri.host sie). Kein Zeilenumbruch, kein Port: der Relay hinter nginx
 # kennt den Port nicht, unter dem man ihn erreicht.
-RELAY_NAME_MUSTER = re.compile(r"[a-z0-9.:-]{1,253}")
+#
+# BIS ZUM 24.10.2026 war das EIN Zeichenmuster, [a-z0-9.:-]{1,253}. Der
+# Doppelpunkt stand fuer IPv6 drin und liess so auch "relay.bitdm.net:443"
+# durch. Die App nennt ihren Namen ohne Port (Uri.host), fand sich in der
+# Liste nicht und fiel still auf die alte Form zurueck - mit
+# BITDM_ANMELDUNG_PFLICHT=1 waere sie ausgesperrt worden, ohne dass der
+# Betreiber je einen Hinweis bekommen haette. Jetzt gilt ein Doppelpunkt nur
+# in einer echten IPv6-Adresse, und was nicht passt, meldet melde_relay_namen()
+# beim Start.
+RELAY_NAME_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+
+
+def relay_name_ok(name: str) -> bool:
+    """Ob `name` (schon klein geschrieben) als Relay-Name taugt: ein Hostname
+    aus Labels nach RFC 1123, eine IPv4- oder eine IPv6-Adresse."""
+    if not name or len(name) > 253:
+        return False
+    if ":" in name:
+        # Nur IPv6. "%" (Zonenkennung) nimmt ipaddress an, Uri.host liefert
+        # sie aber nicht - und "host:port" scheitert genau hier.
+        if "%" in name:
+            return False
+        try:
+            ipaddress.IPv6Address(name)
+        except ValueError:
+            return False
+        return True
+    labels = name.split(".")
+    if not all(RELAY_NAME_LABEL.fullmatch(label) for label in labels):
+        return False
+    if all(label.isdigit() for label in labels):
+        # Sieht aus wie eine IPv4-Adresse, dann muss es auch eine sein:
+        # "10.0.0.300" ist ein Tippfehler, kein Hostname.
+        try:
+            ipaddress.IPv4Address(name)
+        except ValueError:
+            return False
+    return True
+
+
+def _lies_relay_namen() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """BITDM_RELAY_NAMEN, aufgeteilt in (gueltig, abgelehnt). Leere Eintraege
+    (etwa ein Komma am Ende) sind keins von beiden."""
+    gueltig: list[str] = []
+    abgelehnt: list[str] = []
+    for eintrag in os.getenv("BITDM_RELAY_NAMEN", "").split(","):
+        name = eintrag.strip().lower()
+        if name:
+            (gueltig if relay_name_ok(name) else abgelehnt).append(name)
+    return tuple(gueltig), tuple(abgelehnt)
 
 
 def relay_namen() -> tuple[str, ...]:
@@ -575,13 +624,39 @@ def relay_namen() -> tuple[str, ...]:
 
     BITDM_RELAY_NAMEN, durch Kommas getrennt, z. B.
     "relay.bitdm.net,<onion>.onion". Leer heisst: keine neue Form, nur die
-    alte - und die Challenge nennt dann auch keine Namen.
+    alte - und die Challenge nennt dann auch keine Namen. Ungueltige Eintraege
+    (relay_name_ok) werden nie uebernommen; gemeldet werden sie einmal beim
+    Start (melde_relay_namen), nicht bei jeder Anfrage.
 
     BEI JEDEM AUFRUF GELESEN, aus demselben Grund wie kyber_pflicht().
     """
-    roh = os.getenv("BITDM_RELAY_NAMEN", "")
-    namen = (n.strip().lower() for n in roh.split(","))
-    return tuple(n for n in namen if RELAY_NAME_MUSTER.fullmatch(n))
+    return _lies_relay_namen()[0]
+
+
+def melde_relay_namen() -> None:
+    """Beim Start einmal ins Journal: welche Namen gelten, und laut, welche
+    Eintraege abgelehnt wurden.
+
+    Abgelehnt heisst NICHT abgestuerzt: ein Tippfehler in einem Namen soll
+    den Relay nicht fuer alle anderen Namen und fuer die alte Form vom Netz
+    nehmen. Die Namen sind nicht geheim (die Challenge nennt sie jedem); ein
+    abgelehnter Eintrag steht gekuerzt da, falls versehentlich etwas anderes
+    in der Variable gelandet ist.
+    """
+    gueltig, abgelehnt = _lies_relay_namen()
+    for eintrag in abgelehnt:
+        kurz = eintrag if len(eintrag) <= 80 else eintrag[:80] + "..."
+        print(f"[!] BITDM_RELAY_NAMEN: Eintrag {kurz!r} abgelehnt und NICHT "
+              f"uebernommen - kein Hostname und keine IP-Adresse (einen Port "
+              f"kennt die App hier nicht). Apps, die den Relay so erreichen, "
+              f"melden sich in der alten Form an; mit "
+              f"BITDM_ANMELDUNG_PFLICHT=1 gar nicht mehr.")
+    if gueltig:
+        print(f"[i] Relay-Namen fuer die Anmeldung mit Kontext: "
+              f"{', '.join(gueltig)}")
+    else:
+        print("[i] Keine Relay-Namen (BITDM_RELAY_NAMEN): nur die alte "
+              "Anmeldeform")
 
 
 def anmeldung_pflicht() -> bool:
@@ -2408,6 +2483,9 @@ def raeume_beitritte_auf() -> int:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db
+    # Zuerst, damit ein falscher Name im Journal oben steht (Befund 8 der
+    # Nachpruefung vom 24.10.2026, siehe RELAY_NAME_LABEL).
+    melde_relay_namen()
     db = init_db(DB_PATH)
     purged = purge_expired()
     if purged:
