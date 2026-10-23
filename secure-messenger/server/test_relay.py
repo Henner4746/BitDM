@@ -3451,24 +3451,11 @@ def test_marken_gelten_nur_fuer_stuecke(relay, monkeypatch):
     assert fehler == ["Groesse ungueltig", "Kennung ungueltig"]
 
 
-def test_die_tagesmenge_des_ganzen_relays(relay, monkeypatch):
-    rs = relay
-    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
-    monkeypatch.setattr(rs, "BLOB_TAGESMENGE_GESAMT", 100)
-    # Hier geht es um die Rechnung, nicht um die Mindestmenge je Marke.
-    monkeypatch.setattr(rs, "BLOB_MINDESTMENGE", 1)
-    alice = make_user()
-    _lege_an(rs, alice)
-    with rs.db:
-        rs.db.execute("INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
-                      ("jemand-anderes", 90, time.time()))
-    raus = _sitzung(rs, alice, [
-        {"type": "blob_marke", "kennung": "a" * 52, "groesse": 20},
-        {"type": "blob_marke", "kennung": "b" * 52, "groesse": 5},
-    ])
-    assert [m.get("kennung") for m in raus
-            if m.get("reason") == "Zwischenlager fuer heute ausgelastet"] == ["a" * 52]
-    assert [m["kennung"] for m in raus if m.get("type") == "blob_marke_ok"] == ["b" * 52]
+# test_die_tagesmenge_des_ganzen_relays stand hier bis zum 23.10.2026. Sie
+# hielt fest, dass Marken ANDERER Adressen eine Adresse aussperren - genau das
+# ist SV-2 aus dem Audit vom 16.10.2026. Die Gegenprobe steht jetzt unten bei
+# test_sv2_marken_anderer_adressen_sperren_niemanden_aus, die Menge des ganzen
+# Relays in test_blob.py (das Lager zaehlt sie).
 
 
 def test_eine_winzige_marke_kostet_die_mindestmenge(relay, monkeypatch):
@@ -5199,3 +5186,127 @@ def test_spk_nachricht_ist_die_der_app(relay):
     Weicht eine Seite ab, scheitert jede Anmeldung mit Signatur an 403."""
     assert relay.spk_nachricht("ABCD", 7, 42, "BQ==") == \
         b"BitDM-Prekey-v1\nABCD\n7\n42\nBQ=="
+
+
+# --------------------------------------------------------------------------- #
+#  Audit vom 16.10.2026, Relay-Teil  (SV-1, SV-2, KR-2, SV-3, SV-5, SV-7,
+#  SV-8, SV-10; 23.10.2026)
+# --------------------------------------------------------------------------- #
+#
+# Je Befund mindestens ein Test, der ohne die Behebung rot ist. Gegengeprueft,
+# indem die Behebung testweise zurueckgenommen wurde.
+
+
+# ------------------------------------------------ SV-1  Keine Summe auf dem Loop
+
+def test_sv1_marken_einer_stunde_sind_eine_zeile(relay, monkeypatch):
+    """Eine Zeile je Adresse und Stunde statt einer je Marke.
+
+    Vorher bis zu 25 600 Zeilen je Adresse und Tag, und die Summe je Marke
+    lief ueber alle davon: 76 ms auf dem Event-Loop (Audit, mess_blob_sum.py).
+    Hoechstens zwei Zeilen, falls der Test genau ueber eine volle Stunde
+    laeuft."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": c * 52, "groesse": 10} for c in "abcde"
+    ])
+    assert len([m for m in raus if m.get("type") == "blob_marke_ok"]) == 5
+    zeilen, summe = rs.db.execute(
+        "SELECT COUNT(*), SUM(groesse) FROM blob_marken WHERE user_id=?",
+        (alice["user_id"],)).fetchone()
+    assert zeilen <= 2, f"{zeilen} Zeilen fuer fuenf Marken"
+    assert summe == 5 * rs.BLOB_MINDESTMENGE
+    assert rs.blob_menge_heute(alice["user_id"]) == 5 * rs.BLOB_MINDESTMENGE
+
+
+def test_sv1_keine_summe_ueber_den_ganzen_relay(relay, monkeypatch):
+    """Jede Abfrage auf blob_marken im Handler betrifft genau EINE Adresse.
+
+    Die Summe ueber den ganzen Relay lief ueber bis zu 204 800 Zeilen,
+    gemessen 498 ms je Marke - synchron, also fuer alle Verbindungen."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    gesehen = []
+    rs.db.set_trace_callback(gesehen.append)
+    try:
+        raus = _sitzung(rs, alice, [
+            {"type": "blob_marke", "kennung": "a" * 52, "groesse": 10}])
+    finally:
+        rs.db.set_trace_callback(None)
+    assert [m for m in raus if m.get("type") == "blob_marke_ok"]
+    auf_marken = [s for s in gesehen if "blob_marken" in s]
+    assert auf_marken, "der Test sieht die Abfragen nicht"
+    assert all("user_id" in s for s in auf_marken), auf_marken
+
+
+def test_sv1_alte_einzelzeilen_zaehlen_weiter(relay, monkeypatch):
+    """Beim Aufspielen liegen noch Zeilen je Marke in der Tabelle. Sie zaehlen
+    bis zu ihrem Ablauf mit; niemand bekommt durch das Update eine frische
+    Tagesmenge geschenkt."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    monkeypatch.setattr(rs, "BLOB_TAGESMENGE", 3 * rs.BLOB_MINDESTMENGE)
+    alice = make_user()
+    _lege_an(rs, alice)
+    with rs.db:
+        rs.db.executemany(
+            "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+            [(alice["user_id"], rs.BLOB_MINDESTMENGE, time.time() - 60 * i)
+             for i in range(2)])
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": c * 52, "groesse": 10} for c in "ab"])
+    assert [m["kennung"][0] for m in raus if m.get("type") == "blob_marke_ok"] == ["a"]
+    assert [m.get("reason") for m in raus if m.get("type") == "error"] == \
+        ["Tagesmenge erschoepft"]
+
+
+def test_sv1_aufgeraeumt_wird_nach_dem_fenster(relay):
+    rs = relay
+    jetzt = time.time()
+    with rs.db:
+        rs.db.executemany(
+            "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+            [("alt", 1, jetzt - rs.BLOB_FENSTER - 1), ("frisch", 1, jetzt - 24 * 3600 - 1)])
+    rs.purge_expired()
+    assert [r[0] for r in rs.db.execute("SELECT user_id FROM blob_marken")] == ["frisch"]
+
+
+# ------------------------------------------------ SV-2  Tagesmenge ohne Upload
+
+def test_sv2_marken_anderer_adressen_sperren_niemanden_aus(relay, monkeypatch):
+    """Der Befund selbst: neun kostenlose Adressen holten sich je 25 GiB an
+    Marken, luden nichts hoch, und der ganze Relay war 24 Stunden lang
+    "ausgelastet". Die Menge des ganzen Relays zaehlt jetzt das Lager, nach
+    Bytes, die wirklich ankommen (test_blob.py, test_sv2_*)."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    with rs.db:
+        rs.db.executemany(
+            "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+            [(f"stoerer-{i}", rs.BLOB_TAGESMENGE, time.time()) for i in range(9)])
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": "a" * 52, "groesse": 4096}])
+    assert [m.get("reason") for m in raus if m.get("type") == "error"] == []
+    assert [m["kennung"] for m in raus if m.get("type") == "blob_marke_ok"] == ["a" * 52]
+
+
+def test_sv2_die_menge_je_adresse_bleibt(relay, monkeypatch):
+    """Die Gegenprobe: die eigene Tagesmenge zaehlt weiter beim Ausstellen.
+    Wer Marken verfallen laesst, verbraucht SEIN Kontingent."""
+    rs = relay
+    monkeypatch.setenv("BITDM_BLOB_SECRET", "x" * 48)
+    alice = make_user()
+    _lege_an(rs, alice)
+    with rs.db:
+        rs.blob_menge_anrechnen(alice["user_id"], rs.BLOB_TAGESMENGE)
+    raus = _sitzung(rs, alice, [
+        {"type": "blob_marke", "kennung": "a" * 52, "groesse": 4096}])
+    assert [m.get("reason") for m in raus if m.get("type") == "error"] == \
+        ["Tagesmenge erschoepft"]

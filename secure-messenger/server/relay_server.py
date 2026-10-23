@@ -569,20 +569,40 @@ BLOB_MARKE_TTL = int(os.getenv("BITDM_BLOB_MARKE_TTL", 12 * 3600))
 # Kontingent behaelt. 25 GiB sind rund 775 Stuecke zu 33 MiB.
 BLOB_TAGESMENGE = int(os.getenv("BITDM_BLOB_QUOTA", 25 * 1024**3))
 
-# Wie viel der GANZE Relay pro Tag an Marken ausstellt, ueber alle Adressen.
+# DIE MENGE DES GANZEN RELAYS ZAEHLT SEIT 23.10.2026 DAS LAGER, nicht mehr
+# dieser Server (blob_server.py, TAGESMENGE_GESAMT; Audit vom 16.10.2026,
+# SV-2). Hier stand bis dahin BLOB_TAGESMENGE_GESAMT: 200 GiB an MARKEN je
+# Tag, gezaehlt beim Ausstellen. Eine Marke kostet aber keinen Upload - neun
+# kostenlose Adressen holten sich in Sekunden 200 GiB an Marken, luden nichts
+# hoch, und danach bekam 24 Stunden lang JEDER "Zwischenlager fuer heute
+# ausgelastet". Die Grenze sollte die Geschwindigkeit begrenzen, mit der sich
+# die Platte fuellt; gefuellt werden musste dafuer nichts.
 #
-# Die Menge je Adresse haelt einen Einzelnen auf, aber eine Adresse kostet
-# nichts: mit vierzig Adressen waeren es 1 TiB am Tag, die Platte des Lagers
-# (rund 940 GB frei) waere in einer Nacht voll. Das Lager weist dann zwar mit
-# 507 ab (MIN_FREI_BYTES), aber ab da fuer ALLE bis zur Kehrmaschine.
+# Das Lager zaehlt die Bytes, die wirklich ankommen. Wer dort die Tagesmenge
+# ausschoepfen will, muss sie hochladen - genau der Preis, den die Grenze
+# setzen sollte. `BITDM_BLOB_QUOTA_TOTAL` gehoert deshalb in die Unit des
+# Lagers; hier liest sie niemand mehr.
 #
-# DER PREIS ist bekannt: diese Grenze ist eine Abschaltung fuer alle, sobald
-# jemand sie ausschoepft — genau das, was docs/ZWISCHENLAGER.md gegen eine
-# globale Grenze einwendet. Deshalb steht sie hoch: 200 GiB am Tag lassen
-# der vollen Platte mindestens vier Tage, und der Storage-Waechter meldet
-# schon bei 80 GB frei. Sie begrenzt die GESCHWINDIGKEIT, mit der sich die
-# Platte fuellen laesst, nicht den ehrlichen Betrieb.
-BLOB_TAGESMENGE_GESAMT = int(os.getenv("BITDM_BLOB_QUOTA_TOTAL", 200 * 1024**3))
+# Und die Summe ueber den ganzen Relay lief synchron im WebSocket-Handler,
+# ueber bis zu 204 800 Zeilen: gemessen 498 ms je Marke, in denen keine
+# andere Verbindung bedient wurde (SV-1). Mit ihr ist auch das weg.
+
+# Wie fein `blob_marken` die Tagesmenge je Adresse festhaelt: EINE Zeile je
+# Adresse und angefangener Stunde (seit 23.10.2026, SV-1).
+#
+# Vorher war es eine Zeile je Marke, bis zu 25 600 je Adresse und Tag. Die
+# Summe je Adresse lief ueber alle davon - 76 ms je Marke auf dem Event-Loop,
+# gemessen vom Audit. Jetzt sind es hoechstens 25 Zeilen (24 Stunden plus die
+# angefangene), und die Tabelle waechst mit der Zahl der Adressen, nicht mit
+# der Zahl der Marken. Nebenbei steht weniger darin: nicht mehr jede Marke
+# mit ihrer Sekunde, nur noch die Summe je Stunde.
+#
+# DER PREIS DER STUNDE: eine Stunde zaehlt ganz mit, solange auch nur ihr
+# Ende in den letzten 24 Stunden liegt. Eine Marke belastet die Tagesmenge
+# damit bis zu 25 statt 24 Stunden - die strengere Richtung, wie beim
+# Ausstellen.
+BLOB_STUNDE = 3600
+BLOB_FENSTER = 24 * 3600 + BLOB_STUNDE
 
 # Was eine Marke MINDESTENS von der Tagesmenge kostet (seit 14.10.2026).
 #
@@ -591,10 +611,12 @@ BLOB_TAGESMENGE_GESAMT = int(os.getenv("BITDM_BLOB_QUOTA_TOTAL", 200 * 1024**3))
 # blob_marken und, wenn hochgeladen, je eine Datei im Lager — die Grenze fuer
 # die Platte hielt, die fuer Zeilen und Dateien gab es nicht (Pruefung vom
 # 14.10.2026, B4). Mit 1 MiB je Marke sind es hoechstens 25 600 Marken je
-# Adresse und 204 800 fuer den ganzen Relay am Tag. Das IST das Zaehlerdach,
-# nur in derselben Einheit wie die Menge — ein zweiter Zaehler daneben haette
-# dieselbe Zahl anders ausgedrueckt. Ein ehrlicher Nutzer merkt es nicht:
-# hundert kleine Bilder am Tag kosten 100 MiB von 25 GiB.
+# Adresse am Tag. Das IST das Zaehlerdach, nur in derselben Einheit wie die
+# Menge - ein zweiter Zaehler daneben haette dieselbe Zahl anders
+# ausgedrueckt. Ein ehrlicher Nutzer merkt es nicht: hundert kleine Bilder am
+# Tag kosten 100 MiB von 25 GiB. (Zeilen in blob_marken kostet eine Marke
+# seit SV-1 keine mehr, siehe BLOB_STUNDE; das Dach gilt weiter fuer die
+# Dateien im Lager.)
 BLOB_MINDESTMENGE = int(os.getenv("BITDM_BLOB_MIN_CHARGE", 1024**2))
 
 # fullmatch und kein `$`: `^...$` mit .match() nimmt auch eine Kennung mit
@@ -627,20 +649,37 @@ def blob_marke(kennung: str, groesse: int, ablauf: int) -> str:
 
 
 def blob_menge_heute(user_id: str) -> int:
-    seit = time.time() - 24 * 3600
+    """Was diese Adresse in den letzten 24 Stunden an Marken bekommen hat.
+
+    Hoechstens 25 Zeilen ueber idx_blob_marken, siehe BLOB_STUNDE. Zeilen von
+    vor dem 23.10.2026 (eine je Marke) zaehlen genauso; sie sind nach
+    BLOB_FENSTER ohnehin weg.
+    """
+    seit = time.time() - BLOB_FENSTER
     return db.execute(
         "SELECT COALESCE(SUM(groesse), 0) FROM blob_marken WHERE user_id=? AND ts > ?",
         (user_id, seit),
     ).fetchone()[0]
 
 
-def blob_menge_heute_gesamt() -> int:
-    """Was der ganze Relay in den letzten 24 Stunden ausgestellt hat."""
-    seit = time.time() - 24 * 3600
-    return db.execute(
-        "SELECT COALESCE(SUM(groesse), 0) FROM blob_marken WHERE ts > ?",
-        (seit,),
-    ).fetchone()[0]
+def blob_menge_anrechnen(user_id: str, menge: int) -> None:
+    """Rechnet eine ausgestellte Marke an: auf die Zeile der laufenden Stunde.
+
+    Ruft NUR auf, wer die schreibsperre haelt, innerhalb von `with db:`.
+    UPDATE vor INSERT und kein UNIQUE-Index: unter der Sperre schreibt niemand
+    dazwischen, und ein eindeutiger Index muesste auf Bestandsdatenbanken erst
+    gegen die alten Einzelzeilen durchgesetzt werden.
+    """
+    stunde = int(time.time() // BLOB_STUNDE) * BLOB_STUNDE
+    cur = db.execute(
+        "UPDATE blob_marken SET groesse = groesse + ? WHERE user_id=? AND ts=?",
+        (menge, user_id, stunde),
+    )
+    if cur.rowcount == 0:
+        db.execute(
+            "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
+            (user_id, menge, stunde),
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -979,8 +1018,9 @@ def init_db(path: Path) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_absender "
                  "ON queue(sender)")
     conn.execute("DROP INDEX IF EXISTS idx_queue_empfaenger")
-    # Fuer die Tagesmenge des ganzen Relays (blob_menge_heute_gesamt). Der
-    # bestehende Index beginnt mit user_id und hilft dort nicht.
+    # Fuer das Aufraeumen nach Zeit (purge_expired). Der bestehende Index
+    # beginnt mit user_id und hilft dort nicht. Angelegt wurde er fuer die
+    # Summe ueber den ganzen Relay; die gibt es seit SV-2 nicht mehr.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_blob_marken_ts "
                  "ON blob_marken(ts)")
 
@@ -1253,7 +1293,8 @@ def purge_expired() -> int:
         # Marken-Zeilen aelter als die Tagesfrist zaehlen fuer nichts mehr.
         # Sie stehenzulassen hiesse, ein Protokoll darueber zu fuehren, wer
         # wann wie viel abgelegt hat — ohne dass es noch einem Zweck diente.
-        db.execute("DELETE FROM blob_marken WHERE ts < ?", (time.time() - 24 * 3600,))
+        db.execute("DELETE FROM blob_marken WHERE ts < ?",
+                   (time.time() - BLOB_FENSTER,))
     return cur.rowcount
 
 
@@ -3972,25 +4013,17 @@ async def ws_endpoint(ws: WebSocket):
                 # Angerechnet wird mindestens BLOB_MINDESTMENGE, siehe dort. Die
                 # Marke selbst gilt weiter fuer genau `groesse` Bytes.
                 angerechnet = max(groesse, BLOB_MINDESTMENGE)
+                # Hoechstens 25 Zeilen, siehe BLOB_STUNDE. Eine Summe ueber
+                # den GANZEN Relay steht hier nicht mehr (SV-1/SV-2): die
+                # zaehlt das Lager, nach Bytes, die wirklich ankommen. Ist es
+                # voll, antwortet es auf den Upload mit 507, und die App zeigt
+                # das wie eine volle Platte ("spaeter noch einmal").
                 verbraucht = blob_menge_heute(user_id)
                 if verbraucht + angerechnet > BLOB_TAGESMENGE:
                     await ws.send_json({
                         "type": "error",
                         "reason": "Tagesmenge erschoepft",
                         "frei": max(0, BLOB_TAGESMENGE - verbraucht),
-                        **marken_ref,
-                    })
-                    continue
-                # Und die Menge des GANZEN Relays, siehe BLOB_TAGESMENGE_GESAMT.
-                # Eigener Wortlaut: "Tagesmenge erschoepft" hiesse fuer den
-                # Nutzer "du warst es", und das stimmt hier nicht. Aeltere
-                # Clients zeigen den Text einfach an.
-                gesamt = blob_menge_heute_gesamt()
-                if gesamt + angerechnet > BLOB_TAGESMENGE_GESAMT:
-                    await ws.send_json({
-                        "type": "error",
-                        "reason": "Zwischenlager fuer heute ausgelastet",
-                        "frei": 0,
                         **marken_ref,
                     })
                     continue
@@ -4012,10 +4045,7 @@ async def ws_endpoint(ws: WebSocket):
                 # Das await bleibt AUSSERHALB der Sperre — siehe die
                 # Begruendung bei schreibsperre.
                 with schreibsperre, db:
-                    db.execute(
-                        "INSERT INTO blob_marken (user_id, groesse, ts) VALUES (?,?,?)",
-                        (user_id, angerechnet, time.time()),
-                    )
+                    blob_menge_anrechnen(user_id, angerechnet)
                 await ws.send_json({
                     "type": "blob_marke_ok",
                     "kennung": kennung,

@@ -141,7 +141,7 @@ Alle mit Vorgabe; ueberschreiben per `Environment=` in der Unit
 | `BITDM_LIVE_BURST` / `BITDM_LIVE_REFILL` | 600 / 20 pro s | Live-Durchreichen an alte Clients (ohne Empfangsnachweis), je Absender |
 | `BITDM_BLOB_MAX` | 33 MiB | groesstes Stueck je Marke — **muss zu `bitdm-blob` passen** |
 | `BITDM_BLOB_QUOTA` | 25 GiB | Marken je Adresse und Tag |
-| `BITDM_BLOB_QUOTA_TOTAL` | 200 GiB | Marken des ganzen Relays je Tag |
+| `BITDM_BLOB_QUOTA_TOTAL` | 200 GiB | **seit 23.10.2026 im Lager** (`bitdm-blob`): geschriebene Bytes je Tag; der Relay liest es nicht mehr (Audit SV-2) |
 
 **`LimitNOFILE` hochsetzen.** Jede WebSocket ist ein Dateideskriptor. Mit dem
 Vorraum-Deckel (1000) plus den angemeldeten Verbindungen reichen die frueheren

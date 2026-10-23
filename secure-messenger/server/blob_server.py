@@ -103,6 +103,25 @@ MAX_BYTES = int(os.getenv("BITDM_BLOB_MAX", str(33 * 1024**2)))
 # die auf demselben Traeger liegen.
 MIN_FREI_BYTES = int(os.getenv("BITDM_BLOB_MIN_FREE", str(50 * 1024**3)))
 
+# Wie viel das Lager in 24 Stunden INSGESAMT annimmt, gezaehlt nach Bytes,
+# die wirklich geschrieben wurden (seit 23.10.2026, Audit vom 16.10.2026,
+# SV-2).
+#
+# Bis dahin zaehlte der Relay diese Menge, und zwar beim AUSSTELLEN der
+# Marken. Eine Marke kostet aber keinen Upload: neun kostenlose Adressen
+# holten sich in Sekunden 200 GiB an Marken, luden nichts hoch, und danach
+# bekam jeder Nutzer 24 Stunden lang "ausgelastet". Hier kommt nur an, wer
+# hochlaedt - wer die Grenze ausschoepfen will, muss die Bytes schicken.
+#
+# WOFUER SIE DA IST, unveraendert: die Geschwindigkeit begrenzen, mit der sich
+# die Platte fuellt. 200 GiB am Tag lassen der vollen Platte (rund 940 GB
+# frei) mindestens vier Tage, und der Storage-Waechter meldet schon bei 80 GB
+# frei. Ohne sie reichten vierzig Adressen fuer 1 TiB am Tag, und dann weist
+# MIN_FREI_BYTES ab - fuer ALLE und bis zur Kehrmaschine.
+#
+# Derselbe Name wie frueher im Relay; dort liest ihn niemand mehr.
+TAGESMENGE_GESAMT = int(os.getenv("BITDM_BLOB_QUOTA_TOTAL", str(200 * 1024**3)))
+
 # Kennungen sind 32 Byte Zufall in Base32 ohne Auffuellung: 52 Zeichen.
 #
 # IMMER MIT fullmatch. Mit `^...$` und .match() ging auch "<52 Zeichen>\n"
@@ -222,6 +241,69 @@ def _raeume_verbraucht_auf(jetzt: float) -> None:
         del _verbraucht[k]
 
 
+# Geschriebene Bytes je angefangener Stunde: Stundenbeginn -> Bytes. Fuer
+# TAGESMENGE_GESAMT.
+#
+# JE STUNDE UND NICHT JE UPLOAD, damit die Buchfuehrung nicht mit der Zahl der
+# Uploads waechst: hoechstens 25 Eintraege. Eine Stunde zaehlt ganz mit,
+# solange ihr Ende in den letzten 24 Stunden liegt - 25 statt 24 Stunden, die
+# strengere Richtung.
+#
+# NACH EINEM NEUSTART aus der Platte nachgezaehlt (_zaehle_die_platte_nach):
+# jede Datei mit ihrer Aenderungszeit. Was in den letzten 24 Stunden abgelegt
+# und schon wieder geloescht wurde, fehlt dann; das sind Bytes, die die Platte
+# ohnehin nicht mehr belegen.
+STUNDE = 3600
+FENSTER = 24 * STUNDE + STUNDE
+_je_stunde: dict[int, int] = {}
+
+# Was laufende Uploads auf die Tagesmenge VORGEMERKT haben - wie _reserviert
+# fuer den Platz, damit zehn gleichzeitige Uploads nicht alle dieselbe Luft
+# unter der Grenze fuer sich zaehlen. Anders als _reserviert wird es erst am
+# Ende freigegeben: die Tagesmenge zaehlt eine Datei, sobald sie fertig ist,
+# nicht Stueck fuer Stueck.
+_tag_vorgemerkt = 0
+
+
+def _stunde(zeit: float) -> int:
+    return int(zeit // STUNDE) * STUNDE
+
+
+def _heute_geschrieben(jetzt: float) -> int:
+    """Was in den letzten 24 Stunden abgelegt wurde. Ruft NUR auf, wer
+    _buchsperre haelt."""
+    for s in [s for s in _je_stunde if s <= jetzt - FENSTER]:
+        del _je_stunde[s]
+    return sum(_je_stunde.values())
+
+
+def _buche_geschrieben(menge: int, zeit: float) -> None:
+    """Ruft NUR auf, wer _buchsperre haelt."""
+    s = _stunde(zeit)
+    _je_stunde[s] = _je_stunde.get(s, 0) + menge
+
+
+def _zaehle_die_platte_nach() -> None:
+    """Beim Start: was in den letzten 24 Stunden abgelegt wurde.
+
+    Ohne das stuende die Tagesmenge nach jedem Neustart auf null, und ein
+    Neustart waere eine zweite Tagesmenge. Nebendateien ("....teil") zaehlen
+    nicht: sie sind nicht fertig, und die Kehrmaschine raeumt sie weg.
+    """
+    jetzt = time.time()
+    with _buchsperre:
+        _je_stunde.clear()
+        for eintrag in os.scandir(LAGER):
+            if eintrag.name.startswith(".") or not eintrag.is_file():
+                continue
+            try:
+                stand = eintrag.stat()
+            except OSError:
+                continue
+            if stand.st_mtime > jetzt - FENSTER:
+                _buche_geschrieben(stand.st_size, stand.st_mtime)
+
+
 def _schreibe(fd: int, stueck: bytes) -> None:
     """Ein Stueck ganz auf die Platte. Laeuft im Thread, nie auf dem Loop."""
     ansicht = memoryview(stueck)
@@ -287,7 +369,7 @@ async def lege_ab(
     x_bitdm_expires: int = Header(...),
     x_bitdm_token: str = Header(...),
 ):
-    global _reserviert
+    global _reserviert, _tag_vorgemerkt
     if not KENNUNG_MUSTER.fullmatch(kennung):
         raise HTTPException(400, "Kennung ungueltig")
     if not 0 < x_bitdm_size <= MAX_BYTES:
@@ -315,7 +397,14 @@ async def lege_ab(
     with _buchsperre:
         if freier_platz() - _reserviert - x_bitdm_size < MIN_FREI_BYTES:
             raise HTTPException(507, "kein Platz mehr")
+        # Dieselbe Antwort wie bei voller Platte: fuer den Client heisst
+        # beides "spaeter noch einmal" (LagerVoll in lager_client.dart, seit
+        # jeher). Den Text sieht nur, wer nachsieht.
+        if (_heute_geschrieben(time.time()) + _tag_vorgemerkt + x_bitdm_size
+                > TAGESMENGE_GESAMT):
+            raise HTTPException(507, "Zwischenlager fuer heute ausgelastet")
         _reserviert += x_bitdm_size
+        _tag_vorgemerkt += x_bitdm_size
     noch_reserviert = x_bitdm_size
 
     # In eine EIGENE Nebendatei schreiben und erst danach unter den echten
@@ -373,9 +462,15 @@ async def lege_ab(
         except OSError:
             unfertig.unlink(missing_ok=True)
             raise HTTPException(500, "Ablegen fehlgeschlagen")
+        # Erst jetzt zaehlt es: die Datei liegt unter ihrem Namen. Ein
+        # abgebrochener oder abgewiesener Upload hat nichts hinterlassen und
+        # kostet deshalb auch nichts von der Tagesmenge.
+        with _buchsperre:
+            _buche_geschrieben(geschrieben, time.time())
     finally:
         with _buchsperre:
             _reserviert -= noch_reserviert
+            _tag_vorgemerkt -= x_bitdm_size
 
     with _buchsperre:
         _verbraucht[kennung] = x_bitdm_expires
@@ -427,3 +522,4 @@ def als_json(request: Request, exc: HTTPException):
 
 
 LAGER.mkdir(parents=True, exist_ok=True)
+_zaehle_die_platte_nach()

@@ -567,3 +567,83 @@ def test_die_kehrmaschine_kennt_beide_namensformen_der_bruchstuecke(kehrmaschine
     assert k.kehre() == 0
     assert not alt.exists() and not neu.exists()
     assert not k.KENNUNG_MUSTER.fullmatch("a" * 52 + "\n")
+
+
+# --------------------------------------------------------------------------- #
+#  Audit vom 16.10.2026, SV-2: die Tagesmenge des ganzen Relays zaehlt hier
+# --------------------------------------------------------------------------- #
+#
+# Bis zum 23.10.2026 zaehlte der Relay sie beim AUSSTELLEN der Marken. Neun
+# kostenlose Adressen holten sich 200 GiB an Marken, ohne ein Byte
+# hochzuladen, und danach war das Lager fuer alle "ausgelastet". Jetzt
+# zaehlen die Bytes, die hier wirklich ankommen.
+
+def _kennung(n: int) -> str:
+    return "abcdefghijklmnopqrstuvwxyz234567"[n] * 52
+
+
+def _lege(client, n: int, groesse: int):
+    k = _kennung(n)
+    return client.put(f"/ablegen/{k}", content=b"x" * groesse, headers=kopf(k, groesse))
+
+
+def test_sv2_die_tagesmenge_zaehlt_geschriebene_bytes(client, lager, monkeypatch):
+    _, blob_server = lager
+    monkeypatch.setattr(blob_server, "TAGESMENGE_GESAMT", 1000)
+    assert _lege(client, 0, 600).status_code == 200
+    voll = _lege(client, 1, 600)
+    assert voll.status_code == 507, voll.text
+    # 507 wie bei voller Platte: die App zeigt beides als LagerVoll an.
+    assert voll.json()["detail"] == "Zwischenlager fuer heute ausgelastet"
+    assert _lege(client, 2, 400).status_code == 200
+    assert blob_server._tag_vorgemerkt == 0
+
+
+def test_sv2_ein_abgebrochener_upload_kostet_nichts(client, lager, monkeypatch):
+    """Was nicht unter seinem Namen liegt, belegt keine Platte und zaehlt
+    deshalb nicht."""
+    _, blob_server = lager
+    monkeypatch.setattr(blob_server, "TAGESMENGE_GESAMT", 1000)
+    k = _kennung(0)
+    zu_wenig = client.put(f"/ablegen/{k}", content=b"x" * 10, headers=kopf(k, 800))
+    assert zu_wenig.status_code == 400
+    assert _lege(client, 1, 800).status_code == 200
+    assert blob_server._tag_vorgemerkt == 0
+
+
+def test_sv2_laufende_uploads_sind_vorgemerkt(client, lager, monkeypatch):
+    """Zehn gleichzeitige Uploads duerfen nicht alle dieselbe Luft unter der
+    Grenze fuer sich zaehlen."""
+    _, blob_server = lager
+    monkeypatch.setattr(blob_server, "TAGESMENGE_GESAMT", 1000)
+    monkeypatch.setattr(blob_server, "_tag_vorgemerkt", 500)  # ein anderer laeuft
+    assert _lege(client, 0, 600).status_code == 507
+    monkeypatch.setattr(blob_server, "_tag_vorgemerkt", 0)
+    assert _lege(client, 1, 600).status_code == 200
+
+
+def test_sv2_ein_neustart_ist_keine_zweite_tagesmenge(lager, monkeypatch):
+    verzeichnis, blob_server = lager
+    monkeypatch.setenv("BITDM_BLOB_QUOTA_TOTAL", "1000")
+    importlib.reload(blob_server)
+    assert _lege(TestClient(blob_server.app), 0, 600).status_code == 200
+    # Neustart: das Modul neu laden, die Platte bleibt.
+    importlib.reload(blob_server)
+    assert _lege(TestClient(blob_server.app), 1, 600).status_code == 507
+
+
+def test_sv2_was_aelter_als_ein_tag_ist_zaehlt_nicht(lager, monkeypatch):
+    verzeichnis, blob_server = lager
+    monkeypatch.setenv("BITDM_BLOB_QUOTA_TOTAL", "1000")
+    alt = verzeichnis / _kennung(9)
+    alt.write_bytes(b"x" * 900)
+    vorgestern = time.time() - 2 * 24 * 3600
+    os.utime(alt, (vorgestern, vorgestern))
+    importlib.reload(blob_server)
+    client = TestClient(blob_server.app)
+    assert _lege(client, 0, 600).status_code == 200
+    # Und eine Stunde, die aus dem Fenster faellt, gibt ihre Bytes frei.
+    with blob_server._buchsperre:
+        for s in list(blob_server._je_stunde):
+            blob_server._je_stunde[s - blob_server.FENSTER] = blob_server._je_stunde.pop(s)
+    assert _lege(client, 1, 600).status_code == 200
