@@ -227,7 +227,8 @@ Erwartet: `200`, die Sicherheitsheader, und **keine** Weiterleitung auf eine
 andere Domain — Google Play verlangt eine direkt erreichbare, nicht geoblockte
 URL für die Datenschutzerklärung.
 
-Danach die Suchmaschinen anstoßen:
+Die Suchmaschinen stößt der Git-Hook nach dem Pull selbst an (siehe
+IndexNow). Ohne Hook, oder um alle Seiten neu zu melden:
 
 ```bash
 python3 /opt/bitdm/secure-messenger/deploy/indexnow.py
@@ -252,6 +253,28 @@ wird. Ohne diese Probe antwortet die API trotzdem mit 202 und verwirft die
 Meldung später still. Erwartet: `HTTP 200` oder `202`. Nach jedem Deploy, der
 Seiteninhalte ändert, einmal laufen lassen; `lastmod` in der Sitemap vorher
 mitziehen.
+
+Das Laufenlassen übernimmt `../deploy/git-hooks/post-merge`: nach jedem
+`git pull` in `/opt/bitdm` meldet er nur die Seiten, die der Pull geändert hat
+(`indexnow.py --seit ORIG_HEAD`). Gemeldet wird, was in der Sitemap steht, dazu
+gelöschte `.html`-Seiten; Bilder, Schriften und `_test-*.html` nicht. Einmal
+einrichten, auf dem Haupt-VPS:
+
+```bash
+ln -sf ../../secure-messenger/deploy/git-hooks/post-merge /opt/bitdm/.git/hooks/post-merge
+```
+
+Ein Fehlschlag stört den Pull nicht; der Hook schreibt dann, wie man von Hand
+meldet.
+
+**Stand Bing, 23.10.2026:** Die Suche nach „BitDM" findet bitdm.net auf
+Platz 1, aber nur die Startseite und mit altem Titel. `vs.html` und die drei
+Ratgeberseiten fehlen dort, deshalb taucht BitDM bei allgemeinen Suchen wie
+„Messenger ohne Telefonnummer" in Bing, Edge und Copilot nicht auf. IndexNow ist
+nur ein Hinweis. Schneller geht es über die Bing Webmaster Tools (Henriks
+Konto): dort die Seite per „Aus Google Search Console importieren" übernehmen,
+das bestätigt die Domain und reicht die Sitemap ein. Eine Datei oder ein
+Meta-Tag auf der Seite ist dafür nicht nötig.
 
 ## Sprache
 

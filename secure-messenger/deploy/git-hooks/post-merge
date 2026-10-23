@@ -1,0 +1,14 @@
+#!/bin/sh
+# post-merge fuer /opt/bitdm: nach jedem `git pull` die geaenderten Seiten von
+# bitdm.net per IndexNow melden. Bing nimmt die Meldung an, und Bing liefert
+# die Treffer fuer Edge, Copilot, DuckDuckGo und die ChatGPT-Suche.
+#
+# Einrichten, einmal auf dem Haupt-VPS (Verweis relativ zu .git/hooks/):
+#   ln -sf ../../secure-messenger/deploy/git-hooks/post-merge /opt/bitdm/.git/hooks/post-merge
+#
+# Der Pull ist zu diesem Zeitpunkt schon fertig. Scheitert die Meldung, bleibt
+# er trotzdem gueltig; dann einmal von Hand melden.
+cd "$(git rev-parse --show-toplevel)" || exit 0
+python3 secure-messenger/deploy/indexnow.py --seit ORIG_HEAD \
+  || echo "IndexNow-Meldung fehlgeschlagen. Von Hand: python3 secure-messenger/deploy/indexnow.py" >&2
+exit 0
