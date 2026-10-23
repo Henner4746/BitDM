@@ -297,13 +297,13 @@ footer a{color:var(--muted)}
     <h2><span class="de">Grenzen</span><span class="en">Limits</span></h2>
     <ul class="de">
       <li><strong>Reichweite:</strong> etwa zehn Meter in Räumen, durch Wände weniger. Über fremde Telefone reicht BitDM keine Nachrichten weiter, und wenn der Kontakt außer Reichweite ist, wartet die Nachricht.</li>
-      <li><strong>Dein Signal bleibt sichtbar:</strong> Jeder in Reichweite sieht, dass ein Gerät sendet, und an den festen Dienstkennungen auch, dass jemand BitDM benutzt. Nur deine Kontakte erkennen, dass du das bist.</li>
+      <li><strong>Dein Signal bleibt sichtbar, die Funkpakete sind noch offen:</strong> Jeder in Reichweite sieht, dass ein Gerät sendet, und an den festen Dienstkennungen auch, dass jemand BitDM benutzt. Deine Leuchtfeuer erkennen nur deine Kontakte. Bis einschließlich 2.0.1 sind die Bluetooth-Pakete selbst aber nicht eigens verschlüsselt. Der Inhalt deiner Nachrichten bleibt Ende-zu-Ende-verschlüsselt, doch wer den Funkverkehr mitschneidet, kann daraus BitDM-Adressen lesen und so sehen, wer mit wem schreibt. Eine kommende Fassung verschlüsselt auch die Funkpakete.</li>
       <li><strong>Es kostet Akku.</strong></li>
       <li><strong>Kein externes Audit:</strong> Bisher hat niemand den Nahbereich oder den Rest von BitDM unabhängig geprüft.</li>
     </ul>
     <ul class="en">
       <li><strong>Range:</strong> about ten metres indoors, less through walls. BitDM doesn't pass messages on through other people's phones, so if your contact is out of range, the message waits.</li>
-      <li><strong>Your signal is still visible:</strong> anyone in range can see that some device is broadcasting, and can tell from the fixed service identifiers that someone is using BitDM. Only your contacts can tell it's you.</li>
+      <li><strong>Your signal is still visible, and the radio packets aren't sealed yet:</strong> anyone in range can see that some device is broadcasting, and can tell from the fixed service identifiers that someone is using BitDM. Only your contacts recognise your beacons. Up to and including 2.0.1, though, the Bluetooth packets themselves aren't encrypted on their own. Your messages stay end-to-end encrypted, but someone recording the radio traffic can read BitDM addresses from it and so see who is talking to whom. A coming release encrypts the radio packets as well.</li>
       <li><strong>It costs battery life.</strong></li>
       <li><strong>No external audit:</strong> there's been no independent review of nearby mode or the rest of BitDM yet.</li>
     </ul>

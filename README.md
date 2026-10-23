@@ -6,7 +6,7 @@ This page in [German](README.de.md).
 Your address *is* your public key.**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-2.0.0-6f62a8)
+![Version](https://img.shields.io/badge/version-2.0.1-6f62a8)
 ![Platform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows_%7C_Linux_%7C_Web-6f62a8)
 
 | Platform | State |
@@ -372,7 +372,7 @@ useless alone: `sqlite3mc.dll` is the encrypted database, `libsignal_frb.dll`
 For an installer instead of a zip:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=2.0.0 windows\bitdm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=2.0.1 windows\bitdm.iss
 ```
 
 Tests:
