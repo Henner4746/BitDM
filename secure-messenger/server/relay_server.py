@@ -306,6 +306,34 @@ LIVE_REFILL_PER_SEC = float(os.getenv("BITDM_LIVE_REFILL", 20.0))
 OTK_MAX_JE_BUENDEL = int(os.getenv("BITDM_OTK_MAX", 200))
 IDENTITAETEN_MAX = int(os.getenv("BITDM_IDENTITIES_MAX", 50_000))
 
+# DAS DACH LIESS SICH VON EINEM AKTEUR FUELLEN UND HALTEN (Audit vom
+# 16.10.2026, SV-3). Eine Registrierung kostete je Herkunft 5 von 120 Marken
+# der allgemeinen Bremse, rund 34 500 am Tag; bei IPv6 war jedes /64 eine
+# eigene Herkunft (ein Heimanschluss hat 256), ueber Tor ohne Circuit-Kennung
+# gab es gar keine. Nach wenigen Minuten nahm der Relay niemanden mehr auf,
+# und gehalten wurde das mit einer Erneuerung im Monat. Seit 23.10.2026 drei
+# Riegel:
+#
+# 1. NEUE ADRESSEN haben einen eigenen, engen Eimer: NEUE_ADRESSEN_JE_TAG je
+#    Herkunft und Tag, bei IPv6 je /48 - ein ganzer Anschluss, nicht ein /64.
+#    Ueber den Onion-Dienst zusaetzlich ein GEMEINSAMER Eimer
+#    (NEUE_ADRESSEN_ONION_JE_TAG): ein Circuit ist billig zu wechseln. Den
+#    Preis kennt die Bremse oben schon (Carrier-Grade-NAT, deploy/README.md):
+#    hinter einer IPv4 bzw. in einem /48 teilen sich mehrere Kunden den Eimer.
+#    Er trifft deshalb NUR neue Adressen - wer schon da ist, erneuert sein
+#    Buendel und legt Geraete an wie bisher -, und 100 am Tag sind fuer einen
+#    Relay dieser Groesse viel.
+# 2. EINE ADRESSE, DIE SICH NIE VERBUNDEN HAT (last_seen = 0), geht nach
+#    NIE_VERBUNDEN_TTL statt nach GERAET_TTL. Eine App meldet sich direkt
+#    nach dem Registrieren per /ws an; wer das zwei Tage lang nicht tut, war
+#    keine. Kommt sie doch, bekommt sie 4401 und registriert sich neu.
+# 3. AB DACH_WARNUNG_AB DES DACHS meldet der Relay es im Journal, hoechstens
+#    einmal je Stunde - damit es nicht still voll wird.
+NEUE_ADRESSEN_JE_TAG = int(os.getenv("BITDM_NEUE_ADRESSEN", 100))
+NEUE_ADRESSEN_ONION_JE_TAG = int(os.getenv("BITDM_NEUE_ADRESSEN_ONION", 500))
+NIE_VERBUNDEN_TTL = int(os.getenv("BITDM_NIE_VERBUNDEN_TTL", 48 * 3600))
+DACH_WARNUNG_AB = 0.8
+
 
 # --------------------------------------------------------------------------- #
 #  Kyber-Prekeys  (PQXDH, seit 16.10.2026 — docs/LIBSIGNAL-UMSTIEG.md)
@@ -1362,13 +1390,19 @@ def raeume_vergessene_geraete() -> int:
     Telefon macht die Adresse damit teilweise unbeschickbar.
     """
     cutoff = time.time() - GERAET_TTL
+    # Nie per /ws angemeldet (last_seen = 0) und seit NIE_VERBUNDEN_TTL nicht
+    # neu registriert: das war keine App (SV-3, siehe NEUE_ADRESSEN_JE_TAG).
+    # Bestandszeilen von vor dem Mehrgeraete-Umbau trifft es nicht, sie
+    # tragen den Zeitpunkt der Wanderung (wandere_auf_geraete).
+    nie_cutoff = time.time() - NIE_VERBUNDEN_TTL
     entfernte_zeilen = 0
     entfernte_kyber = 0
     with schreibsperre:
         with db:
             tot = db.execute(
-                f"SELECT user_id, device_id FROM identities WHERE {LEBENSZEICHEN} < ?",
-                (cutoff,),
+                f"SELECT user_id, device_id FROM identities WHERE {LEBENSZEICHEN} < ?"
+                f" OR (last_seen = 0 AND updated_at < ?)",
+                (cutoff, nie_cutoff),
             ).fetchall()
             for uid, geraet in tot:
                 q, k = loesche_geraet(uid, geraet)
@@ -1675,6 +1709,40 @@ def herkunft_ok(request: Request, familie: str, cost: float = 1.0) -> bool:
     if schluessel is None:
         return True
     return rate_limit_ok(f"{familie}:{schluessel}", cost)
+
+
+# Wann das Adressdach zuletzt gemeldet wurde (SV-3, DACH_WARNUNG_AB).
+_dach_gemeldet: float | None = None
+
+
+def _melde_das_dach(adressen: int) -> None:
+    """Hoechstens einmal je Stunde ins Journal. Ohne Adresse, nur die Zahl."""
+    global _dach_gemeldet
+    jetzt = time.monotonic()
+    if _dach_gemeldet is not None and jetzt - _dach_gemeldet < 3600:
+        return
+    _dach_gemeldet = jetzt
+    print(f"[!] Adressdach zu {100 * adressen // IDENTITAETEN_MAX} % belegt "
+          f"({adressen} von {IDENTITAETEN_MAX}) - wer fuellt es? "
+          f"(BITDM_IDENTITIES_MAX, Audit SV-3)")
+
+
+def neue_adresse_ok(request: Request) -> bool:
+    """Der enge Eimer fuer NEUE Adressen (SV-3, siehe NEUE_ADRESSEN_JE_TAG).
+
+    Je Herkunft, IPv6 je /48. Ueber den Onion-Dienst zuerst der Eimer des
+    Circuits (wenn tor ihn nennt), dann der gemeinsame aller Tor-Nutzer.
+    """
+    tag = 24 * 3600.0
+    schluessel = limit_schluessel(request, v6_praefix=48)
+    if schluessel is not None and not _take(
+            f"neu:{schluessel}", float(NEUE_ADRESSEN_JE_TAG),
+            NEUE_ADRESSEN_JE_TAG / tag, 1.0):
+        return False
+    if kommt_ueber_onion(request):
+        return _take("neu:onion", float(NEUE_ADRESSEN_ONION_JE_TAG),
+                     NEUE_ADRESSEN_ONION_JE_TAG / tag, 1.0)
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -2841,6 +2909,18 @@ def register(req: RegisterRequest, request: Request):
                                         signature)), None)
     if treffer is None:
         raise HTTPException(403, "Besitznachweis fehlgeschlagen")
+    # EINE NEUE ADRESSE kostet zusaetzlich aus dem engen Eimer (SV-3, siehe
+    # NEUE_ADRESSEN_JE_TAG). Erst nach dem Besitznachweis: Muell ohne
+    # Signatur leert niemandem den Eimer. Ob die Adresse neu ist, steht hier
+    # nur ungefaehr fest - eine gleichzeitige erste Registrierung derselben
+    # Adresse zahlt schlimmstenfalls doppelt. Kurz unter der Sperre, weil die
+    # Verbindung geteilt ist (siehe schreibsperre).
+    with schreibsperre:
+        neu = db.execute("SELECT 1 FROM identities WHERE user_id=? LIMIT 1",
+                         (bundle.user_id,)).fetchone() is None
+    if neu and not neue_adresse_ok(request):
+        raise HTTPException(429, "zu viele neue Adressen von hier, "
+                                 "bitte spaeter erneut")
     if not verbrauche_nonce(bundle.user_id, bundle.device_id, treffer):
         # Zwischen Pruefen und Verbrauchen hat ein gleichzeitiger Aufruf mit
         # derselben Signatur das Nonce genommen (oder es ist gerade
@@ -2934,8 +3014,11 @@ def register(req: RegisterRequest, request: Request):
                 # 507, nicht 429: das ist keine Bremse, die nach einer Weile
                 # nachgibt, sondern eine volle Ablage. Der Unterschied gehoert
                 # in die Antwort, sonst versucht es der Client fuer immer.
+                _melde_das_dach(wie_viele)
                 raise HTTPException(507, "Dieser Relay nimmt keine neuen "
                                          "Adressen mehr auf")
+            if wie_viele + 1 >= DACH_WARNUNG_AB * IDENTITAETEN_MAX:
+                _melde_das_dach(wie_viele + 1)
 
         if not schon_da and geraete_dieser_adresse >= GERAETE_MAX:
             # Neues GERAET einer bekannten Adresse, und die ist voll.

@@ -730,6 +730,9 @@ def relay(tmp_path, monkeypatch):
     # Client - beides gehoert zum einzelnen Test.
     monkeypatch.setattr(rs, "_anstoss_nochmal", {}, raising=False)
     monkeypatch.setattr(rs, "_push_klient", None, raising=False)
+    # Die Meldung "Adressdach fast voll" (SV-3) kommt hoechstens einmal je
+    # Stunde - je Test von vorn.
+    monkeypatch.setattr(rs, "_dach_gemeldet", None, raising=False)
     try:
         yield rs
     finally:
@@ -5747,3 +5750,92 @@ def test_sv7_die_zahl_gleichzeitiger_anstoesse_ist_gedeckelt(relay, klage_frisch
     asyncio.run(lauf())
     assert sorted(angestossen) == [0, 1, 2]
     assert "Anstoesse gleichzeitig" in capsys.readouterr().out
+
+
+# ------------------------------------------------ SV-3  Das Adressdach
+
+def _neue_adresse(rs, anfrage, user=None):
+    """Eine vollstaendige Registrierung einer NEUEN Adresse von `anfrage`.
+    Rueckgabe: HTTP-Status (200 = angenommen)."""
+    user = user or make_user()
+    return _status(lambda: _registriere_mit(
+        rs, user, _challenge(rs, user, anfrage), anfrage=anfrage))
+
+
+def test_sv3_ein_anschluss_legt_nicht_beliebig_viele_adressen_an(relay, monkeypatch):
+    """Der Befund: je /64 gezaehlt und mit der allgemeinen Bremse (rund
+    34 500 am Tag) fuellte ein Heimanschluss das Dach in Minuten. Jetzt hat
+    eine NEUE Adresse ihren eigenen Eimer je Anschluss (/48)."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 3, raising=False)
+    for netz in range(3):
+        assert _neue_adresse(rs, _Kopf(x_forwarded_for=f"2001:db8:9:{netz}::1")) == 200
+    assert _neue_adresse(rs, _Kopf(x_forwarded_for="2001:db8:9:ff::1")) == 429
+    # Ein anderer Anschluss ist davon unberuehrt.
+    assert _neue_adresse(rs, _Kopf(x_forwarded_for="2001:db8:a::1")) == 200
+
+
+def test_sv3_wer_schon_da_ist_kommt_weiter_durch(relay, monkeypatch):
+    """Der Eimer trifft nur NEUE Adressen. Buendel erneuern und weitere
+    Geraete anmelden geht wie bisher - sonst waere die Bremse fuer die
+    eigenen Nutzer eines Netzes eine Abschaltung."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_JE_TAG", 1, raising=False)
+    hier = _Kopf(x_forwarded_for="198.51.100.20")
+    henrik = make_user()
+    assert _neue_adresse(rs, hier, henrik) == 200
+    assert _neue_adresse(rs, hier) == 429
+    for _ in range(3):
+        assert _status(lambda: _registriere_mit(
+            rs, henrik, _challenge(rs, henrik, hier), anfrage=hier)) == 200
+    assert _status(lambda: _registriere_mit(
+        rs, henrik, _challenge(rs, henrik, hier, geraet=2), geraet=2,
+        anfrage=hier)) == 200
+
+
+def test_sv3_ueber_tor_teilen_sich_alle_circuits_ein_dach(relay, monkeypatch):
+    """Ein Circuit ist billig zu wechseln, und ohne Circuit-Kennung gab es
+    ueber Tor gar keine Bremse."""
+    rs = relay
+    monkeypatch.setattr(rs, "NEUE_ADRESSEN_ONION_JE_TAG", 2, raising=False)
+    kreis = lambda n: _Kopf(x_forwarded_for="127.0.0.1", x_bitdm_onion="1",
+                            x_bitdm_kreis=f"fc00:dead:beef:4dad::{n:x}")
+    assert _neue_adresse(rs, kreis(1)) == 200
+    assert _neue_adresse(rs, kreis(2)) == 200
+    assert _neue_adresse(rs, kreis(3)) == 429
+    ohne_kreis = _Kopf(x_forwarded_for="127.0.0.1", x_bitdm_onion="1")
+    assert _neue_adresse(rs, ohne_kreis) == 429
+    # Ueber das oeffentliche Netz geht es weiter.
+    assert _neue_adresse(rs, _Kopf(x_forwarded_for="203.0.113.7")) == 200
+
+
+def test_sv3_eine_nie_verbundene_adresse_geht_nach_zwei_tagen(relay):
+    """Gehalten wurde das Dach mit einer Erneuerung im Monat, ohne sich je
+    anzumelden. Eine App meldet sich direkt nach dem Registrieren per /ws an."""
+    rs = relay
+    nie, frisch, lebt = make_user(), make_user(), make_user()
+    jetzt = time.time()
+    # getattr: die Gegenprobe gegen den alten Stand laeuft so bis zur Frage.
+    ttl = getattr(rs, "NIE_VERBUNDEN_TTL", 48 * 3600)
+    _lege_an(rs, nie)
+    _lege_an(rs, frisch)
+    _lege_an(rs, lebt, last_seen=jetzt - 5 * 24 * 3600)
+    with rs.db:
+        rs.db.execute("UPDATE identities SET last_seen=0, updated_at=? WHERE user_id=?",
+                      (jetzt - ttl - 60, nie["user_id"]))
+        rs.db.execute("UPDATE identities SET last_seen=0, updated_at=? WHERE user_id=?",
+                      (jetzt - ttl + 600, frisch["user_id"]))
+    assert rs.raeume_vergessene_geraete() == 1
+    uebrig = {r[0] for r in rs.db.execute("SELECT user_id FROM identities")}
+    assert uebrig == {frisch["user_id"], lebt["user_id"]}
+
+
+def test_sv3_das_dach_meldet_sich_bevor_es_voll_ist(relay, monkeypatch, capsys):
+    rs = relay
+    monkeypatch.setattr(rs, "IDENTITAETEN_MAX", 5)
+    for i in range(5):
+        assert _neue_adresse(rs, _Kopf(x_forwarded_for=f"198.51.100.{i + 1}")) == 200
+    zeilen = [z for z in capsys.readouterr().out.splitlines() if "Adressdach" in z]
+    assert len(zeilen) == 1, "hoechstens einmal je Stunde"
+    assert "80 %" in zeilen[0] and "4 von 5" in zeilen[0]
+    assert "198.51" not in zeilen[0], "keine Herkunft im Journal"

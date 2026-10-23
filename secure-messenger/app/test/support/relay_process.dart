@@ -42,9 +42,15 @@ class Relay {
   /// Geraete. Die alte Form der App 2.0.0 prueft test_relay.py; ein App-Test,
   /// der sie am echten Relay braucht, setzt BITDM_RELAY_NAMEN ueber
   /// [umgebung] auf ''.
+  ///
+  /// DERSELBE GRUND FUER DIE NEUEN ADRESSEN (Audit SV-3, seit 23.10.2026):
+  /// der Relay nimmt je Herkunft nur 100 neue Adressen am Tag an, und hier
+  /// kommen alle Nutzer einer Datei von 127.0.0.1. test_relay.py prueft den
+  /// Eimer mit kleinen Werten.
   static const _testvorgaben = {
     'BITDM_RATE_BURST': '5000',
     'BITDM_RELAY_NAMEN': '127.0.0.1',
+    'BITDM_NEUE_ADRESSEN': '5000',
   };
 
   /// Startet den Relay. Gibt null zurueck, wenn Python oder die
