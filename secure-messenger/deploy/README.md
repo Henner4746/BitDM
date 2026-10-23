@@ -112,7 +112,10 @@ mindestens ein /64, und jede Adresse darin ist frei waehlbar — je voller
 Adresse gezaehlt war jedes Limit fuer IPv6 praktisch abgeschaltet. Die Zonen
 heissen deshalb jetzt `bitdm_relay_req64`/`bitdm_relay_conn64`: nginx
 verweigert beim reload eine bestehende Zone mit geaendertem Schluessel, und
-`nginx -t` merkt das nicht vorher.
+`nginx -t` merkt das nicht vorher. Nur die Plaetze fuer Challenge-Nonces
+zaehlen im Relay seit 23.10.2026 je **/48** (`nonce_herkunft`, Audit SV-5):
+sonst brachte ein einziger Heimanschluss die 16 Herkuenfte zusammen, die das
+Nonce eines Opfers verdraengen.
 
 **Ueber Tor gibt es keine Bremse je IP** — dort kommen alle von 127.0.0.1, und
 eine Bremse je IP waere eine einzige fuer alle Tor-Nutzer. Stattdessen:

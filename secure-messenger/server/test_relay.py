@@ -5619,3 +5619,32 @@ def test_sv10_hinter_nginx_zaehlt_was_uvicorn_eintraegt(relay):
     assert rs.client_ip(hinter_nginx) == "198.51.100.20"
     ueber_tor = _Kopf(x_forwarded_for="127.0.0.1", x_bitdm_onion="1")
     assert rs.kommt_ueber_onion(ueber_tor)
+
+
+# ------------------------------------------------ SV-5  Nonce-Herkunft je /48
+
+def test_sv5_ein_heimanschluss_verdraengt_das_nonce_nicht(relay):
+    """Der Befund: 16 /64 aus EINEM Anschluss waren 16 Herkuenfte, 128 fremde
+    Nonces fuellten das Dach des Paares, und das des Opfers fiel. Je /48 ist
+    der ganze Anschluss eine Herkunft und verdraengt nur sich selbst."""
+    rs = relay
+    opfer = make_user()
+    beim_opfer = _Kopf(x_forwarded_for="198.51.100.20")
+    nonce = _challenge(rs, opfer, beim_opfer)
+    for netz in range(rs.NONCE_HERKUENFTE):
+        stoerer = _Kopf(x_forwarded_for=f"2001:db8:7:{netz:x}::1")
+        for _ in range(rs.NONCE_PLAETZE):
+            _challenge(rs, opfer, stoerer)
+    assert nonce in rs.offene_nonces(opfer["user_id"])
+    assert _registriere_mit(rs, opfer, nonce, anfrage=beim_opfer)["ok"] is True
+
+
+def test_sv5_die_bremse_zaehlt_weiter_je_64(relay):
+    """Nur die Nonces zaehlen je /48. Die Bremse bliebe sonst fuer ganze
+    Mobilfunknetze ein einziger Eimer."""
+    rs = relay
+    assert rs.nonce_herkunft(_Kopf(x_forwarded_for="2001:db8:7:3::1")) == \
+        "2001:db8:7::/48"
+    assert rs.limit_schluessel(_Kopf(x_forwarded_for="2001:db8:7:3::1")) == \
+        "2001:db8:7:3::/64"
+    assert rs.nonce_herkunft(_Kopf(x_forwarded_for="203.0.113.7")) == "203.0.113.7"

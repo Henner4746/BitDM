@@ -1612,7 +1612,7 @@ def tor_kreis(request: Request) -> str | None:
     return f"kreis:{int(adresse) & 0xFFFFFFFF}"
 
 
-def limit_schluessel(request: Request) -> str | None:
+def limit_schluessel(request: Request, v6_praefix: int = 64) -> str | None:
     """Wonach die Bremse je Herkunft zaehlt — oder None fuer "gar nicht".
 
     IPv6 JE /64. Ein Anschluss bekommt vom Anbieter mindestens ein /64,
@@ -1629,6 +1629,9 @@ def limit_schluessel(request: Request) -> str | None:
     (otk_limit_ok, msg_limit_ok, NONCE_PLAETZE), die Grenzen im Onion-vHost
     (limit_req/limit_conn), das Speicherdach (SPEICHER_MAX) und die Grenzen in
     tor selbst (HiddenServiceMaxStreams).
+
+    [v6_praefix] ist fuer die Herkunft der Nonces (nonce_herkunft, SV-5):
+    dort zaehlt ein ganzer Anschluss, nicht ein einzelnes /64.
     """
     if kommt_ueber_onion(request):
         return tor_kreis(request)
@@ -1640,17 +1643,30 @@ def limit_schluessel(request: Request) -> str | None:
     if adresse.version == 6:
         if adresse.ipv4_mapped is not None:
             return str(adresse.ipv4_mapped)
-        return str(ipaddress.ip_network(f"{adresse}/64", strict=False))
+        return str(ipaddress.ip_network(f"{adresse}/{v6_praefix}", strict=False))
     return str(adresse)
 
 
 def nonce_herkunft(request: Request) -> str:
-    """Wem ein Challenge-Nonce gehoert: dieselbe Einteilung wie die Bremse.
+    """Wem ein Challenge-Nonce gehoert: die Einteilung der Bremse, aber IPv6
+    JE /48 (seit 23.10.2026, Audit vom 16.10.2026, SV-5).
 
-    Ueber Tor ohne Circuit-Kennung teilen sich alle die Herkunft "onion" —
+    Je /64 gezaehlt hatte ein Stoerer mit einem einzigen Heimanschluss (/56,
+    also 256 /64) muehelos die NONCE_HERKUENFTE = 16 Herkuenfte beisammen:
+    128 fremde Nonces, und am Dach des Paares fiel das des Opfers. Je /48
+    braucht er 16 Anschluesse. Fuer die Bremse selbst bleibt es beim /64 -
+    dort wuerde ein /48 ganze Mobilfunknetze in einen Eimer werfen; hier
+    teilen sich nur Challenges FUER DIESELBE ADRESSE einen Platz.
+
+    NICHT GEWAEHLT: am Dach fremde Eintraege gar nicht mehr zu verdraengen.
+    Dann haelte ein Stoerer das Dach mit 16 Herkuenften dauerhaft voll, und
+    das Opfer bekaeme gar kein Nonce mehr - aus "gelegentlich" wuerde
+    "dauerhaft".
+
+    Ueber Tor ohne Circuit-Kennung teilen sich alle die Herkunft "onion" -
     das ist der Stand vor dem 14.10.2026, nicht schlechter.
     """
-    return limit_schluessel(request) or "onion"
+    return limit_schluessel(request, v6_praefix=48) or "onion"
 
 
 def herkunft_ok(request: Request, familie: str, cost: float = 1.0) -> bool:
