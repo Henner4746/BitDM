@@ -119,9 +119,16 @@ location ^~ /fdroid/ {
     add_header Permissions-Policy     "geolocation=(), microphone=(), camera=(), interest-cohort=()" always;
     add_header Content-Security-Policy "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
     add_header Cache-Control $bitdm_fdroid_cache always;
+    add_header X-Robots-Tag "noindex, nofollow" always;
     location ~ /\. { deny all; }
 }
 ```
+
+**Nicht in Suchmaschinen (seit 24.10.2026).** fdroidserver erzeugt `repo/index.html` bei jedem
+`fdroid update` neu, mit Titel „BitDM“ und `robots: index`. Google zeigte bei der Suche „BitDM“
+daraufhin diese Seite statt der Startseite, unter zwei Adressen (`/fdroid/repo/` und
+`/fdroid/repo/index.html`). Der Header `X-Robots-Tag` hält, egal was fdroid in die Datei schreibt;
+F-Droid-Apps lesen ihn nicht.
 
 `^~` hält die Regex-Blöcke der Seite heraus (sonst bekäme `index.html`
 `expires 10m`). Die Sicherheitsheader stehen noch einmal da, weil jedes
