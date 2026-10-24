@@ -4,6 +4,12 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
+## 2.0.2 (unveröffentlicht)
+
+**Ruhigerer Themenwechsel.** Wer unter Einstellungen › Erscheinungsbild ein Thema wählt, sieht jetzt eine kurze Überblendung (0,35 s) statt eines 2,8 s langen Chiffreschleiers über dem ganzen Bildschirm. Beim Start und nach dem Entsperren steht das gespeicherte Thema sofort da; bisher glitt die App bei jedem Neustart 3,2 s lang hinein, samt Schleier. Das Wandern der Themen gleitet weiter langsam, aber ohne Schleier.
+
+**Neues App-Symbol.** Ein Anzeigefenster mit Punktmatrix, DM leuchtet im Akzent. Es ersetzt die schwarz-weiße Sprechblase.
+
 ## 2.0.1 (24.10.2026)
 
 **Erst den Relay aktualisieren, dann die App.** Der Relay dieser Fassung speichert eine zusätzliche Signatur je Gerät und prüft sie bei der Anmeldung (siehe Geräteliste unten). Das ist additiv: Ältere Apps schicken das Feld nicht und laufen weiter, ein älterer Relay ignoriert es. Neue Endpunkte gibt es nicht, an der nginx-Liste ändert sich nichts. Beim Relay selbst zuerst das Zwischenlager aktualisieren: Es zählt jetzt die Gesamtmenge der Anhänge (siehe unten).

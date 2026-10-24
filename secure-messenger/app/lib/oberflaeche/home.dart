@@ -130,6 +130,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
 
   String? _gemeldetesThema;
 
+  /// Ob die naechste Themenaenderung aus einer Wahl in den Einstellungen
+  /// kommt. Nur dann wird uebergeblendet; beim Start und nach dem Entsperren
+  /// gilt das gespeicherte Thema sofort (siehe [_uebernimmEinstellungen]).
+  bool _themaGewaehlt = false;
+
   int? _gemeldetesWandern;
 
   // ── Felder von home/zugriff.dart
@@ -623,20 +628,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
         // Die Symbole der Statusleiste passend zum Thema — sonst stehen sie
         // auf einem dunklen Thema schwarz auf fast schwarz.
         value: _schriftThema.dunkel ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        // Der Stack bleibt, auch mit einem Kind: hier lag bis 24.10.2026 der
+        // Chiffreschleier eines Themenwechsels (siehe [wechsleThema]), und
+        // eine andere Baumform liesse Eingabefelder und Bildlauf ihren Stand
+        // verlieren, sobald wieder etwas darueber liegt.
         child: Stack(fit: StackFit.expand, children: [
           _imFenster ? geruest : Einbrennschutz(child: geruest),
-          // IMMER ALS ZWEITES KIND, nur eben leer: kaeme der Stack erst mit
-          // dem Schleier dazu, baute Flutter den ganzen Baum darunter neu auf,
-          // und Eingabefelder und Bildlauf verloeren ihren Stand.
-          if (_vonThema != null)
-            ChiffreSchleier(
-              fortschritt: _wechsel.value,
-              farbe: p.accLight,
-              hauch: p.bg,
-              chiffre: _thema.chiffre,
-              titel: _thema.nameIn(lang).toUpperCase(),
-              schrift: _thema.monoSchrift,
-            ),
         ]),
       )),
     );
