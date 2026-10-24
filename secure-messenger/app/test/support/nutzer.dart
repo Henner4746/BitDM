@@ -74,10 +74,13 @@ class Nutzer {
   }
 
   /// Wartet, bis [pruefung] zutrifft, statt blind zu schlafen.
-  static Future<bool> warteBis(bool Function() pruefung,
+  ///
+  /// [pruefung] darf auch selbst warten — fuer Fragen, die nur der Kern
+  /// beantworten kann, etwa `getReaktionen`.
+  static Future<bool> warteBis(FutureOr<bool> Function() pruefung,
       {Duration frist = const Duration(seconds: 20)}) async {
     final ende = DateTime.now().add(frist);
-    while (!pruefung() && DateTime.now().isBefore(ende)) {
+    while (!await pruefung() && DateTime.now().isBefore(ende)) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     return pruefung();

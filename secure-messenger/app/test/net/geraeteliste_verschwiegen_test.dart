@@ -13,6 +13,13 @@
 // Geraeteschluessel —, damit jeder Umschlag wirklich ver- und entschluesselt
 // wird und kein Test an einer Abkuerzung vorbei gruen wird.
 
+// DIE FRIST FUER JEDEN TEST DIESER DATEI, der keine eigene hat. Sie bauen
+// echte Kerne auf und reden ueber einen Relay; auf dem Windows-Runner der CI
+// brauchten solche Tests bis zu 35 s, voreingestellt sind 30 (CI-Laeufe bis
+// 24.10.2026). Dieselben 3 Minuten wie bei den Tests, die eine eigene haben.
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

@@ -6,6 +6,13 @@
 // Sicherung, die alte Sitzungen mitbraechte, wuerde genau hier still
 // Nachrichten kosten — deshalb bringt sie keine mit.
 
+// DIE FRIST FUER JEDEN TEST DIESER DATEI, der keine eigene hat. Sie bauen
+// echte Kerne auf und reden ueber einen Relay; auf dem Windows-Runner der CI
+// brauchten solche Tests bis zu 35 s, voreingestellt sind 30 (CI-Laeufe bis
+// 24.10.2026). Dieselben 3 Minuten wie bei den Tests, die eine eigene haben.
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -72,7 +79,14 @@ void main() {
     expect(await Nutzer.warteBis(() => alice.eingang.any((m) => m.id == vonBob.id)),
         isTrue);
     await bob.core.reagiere(alice.core.myId, vonAlice.id, '👍');
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    // SIE MUSS BEI ALICE SEIN, BEVOR SIE SICHERT — unten wird sie in der
+    // Sicherung erwartet. Bis 24.10.2026 stand hier eine Pause von 500 ms.
+    expect(
+        await Nutzer.warteBis(() async =>
+            (await alice.core.getReaktionen(bob.core.myId))[vonAlice.id] !=
+            null),
+        isTrue,
+        reason: 'Bobs Reaktion kam bei Alice nie an');
 
     final woerter = await alice.core.getRecoveryPhrase();
     final sicherung = await alice.core.erstelleSicherung();
