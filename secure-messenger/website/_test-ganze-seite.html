@@ -1,0 +1,2183 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta name="robots" content="noindex,nofollow">
+<meta charset="utf-8">
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  RICHTUNGSVERTRAG — BitDM Startseite
+
+  THESIS      Die Seite ist die Frontplatte eines Signalgeraets, nicht die
+              Werbeseite einer App. Sie verweigert das Kategorie-Uebliche:
+              Handy-Mockups, Feature-Kaertchen, Vertrauens-Logos. Was ein
+              Gerät kann, liest man an seinen Anzeigen ab.
+  OWN-WORLD   Nocturne, geerbt aus App und Prototyp. Grund #0b0c12, Module
+              #161826, EIN violetter Akzent, der nur Anzeigen zuendet.
+              Doto (Punktmatrix) ausschliesslich für Anzeigen, Chivo Mono
+              versal und gesperrt für eingebrannte Beschriftungen.
+  STORY       Besucher versteht: die Adresse IST der Schlüssel, es gibt kein
+              Konto. Er glaubt es, weil die Seite auch zeigt, was der Server
+              trotzdem sieht. Er laedt die App oder liest den Quellcode.
+  FIRST VIEWPORT  Eine Punktmatrix-Anzeige über die volle Breite zeigt eine
+              56-stellige Adresse in 14 Gruppen. Darunter die Erklärung,
+              darunter die Bedienleiste mit den drei Bezugswegen.
+  FORM        Gerätefeld — Kandidat 5 der Strukturliste, per concept-seed
+              zugeteilt (key 626891dd). Staging: die durchlaufende Zeile aus
+              dem Step-Row-Challenger, uebersetzt in die Adressanzeige.
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<!-- DER SPRACHBLITZ, und warum dieses Stueck Skript ganz oben steht.
+     setLang() liegt am Dateiende. Bei kaltem Zwischenspeicher oder auf einem
+     langsamen Gerät zeichnet der Browser die deutsche Fassung fertig, BEVOR
+     der Umschalter laeuft — wer Englisch eingestellt hat, sieht die Seite
+     einmal auf Deutsch aufblitzen. Das war die lauteste Bewegung der ganzen
+     Seite, und entworfen hat sie niemand.
+     Hier wird nur das Attribut gesetzt, bevor irgendetwas gezeichnet ist. Der
+     Rest bleibt unten. Ohne JavaScript ändert sich nichts: Deutsch steht im
+     html-Tag und bleibt stehen. -->
+<script>
+(function () {
+  try {
+    var l = localStorage.getItem('bitdm-lang');
+  } catch (e) {}
+  // ENGLISCH IST DER STANDARD (seit 27.09.2026), auch fuer deutsche Browser.
+  // Deutsch nur, wer es mit dem Umschalter waehlt — die Wahl bleibt gemerkt.
+  if (l !== 'de' && l !== 'en') l = 'en';
+  var r = document.documentElement;
+  r.setAttribute('data-lang', l);
+  r.setAttribute('lang', l);
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>[TEST] BitDM — Encrypted messenger, no phone number, no account</title>
+<meta name="description" content="Free end-to-end encrypted messenger without phone number, e-mail or username. Your address is your public key. Signal protocol (libsignal): X3DH over Curve25519, Double Ratchet, AES-256, AES-256-GCM for attachments. Works over Bluetooth without internet. Open source under AGPL-3.0.">
+<link rel="canonical" href="https://bitdm.net/">
+<!-- LINKVORSCHAU UND MASCHINENLESBARE BESCHREIBUNG (seit 27.09.2026).
+     Ein Audit ("AI Visibility") fand: nichts im Code sagt einer Maschine, dass
+     BitDM ein verschluesselter Messenger ist — wer die Seite automatisch liest,
+     muss raten. Darum Open Graph fuer Vorschaukarten und schema.org als JSON-LD.
+     JSON-LD ist ein Datenblock, kein Skript: der Browser fuehrt ihn nicht aus.
+     softwareVersion zieht der Release-Ersatz (1.x.y) mit hoch. Keine
+     Personendaten — Herausgeber ist das Projekt, nicht ein Mensch. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="BitDM">
+<meta property="og:url" content="https://bitdm.net/">
+<meta property="og:title" content="BitDM — Encrypted messenger, no phone number, no account">
+<meta property="og:description" content="End-to-end encrypted messenger without phone number, e-mail or username. Your address is your public key. Signal protocol, open source (AGPL-3.0), for Android, Windows, Linux and the browser.">
+<meta property="og:image" content="https://bitdm.net/bilder/icon-180.png">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="de_DE">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://bitdm.net/#website",
+      "url": "https://bitdm.net/",
+      "name": "BitDM",
+      "inLanguage": ["de", "en"],
+      "publisher": {"@id": "https://bitdm.net/#projekt"}
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://bitdm.net/#projekt",
+      "name": "BitDM",
+      "url": "https://bitdm.net/",
+      "logo": "https://bitdm.net/bilder/icon-180.png",
+      "sameAs": ["https://github.com/Henner4746/BitDM"]
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://bitdm.net/#app",
+      "name": "BitDM",
+      "alternateName": "BitDM Messenger",
+      "url": "https://bitdm.net/",
+      "description": "BitDM is an end-to-end encrypted messenger without phone number, e-mail or username: your address is your public key. It uses the Signal protocol (libsignal: X3DH over Curve25519, Double Ratchet, AES-256), encrypts attachments with AES-256-GCM, works over a relay, over Tor and directly between nearby phones via Bluetooth without internet. Open source under AGPL-3.0.",
+      "applicationCategory": "CommunicationApplication",
+      "applicationSubCategory": "Encrypted messenger",
+      "operatingSystem": "Android, Windows, Linux, Web browser",
+      "softwareVersion": "1.9.1",
+      "downloadUrl": "https://github.com/Henner4746/BitDM/releases/latest",
+      "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+      "isAccessibleForFree": true,
+      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"},
+      "featureList": [
+        "No phone number, no e-mail, no account",
+        "End-to-end encryption with the Signal protocol",
+        "Encrypted attachments, voice messages, groups, polls",
+        "Nearby messaging over Bluetooth without internet",
+        "Optional Tor routing, relay reachable as onion service",
+        "Remote wipe by trusted contacts, panic word",
+        "Window hidden from screenshots, screen recordings and Discord streams (Android, Windows)"
+      ],
+      "keywords": "encrypted messenger, end-to-end encryption, private messenger, no phone number, Signal protocol, open source messenger, Threema alternative, WhatsApp alternative, Bluetooth messenger, Tor",
+      "publisher": {"@id": "https://bitdm.net/#projekt"},
+      "sameAs": ["https://github.com/Henner4746/BitDM"]
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "FAQPage",
+ "@id": "https://bitdm.net/#faq",
+ "mainEntity": [
+  {
+   "@type": "Question",
+   "name": "What is BitDM?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "A free, open-source messenger with end-to-end encryption. You need no phone number, no e-mail and no username: your address is your public key."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is there a messenger that works without a phone number?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes. BitDM never asks for a number, e-mail or name and never uploads your address book. You add contacts by their address or a QR code."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is BitDM an alternative to WhatsApp, Signal or Threema?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How much does BitDM cost?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Nothing. No ads, no tracking, no subscription."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How secure is BitDM?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What can the server see?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No content and no names. It sees which address writes to which, when, and the rough size. To hide that too, turn on Tor or use nearby mode over Bluetooth."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Does BitDM work without internet?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, between nearby phones over Bluetooth (Android 12 or newer). With “Nearby only” the app never contacts a server at all."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Which devices does BitDM run on?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Android, Windows, Linux and in the browser at bitdm.net/app. There is no iPhone or Mac version yet."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What happens if I lose my phone?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Your twelve words bring your identity back on a new device. The old phone stays signed in: with the app lock on it receives nothing until someone unlocks it, without it it keeps receiving until trusted contacts you chose beforehand wipe it (with /wipe or a code word you pick yourself), or until the relay drops it after 30 days without a connection. If it was taken unlocked, a new identity is safer."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can others see my chats when I share my screen?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. With screenshot protection the BitDM window is missing from screenshots, recordings and streams, including Discord and OBS (Android and Windows). In the browser this is technically impossible."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What if someone forces me to unlock the app?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Set a panic word. Typed on the lock screen instead of your password, it silently wipes everything and the app looks freshly installed."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is BitDM open source?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, app, server and tests under AGPL-3.0 on GitHub: github.com/Henner4746/BitDM."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Who is BitDM for?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "For anyone who wants to write privately without identifying themselves: people under surveillance, journalists, families, teams and anyone who does not want to hand out a phone number. BitDM is a messenger, not a commerce platform and not a subscription service."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is BitDM related to BiT DMS, BITE or Bitmanagement?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. BitDM is an encrypted messenger from Germany. BiT DMS is American dealer-management software, BITE a German recruiting-software provider, Bitmanagement makes 3D software and Bite Investments software for wealth management. The names look alike; the companies are unrelated."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Who is behind BitDM?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "BitDM is an independent open-source project from Germany. The entire source code (app, server, tests) is open under AGPL-3.0 on github.com/Henner4746/BitDM."
+   }
+  }
+ ]
+}
+</script>
+<meta name="theme-color" content="#0b0c12">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0c12'/%3E%3Cg fill='%23b5abfc'%3E%3Crect x='7' y='9' width='4' height='4'/%3E%3Crect x='14' y='9' width='4' height='4'/%3E%3Crect x='21' y='9' width='4' height='4'/%3E%3Crect x='7' y='19' width='4' height='4'/%3E%3Crect x='21' y='19' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E">
+
+<style>
+/* ─── Schriften: lokal eingebettet. Die Seite laedt nichts von Dritten. ─── */
+@font-face{font-family:'Doto';src:url('fonts/Doto.ttf') format('truetype');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Chivo Mono';src:url('fonts/ChivoMono.ttf') format('truetype');font-weight:100 900;font-display:swap}
+
+:root{
+  --ground:#0b0c12; --panel:#161826; --panel-2:#12141f;
+  --line:#3f424d; --line-soft:#272a38;
+  --lit-hi:#d2cefd; --lit:#b5abfc; --lit-mid:#9184d9;
+  --unlit:#5d5294; --unlit-deep:#423a6a;
+  /* --unlit ist ein BAUTEIL-Ton (dunkle Lampe, Rahmen), kein Textton: auf
+     Panel erreicht er nur 2.6:1. Gedaempfter Text nutzt --dim, der die
+     violette Faerbung behaelt und auf allen drei Untergruenden AA besteht. */
+  --dim:#8a80c2;
+  --ink:#f3f5fe; --body:#cfd3e5; --muted:#9397ab;
+  --r-lg:14px; --r:8px; --r-sm:4px; --r-pill:99px;
+  --rail:clamp(18px,4vw,56px);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--ground); color:var(--body);
+  font:400 16px/1.65 system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+
+/* ─── Zweisprachigkeit: ohne JavaScript bleibt Englisch sichtbar ───
+   !important ist hier kein Notnagel, sondern richtig: Sprachsichtbarkeit ist
+   eine querschnittliche Regel und darf von keiner Bauteil-Regel ueberstimmt
+   werden. Ohne das gewinnt z.B. `.mod-head .screen{display:block}` bei
+   gleicher Spezifitaet durch spaetere Position — und beide Sprachen stehen
+   gleichzeitig auf der Seite. */
+html[data-lang="de"] .en{display:none!important}
+html[data-lang="en"] .de{display:none!important}
+
+/* ─── Eine Kurve für alles ───
+   cubic-bezier(.33,1,.68,1) ist der CSS-Zwilling von 1-(1-t)^3, mit dem das
+   Skript der Adressanzeige laeuft: sofort schnell, dann auslaufend. Vorher
+   liefen die Uebergaenge auf dem Browserstandard `ease` — erst beschleunigen,
+   dann bremsen. Zwei Bewegungsgefuehle auf einer Seite, und keines davon war
+   entschieden. */
+
+/* ─── Mono nur fuer Code und Pruefwerte ─── */
+code,.cipher,.pruef dd,.field input,.dl-meta,#addr{font-family:'Chivo Mono',ui-monospace,monospace}
+/* ─── Eingebrannte Beschriftung ─── */
+.screen{
+  font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--muted);
+}
+.screen-lit{color:var(--lit-mid)}
+
+/* ─── Anzeige ─── */
+.readout{font-family:'Doto',monospace; font-weight:700; letter-spacing:.02em; color:var(--lit)}
+
+h1,h2,h3{font-family:'Doto',monospace; font-weight:700; letter-spacing:.02em;
+  text-transform:uppercase; color:var(--ink); margin:0; line-height:1.05}
+
+a{color:var(--lit)}
+a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
+
+.wrap{max-width:1180px; margin:0 auto; padding:0 var(--rail)}
+
+/* ════════════ Bezel: die obere Gehaeusekante ════════════ */
+.bezel{
+  position:sticky; top:0; z-index:40;
+  background:var(--ground);
+  border-bottom:1px solid var(--line-soft);
+  /* backdrop-filter ist hier ersatzlos gestrichen.
+     Ein Weichzeichnen über die volle Breite kostet bei JEDEM Bild waehrend
+     des Scrollens, nicht nur einmal — der einzige dauerhafte Verbraucher der
+     ganzen Seite. Der Balken ist ohnehin fast deckend; zu sehen war davon
+     kaum etwas. */
+}
+.bezel-in{display:flex; align-items:center; gap:20px; height:58px}
+.mark{display:flex; align-items:baseline; gap:10px; margin-right:auto; text-decoration:none}
+.mark-name{font-family:'Doto',monospace; font-weight:700; font-size:21px;
+  letter-spacing:.04em; color:var(--ink); text-transform:uppercase}
+.mark-rev{font:500 11px/1 'Chivo Mono',monospace; letter-spacing:.16em;
+  color:var(--dim); text-transform:uppercase}
+
+/* Kippschalter für die Sprache — ein echtes Bedienelement, kein Link */
+.toggle{display:flex; border:1px solid var(--line); border-radius:var(--r-pill);
+  padding:2px; background:var(--panel-2)}
+
+/* Der Knopf FAEHRT zwischen DE und EN, statt dass eine Farbe springt.
+   Die einzige Bewegung auf dieser Seite, die keinen Fehler behebt — sie ist
+   die Antwort auf einen Druck und sagt, welcher der beiden Zustaende gerade
+   gilt, ohne dass man die Farben vergleichen muss.
+   Nur transform, kein Layout. */
+.toggle{position:relative}
+.toggle::before{
+  content:''; position:absolute; z-index:0;
+  top:3px; bottom:3px; left:3px; width:calc(50% - 3px);
+  border-radius:var(--r-pill); background:var(--unlit-deep);
+  transform:translateX(0);
+  transition:transform .18s cubic-bezier(.33,1,.68,1);
+}
+html[data-lang="en"] .toggle::before{transform:translateX(100%)}
+.toggle button{position:relative; z-index:1}
+
+.toggle button{
+  appearance:none; border:0; background:transparent; cursor:pointer;
+  padding:5px 11px; border-radius:var(--r-pill); color:var(--muted);
+  font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s cubic-bezier(.33,1,.68,1), background .18s cubic-bezier(.33,1,.68,1);
+}
+.toggle button:hover{color:var(--body)}
+/* KEIN Hintergrund mehr an der Taste selbst — den faehrt jetzt
+   .toggle::before. Beides zugleich waere ein Kasten unter einem Kasten, und
+   beim Fahren saehe man den alten noch stehen. */
+.toggle button[aria-pressed="true"]{color:var(--lit-hi)}
+
+.src-link{
+  display:inline-flex; align-items:center; gap:8px; text-decoration:none;
+  color:var(--muted); font:600 11px/1 'Chivo Mono',monospace;
+  letter-spacing:.14em; text-transform:uppercase; transition:color .18s cubic-bezier(.33,1,.68,1);
+}
+.src-link:hover{color:var(--lit)}
+@media (max-width:640px){.src-link{display:none}}
+
+/* ════════════ Hauptanzeige ════════════ */
+.display-mod{padding:clamp(44px,7vw,88px) 0 clamp(30px,4vw,44px)}
+
+.display{
+  position:relative; border:1px solid var(--line); border-radius:var(--r-lg);
+  background:
+        radial-gradient(circle at 1px 1px, rgba(66,58,106,.55) 1px, transparent 1.6px) 0 0/9px 9px,
+    #0e1019;
+  padding:clamp(22px,3.6vw,40px) clamp(16px,3vw,36px) clamp(18px,2.6vw,28px);
+  box-shadow:none;
+  overflow:hidden;
+}
+.display::after{  /* Glasabdeckung der Anzeige */
+    content:none;
+}
+.display-head{display:flex; align-items:center; gap:12px; margin-bottom:clamp(16px,2.4vw,24px);
+  flex-wrap:wrap}
+.display-head .screen{white-space:nowrap}
+.rule{flex:1; min-width:24px; height:1px; background:var(--line-soft)}
+/* Auf schmalen Geräten traegt die lange deutsche Beschriftung nicht mehr
+   neben Trennlinie und Zusatz — dann faellt der Zusatz weg statt zu ueberlaufen. */
+@media (max-width:520px){
+  .display-head .screen:not(.screen-lit){display:none}
+  .display-head .rule{display:none}
+}
+
+/* Die durchlaufende Zeile: 14 Gruppen a 4 Zeichen */
+#addr{
+  display:flex; flex-wrap:wrap; gap:clamp(9px,1.5vw,18px);
+  font-size:clamp(15px,3.4vw,30px);
+  word-break:keep-all;
+}
+#addr .grp{display:flex; gap:.09em}
+#addr .ch{
+  color:var(--lit);
+  transition:color .12s cubic-bezier(.33,1,.68,1);
+}
+#addr .ch.scramble{color:var(--dim); text-shadow:none}
+
+.display-foot{
+  display:flex; flex-wrap:wrap; align-items:center; gap:14px;
+  margin-top:clamp(18px,2.6vw,26px); padding-top:16px;
+  border-top:1px solid var(--line-soft);
+}
+.regen{
+  appearance:none; cursor:pointer; background:var(--panel);
+  border:1px solid var(--line); border-radius:var(--r);
+  color:var(--body); padding:9px 15px;
+  font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  transition:border-color .18s cubic-bezier(.33,1,.68,1), color .18s cubic-bezier(.33,1,.68,1), background .18s cubic-bezier(.33,1,.68,1);
+}
+.regen:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
+.regen:active{background:#101220}
+
+/* ════════════ These ════════════ */
+.thesis{padding:clamp(30px,5vw,54px) 0 clamp(24px,4vw,40px); max-width:68ch}
+.thesis h1{font-size:clamp(26px,5.2vw,46px); margin-bottom:22px}
+.thesis p{font-size:clamp(15px,1.9vw,18px); line-height:1.7; color:var(--body); margin:0 0 16px}
+.thesis strong{color:var(--lit-hi); font-weight:600}
+
+/* ════════════ Herunterladen ════════════
+   Eine Karte je Plattform. Die ERSTE ist die grosse: ohne Skript Android,
+   sonst das Geraet, mit dem man gerade hier ist (Skript unter der Sektion).
+   Kein Laempchen mehr: jede Karte hier fuehrt zu etwas, das man laden kann,
+   ein Licht wuerde nichts unterscheiden. */
+/* NUR oben und unten: die Kurzschreibweise `padding:a 0 b` naehme .wrap den
+   seitlichen Rand, und die Karten klebten am Bildschirmrand. */
+.dl-bereich{padding-top:clamp(30px,5vw,54px); padding-bottom:clamp(40px,6vw,72px)}
+.dl-titel{font-size:clamp(20px,3.4vw,31px); margin-bottom:clamp(18px,2.6vw,26px)}
+/* Unter der grossen Karte stehen immer genau drei: darum feste Spalten statt
+   auto-fit, das bei 1180 px eine vierte, leere Spalte anlegte. */
+.dl-liste{display:grid; gap:14px; grid-template-columns:1fr}
+@media (min-width:640px){.dl-liste{grid-template-columns:repeat(2,1fr)}}
+/* Bei zwei Spalten bliebe neben der vierten Karte ein Loch. */
+@media (min-width:640px) and (max-width:959px){.dl:nth-child(4){grid-column:1/-1}}
+@media (min-width:960px){.dl-liste{grid-template-columns:repeat(3,1fr)}}
+.dl{border:1px solid var(--line-soft); border-radius:var(--r-lg); background:var(--panel);
+  padding:20px; display:flex; flex-direction:column; gap:12px; min-width:0}
+.dl-kopf{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+.dl h3{font-size:18px}
+.dl-meta{margin:0; font-size:12px; line-height:1.5; color:var(--dim)}
+.dl-text{margin:0; font-size:13px; line-height:1.6; color:var(--muted)}
+.dl .act{display:flex; flex-direction:column; gap:8px}
+.dl:first-child{grid-column:1/-1; border-color:var(--line); padding:clamp(20px,3vw,30px)}
+.dl:first-child h3{font-size:clamp(22px,3.2vw,28px)}
+.dl:first-child .dl-meta{font-size:13px}
+.dl:first-child .dl-text{font-size:14.5px; color:var(--body); max-width:66ch}
+@media (min-width:640px){
+  .dl:first-child .act{flex-direction:row; flex-wrap:wrap}
+  .dl:first-child .btn{width:auto; min-width:230px}
+}
+.dl-dein-marke{display:none; font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--lit-mid)}
+.dl-dein .dl-dein-marke{display:inline}
+.dl-nur{display:none}
+html[data-geraet="ios"] .dl-nur[data-fuer="ios"],
+html[data-geraet="mac"] .dl-nur[data-fuer="mac"]{display:block}
+
+/* Pruefwerte zum Aufklappen */
+.pruef-auf{border-top:1px solid var(--line-soft); padding-top:8px}
+.pruef-auf summary{cursor:pointer; list-style:none; display:flex; align-items:center; gap:9px;
+  padding:6px 0; font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted); transition:color .18s cubic-bezier(.33,1,.68,1)}
+.pruef-auf summary::-webkit-details-marker{display:none}
+.pruef-auf summary::before{content:'+'; color:var(--lit); width:1ch}
+.pruef-auf[open] summary::before{content:'\2013'}
+.pruef-auf summary:hover{color:var(--body)}
+.pruef-auf summary:focus-visible{outline:2px solid var(--lit); outline-offset:3px; border-radius:var(--r-sm)}
+.pruef-auf .pruef{margin-top:6px}
+.pruef-auf .hint{margin-top:12px}
+.pruef .befehl{display:block; margin-top:3px; color:var(--dim)}
+
+/* Laempchen: nur noch im Abschnitt "Was der Server sieht". */
+.lamp{width:8px; height:8px; border-radius:var(--r-pill); flex:none;
+  background:var(--unlit-deep); box-shadow:none}
+.lamp.on{background:var(--lit)}
+
+.dl-fehlt{margin:16px 0 0; font-size:13px; color:var(--muted)}
+.dl-bescheid{margin-top:clamp(24px,3.4vw,34px); padding-top:clamp(20px,3vw,26px);
+  border-top:1px solid var(--line-soft); display:grid; gap:12px; max-width:640px}
+.dl-bescheid p{margin:0; font-size:13.5px; line-height:1.6; color:var(--muted)}
+
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:9px;
+  width:100%; padding:12px 16px; border-radius:var(--r);
+  font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+  text-decoration:none; cursor:pointer; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--body);
+  transition:border-color .18s cubic-bezier(.33,1,.68,1), color .18s cubic-bezier(.33,1,.68,1), background .18s cubic-bezier(.33,1,.68,1), box-shadow .18s cubic-bezier(.33,1,.68,1);
+}
+.btn:hover{border-color:var(--unlit); color:var(--lit-hi); background:#1b1d2e}
+.btn-primary{background:var(--unlit-deep); border-color:var(--unlit); color:var(--lit-hi)}
+.btn-primary:hover{background:#4d4482}
+.btn[aria-disabled="true"]{
+  cursor:not-allowed; color:var(--dim); border-style:dashed;
+  border-color:var(--line-soft); background:transparent;
+}
+.btn[aria-disabled="true"]:hover{color:var(--dim); background:transparent; border-color:var(--line-soft)}
+
+.field{display:flex; gap:8px}
+.field input{
+  flex:1; min-width:0; background:var(--panel-2); border:1px solid var(--line);
+  border-radius:var(--r); padding:11px 13px; color:var(--ink);
+  font:400 13px/1 'Chivo Mono',monospace;
+}
+.field input::placeholder{color:var(--muted)}
+.field input:hover{border-color:var(--unlit-deep)}
+.schirme{display:grid; gap:26px; grid-template-columns:1fr; margin:26px 0 0;
+  justify-content:center}
+@media(min-width:720px){.schirme{grid-template-columns:repeat(2,290px);
+  align-items:start; gap:34px}}
+/* Ein Handy-Bildschirm muss wie ein Handy aussehen. Ohne Deckel zieht das Raster
+   ihn auf 580 px auf, und die Schrift darin wird größer als die der Seite. */
+.schirme figure{margin:0 auto; max-width:290px}
+.schirme img{display:block; width:100%; height:auto; border-radius:var(--r-lg);
+  border:1px solid var(--line)}
+.schirme figcaption{margin:9px 2px 0; font-size:11.5px; line-height:1.55;
+  color:var(--muted)}
+.pruef{margin:18px 0 0}
+.pruef dt{margin:14px 0 4px; font-size:11px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--muted)}
+.pruef dd{margin:0; font-size:11.5px; line-height:1.7; color:var(--muted)}
+/* Ein 64-Zeichen-Hash sprengt sonst jedes Telefon und darf darum mitten im
+   Zeichen brechen. Der Befehl daneben NICHT: sonst haengt ein einzelnes "b"
+   von "bitdm-1.5.1.apk" allein in der naechsten Zeile. Der bricht an Leer-
+   zeichen, wie Text das tut. */
+.pruef dd > code:first-child{word-break:break-all}
+.pruef dd{overflow-wrap:break-word}
+.hint{font-size:11.5px; line-height:1.55; color:var(--muted); margin:0}
+
+/* ════════════ Module ════════════ */
+.mod{border-top:1px solid var(--line-soft); padding:clamp(46px,7vw,86px) 0}
+.mod-head{margin-bottom:clamp(24px,3.6vw,38px)}
+.mod-head .screen{display:block; margin-bottom:13px}
+.mod-head h2{font-size:clamp(20px,3.4vw,31px); max-width:22ch}
+.mod-head p{margin:14px 0 0; max-width:64ch; color:var(--muted); font-size:14.5px; line-height:1.7}
+
+/* Was der Server sieht — zwei Anzeigen nebeneinander */
+.split{display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+.pane{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel-2); overflow:hidden}
+.pane-head{display:flex; align-items:center; gap:9px; padding:13px 17px; border-bottom:1px solid var(--line-soft)}
+.pane-body{padding:17px; font-size:13px; line-height:1.75}
+.plain{color:var(--lit-hi)}
+.cipher{color:var(--dim); word-break:break-all; font-size:11.5px; line-height:1.8}
+
+.sees{list-style:none; margin:20px 0 0; padding:0; display:grid; gap:1px;
+  border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--line-soft)}
+.sees li{display:flex; align-items:center; gap:12px; padding:13px 17px; background:var(--panel)}
+.sees .what{flex:1; font-size:13.5px; color:var(--body)}
+.sees .verdict{font:600 11px/1 'Chivo Mono',monospace; letter-spacing:.13em; text-transform:uppercase}
+.sees .yes .verdict{color:var(--lit)}
+.sees .no  .verdict{color:var(--muted)}
+
+/* Signalweg */
+.path{display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.step{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:19px; position:relative}
+.step .screen{display:block; margin-bottom:11px}
+.step h3{font:600 16px/1.35 inherit; font-family:inherit; text-transform:none; letter-spacing:0; margin-bottom:8px; color:var(--lit-hi)}
+.step p{margin:0; font-size:13px; line-height:1.65; color:var(--muted)}
+
+/* Wiederherstellung: die zwoelf Woerter */
+.words{display:grid; gap:9px; grid-template-columns:repeat(auto-fill,minmax(126px,1fr)); margin-top:6px}
+.word{display:flex; align-items:baseline; gap:9px; border:1px solid var(--line-soft);
+  border-radius:var(--r); background:var(--panel-2); padding:10px 13px}
+.word i{font:500 11px/1 'Chivo Mono',monospace; color:var(--dim); font-style:normal; letter-spacing:.1em}
+.word span{font-family:'Doto',monospace; font-weight:700; font-size:14px; color:var(--lit-hi); letter-spacing:.03em}
+
+/* Grenzen: die eingebrannte Typenschild-Tabelle */
+.plate{border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden}
+.plate-row{display:grid; grid-template-columns:minmax(150px,.9fr) 1.4fr;
+  gap:0; border-bottom:1px solid var(--line-soft)}
+.plate-row:last-child{border-bottom:0}
+.plate-row dt{padding:15px 17px; background:var(--panel-2); border-right:1px solid var(--line-soft);
+  font:600 11px/1.5 'Chivo Mono',monospace; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted)}
+.plate-row dd{margin:0; padding:15px 17px; background:var(--panel);
+  font-size:13.5px; line-height:1.6; color:var(--body)}
+@media (max-width:560px){
+  .plate-row{grid-template-columns:1fr}
+  .plate-row dt{border-right:0; border-bottom:1px solid var(--line-soft)}
+}
+
+/* Belege */
+.facts{display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); margin-top:8px}
+.fact{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:19px}
+.fact .num{font-family:'Doto',monospace; font-weight:700; font-size:clamp(24px,3.6vw,32px);
+  color:var(--lit); letter-spacing:.02em; display:block; margin-bottom:9px}
+.fact p{margin:0; font-size:12.5px; line-height:1.6; color:var(--muted)}
+
+/* ════════════ Fuss ════════════ */
+/* footer.wrap UND NICHT NUR footer — sonst greift nichts davon.
+   `.wrap` setzt `margin:0 auto` und `padding:0 var(--rail)`, beides
+   Kurzschreibweisen: sie setzen also auch margin-top und padding-top auf 0.
+   Eine Klasse sticht ein Element-Kennzeichen unabhaengig von der Reihenfolge,
+   damit gewann `.wrap`. Ergebnis: der Strich klebte oben am Text (gemessen
+   1 Pixel Abstand statt 38 bis 58) und stand zugleich ohne Luft unter dem
+   letzten Abschnitt.
+
+   ZWEITER PUNKT, beim Nachmessen aufgefallen: der Strich lag am Fuss über
+   die ganze Breite, waehrend der Strich der Fussnote — und jede andere Linie
+   der Seite — um den Rand eingerueckt ist. Zwei Striche im selben Block auf
+   verschiedenen Fluchten. Der Rahmen sitzt deshalb jetzt an .foot-grid, also
+   INNERHALB des Randes, und beide liegen auf einer Linie. */
+footer.wrap{padding:0 var(--rail) 44px; margin:44px auto 0}
+.foot-grid{display:flex; flex-wrap:wrap; gap:26px 40px; align-items:flex-start;
+  border-top:1px solid var(--line-soft); padding-top:clamp(38px,5vw,58px)}
+.foot-col{min-width:170px}
+.foot-col .screen{display:block; margin-bottom:13px}
+.foot-col a{display:block; color:var(--muted); text-decoration:none; font-size:13px;
+  padding:4px 0; transition:color .18s cubic-bezier(.33,1,.68,1)}
+.foot-col a:hover{color:var(--lit)}
+.foot-note{margin:34px 0 0; padding-top:22px; border-top:1px solid var(--line-soft);
+  font-size:11.5px; line-height:1.7; color:var(--muted); max-width:74ch}
+
+/* ─── Was auf Zeigen und Druecken antwortet ───
+
+   ZWEI BEWEGUNGEN, MEHR NICHT. Beide fassen nur color oder transform an —
+   nichts, was ein Layout neu rechnet — und beide sind Antworten auf eine
+   Handlung des Lesers, nicht Selbstzweck. Etwas, das von allein losläuft,
+   gibt es auf dieser Seite weiterhin nirgends. */
+
+/* Zeigt man auf eine Faktenzeile, zuendet ihre eingebrannte Beschriftung.
+   Das sind die dichtesten Stellen der Seite; die Aufhellung sagt "diese
+   Zeile", ohne dass sich irgendetwas bewegt. */
+.plate-row:hover dt{color:var(--lit-mid)}
+.sees li:hover .what{color:var(--ink)}
+.plate-row dt,
+.sees li .what{transition:color .18s cubic-bezier(.33,1,.68,1)}
+
+/* Ein Pixel auf den Druck — der Haarstrich, die kleinste Einheit, die diese
+   Platte kennt.
+
+   HINUNTER OHNE UEBERGANG, zurück in 180 ms. Die Asymmetrie ist der
+   Unterschied zwischen einem Knopf, der nachgibt, und einem, der wackelt:
+   der Druckpunkt muss sofort da sein, das Zurueckfedern darf man sehen.
+
+   :not([aria-disabled="true"]) beim Hauptknopf, weil ein Knopf, der nichts
+   tut, auch nicht so aussehen darf, als taete er etwas. */
+.regen, .toggle button, .btn{transition:transform .18s cubic-bezier(.33,1,.68,1)}
+.regen:active,
+.toggle button:active,
+.btn:not([aria-disabled="true"]):active{transform:translateY(1px); transition:none}
+
+@media (prefers-reduced-motion:reduce){
+  /* DREI ZEILEN, NICHT EINE.
+     Die Dauer allein reicht nicht: eine Animation mit
+     `animation-iteration-count: infinite` laeuft auch mit 0,01 ms
+     unendlich oft weiter und flackert dann nur schneller. Und
+     scroll-behavior gehoert dazu, weil ein weich scrollender Anker für
+     jemanden mit Bewegungsempfindlichkeit dasselbe Problem ist wie eine
+     Animation.
+     Die Datei enthaelt heute keine @keyframes. Die Regel steht trotzdem
+     vollstaendig da — sie soll gelten, bevor die erste dazukommt, nicht
+     danach. */
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:.01ms!important;
+    scroll-behavior:auto!important;
+  }
+}
+/* ─── Fragen (FAQ) ─── */
+.faq{display:grid; gap:10px}
+.faq-item{border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:0 19px}
+.faq-item summary{cursor:pointer; list-style:none; padding:16px 0; color:var(--ink);
+  font:600 15px/1.45 inherit; font-family:inherit; display:flex; justify-content:space-between; gap:14px}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::after{content:'+'; color:var(--lit); flex:none}
+.faq-item[open] summary::after{content:'–'}
+.faq-item summary:focus-visible{outline:2px solid var(--lit); outline-offset:4px; border-radius:var(--r-sm)}
+.faq-item p{margin:0 0 17px; font-size:13.5px; line-height:1.65; color:var(--body)}
+</style>
+</head>
+
+<body>
+
+<!-- ═══════════ Gehaeusekante ═══════════ -->
+<header class="bezel">
+  <div class="wrap bezel-in">
+    <a class="mark" href="#top">
+      <span class="mark-name">BitDM</span>
+      <span class="mark-rev de">Vorabversion</span>
+      <span class="mark-rev en">Pre-release</span>
+    </a>
+    <a class="src-link" href="https://github.com/Henner4746/BitDM" rel="noopener">
+      <span class="de">Quellcode</span><span class="en">Source</span>
+    </a>
+    <div class="toggle" role="group" aria-label="Sprache / Language">
+      <button type="button" data-set-lang="de" aria-pressed="false">DE</button>
+      <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<p style="margin:0;padding:10px var(--rail);background:#3a2f12;color:#f5e3b0;font:600 13px/1.4 system-ui,sans-serif">TEST: ganze Seite nach kill-ai-slop und stop-slop. Nicht live.</p>
+
+  <!-- ═══════════ Hauptanzeige ═══════════ -->
+  <section class="wrap display-mod">
+    <div class="display">
+      <div class="display-head">
+        <span class="screen screen-lit de">Adresse: öffentlicher Schlüssel</span>
+        <span class="screen screen-lit en">Address: public key</span>
+        <span class="rule"></span>
+        <span class="screen de">Beispiel</span>
+        <span class="screen en">Example</span>
+      </div>
+
+      <!-- DIE ADRESSE STEHT HIER, nicht erst im Skript.
+           Sie war bis zum 26.07.2026 leer: die 56 Zellen entstanden
+           ausschliesslich in build(). Ohne JavaScript zeigte die
+           Hauptanzeige des ersten Bildschirms damit einen leeren Kasten —
+           auf einer Seite, die zwei Abschnitte weiter unten damit wirbt,
+           ohne JavaScript zu funktionieren.
+           Das Skript ersetzt die Zeichen jetzt nur noch. Wer den Knopf
+           drueckt, bekommt eine neue; wer kein JavaScript hat, sieht
+           dieselbe wie jeder andere. Sie ist ein Beispiel und kein
+           Schlüssel — das steht in der Fussnote der Seite. -->
+      <div id="addr" role="img"
+           aria-label="Beispiel einer BitDM-Adresse: 56 Zeichen in 14 Gruppen" data-en-aria-label="Example of a BitDM address: 56 characters in 14 groups"
+        ><span class="grp"><span class="ch">m</span><span class="ch">b</span><span class="ch">m</span><span class="ch">7</span></span><span class="grp"><span class="ch">7</span><span class="ch">4</span><span class="ch">g</span><span class="ch">7</span></span><span class="grp"><span class="ch">o</span><span class="ch">w</span><span class="ch">k</span><span class="ch">l</span></span><span class="grp"><span class="ch">4</span><span class="ch">i</span><span class="ch">q</span><span class="ch">v</span></span><span class="grp"><span class="ch">p</span><span class="ch">i</span><span class="ch">7</span><span class="ch">a</span></span><span class="grp"><span class="ch">w</span><span class="ch">e</span><span class="ch">c</span><span class="ch">f</span></span><span class="grp"><span class="ch">4</span><span class="ch">h</span><span class="ch">y</span><span class="ch">c</span></span><span class="grp"><span class="ch">t</span><span class="ch">o</span><span class="ch">h</span><span class="ch">4</span></span><span class="grp"><span class="ch">z</span><span class="ch">k</span><span class="ch">7</span><span class="ch">y</span></span><span class="grp"><span class="ch">b</span><span class="ch">l</span><span class="ch">r</span><span class="ch">i</span></span><span class="grp"><span class="ch">z</span><span class="ch">l</span><span class="ch">x</span><span class="ch">w</span></span><span class="grp"><span class="ch">y</span><span class="ch">w</span><span class="ch">b</span><span class="ch">o</span></span><span class="grp"><span class="ch">c</span><span class="ch">p</span><span class="ch">g</span><span class="ch">y</span></span><span class="grp"><span class="ch">7</span><span class="ch">c</span><span class="ch">w</span><span class="ch">y</span></span></div>
+
+      <div class="display-foot">
+        <button class="regen" type="button" id="regen">
+          <span class="de">Neu erzeugen</span><span class="en">Generate again</span>
+        </button>
+        <p class="hint" style="margin:0">
+          <span class="de">Kein Konto dahinter. Diese Zeichenkette <em>ist</em> der Schlüssel.
+            Die App erzeugt ihn auf dem Gerät, in einer Zehntelsekunde, ohne einen
+            Server zu fragen.</span>
+          <span class="en">There is no account behind it: this string <em>is</em> the
+            key. The app generates it on the device, in a fraction of a second,
+            without asking any server.</span>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ These ═══════════ -->
+  <section class="wrap thesis">
+    <h1>
+      <span class="de">Deine Identität<br>passt in<br>56 Zeichen</span>
+      <span class="en">Your identity<br>fits into<br>56 characters</span>
+    </h1>
+    <p class="de">
+      Die meisten Messenger fragen zuerst nach deiner Telefonnummer. BitDM fragt
+      nach gar nichts. Beim ersten Start erzeugt die App ein Schlüsselpaar. Die
+      Adresse oben ist der öffentliche Teil davon, lesbar kodiert und mit einer
+      Prüfsumme gegen Vertipper.
+    </p>
+    <p class="de">
+      Darum <strong>kann dir kein Server einen falschen Schlüssel
+      unterschieben:</strong> er müsste die Adresse ändern, und die hast du schon.
+    </p>
+    <p class="de">
+      Verschlüsselt wird mit <strong>libsignal</strong>, derselben Bibliothek,
+      die Signal benutzt, mit <strong>AES 256 Bit</strong> für jede Nachricht.
+      Weiter unten steht Zeile für Zeile, was darin steckt.
+    </p>
+    <p class="en">
+      Most messengers ask for your phone number first. BitDM asks for nothing at
+      all. On first launch the app generates a key pair. The address above is
+      its public half, readably encoded and carrying a checksum against typos.
+    </p>
+    <p class="en">
+      So <strong>no server can slip you the wrong key:</strong> it would have to
+      change the address, and you already have it.
+    </p>
+    <p class="en">
+      The encryption is <strong>libsignal</strong>, the same library Signal
+      uses, with <strong>AES 256-bit</strong> for every message. Further down,
+      each part is listed line by line.
+    </p>
+  </section>
+
+  <!-- ═══════════ Herunterladen ═══════════
+       SEIT 15.10.2026 EINE KARTE JE PLATTFORM, DAS EIGENE GERAET ZUERST.
+       Vorher standen acht gleich grosse Kaesten untereinander, auf dem Telefon
+       3 500 Pixel lang, darunter zwei fuer Dinge, die es gar nicht gibt (Google
+       Play, macOS). Wer mit Android kam, las erst ueber Windows-Zertifikate.
+
+       Jetzt: das Skript direkt unter dieser Sektion erkennt das Geraet und
+       schiebt dessen Karte nach vorn; die erste Karte ist immer die grosse.
+       OHNE JAVASCRIPT bleibt die Reihenfolge, wie sie hier steht: Android,
+       Windows, Linux, Browser. iPhone und Mac bekommen die Browser-Karte mit
+       einem Satz dazu, weil es fuer sie keine App gibt.
+
+       Die Pruefwerte stehen in <details>: wer pruefen will, klappt sie auf; wer
+       nur laden will, sieht zwei Knoepfe und einen Satz.
+
+       BEIM NEUEN RELEASE: Dateinamen, Groessen und Pruefwerte in allen vier
+       Karten nachziehen. Die Messwerte zu Windows stehen im Kommentar dort. -->
+  <section class="wrap dl-bereich" id="download" aria-labelledby="dl-titel">
+    <h2 id="dl-titel" class="dl-titel">
+      <span class="de">Herunterladen</span><span class="en">Download</span>
+    </h2>
+
+    <div class="dl-liste">
+
+      <article class="dl" data-plattform="android">
+        <div class="dl-kopf">
+          <h3>Android</h3>
+          <span class="dl-dein-marke"><span class="de">Dein Gerät</span><span class="en">Your device</span></span>
+        </div>
+        <p class="dl-meta">
+          <span class="de">Version 1.9.1 · 47 MB · ab Android 9</span>
+          <span class="en">Version 1.9.1 · 47 MB · Android 9 or newer</span>
+        </p>
+        <div class="act">
+          <a class="btn btn-primary" href="bitdm-1.9.1.apk" download>
+            <span class="de">APK herunterladen</span><span class="en">Download APK</span>
+          </a>
+          <!-- OBTAINIUM: direkt obtainium:// und NICHT ueber die
+               Weiterleitungsseite apps.obtainium.imranr.dev, weil diese Seite
+               niemanden ueber Dritte schickt. Ohne Obtainium tut der Knopf
+               nichts; der Satz darunter sagt, was es ist. -->
+          <a class="btn" href="obtainium://app/%7B%22id%22%3A%22com.bitdm.bitdm%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FHenner4746%2FBitDM%22%2C%22author%22%3A%22Henner4746%22%2C%22name%22%3A%22BitDM%22%7D">
+            <span class="de">In Obtainium hinzufügen</span><span class="en">Add to Obtainium</span>
+          </a>
+        </div>
+        <p class="dl-text">
+          <span class="de">Android warnt beim Installieren, weil Google das Zertifikat
+            nicht kennt. Ob du die echte Datei hast, zeigen dir die Prüfwerte.
+            <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
+            holt neue Fassungen von selbst. Bei F-Droid ist BitDM
+            <a href="https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566" rel="noopener">beantragt</a>.</span>
+          <span class="en">Android warns you when installing because Google does not
+            know the certificate. The check values tell you whether you have the
+            real file. <a href="https://github.com/ImranR98/Obtainium" rel="noopener">Obtainium</a>
+            fetches new versions by itself. BitDM is
+            <a href="https://gitlab.com/fdroid/fdroiddata/-/merge_requests/52566" rel="noopener">pending</a>
+            at F-Droid.</span>
+        </p>
+        <details class="pruef-auf">
+          <summary><span class="de">Prüfwerte</span><span class="en">Check values</span></summary>
+          <dl class="pruef">
+            <dt><span class="de">Diese Datei</span><span class="en">This file</span></dt>
+            <dd><code>7b69794fca313b9033b233be8be6a3635610ff9b534327fb3ef4a64e05e7ded5</code>
+              <code class="befehl">sha256sum bitdm-1.9.1.apk</code></dd>
+            <dt><span class="de">Der Schlüssel, mit dem sie signiert ist</span>
+                <span class="en">The key it is signed with</span></dt>
+            <dd><code>e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063</code>
+              <code class="befehl">apksigner verify --print-certs bitdm-1.9.1.apk</code></dd>
+          </dl>
+          <p class="hint">
+            <span class="de">Der erste Wert gilt für diese Datei, der zweite für alle
+              künftigen. Android nimmt ein Update nur mit demselben Schlüssel an.
+              Ändert sich dieser Wert, hast du eine andere App vor dir.</span>
+            <span class="en">The first value covers this file, the second covers every
+              future one. Android accepts an update only with the same key. If that
+              value changes, you are looking at a different app.</span>
+          </p>
+        </details>
+      </article>
+
+      <!-- WINDOWS. GEMESSEN AM 15.10.2026 (1.9.1), damit spaeter niemand raten muss:
+             Zip       releases/1.9.1/bitdm-windows-1.9.1.zip, 16 566 719 Byte = 15,8 MiB
+                       ("16 MB"), entpackt 38 955 329 Byte ueber 24 Eintraege.
+             Installer bitdm-windows-setup-1.9.1.exe, 13 705 137 Byte ("13 MB"),
+                       gebaut mit Inno Setup aus windows/bitdm.iss.
+           Der Pruefwert gilt fuer GENAU diese Datei. Wer ein neues Zip hierher
+           legt, MUSS ihn neu messen, sonst behauptet die Seite eine Pruefsumme,
+           die nicht zur Datei gehoert. -->
+      <article class="dl" data-plattform="windows">
+        <div class="dl-kopf">
+          <h3>Windows</h3>
+          <span class="dl-dein-marke"><span class="de">Dein Gerät</span><span class="en">Your device</span></span>
+        </div>
+        <p class="dl-meta">
+          <span class="de">Version 1.9.1 · x64 · Installer 13 MB, Zip 16 MB</span>
+          <span class="en">Version 1.9.1 · x64 · installer 13 MB, zip 16 MB</span>
+        </p>
+        <div class="act">
+          <a class="btn btn-primary" href="bitdm-windows-setup-1.9.1.exe" download>
+            <span class="de">Installer herunterladen</span><span class="en">Download installer</span>
+          </a>
+          <a class="btn" href="bitdm-windows-1.9.1.zip" download>
+            <span class="de">Zip herunterladen</span><span class="en">Download zip</span>
+          </a>
+        </div>
+        <p class="dl-text">
+          <span class="de">Der Installer braucht keine Adminrechte und richtet BitDM
+            nur für deinen Benutzer ein. Windows warnt beim ersten Start, weil die
+            Datei nicht signiert ist; ein Zertifikat dafür kostet jedes Jahr Geld.
+            Was am PC anders läuft als am Telefon, steht <a href="#desktop">weiter unten</a>.</span>
+          <span class="en">The installer needs no admin rights and sets BitDM up for
+            your user only. Windows warns on first start because the file is not
+            signed; a certificate for that costs money every year. What works
+            differently on a PC than on a phone is <a href="#desktop">further down</a>.</span>
+        </p>
+        <details class="pruef-auf">
+          <summary><span class="de">Prüfwerte</span><span class="en">Check values</span></summary>
+          <dl class="pruef">
+            <dt>Installer</dt>
+            <dd><code>3a79ba7e27ffcb6587a5f01f272b102cbe3b20e53ed59a69fbbc406b76362b7f</code>
+              <code class="befehl">certutil -hashfile bitdm-windows-setup-1.9.1.exe SHA256</code></dd>
+            <dt>Zip</dt>
+            <dd><code>aa8fc2a5bd1f717bd87e62d4829ebe523845c0375f4b9991289bd92958acce02</code>
+              <code class="befehl">certutil -hashfile bitdm-windows-1.9.1.zip SHA256</code></dd>
+          </dl>
+          <p class="hint">
+            <span class="de">Jeder Wert gilt nur für seine eine Datei. Einen Wert, der
+              über alle Versionen gleich bleibt, gibt es unter Windows erst mit einer
+              Signatur.</span>
+            <span class="en">Each value covers its one file only. A value that stays
+              the same across versions needs a signature on Windows.</span>
+          </p>
+        </details>
+      </article>
+
+      <!-- LINUX. Gebaut auf einem Ubuntu-22.04-Runner von GitHub
+           (.github/workflows/linux.yml, ausgeloest vom Versions-Tag), der das
+           Paket an den Release haengt. Hier liegt es nicht, darum fuehrt der
+           Knopf zum Release. Gestartet hat dieses Paket noch niemand; der Text
+           sagt das. -->
+      <article class="dl" data-plattform="linux">
+        <div class="dl-kopf">
+          <h3>Linux</h3>
+          <span class="dl-dein-marke"><span class="de">Dein Gerät</span><span class="en">Your device</span></span>
+        </div>
+        <p class="dl-meta">
+          <span class="de">Version 1.9.1 · x64 · braucht GTK 3 und libsecret</span>
+          <span class="en">Version 1.9.1 · x64 · needs GTK 3 and libsecret</span>
+        </p>
+        <div class="act">
+          <a class="btn btn-primary" href="https://github.com/Henner4746/BitDM/releases/tag/v1.9.1">
+            <span class="de">Paket auf GitHub</span><span class="en">Package on GitHub</span>
+          </a>
+        </div>
+        <p class="dl-text">
+          <span class="de">GitHub baut das Paket aus diesem Quellcode. Auspacken,
+            <code>./bitdm</code> starten. Ausprobiert hat es noch niemand; selbst bauen
+            erklärt <code>docs/LINUX.md</code>.</span>
+          <span class="en">GitHub builds the package from this source. Unpack
+            it and run <code>./bitdm</code>. Nobody has tried it yet; to build it
+            yourself, see <code>docs/LINUX.md</code>.</span>
+        </p>
+      </article>
+
+      <!-- WEB-APP unter /app/: derselbe Quellcode als Browser-Bau, nichts von
+           Dritten. Die Grenzen im Text stimmen mit sqlite_zugang.dart ueberein
+           (dauerhaft nur mit App-Passwort). Fuer iPhone und Mac ist das die
+           einzige Fassung; die Saetze mit data-fuer erscheinen nur dort. -->
+      <article class="dl" data-plattform="web">
+        <div class="dl-kopf">
+          <h3><span class="de">Im Browser</span><span class="en">In the browser</span></h3>
+          <span class="dl-dein-marke"><span class="de">Für dein Gerät</span><span class="en">For your device</span></span>
+        </div>
+        <p class="dl-meta">
+          <span class="de">Ohne Installation</span><span class="en">Nothing to install</span>
+        </p>
+        <p class="dl-text dl-nur" data-fuer="ios">
+          <span class="de">Für das iPhone gibt es keine App. Die Web-App läuft in Safari.</span>
+          <span class="en">There is no iPhone app. The web app runs in Safari.</span>
+        </p>
+        <p class="dl-text dl-nur" data-fuer="mac">
+          <span class="de">Für den Mac gibt es keine App. Die Web-App läuft in jedem Browser.</span>
+          <span class="en">There is no Mac app. The web app runs in any browser.</span>
+        </p>
+        <div class="act">
+          <a class="btn btn-primary" href="/app/">
+            <span class="de">Im Browser öffnen</span><span class="en">Open in the browser</span>
+          </a>
+        </div>
+        <p class="dl-text">
+          <span class="de">Nachrichten, Gruppen und Kontakte gehen. Anhänge,
+            Sprachnachrichten und der Nahbereich fehlen, und bei geschlossenem Tab
+            kommt nichts an. Deine Identität übersteht das Neuladen nur mit
+            App-Passwort; sonst holst du sie mit den zwölf Wörtern zurück.</span>
+          <span class="en">Messages, groups and contacts work. Attachments, voice
+            messages and nearby mode are missing, and nothing arrives while the tab
+            is closed. Your identity survives a reload only with an app password;
+            otherwise the twelve words bring it back.</span>
+        </p>
+      </article>
+
+    </div>
+
+    <p class="dl-fehlt">
+      <span class="de">Kein Google Play, keine App für iPhone oder Mac.</span>
+      <span class="en">No Google Play, no app for iPhone or Mac.</span>
+    </p>
+
+    <div class="dl-bescheid">
+      <p>
+        <span class="de">Bescheid bekommen, wenn es eine neue Version gibt. Wir
+          führen keine Liste; deine Adresse liegt in einem Postfach und sonst nirgends.</span>
+        <span class="en">Get told when there is a new version. We keep no list;
+          your address sits in one mailbox and nowhere else.</span>
+      </p>
+      <form class="field" id="notify">
+        <label for="mail" class="screen" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">E-Mail</label>
+        <input id="mail" type="email" name="mail" required
+               placeholder="du@beispiel.de" data-en-placeholder="you@example.com" autocomplete="email" spellcheck="false">
+        <button class="btn btn-primary" type="submit" style="width:auto;white-space:nowrap">
+          <span class="de">Senden</span><span class="en">Send</span>
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- DAS EIGENE GERAET ZUERST. Steht direkt unter der Sektion und nicht am
+       Dateiende, damit die Reihenfolge feststeht, bevor jemand dorthin scrollt.
+       Nur die Browserkennung, nichts wird gespeichert oder verschickt.
+       Chromebooks bekommen den Browser: eine APK laesst sich dort nur im
+       Entwicklermodus installieren. -->
+  <script>
+  (function () {
+    var ua = navigator.userAgent || '';
+    var p = (navigator.userAgentData && navigator.userAgentData.platform) || '';
+    var tippMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;   // iPad im Desktop-Modus
+    var geraet =
+      /Android/i.test(ua + p)                   ? 'android' :
+      /iPhone|iPad|iPod/.test(ua) || tippMac    ? 'ios' :
+      /Windows/i.test(ua + p)                   ? 'windows' :
+      /CrOS|Chrome OS/i.test(ua + p)            ? 'chromeos' :
+      /Macintosh|Mac OS X|macOS/i.test(ua + p)  ? 'mac' :
+      /Linux|X11/i.test(ua + p)                 ? 'linux' : '';
+    var karte = {android:'android', windows:'windows', linux:'linux',
+                 ios:'web', mac:'web', chromeos:'web'}[geraet];
+    if (!karte) return;
+    var el = document.querySelector('.dl[data-plattform="' + karte + '"]');
+    if (!el) return;
+    el.parentNode.insertBefore(el, el.parentNode.firstElementChild);
+    el.classList.add('dl-dein');
+    document.documentElement.setAttribute('data-geraet', geraet);
+  })();
+  </script>
+
+  <!-- ═══════════ Was der Server sieht ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Was der Server sieht</span>
+        <span class="en">What the server sees</span>
+      </h2>
+      <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Inhalt. <em>Dass</em> du
+        geschrieben hast, sieht der Server trotzdem, und zwar das hier:</p>
+      <p class="en">End-to-end encryption protects the content. The server still sees
+        <em>that</em> you wrote, and this is what it sees:</p>
+    </div>
+
+    <div class="split">
+      <div class="pane">
+        <div class="pane-head">
+          <span class="lamp on" aria-hidden="true"></span>
+          <span class="screen screen-lit de">Auf deinem Gerät</span>
+          <span class="screen screen-lit en">On your device</span>
+        </div>
+        <div class="pane-body plain">
+          <span class="de">„Treffen wir uns um acht am üblichen Ort?"</span>
+          <span class="en">“Shall we meet at eight, the usual place?”</span>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-head">
+          <span class="lamp" aria-hidden="true"></span>
+          <span class="screen de">Im Speicher des Relays</span>
+          <span class="screen en">In the relay's storage</span>
+        </div>
+        <div class="pane-body cipher">MwohBWtsemNtem5nYnFqbmZjaXlsd2txNTJlYmd5ZXJtMzNsY2U2cnBkbG1iN2p6YWg3c2hncXJlbGt2EiEF3pNcRq9yTfMoeGJ1aVdrTjhLcVp4RGZXbUxvUXlUZzAaMwohBW…</div>
+      </div>
+    </div>
+
+    <ul class="sees">
+      <li class="no"><span class="what de">Inhalt der Nachricht</span><span class="what en">Message content</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
+      <li class="no"><span class="what de">Anzeigename deiner Kontakte</span><span class="what en">Your contacts' display names</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
+      <li class="yes"><span class="what de">Absender- und Empfängeradresse</span><span class="what en">Sender and recipient address</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
+      <li class="yes"><span class="what de">Zeitpunkt und ungefähre Größe</span><span class="what en">Time and rough size</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
+      <li class="no"><span class="what de">Die genaue Länge einer Nachricht</span><span class="what en">The exact length of a message</span><span class="verdict de">unsichtbar</span><span class="verdict en">invisible</span></li>
+      <li class="yes"><span class="what de">Wer gerade verbunden ist</span><span class="what en">Who is currently connected</span><span class="verdict de">sichtbar</span><span class="verdict en">visible</span></li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ Signalweg ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Wenn es keinen Server gibt</span>
+        <span class="en">When there is no server</span>
+      </h2>
+      <p class="de">Liegen zwei Telefone nebeneinander, findet BitDM das andere über
+        Bluetooth und schickt die Nachricht direkt: ohne WLAN, ohne Mobilfunkdaten,
+        ohne Rechenzentrum. Solche Nachrichten tragen das Zeichen <strong>direkt</strong>.</p>
+      <p class="en">When two phones lie next to each other, BitDM finds the other over
+        Bluetooth and delivers the message directly: no Wi-Fi, no mobile data, no
+        data centre. Such messages carry the mark <strong>direct</strong>.</p>
+    </div>
+
+    <div class="fact">
+      <p class="de">Am 29. Juli 2026 auf zwei Geräten gemessen, beide im
+        Flugmodus für Daten: <strong>325 Byte in 1,35 Sekunden</strong>.</p>
+      <p class="en">Measured on two devices on 29 July 2026, both with data
+        switched off: <strong>325 bytes in 1.35 seconds</strong>.</p>
+    </div>
+
+    <p>
+      <span class="de">Schwierig ist das <em>Finden</em>. Ein Gerät, das seine Adresse in die Gegend ruft, damit
+        Freunde es erkennen, verrät sie auch allen anderen. Eine Adresse,
+        die man über Tage wiedererkennt, ist ein Bewegungsprofil.</span>
+      <span class="en">The hard part is <em>finding</em> each other. A device broadcasting its address so friends can spot
+        it also hands that address to everyone else. An address you can
+        recognise across days is a movement profile.</span>
+    </p>
+
+    <p>
+      <span class="de">BitDM sendet darum <strong>Leuchtfeuer</strong>: sechs Byte je Kontakt, berechnet aus dem
+        gemeinsamen Geheimnis und dem laufenden Viertelstundenfenster. Wer das
+        Geheimnis hat, erkennt daran seinen Kontakt. Wer es nicht hat, sieht
+        sechs Byte Rauschen, die sich alle fünfzehn Minuten ändern.</span>
+      <span class="en">So BitDM broadcasts <strong>beacons</strong>: six bytes per contact, computed from the shared
+        secret and the current fifteen-minute window. Whoever holds the secret
+        recognises their contact in it. Whoever does not sees six bytes of noise
+        that change every fifteen minutes.</span>
+    </p>
+
+    <p>
+      <span class="de">Die App <strong>zeigt nicht an, wer gerade in Reichweite ist</strong>.
+        Am Zeichen einer Nachricht siehst du nur, welchen Weg sie genommen hat.</span>
+      <span class="en">The app <strong>does not show who is in range</strong>. The mark on a
+        message only tells you which way it travelled.</span>
+    </p>
+
+    <div class="schirme">
+      <figure>
+        <img src="bilder/naehe.webp" width="620" height="723" loading="lazy"
+             alt="Die Nahbereich-Einstellungen: zwei Schalter und ein Kasten, der
+                  sagt, was gerade gilt."
+             data-en-alt="The nearby settings: two switches and a box that
+                  says what currently applies.">
+        <figcaption>
+          <span class="de">Es gibt zwei Schalter, und die App sagt geradeheraus, wenn
+            einer allein nichts bewirkt.</span>
+          <span class="en">There are two switches, and the app says plainly when one
+            alone achieves nothing.</span>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="bilder/meine-id.webp" width="620" height="1200" loading="lazy"
+             alt="Der eigene Ausweis: ein QR-Code und dieselbe Adresse in
+                  vierzehn Blöcken zum Vorlesen."
+             data-en-alt="Your own ID: a QR code and the same address in
+                  fourteen blocks to read out loud.">
+        <figcaption>
+          <span class="de">Die Adresse ist der Schlüssel: als QR-Code und in Blöcken zum Vorlesen.</span>
+          <span class="en">The address is the key: as a QR code and in blocks to read out.</span>
+        </figcaption>
+      </figure>
+    </div>
+
+    <p class="hint">
+      <span class="de">Braucht Android 12 oder neuer und Bluetooth 5 auf beiden
+        Geräten. Die erste Nachricht an einen ganz neuen Kontakt tauscht die
+        Schlüssel ebenfalls über Funk; dazu muss die Gegenseite kurz in
+        Reichweite sein. Anhänge gehen diesen Weg nicht.</span>
+      <span class="en">Needs Android 12 or newer and Bluetooth 5 on both
+        devices. The first message to a brand new contact exchanges keys over
+        the air as well, so the other side has to be in range for a moment.
+        Attachments do not take this route.</span>
+    </p>
+  </section>
+
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Wie eine Nachricht entsteht</span>
+        <span class="en">How a message comes about</span>
+      </h2>
+      <p class="de">Signal-Protokoll: X3DH baut die Sitzung auf, der Double
+        Ratchet erneuert die Schlüssel bei jeder Nachricht. Wer sich heute einen
+        Schlüssel beschafft, kann damit nicht nachlesen, was gestern geschrieben wurde.</p>
+      <p class="en">Signal protocol: X3DH sets up the session, the Double
+        Ratchet renews keys with every message. Obtaining a key today does not unlock what
+        was written yesterday.</p>
+    </div>
+
+    <div class="path">
+      <div class="step">
+        <span class="screen de">Schritt 1</span><span class="screen en">Step 1</span>
+        <h3><span class="de">Adresse eintragen</span><span class="en">Enter address</span></h3>
+        <p class="de">Du fügst die 56 Zeichen deines Gegenübers ein. Die Prüfsumme
+          fängt Vertipper ab, bevor irgendetwas gesendet wird.</p>
+        <p class="en">You paste the other side's 56 characters. The checksum
+          catches typos before anything is sent.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
+        <h3><span class="de">Sitzung aufbauen</span><span class="en">Establish session</span></h3>
+        <p class="de">Die App holt ein Schlüsselpaket und rechnet daraus ein
+          gemeinsames Geheimnis aus, auch wenn das Gegenüber gerade offline ist.</p>
+        <p class="en">The app fetches a key bundle and derives a shared secret
+          from it, even while the other side is offline.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
+        <h3><span class="de">Schlüssel weiterdrehen</span><span class="en">Ratchet forward</span></h3>
+        <p class="de">Jede Nachricht bekommt ihren eigenen Schlüssel. Der
+          vorherige wird verworfen und ist nicht wiederherstellbar.</p>
+        <p class="en">Every message gets its own key. The previous one is
+          discarded and cannot be recovered.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 4</span><span class="screen en">Step 4</span>
+        <h3><span class="de">Nachprüfen</span><span class="en">Verify</span></h3>
+        <p class="de">Eine 60-stellige Sicherheitsnummer, die beide Seiten
+          vergleichen können. Stimmt sie, sitzt niemand dazwischen.</p>
+        <p class="en">A 60-digit safety number both sides can compare. If it
+          matches, nobody is sitting in between.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ Wiederherstellung ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Zwölf Wörter, einmal notiert</span>
+        <span class="en">Twelve words, written down once</span>
+      </h2>
+      <p class="de">Ohne Konto gibt es keinen Kundendienst, der dich wieder hereinlässt.
+        Beim ersten Start bekommst du deshalb zwölf Wörter. Sie sind der einzige
+        Weg zurück, auch wir haben keinen zweiten.</p>
+      <p class="en">Without an account there is no support desk to let you back in. So on
+        first launch you get twelve words. They are the only way back; we have no
+        second one either.</p>
+    </div>
+    <div class="words" aria-label="Beispiel einer Wiederherstellungsphrase" data-en-aria-label="Example of a recovery phrase">
+      <div class="word"><i>01</i><span>village</span></div>
+      <div class="word"><i>02</i><span>mother</span></div>
+      <div class="word"><i>03</i><span>food</span></div>
+      <div class="word"><i>04</i><span>ghost</span></div>
+      <div class="word"><i>05</i><span>jeans</span></div>
+      <div class="word"><i>06</i><span>fish</span></div>
+      <div class="word"><i>07</i><span>banner</span></div>
+      <div class="word"><i>08</i><span>trust</span></div>
+      <div class="word"><i>09</i><span>forest</span></div>
+      <div class="word"><i>10</i><span>cupboard</span></div>
+      <div class="word"><i>11</i><span>depend</span></div>
+      <div class="word"><i>12</i><span>agree</span></div>
+    </div>
+  </section>
+
+  <!-- ═══════════ Verfahren ═══════════
+       Bis zum 26.07.2026 stand auf dieser Seite kein einziger Algorithmenname
+       ausser X3DH, Double Ratchet und BIP39. Wer nachpruefen wollte, WOMIT
+       verschluesselt wird, fand nur DASS. Nach dem eigenen Massstab weiter
+       unten — "ein Sicherheitsversprechen, das niemand nachpruefen kann, ist
+       wertlos" — war das die groesste Luecke der Seite.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Womit genau</span>
+        <span class="en">With what, exactly</span>
+      </h2>
+      <p class="de">Die Kryptographie stammt aus <strong>libsignal</strong>, der Bibliothek
+        hinter Signal. Die riskanten Teile sind damit die, an denen schon andere
+        gerechnet und geprüft haben.</p>
+      <p class="en">The cryptography comes from <strong>libsignal</strong>, the library behind
+        Signal. The risky parts are therefore the ones others have already worked
+        through and reviewed.</p>
+    </div>
+
+    <dl class="plate">
+      <div class="plate-row">
+        <dt><span class="de">Sitzungsaufbau</span><span class="en">Session setup</span></dt>
+        <dd><span class="de">X3DH über Curve25519. Funktioniert auch, wenn das Gegenüber offline ist.</span>
+            <span class="en">X3DH over Curve25519. Works even while the other side is offline.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Laufendes Gespräch</span><span class="en">Ongoing conversation</span></dt>
+        <dd><span class="de">Double Ratchet. Jede Nachricht bekommt einen eigenen Schlüssel.</span>
+            <span class="en">Double Ratchet. Every message gets its own key.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Die Nachricht selbst</span><span class="en">The message itself</span></dt>
+        <dd><span class="de"><strong>AES mit 256 Bit</strong> Schlüssellänge im CBC-Betrieb, beglaubigt mit HMAC-SHA256; diese Kombination ist Signals eigene Konstruktion. Der Schlüssel ist 32 Byte lang und gilt für genau eine Nachricht.</span>
+            <span class="en"><strong>AES with a 256-bit key</strong> in CBC mode, authenticated with HMAC-SHA256; that combination is Signal's own construction. The key is 32 bytes long and covers exactly one message.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Unterschriften</span><span class="en">Signatures</span></dt>
+        <dd><span class="de">XEdDSA: Ed25519-Signaturen mit demselben Curve25519-Schlüssel, der auch die Adresse ist.</span>
+            <span class="en">XEdDSA: Ed25519 signatures using the same Curve25519 key that is also the address.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Länge verschleiern</span><span class="en">Length hiding</span></dt>
+        <dd><span class="de">Jede Nachricht wird auf ein Vielfaches von 256 Byte aufgefüllt. Ein „ja“ und ein „nein“ sehen auf der Leitung gleich aus, und ein kurzer Satz wie ein langer.</span>
+            <span class="en">Every message is padded to a multiple of 256 bytes. A “yes” and a “no” look identical on the wire, and so do a short sentence and a long one.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Aus den zwölf Wörtern</span><span class="en">From the twelve words</span></dt>
+        <dd><span class="de">BIP39 (PBKDF2-HMAC-SHA512, 2048 Runden) ergibt einen Seed; HKDF-SHA256 zieht daraus getrennte Schlüssel für Identität und Datenbank.</span>
+            <span class="en">BIP39 (PBKDF2-HMAC-SHA512, 2048 rounds) yields a seed; HKDF-SHA256 derives separate keys for identity and database from it.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Die Adresse</span><span class="en">The address</span></dt>
+        <dd><span class="de">32 Byte öffentlicher Schlüssel plus 3 Byte SHA-256-Prüfsumme, in Base32: zusammen 56 Zeichen. Wer sie hat, hat den Schlüssel selbst.</span>
+            <span class="en">32 bytes of public key plus 3 bytes of SHA-256 checksum, in Base32: 56 characters in all. Whoever has it has the key itself.</span></dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ═══════════ Geraetespeicher ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Wenn das Telefon in fremde Hände fällt</span>
+        <span class="en">If the phone falls into the wrong hands</span>
+      </h2>
+      <p class="de">Ende-zu-Ende-Verschlüsselung schützt den Weg. Was auf dem Gerät liegt,
+        schützen diese Schichten.</p>
+      <p class="en">End-to-end encryption protects the path. These layers protect what
+        sits on the device.</p>
+    </div>
+
+    <dl class="plate">
+      <div class="plate-row">
+        <dt><span class="de">Die Datenbank</span><span class="en">The database</span></dt>
+        <dd><span class="de">Als <em>ganze Datei</em> mit ChaCha20-Poly1305 verschlüsselt (SQLite3MultipleCiphers). Wer sie in die Hand bekommt, sieht nicht einmal, wie viele Kontakte es gibt.</span>
+            <span class="en">Encrypted as a <em>whole file</em> with ChaCha20-Poly1305 (SQLite3MultipleCiphers). Whoever obtains it cannot even tell how many contacts there are.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">App-Sperre</span><span class="en">App lock</span></dt>
+        <dd><span class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb. Beim App-Passwort entsteht der Schlüssel über Argon2id mit 19 MiB Speicher und 2 Durchgängen: die Empfehlung des OWASP. Raten kostet damit Speicher und Zeit, nicht nur Rechenschritte.</span>
+            <span class="en"><strong>AES with a 256-bit key</strong> in GCM mode. With the app password the key comes from Argon2id using 19 MiB of memory and 2 passes, the OWASP recommendation. Guessing therefore costs memory and time, not just cycles.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Vier Wege hinein</span><span class="en">Four ways in</span></dt>
+        <dd><span class="de">Fingerabdruck, Gerätesperre, App-Passwort oder ein Sicherheitsschlüssel per NFC oder Kabel (CTAP2 <code>hmac-secret</code>, etwa YubiKey). Ohne den Stick geht die App dann nicht auf, auch nicht mit dem richtigen Passwort.</span>
+            <span class="en">Fingerprint, device lock, app password or a security key over NFC or cable (CTAP2 <code>hmac-secret</code>, e.g. YubiKey). Without the key the app stays shut, correct password or not.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Alles löschen</span><span class="en">Wipe</span></dt>
+        <dd><span class="de">Der Schlüssel der Datenbank stammt aus den zwölf Wörtern. Sind sie gelöscht, ist die Datei dauerhaft unlesbar: auch für uns, auch wenn die Bytes im Flash-Speicher überleben.</span>
+            <span class="en">The database key comes from the twelve words. Delete them and the file is permanently unreadable: to us as well, even if the bytes survive in flash.</span></dd>
+      </div>
+      <!-- SEIT 1.9.0 (26.09.2026). Unsichtbar in Aufnahmen: Android FLAG_SECURE,
+           Windows SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) — vom Entwickler
+           mit Bildschirmaufnahme und Discord-Stream geprueft. Im Browser geht
+           das grundsaetzlich nicht; der Satz sagt es. -->
+      <div class="plate-row">
+        <dt><span class="de">Unsichtbar in Aufnahmen</span><span class="en">Invisible to capture</span></dt>
+        <dd><span class="de">Mit eingeschaltetem Screenshot-Schutz taucht das BitDM-Fenster in Bildschirmfotos, Bildschirmaufnahmen und beim Teilen des Bildschirms nicht auf, auch nicht im Discord-Stream, in OBS oder in Teams. Auf Android bleibt die Aufnahme schwarz, auf Windows fehlt das Fenster darin. Im Browser kann das keine Webseite.</span>
+            <span class="en">With screenshot protection on, the BitDM window does not appear in screenshots, screen recordings or screen sharing, including Discord streams, OBS and Teams. On Android the capture stays black, on Windows the window is simply missing. No web page can do this in a browser.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Panik-Wort</span><span class="en">Panic word</span></dt>
+        <dd><span class="de">Ein selbst gewähltes Wort oder ein Satz. Wer es statt des echten Passworts in die Sperre tippt, löscht sofort alles auf dem Gerät, ohne Rückfrage und ohne sichtbare Meldung. Von außen ist nicht zu erkennen, ob es überhaupt ein Panik-Wort gibt.</span>
+            <span class="en">A word or sentence you choose. Typing it into the lock screen instead of the real password wipes everything on the device at once, with no confirmation and no visible message. From the outside you cannot tell whether a panic word exists at all.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Löschen aus der Ferne</span><span class="en">Remote wipe</span></dt>
+        <dd><span class="de">Du wählst Vertrauenskontakte und legst fest, wie viele nötig sind (etwa 2 von 3). Sie lösen die Löschung mit <code>/wipe</code> aus oder, unauffälliger, mit deinem <strong>eigenen Codewort</strong>, das du ihnen persönlich gesagt hast. Die Nachricht erscheint bei dir nicht. Kommen genug Anfragen binnen 24 Stunden, läuft ein Countdown von 10 Minuten; abbrechen kannst nur du, mit deiner Entsperrung. Danach ist alles auf diesem Gerät weg; die zwölf Wörter holen die Identität anderswo zurück. Grenze: Das Telefon muss dafür entsperrt und online sein; ein gesperrtes Telefon kann die Anfrage nicht lesen.</span>
+            <span class="en">You pick trusted contacts and decide how many are needed (say 2 of 3). They trigger the wipe with <code>/wipe</code> or, less conspicuously, with <strong>your own code word</strong>, which you told them in person. The message does not show up on your side. If enough requests arrive within 24 hours, a 10-minute countdown starts; only you can cancel it, with your unlock. Then everything on this device is gone; the twelve words restore the identity elsewhere. Limit: the phone must be unlocked and online; a locked phone cannot read the request.</span></dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ═══════════ Anhänge ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Große Dateien, ohne großen Server</span>
+        <span class="en">Large files, without a large server</span>
+      </h2>
+      <p class="de">Bis zu 5 GB je Datei. Sie geht nicht durch den Relay; der ist für
+        kurze Nachrichten gebaut. Sie liegt verschlüsselt in einem eigenen
+        Zwischenlager, in Stücken, und verschwindet nach 14 Tagen von selbst.</p>
+      <p class="en">Up to 5 GB per file. It does not pass through the relay; that one
+        is built for short messages. It rests encrypted in a separate holding store,
+        in pieces, and disappears by itself after 14 days.</p>
+    </div>
+
+    <div class="path">
+      <div class="step">
+        <span class="screen de">Schritt 1</span><span class="screen en">Step 1</span>
+        <h3><span class="de">In Stücke teilen</span><span class="en">Split into pieces</span></h3>
+        <p class="de">32 MiB je Stück. Reißt die Verbindung ab, bei drei Gigabyte über
+          Mobilfunk der Normalfall, kostet das ein Stück und nicht die ganze Datei.</p>
+        <p class="en">32 MiB each. If the connection drops, which is normal for three
+          gigabytes over mobile, you lose one piece and not the whole file.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 2</span><span class="screen en">Step 2</span>
+        <h3><span class="de">Je Stück ein Schlüssel</span><span class="en">One key per piece</span></h3>
+        <p class="de"><strong>AES mit 256 Bit</strong> im GCM-Betrieb, und jedes Stück bekommt einen eigenen Zufallsschlüssel. Mit
+          <em>einem</em> Schlüssel für die ganze Datei müsste ein Zähler über alle
+          Stücke, Abbrüche und Wiederaufnahmen hinweg stimmen, und ein einziger
+          Fehler dabei bricht GCM.</p>
+        <p class="en"><strong>AES with a 256-bit key</strong> in GCM mode, and every piece gets its own random key. With <em>one</em> key for
+          the whole file a counter would have to stay right across all pieces, aborts and
+          resumptions, and a single slip breaks GCM.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 3</span><span class="screen en">Step 3</span>
+        <h3><span class="de">Die Nummer mitbeglaubigen</span><span class="en">Authenticate the number</span></h3>
+        <p class="de">Fälschen kann der Speicher nichts. Vertauschen schon: unter der
+          Kennung von Stück 3 die Bytes von Stück 5. Deshalb steckt die Stücknummer im
+          beglaubigten Zusatz; ein vertauschtes Stück geht dann gar nicht mehr auf.</p>
+        <p class="en">The store cannot forge anything. It could swap, though: serving
+          piece 5's bytes under piece 3's identifier. So the piece number sits in the
+          authenticated data; a swapped piece then fails to open at all.</p>
+      </div>
+      <div class="step">
+        <span class="screen de">Schritt 4</span><span class="screen en">Step 4</span>
+        <h3><span class="de">Schlüssel gehen anders</span><span class="en">Keys travel elsewhere</span></h3>
+        <p class="de">Die Anleitung, wo die Stücke liegen und womit sie aufgehen, reist
+          als gewöhnliche Nachricht durch die Signal-Sitzung. Der Speicher bekommt die
+          Schlüssel also nie zu sehen; er kennt Größe und Zeitpunkt, mehr nicht.</p>
+        <p class="en">The recipe, where the pieces are and what opens them, travels as an
+          ordinary message through the Signal session. The store therefore never sees the
+          keys; it knows size and timing, nothing else.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ Desktop ═══════════
+       STEHT VOR "GRENZEN" UND NICHT DANACH: das Typenschild darunter gilt fuer
+       alle Plattformen, dieser Abschnitt fuer eine. Erst der Sonderfall, dann
+       die Liste, die immer gilt.
+       ALLE ZEILEN AM 30.07.2026 IM QUELLCODE NACHGESEHEN, Fundstellen je Zeile
+       im Kommentar ueber der Liste. -->
+  <section class="wrap mod" id="desktop">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Am PC fehlen drei Dinge</span>
+        <span class="en">Three things are missing on the PC</span>
+      </h2>
+      <p class="de">Ein Teil von BitDM steckt vollständig in Android-Code und hat
+        auf Windows keine Gegenseite: der Nahbereich über Bluetooth, der
+        Weckdienst für Push und jede Sperre außer dem App-Passwort. Am PC bietet die App sie deshalb gar nicht erst an.</p>
+      <p class="en">Part of BitDM lives entirely in Android code and has no
+        counterpart on Windows: the nearby exchange over Bluetooth, the push
+        wake-up, and every lock factor except the app password. On the PC the app does not offer them at all.</p>
+    </div>
+
+    <p>
+      <span class="de">Wie es aussieht, wenn man es anders macht, stand am
+        30. Juli 2026 kurz auf dem Bildschirm: der erste Windows-Bau bot vier
+        Sperren an, von denen drei nicht funktionieren konnten. Ein Druck darauf
+        endete in einer Fehlermeldung des Systems, und eine davon erklärte auf
+        einem Schreibtisch-PC ernsthaft <em>„the PIN, pattern or password of this
+        phone“</em>. </span>
+      <span class="en">What the other approach looks like was briefly on screen
+        on 30 July 2026: the first Windows build offered four locks, three of
+        which could not work. Pressing them ended in a system error, and one of
+        them seriously explained <em>“the PIN, pattern or password of this
+        phone”</em> on a desktop computer. </span>
+    </p>
+
+    <!-- Fundstellen zu den Zeilen, in der Reihenfolge der Liste:
+         1 Nachrichten     — dart:io-Netz, laeuft am PC: core/net/relay_client.dart
+         2 Datenbank       — sqlite3mc.dll liegt im Windows-Bau (2 129 920 Byte)
+         3 App-Passwort    — main.dart:2680 `k == 'pw' || _nurAufAndroid`
+         4 Drei Sperren    — dieselbe Zeile, plus Kanal bitdm/schluesselfach
+                             (core/lock/geraete_fach.dart:82) und bitdm/usb_hid
+                             (core/fido/usb_hid_geraet.dart:39)
+         5 Push            — main.dart:3791, Takt '-2' nur wenn _nurAufAndroid
+         6 Nahbereich      — main.dart:3837 `if (_nurAufAndroid)`, Kanal
+                             bitdm/nahfunk (core/nah/funk.dart:166)
+         7 QR scannen      — main.dart:2888, Knopf nur wenn _nurAufAndroid
+         8 Anhaenge        — Kanal bitdm/dateien (core/dateien.dart:103). Der
+                             Knopf in main.dart:3359 ist NICHT abgeschaltet, und
+                             `waehlen()` faengt die MissingPluginException in
+                             core/dateien.dart:121 ab und gibt null zurueck: am
+                             PC oeffnet sich also nichts. Das gehoert genannt,
+                             solange es so ist. -->
+    <ul class="sees">
+      <li class="yes"><span class="what de">Schreiben, empfangen, Verlauf</span><span class="what en">Writing, receiving, history</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
+      <li class="yes"><span class="what de">Verschlüsselte Datenbank auf der Platte</span><span class="what en">Encrypted database on disk</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
+      <li class="yes"><span class="what de">App-Passwort als Sperre</span><span class="what en">App password as a lock</span><span class="verdict de">auch am PC</span><span class="verdict en">on the PC too</span></li>
+      <li class="no"><span class="what de">Fingerabdruck, Gerätesperre, Sicherheitsschlüssel</span><span class="what en">Fingerprint, device lock, security key</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+      <li class="no"><span class="what de">Push als Weckdienst</span><span class="what en">Push as a wake-up service</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+      <li class="no"><span class="what de">Nahbereich über Bluetooth</span><span class="what en">Nearby exchange over Bluetooth</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+      <li class="no"><span class="what de">Einen QR-Code scannen</span><span class="what en">Scanning a QR code</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+      <li class="no"><span class="what de">Anhänge aussuchen und öffnen</span><span class="what en">Choosing and opening attachments</span><span class="verdict de">nur Android</span><span class="verdict en">Android only</span></li>
+    </ul>
+
+    <p class="hint">
+      <span class="de">Ohne Push bleibt am PC die Verbindung offen, solange die
+        App läuft; ein Weckdienst von außen wird dort nicht gebraucht. Beim
+        Anhang ist die Lage unschöner: der Knopf ist noch zu sehen, und am PC
+        öffnet sich beim Druck darauf kein Auswahlfenster. Solange das so ist,
+        steht es hier.</span>
+      <span class="en">Without push, the connection on the PC stays open as long
+        as the app runs, so no external wake-up is needed there. Attachments are
+        the uglier case: the button is still visible, and on the PC pressing it
+        opens no file dialog. As long as that is true, it is stated here.</span>
+    </p>
+  </section>
+
+  <!-- ═══════════ Grenzen ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Was BitDM nicht kann</span>
+        <span class="en">What BitDM cannot do</span>
+      </h2>
+      <p class="de">Ein Typenschild sagt, was ein Gerät aushält und was nicht.
+        Diese Liste wächst mit dem Programm mit.</p>
+      <p class="en">A rating plate states what a device withstands and what it does not. This list grows along with the product.</p>
+    </div>
+
+    <dl class="plate">
+      <div class="plate-row">
+        <dt><span class="de">Metadaten</span><span class="en">Metadata</span></dt>
+        <dd><span class="de">Der Relay sieht, wer wann mit wem schreibt; daran ändert die Verschlüsselung nichts.</span>
+            <span class="en">The relay sees who writes to whom and when, and encryption does not change that.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Geräte</span><span class="en">Devices</span></dt>
+        <!-- BIS 15.10.2026 STAND HIER "ein Geraet je Identitaet, Wiederherstellung
+             legt das erste still". Falsch seit Mehrgeraete: der Relay fuehrt bis zu
+             fuenf Geraete je Adresse, und abmelden laesst sich keines (Befund N1,
+             docs/BEFUNDE-2026-10-14.md). -->
+        <dd><span class="de">Bis zu fünf Geräte je Identität. Eine Wiederherstellung legt das alte Gerät nicht still, und abmelden lässt sich keines.</span>
+            <span class="en">Up to five devices per identity. Restoring on a new one does not retire the old one, and none can be logged out.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Umfang</span><span class="en">Scope</span></dt>
+        <!-- HIER STANDEN 3 GB, und das widersprach der eigenen Seite: der
+             Kasten "5 GB" unter Nachprüfbarkeit und der Anhang-Abschnitt sagten
+             etwas anderes. Am 30.07.2026 an den beiden Stellen gemessen, die
+             die Grenze durchsetzen: app/lib/core/anhang/anhang_versand.dart:126
+             `hoechstGroesse = 5 * 1024 * 1024 * 1024` und server/blob_server.py:84
+             `MAX_BYTES = int(os.getenv("BITDM_BLOB_MAX", str(5 * 1024**3)))`.
+             Es sind 5 GB. (Das geschützte Leerzeichen vor "GB" ist dabei mit
+             weggefallen — es war die einzige Stelle der Datei mit einem, und ein
+             unsichtbares Zeichen, das nur an einer Stelle steht, kostet beim
+             nächsten Nachmessen mehr, als es an Umbruch spart.) -->
+        <!-- "KEINE GRUPPEN" STIMMTE BIS 1.6.0. Seit dem 25.09.2026 gibt es
+             Gruppen bis 20 Mitglieder (docs/FUNKTIONSVERGLEICH.md) und
+             Sprachnachrichten auf Android; Anrufe weiterhin nicht. -->
+        <dd><span class="de">Einzelchats und Gruppen bis 20, mit Text, Sprachnachrichten und Anhängen bis 5 GB. Keine Anrufe.</span>
+            <span class="en">One-to-one chats and groups up to 20, with text, voice messages and attachments up to 5 GB. No calls.</span></dd>
+      </div>
+      <!-- SEIT 1.7.0, HEIC/AVIF/Video seit 1.8.0 (25.09.2026). Belegt durch app/test/anhang/metadaten_test.dart:
+           echte Bilder mit GPS, Hersteller, Modell, Zeit und Kommentar; danach
+           ist nichts davon mehr in der Datei, und sie oeffnet sich noch. Die
+           Grenze steht mit dabei, weil sie stimmt. -->
+      <div class="plate-row">
+        <dt><span class="de">Fotos</span><span class="en">Photos</span></dt>
+        <dd><span class="de">Ort, Kamera und Aufnahmezeit werden vor dem Senden aus JPEG, PNG, WebP, HEIC und AVIF entfernt, aus MP4-, MOV- und 3GP-Videos ebenso; der Dateiname wird neutral. Andere Formate gehen unverändert hinaus.</span>
+            <span class="en">Location, camera and capture time are stripped from JPEG, PNG, WebP, HEIC and AVIF before sending, and from MP4, MOV and 3GP videos too; the file name is neutralised. Other formats go out unchanged.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Aussehen</span><span class="en">Look</span></dt>
+        <dd><span class="de">Neun Themen, darunter Material mit der Akzentfarbe des Systems und drei Terminal-Themen. Sie wechseln langsam durch einen Schleier aus Chiffrezeichen, auf Wunsch von allein.</span>
+            <span class="en">Nine themes, including Material with the system accent colour and three terminal themes. They change slowly through a veil of cipher glyphs, on their own if you like.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Verlust</span><span class="en">Loss</span></dt>
+        <dd><span class="de">Sind die zwölf Wörter weg, ist die Identität weg, außer du hast sie vorher in Teilen an Vertrauenskontakte gegeben (etwa 2 von 3). Kein Zurücksetzen, keine Wiederherstellung per Mail.</span>
+            <span class="en">If the twelve words are gone, the identity is gone, unless you split them among trusted contacts beforehand (say 2 of 3). No reset, no recovery by email.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Prüfung</span><span class="en">Audit</span></dt>
+        <dd><span class="de">Kein externes Sicherheitsaudit. Eine eigene Prüfung am 25.09.2026 fand rund 80 Befunde, alle behoben (Fassung 1.8.1); ein unabhängiges Audit ersetzt sie nicht. Schwachstellen bitte vertraulich an kontakt@bitdm.net.</span>
+            <span class="en">No external security audit. An internal review on 25.09.2026 found about 80 issues, all fixed (version 1.8.1); it does not replace an independent audit. Please report vulnerabilities privately to kontakt@bitdm.net.</span></dd>
+      </div>
+      <div class="plate-row">
+        <dt><span class="de">Reife</span><span class="en">Maturity</span></dt>
+        <!-- "NOCH NICHT VEROEFFENTLICHT" stimmte bis 25.09.2026: seitdem liegt die
+             APK hier und auf GitHub (Releases v1.6.1 bis v1.9.1). Nicht in Google
+             Play oder F-Droid, und im Alltag noch nicht erprobt — das bleibt stehen. -->
+        <dd><span class="de">Vorabversion. Als Download hier und auf GitHub, bei F-Droid beantragt, nicht in Google Play und noch nicht im Alltag erprobt.</span>
+            <span class="en">Pre-release. Available as a download here and on GitHub, requested at F-Droid, not in Google Play, and not yet proven in daily use.</span></dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ═══════════ Belege ═══════════ -->
+  <section class="wrap mod">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Der Quellcode liegt offen</span>
+        <span class="en">The source is open</span>
+      </h2>
+      <p class="de">Du kannst alles nachlesen: App, Server und Tests stehen unter AGPL-3.0 offen.</p>
+      <p class="en">You can read all of it: app, server and tests are open under AGPL-3.0.</p>
+    </div>
+
+    <div class="facts">
+      <div class="fact">
+        <span class="num">AES-256</span>
+        <p class="de">Schlüssellänge überall, wo AES benutzt wird: Nachrichten, App-Sperre, Anhänge. 256 Bit, also 32 Byte; nachlesbar im Quelltext.</p>
+        <p class="en">Key length everywhere AES is used: messages, app lock, attachments. 256 bits, i.e. 32 bytes; check it in the source.</p>
+      </div>
+      <div class="fact">
+        <span class="num">AGPL-3.0</span>
+        <p class="de">Quelloffen. Wer die App oder den Relay verteilt oder als Dienst betreibt, muss den Quellcode mitliefern.</p>
+        <p class="en">Open source. Anyone who distributes the app or the relay, or runs it as a service, must provide the source.</p>
+      </div>
+      <div class="fact">
+        <span class="num">24</span>
+        <p class="de">Offizielle BIP39-Testvektoren, gegen die die Ableitung der zwölf Wörter geprüft ist.</p>
+        <p class="en">Official BIP39 test vectors the twelve-word derivation is checked against.</p>
+      </div>
+      <div class="fact">
+        <span class="num">56</span>
+        <p class="de">Zeichen je Adresse, mit Prüfsumme. Ein Vertipper fällt auf.</p>
+        <p class="en">Characters per address, with a checksum. A typo gets caught.</p>
+      </div>
+      <div class="fact">
+        <span class="num">0</span>
+        <p class="de">Anfragen an Dritte. Die App lädt weder Schriften noch Zählpixel nach, und diese Seite ebenso wenig.</p>
+        <p class="en">Third-party requests. The app loads neither fonts nor trackers, and the same holds for this page.</p>
+      </div>
+      <div class="fact">
+        <span class="num">256</span>
+        <p class="de">Byte je Block, auf den jede Nachricht aufgefüllt wird. Deshalb sieht ein „ja“ auf der Leitung aus wie ein Absatz.</p>
+        <p class="en">Bytes per block every message is padded to. That is why a “yes” looks like a paragraph on the wire.</p>
+      </div>
+      <div class="fact">
+        <span class="num">5 GB</span>
+        <p class="de">Größte Datei je Anhang, in 32-MiB-Stücken, jedes mit eigenem Schlüssel.</p>
+        <p class="en">Largest file per attachment, in 32 MiB pieces, each with its own key.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ Fragen ═══════════
+       SEIT 27.09.2026. Ein Audit ("AI Visibility") riet: die Fragen, die Leute
+       einer KI stellen ("Messenger ohne Telefonnummer?", "Threema-Alternative?"),
+       direkt auf der Startseite beantworten. <details> braucht kein Skript.
+       Dieselben Fragen stehen unten als FAQPage (JSON-LD), auf Englisch. -->
+  <section class="wrap mod" id="faq">
+    <div class="mod-head">
+      <h2>
+        <span class="de">Häufige Fragen</span>
+        <span class="en">Frequently asked questions</span>
+      </h2>
+    </div>
+    <div class="faq">
+      <details class="faq-item">
+        <summary><span class="de">Was ist BitDM?</span><span class="en">What is BitDM?</span></summary>
+        <p class="de">Ein kostenloser, quelloffener Messenger mit Ende-zu-Ende-Verschlüsselung. Du brauchst keine Telefonnummer, keine E-Mail und keinen Benutzernamen: deine Adresse ist dein öffentlicher Schlüssel.</p>
+        <p class="en">A free, open-source messenger with end-to-end encryption. You need no phone number, no e-mail and no username: your address is your public key.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Gibt es einen Messenger ohne Telefonnummer?</span><span class="en">Is there a messenger that works without a phone number?</span></summary>
+        <p class="de">Ja. BitDM fragt nie nach Nummer, E-Mail oder Namen und lädt kein Adressbuch hoch. Kontakte fügst du über ihre Adresse oder einen QR-Code hinzu.</p>
+        <p class="en">Yes. BitDM never asks for a number, e-mail or name and never uploads your address book. You add contacts by their address or a QR code.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Ist BitDM eine Alternative zu WhatsApp, Signal oder Threema?</span><span class="en">Is BitDM an alternative to WhatsApp, Signal or Threema?</span></summary>
+        <p class="de">Ja. Verschlüsselt wird mit dem Signal-Protokoll, das auch Signal und WhatsApp nutzen. Anders als bei Signal und WhatsApp gibt es keine Telefonnummer; anders als Threema ist BitDM kostenlos, und App und Server sind beide quelloffen.</p>
+        <p class="en">Yes. It encrypts with the Signal protocol, the same one Signal and WhatsApp use. Unlike Signal and WhatsApp there is no phone number; unlike Threema, BitDM is free, and both app and server are open source.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Was kostet BitDM?</span><span class="en">How much does BitDM cost?</span></summary>
+        <p class="de">Nichts. Keine Werbung, kein Tracking, kein Abo.</p>
+        <p class="en">Nothing. No ads, no tracking, no subscription.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Wie sicher ist BitDM?</span><span class="en">How secure is BitDM?</span></summary>
+        <p class="de">Nachrichten laufen über das Signal-Protokoll (X3DH über Curve25519, Double Ratchet, AES-256), Anhänge über AES-256-GCM, auch auf dem Gerät. Ein unabhängiges Sicherheitsaudit gibt es noch nicht; der Quellcode liegt offen, damit jeder nachsehen kann.</p>
+        <p class="en">Messages use the Signal protocol (X3DH over Curve25519, Double Ratchet, AES-256), attachments AES-256-GCM, also at rest on the device. There is no independent security audit yet; the source is open so anyone can check.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Was sieht der Server?</span><span class="en">What can the server see?</span></summary>
+        <p class="de">Keinen Inhalt und keine Namen. Er sieht, welche Adresse wann an welche schreibt, und die ungefähre Größe. Wer auch das verbergen will, schaltet Tor ein oder nutzt den Nahbereich über Bluetooth.</p>
+        <p class="en">No content and no names. It sees which address writes to which, when, and the rough size. To hide that too, turn on Tor or use nearby mode over Bluetooth.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Funktioniert BitDM ohne Internet?</span><span class="en">Does BitDM work without internet?</span></summary>
+        <p class="de">Ja, zwischen Telefonen in der Nähe über Bluetooth (Android 12 oder neuer). Mit „Nur in der Nähe“ spricht die App überhaupt keinen Server an.</p>
+        <p class="en">Yes, between nearby phones over Bluetooth (Android 12 or newer). With “Nearby only” the app never contacts a server at all.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Auf welchen Geräten läuft BitDM?</span><span class="en">Which devices does BitDM run on?</span></summary>
+        <p class="de">Android, Windows, Linux und im Browser unter bitdm.net/app. Für iPhone und Mac gibt es noch keine Version.</p>
+        <p class="en">Android, Windows, Linux and in the browser at bitdm.net/app. There is no iPhone or Mac version yet.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Was passiert, wenn mein Telefon weg ist?</span><span class="en">What happens if I lose my phone?</span></summary>
+        <p class="de">Mit deinen zwölf Wörtern holst du deine Identität auf einem neuen Gerät zurück. Das alte Telefon bleibt dabei angemeldet: Mit App-Sperre empfängt es nichts, solange niemand es entsperrt; ohne sie empfängt es weiter, bis Vertrauenskontakte, die du vorher festgelegt hast, es löschen (mit /wipe oder einem Codewort, das du selbst bestimmst), oder bis der Relay es nach 30 Tagen ohne Verbindung vergisst. Wurde es entsperrt mitgenommen, ist eine neue Identität sicherer.</p>
+        <p class="en">Your twelve words bring your identity back on a new device. The old phone stays signed in: with the app lock on it receives nothing until someone unlocks it, without it it keeps receiving until trusted contacts you chose beforehand wipe it (with /wipe or a code word you pick yourself), or until the relay drops it after 30 days without a connection. If it was taken unlocked, a new identity is safer.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Sieht man meine Chats, wenn ich den Bildschirm teile?</span><span class="en">Can others see my chats when I share my screen?</span></summary>
+        <p class="de">Nein. Mit Screenshot-Schutz fehlt das BitDM-Fenster in Bildschirmfotos, Aufnahmen und Streams, auch in Discord und OBS (Android und Windows). Im Browser geht das technisch nicht.</p>
+        <p class="en">No. With screenshot protection the BitDM window is missing from screenshots, recordings and streams, including Discord and OBS (Android and Windows). In the browser this is technically impossible.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Und wenn mich jemand zwingt, die App zu öffnen?</span><span class="en">What if someone forces me to unlock the app?</span></summary>
+        <p class="de">Lege ein Panik-Wort fest. Am Sperrbildschirm statt des Passworts eingegeben, löscht es still alles, und die App sieht aus wie frisch installiert.</p>
+        <p class="en">Set a panic word. Typed on the lock screen instead of your password, it silently wipes everything and the app looks freshly installed.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Ist BitDM Open Source?</span><span class="en">Is BitDM open source?</span></summary>
+        <p class="de">Ja, App, Server und Tests unter AGPL-3.0 auf GitHub: github.com/Henner4746/BitDM.</p>
+        <p class="en">Yes, app, server and tests under AGPL-3.0 on GitHub: github.com/Henner4746/BitDM.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Für wen ist BitDM?</span><span class="en">Who is BitDM for?</span></summary>
+        <p class="de">Für alle, die privat schreiben wollen, ohne sich auszuweisen: Menschen in überwachten Situationen, Journalistinnen und Journalisten, Familien, Teams und alle, die keine Telefonnummer weitergeben möchten. BitDM ist ein Messenger, keine Handelsplattform und kein Abo-Dienst.</p>
+        <p class="en">For anyone who wants to write privately without identifying themselves: people under surveillance, journalists, families, teams and anyone who does not want to hand out a phone number. BitDM is a messenger, not a commerce platform and not a subscription service.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Hat BitDM etwas mit BiT DMS, BITE oder Bitmanagement zu tun?</span><span class="en">Is BitDM related to BiT DMS, BITE or Bitmanagement?</span></summary>
+        <p class="de">Nein. BitDM ist ein verschlüsselter Messenger aus Deutschland. BiT DMS ist eine amerikanische Händler-Software, BITE ein deutscher Anbieter für Bewerbermanagement, Bitmanagement macht 3D-Software und Bite Investments Software für Vermögensverwaltung. Die Namen ähneln sich, die Unternehmen haben nichts miteinander zu tun.</p>
+        <p class="en">No. BitDM is an encrypted messenger from Germany. BiT DMS is American dealer-management software, BITE a German recruiting-software provider, Bitmanagement makes 3D software and Bite Investments software for wealth management. The names look alike; the companies are unrelated.</p>
+      </details>
+      <details class="faq-item">
+        <summary><span class="de">Wer steckt hinter BitDM?</span><span class="en">Who is behind BitDM?</span></summary>
+        <p class="de">BitDM ist ein unabhängiges Open-Source-Projekt aus Deutschland. Der gesamte Quellcode (App, Server, Tests) steht unter AGPL-3.0 offen auf github.com/Henner4746/BitDM.</p>
+        <p class="en">BitDM is an independent open-source project from Germany. The entire source code (app, server, tests) is open under AGPL-3.0 on github.com/Henner4746/BitDM.</p>
+      </details>
+    </div>
+  </section>
+
+</main>
+
+<!-- ═══════════ Fuss ═══════════ -->
+<footer class="wrap">
+  <div class="foot-grid">
+    <div class="foot-col">
+      <span class="screen de">Projekt</span><span class="screen en">Project</span>
+      <a href="https://github.com/Henner4746/BitDM" rel="noopener">
+        <span class="de">Quellcode auf GitHub</span><span class="en">Source on GitHub</span></a>
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">
+        <span class="de">Lizenz AGPL-3.0</span><span class="en">AGPL-3.0 licence</span></a>
+      <!-- Mit .html: das ist die Form in Sitemap, Canonical, og:url und
+           llms.txt. Ohne Endung liefert nginx dieselbe Seite unter einer
+           zweiten Adresse aus (try_files $uri.html) — eine Dublette. -->
+      <a href="docs.html">
+        <span class="de">Server selbst betreiben</span><span class="en">Run your own server</span></a>
+      <a href="vs.html">
+        <span class="de">Im Vergleich</span><span class="en">How it compares</span></a>
+    </div>
+    <div class="foot-col">
+      <!-- Ratgeber seit 14.10.2026: je eine Suchfrage, die Leute so eintippen. -->
+      <span class="screen de">Ratgeber</span><span class="screen en">Guides</span>
+      <a href="messenger-without-phone-number.html">
+        <span class="de">Ohne Telefonnummer</span><span class="en">Without a phone number</span></a>
+      <a href="messaging-without-internet-bluetooth.html">
+        <span class="de">Ohne Internet, per Bluetooth</span><span class="en">Without internet, over Bluetooth</span></a>
+      <a href="anonymous-messenger-without-account.html">
+        <span class="de">Anonym, ohne Konto</span><span class="en">Anonymous, no account</span></a>
+    </div>
+    <div class="foot-col">
+      <span class="screen de">Rechtliches</span><span class="screen en">Legal</span>
+      <a href="privacy.html">
+        <span class="de">Datenschutzerklärung</span><span class="en">Privacy policy</span></a>
+      <a href="privacy.html#impressum">
+        <span class="de">Impressum</span><span class="en">Imprint</span></a>
+    </div>
+    <div class="foot-col">
+      <!-- `screen` MUSS an beiden stehen. Am englischen fehlte es, und
+           `.foot-col .screen{display:block}` griff darum nur auf Deutsch: die
+           Spaltenueberschrift "Contact" stand inline und ohne den Abstand
+           darunter, den "Projekt" und "Rechtliches" haben. Aufgefallen beim
+           Abzaehlen der Sprachbloecke am 30.07.2026 — 16 `screen de` gegen 15
+           `screen en`. -->
+      <span class="screen de">Kontakt</span><span class="screen en">Contact</span>
+      <!-- email_off / Cloudflare: OHNE diese Klammer ersetzt Cloudflares
+           "Email Address Obfuscation" (Scrape Shield) den Text durch
+           "[email geschuetzt]" und den Link durch einen eigenen /cdn-cgi/-Pfad.
+           (Die Zeichenkette daraus steht hier ABSICHTLICH nicht: sonst faende
+           ein spaeteres grep sie in diesem Kommentar und haelte die Sache
+           faelschlich für ungeloest.)
+           Wer kein JavaScript laufen lässt — und das sind genau die Leute,
+           die diese Seite anspricht —, sieht dann keine Adresse mehr.
+           Nachgeprueft am 26.07.2026 am ausgelieferten HTML von bitdm.net.
+           Die Klammer schaltet es nur für diese Stelle ab, ohne dass jemand
+           ins Cloudflare-Konto muss. -->
+      <!--email_off--><a href="mailto:kontakt@bitdm.net">kontakt@bitdm.net</a><!--/email_off-->
+    </div>
+  </div>
+  <p class="foot-note">
+    <span class="de">BitDM ist eine Vorabversion. Die Adresse und die zwölf Wörter
+      oben sind Beispiele, keine echten Schlüssel.</span>
+    <span class="en">BitDM is a pre-release. The address and the twelve words
+      above are examples, not real keys.</span>
+  </p>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ── Sprache ───────────────────────────────────────────────────────────
+     Ohne JavaScript bleibt Deutsch stehen; hier wird nur umgeschaltet. */
+  var root = document.documentElement;
+  function setLang(l){
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l);
+    document.querySelectorAll('[data-set-lang]').forEach(function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.setLang === l));
+    });
+    /* Text in Attributen kann der CSS-Umschalter oben nicht anfassen.
+       Konvention: deutsches Attribut bleibt stehen, englisches als
+       data-en-<attribut> daneben. Das Deutsche wird beim ersten Umschalten
+       am Element gemerkt, damit der Rueckweg es nicht verloren hat. */
+    ['placeholder', 'alt', 'aria-label'].forEach(function(a){
+      document.querySelectorAll('[data-en-' + a + ']').forEach(function(el){
+        var merk = '_de_' + a;
+        if (el[merk] === undefined) el[merk] = el.getAttribute(a) || '';
+        el.setAttribute(a, l === 'en' ? el.getAttribute('data-en-' + a) : el[merk]);
+      });
+    });
+    try{ localStorage.setItem('bitdm-lang', l); }catch(e){}
+    /* Sagt der Adressanzeige Bescheid. Ueber ein Ereignis und nicht über
+       einen direkten Aufruf: setLang steht weiter oben als die Anzeige, und
+       eine Reihenfolge-Abhaengigkeit zwischen zwei Blöcken derselben Datei
+       ist genau die Sorte Faden, an dem später jemand zieht. */
+    try{ window.dispatchEvent(new Event('bitdm-sprache')); }catch(e){}
+  }
+  document.querySelectorAll('[data-set-lang]').forEach(function(b){
+    b.addEventListener('click', function(){ setLang(b.dataset.setLang); });
+  });
+  var saved = null;
+  try{ saved = localStorage.getItem('bitdm-lang'); }catch(e){}
+  setLang(saved === 'de' || saved === 'en' ? saved : 'en');
+
+  /* ── Adressanzeige ─────────────────────────────────────────────────────
+     Erzeugt eine Zeichenkette im echten Format: Base32-Alphabet, 56 Stellen,
+     14 Gruppen a 4. Es ist KEIN Schlüssel — nur die Form ist echt, damit
+     sichtbar wird, wie eine Adresse aussieht. */
+  var ALPHA = 'abcdefghijklmnopqrstuvwxyz234567';
+  var GROUPS = 14, PER = 4, TOTAL = GROUPS * PER;
+  var box = document.getElementById('addr');
+  /* BEI JEDEM LAUF NEU GELESEN, nicht einmal beim Start.
+     Wer die Einstellung im Betriebssystem umstellt, waehrend die Seite offen
+     ist, bekommt sonst bis zum naechsten Neuladen weiter das alte Verhalten —
+     und ausgerechnet bei einer Einstellung gegen Bewegungsempfindlichkeit ist
+     das die falsche Richtung, in der man sich irren kann. */
+  var bewegungsWunsch = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function reduziert(){ return bewegungsWunsch.matches; }
+
+  function randomAddress(){
+    var out = '', bytes = new Uint8Array(TOTAL);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    for (var i = 0; i < TOTAL; i++) out += ALPHA[bytes[i] % 32];
+    return out;
+  }
+
+  /* Nimmt die Zellen, die schon im Markup stehen. Nur wenn dort nichts ist —
+     etwa weil jemand das HTML gekuerzt hat — werden sie angelegt.
+
+     VORHER wurde der Kasten IMMER zuerst geleert. Das war der Grund, warum
+     ohne JavaScript nichts zu sehen war, und es machte den ersten Lauf der
+     Anzeige zu einem Aufbau aus dem Nichts statt zu einem Wechsel. */
+  function build(){
+    var da = box.querySelectorAll('.ch');
+    if (da.length === TOTAL) return Array.prototype.slice.call(da);
+
+    box.textContent = '';
+    var cells = [];
+    for (var g = 0; g < GROUPS; g++){
+      var grp = document.createElement('span');
+      grp.className = 'grp';
+      for (var c = 0; c < PER; c++){
+        var ch = document.createElement('span');
+        ch.className = 'ch';
+        grp.appendChild(ch);
+        cells.push(ch);
+      }
+      box.appendChild(grp);
+    }
+    return cells;
+  }
+
+  var cells = build();
+
+  /* ── Das Zaehlwerk ─────────────────────────────────────────────────────
+
+     Jede Stelle laeuft EINMAL durch das ganze Alphabet und bleibt auf ihrem
+     Zeichen stehen. Sie starten versetzt, von links nach rechts.
+
+     VORHER WAR ES ZUFALL: die Stellen rechts von der Front zeigten je Bild
+     ein gewuerfeltes Zeichen. Das sah aus wie Rauschen und sagte nichts. Ein
+     Durchlauf durch das Alphabet sagt etwas: die Stelle SUCHT ihren Wert und
+     findet ihn. Und weil jede genau eine Runde dreht, endet sie zwangslaeufig
+     auf dem richtigen Zeichen — es gibt keinen Moment, in dem sie danebenhaelt
+     und dann noch einmal springen muss.
+
+     DIE ZAHLEN. 32 Schritte a 20 ms sind 640 ms je Stelle; bei 7 ms Versatz
+     faengt die letzte nach 385 ms an und alles steht nach gut einer Sekunde.
+
+     LANGSAM GENUG, DASS MAN ES SIEHT — so gewuenscht. Bei 12 ms war das
+     Durchlaufen nur noch ein Wischen. Der Satz unter der Anzeige spricht von
+     einer Zehntelsekunde; die Bewegung ist also laenger als das, was sie
+     zeigt. Das ist bewusst in Kauf genommen: sie erklärt, wie eine Adresse
+     entsteht, sie misst nicht die Zeit dafuer.
+
+     NACH DER ZEIT GERECHNET, nicht nach Bildern: auf einem Gerät mit 120 Hz
+     liefe es sonst doppelt so schnell wie auf einem mit 60. */
+  var SCHRITTE = ALPHA.length;   /* eine volle Runde */
+  var SCHRITT_MS = 20;
+  var VERSATZ_MS = 7;
+
+  var laufend = null;            /* die Kennung des laufenden Durchgangs */
+  var jetzige = null;            /* was gerade angezeigt wird */
+
+  function render(addr){
+    jetzige = addr;
+
+    if (reduziert()){
+      /* Bei reduzierter Bewegung sofort der Endwert. Kein Zwischenschritt,
+         kein Rattern — und dieselbe Adresse wie für alle anderen. */
+      for (var i = 0; i < cells.length; i++) cells[i].textContent = addr[i];
+      box.setAttribute('aria-label', (document.documentElement.getAttribute('data-lang') === 'en' ? 'Example address: ' : 'Beispieladresse: ') + addr);
+      return;
+    }
+
+    /* Ein laufender Durchgang wird abgebrochen, nicht ueberlagert. Wer
+       zweimal schnell auf "Neu erzeugen" drueckt, saehe sonst zwei
+       Zaehlwerke uebereinander. */
+    var dieser = {};
+    laufend = dieser;
+
+    var ziele = [];
+    for (var z = 0; z < cells.length; z++) ziele.push(ALPHA.indexOf(addr[z]));
+
+    var start = null;
+    var fertig = 0;
+
+    function frame(ts){
+      if (laufend !== dieser) return;   /* ein neuer Durchgang hat uebernommen */
+      if (start === null) start = ts;
+      var t = ts - start;
+      fertig = 0;
+
+      for (var i = 0; i < cells.length; i++){
+        var lokal = t - i * VERSATZ_MS;
+        if (lokal < 0){
+          /* Noch nicht dran. Die Stelle behaelt, was sie zeigt — nichts ist
+             je leer, auch nicht für ein Bild. */
+          continue;
+        }
+        var schritt = (lokal / SCHRITT_MS) | 0;
+        if (schritt >= SCHRITTE){
+          if (cells[i].textContent !== addr[i]) cells[i].textContent = addr[i];
+          cells[i].classList.remove('scramble');
+          fertig++;
+        } else {
+          /* Eine Runde, die auf dem Ziel endet: beim Zeichen NACH dem Ziel
+             anfangen, dann 32 Schritte weiter — der letzte ist das Ziel. */
+          cells[i].textContent = ALPHA[(ziele[i] + 1 + schritt) % ALPHA.length];
+          cells[i].classList.add('scramble');
+        }
+      }
+
+      if (fertig < cells.length){
+        requestAnimationFrame(frame);
+      } else {
+        laufend = null;
+        /* Die Beschriftung erst am Ende setzen. Während des Laufs saehe eine
+           Vorlesehilfe sonst 56 Zwischenstaende. */
+        box.setAttribute('aria-label', (document.documentElement.getAttribute('data-lang') === 'en' ? 'Example address: ' : 'Beispieladresse: ') + addr);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  render(box.querySelector('.ch') ? adresseAusMarkup() : randomAddress());
+
+  /* Beim ersten Lauf laeuft das Zaehlwerk auf die Adresse zu, die schon im
+     Markup steht — nicht auf eine neue. Wer ohne JavaScript kommt, sieht
+     dieselbe; wer mit JavaScript kommt, sieht sie entstehen. Eine andere
+     Adresse zu nehmen hiesse, dem Leser die zu zeigen, die er gerade nicht
+     bekommen hat. */
+  function adresseAusMarkup(){
+    var aus = '';
+    for (var i = 0; i < cells.length; i++) aus += cells[i].textContent;
+    return aus.length === TOTAL ? aus : randomAddress();
+  }
+
+  document.getElementById('regen').addEventListener('click', function(){
+    render(randomAddress());
+  });
+
+  /* Beim Sprachwechsel laeuft dasselbe Zaehlwerk noch einmal — mit DERSELBEN
+     Adresse.
+
+     Der Umschalter tauscht rund vierzig Textbloecke aus, und etliche sehen in
+     beiden Sprachen gleich aus: "Google Play", "AES-256", "AGPL-3.0", die
+     zwoelf Woerter, die Adresse. Wer EN drueckt und gerade auf so eine Stelle
+     sieht, bekommt keine Rueckmeldung, dass ueberhaupt etwas passiert ist.
+     Das Zaehlwerk gibt sie — und weil die Adresse dieselbe bleibt, behauptet
+     es dabei nichts Falsches. */
+  window.addEventListener('bitdm-sprache', function(){
+    if (jetzige) render(jetzige);
+  });
+
+
+  /* ── Das Zaehlwerk für die ganze Seite ────────────────────────────────
+
+     Beim Sprachwechsel rattert nicht nur die Adresse, sondern jeder Text,
+     der gerade zu sehen ist. 184 Blöcke je Sprache — genug, dass die Seite
+     einmal komplett durchlaeuft, und wenig genug, dass es kurz bleibt.
+
+     DIE ZAHL WAR STEHENGEBLIEBEN. Hier stand dreimal 134; das galt fuer eine
+     kuerzere Fassung der Seite. Am 30.07.2026 nachgezaehlt mit
+       grep -o 'class="[^"]*\bde\b[^"]*"' index.html | wc -l
+     und dasselbe fuer `en`: 184 gegen 184, aufgeteilt in 122 blanke, 19
+     `screen`, 14 `screen screen-lit`, 14 `what`, 14 `verdict` und 1
+     `mark-rev` je Sprache. VOR den Desktop-Kaesten waren es 148 — die Zahl
+     hatte also schon zwei Ausbauten verpasst. Wer hier wieder Bloecke
+     hinzufuegt, zaehlt mit demselben Befehl nach; er trifft genau das, was
+     der Selektor unten einsammelt (`.de` bzw. `.en`, ohne Ansehen der
+     weiteren Klassen).
+
+     ═══════════════════════════════════════════════ VIER ENTSCHEIDUNGEN
+
+     UEBER TEXTKNOTEN, NICHT UEBER ELEMENTE. Ein Block kann einen Link oder
+     eine Hervorhebung enthalten; wer dessen textContent ueberschreibt,
+     zerstoert das Markup und bekommt es nicht zurück. Ein TreeWalker geht
+     nur die Textstuecke ab und lässt alles andere in Ruhe.
+
+     JEDES ZEICHEN BLEIBT IN SEINER ART. Buchstaben rattern durch Buchstaben,
+     Ziffern durch Ziffern, Leerzeichen und Satzzeichen stehen still. Damit
+     bleiben Wortlaengen und Zeilenumbrueche waehrend des Laufs erhalten —
+     die Seite rattert, sie zappelt nicht. Wuerde man jedes Zeichen durch ein
+     beliebiges ersetzen, entstuende Rauschen, und der Umbruch spraenge bei
+     jedem Bild neu.
+
+     NUR WAS IM BILD IST. Wer unten auf der Seite steht, sieht nichts davon,
+     dass oben etwas rattert — es kostet nur Rechenzeit. Ein einziger
+     Sichtbarkeitstest je Knoten spart bei 184 Blöcken das meiste davon.
+
+     EIN EINZIGER rAF FUER ALLES. 184 eigene Schleifen waeren 184 Aufrufe je
+     Bild; so ist es einer, der eine Liste abarbeitet.
+
+     JEDER TEXT BEKOMMT SEINEN EIGENEN VERSATZ. Ein fester hätte einen langen
+     Absatz viermal so lange rattern lassen wie eine Ueberschrift, und die
+     Seite truepfelte von oben nach unten aus.
+
+     30 Schritte a 16 ms sind 480 ms je Zeichen; was bis GESAMT_MS uebrig
+     bleibt, verteilt sich auf die Laenge — gedeckelt bei 7 ms, damit ein Wort
+     aus drei Buchstaben nicht traege wirkt.
+
+     WAS DER DECKEL BEDEUTET, gemessen: acht Zeichen stehen nach 525 ms, 171
+     Zeichen nach 1092. Lange Texte landen also bei GESAMT_MS, kurze deutlich
+     frueher. Das ist Absicht und keine Ungenauigkeit — eine Ueberschrift, die
+     genauso lange braucht wie ein Absatz, fuehlt sich falsch an. Wer hier
+     später etwas gleichziehen will, sollte den Deckel anheben und nicht die
+     Rechnung ändern. */
+
+  var GLYPH_BUCHSTABEN = 'abcdefghijklmnopqrstuvwxyz';
+  var GLYPH_GROSS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  var GLYPH_ZIFFERN = '0123456789';
+  var SEITE_SCHRITTE = 30;
+  var SEITE_SCHRITT_MS = 16;
+  var SEITE_GESAMT_MS = 1100;
+  var SEITE_VERSATZ_MAX = 7;
+
+  /* Ein Zeichen derselben Art. Alles, was weder Buchstabe noch Ziffer ist,
+     bleibt es selbst — sonst zerfaellt der Satzbau vor den Augen. */
+  function artgleich(z, schritt){
+    var q = null;
+    if (z >= 'a' && z <= 'z') q = GLYPH_BUCHSTABEN;
+    else if (z >= 'A' && z <= 'Z') q = GLYPH_GROSS;
+    else if (z >= '0' && z <= '9') q = GLYPH_ZIFFERN;
+    else if ('äöüÄÖÜß'.indexOf(z) >= 0) q = GLYPH_BUCHSTABEN;
+    if (q === null) return z;
+    return q[schritt % q.length];
+  }
+
+  var seitenlauf = null;
+
+  function rattereSeite(){
+    if (reduziert()) return;
+
+    var sichtbar = document.querySelectorAll(
+      'html[data-lang="de"] .de, html[data-lang="en"] .en');
+    var posten = [];
+    var hoehe = window.innerHeight || 800;
+
+    for (var i = 0; i < sichtbar.length; i++){
+      var el = sichtbar[i];
+      var r = el.getBoundingClientRect();
+      /* Nur was im Bild steht — mit etwas Rand, damit ein kleiner Ruck beim
+         Umbruch nichts abschneidet. */
+      if (r.bottom < -80 || r.top > hoehe + 80) continue;
+      if (r.width === 0 && r.height === 0) continue;
+
+      var lauf = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      var k;
+      while ((k = lauf.nextNode())){
+        var text = k.nodeValue;
+        if (!text || !/\S/.test(text)) continue;
+        var n = text.length;
+        /* Der eigene Versatz: was nach dem Durchlauf eines Zeichens noch an
+           Zeit uebrig ist, auf die Laenge verteilt — gedeckelt, damit ein
+           Wort aus drei Buchstaben nicht traege wirkt. */
+        var rest = SEITE_GESAMT_MS - SEITE_SCHRITTE * SEITE_SCHRITT_MS;
+        var v = n > 1 ? Math.min(SEITE_VERSATZ_MAX, rest / (n - 1)) : 0;
+        posten.push({ knoten: k, ziel: text, laenge: n, versatz: v });
+      }
+    }
+    if (!posten.length) return;
+
+    /* Ein neuer Lauf loest den alten ab, statt sich darueberzulegen. */
+    var dieser = {};
+    seitenlauf = dieser;
+
+    var start = null;
+    function bild(ts){
+      if (seitenlauf !== dieser) return;
+      if (start === null) start = ts;
+      var t = ts - start;
+      var offen = 0;
+
+      for (var i = 0; i < posten.length; i++){
+        var pk = posten[i];
+        if (pk.fertig) continue;
+        var aus = '';
+        var nochOffen = false;
+        for (var c = 0; c < pk.laenge; c++){
+          var lokal = t - c * pk.versatz;
+          var schritt = lokal < 0 ? 0 : (lokal / SEITE_SCHRITT_MS) | 0;
+          if (schritt >= SEITE_SCHRITTE){
+            aus += pk.ziel[c];
+          } else {
+            aus += artgleich(pk.ziel[c], schritt + c);
+            nochOffen = true;
+          }
+        }
+        pk.knoten.nodeValue = aus;
+        if (nochOffen) { offen++; } else { pk.fertig = true; }
+      }
+
+      if (offen > 0) requestAnimationFrame(bild);
+      else {
+        seitenlauf = null;
+        /* Zum Schluss ausdruecklich den Originaltext zurueckschreiben.
+           Die Schleife oben setzt ihn zwar auch — aber wer sie je anfasst,
+           soll den Endzustand nicht aus Versehen verlieren. */
+        for (var j = 0; j < posten.length; j++){
+          posten[j].knoten.nodeValue = posten[j].ziel;
+        }
+      }
+    }
+    requestAnimationFrame(bild);
+  }
+
+  window.addEventListener('bitdm-sprache', rattereSeite);
+
+  /* ── Benachrichtigung ──────────────────────────────────────────────────
+     Es gibt bewusst keine Empfaengerliste auf einem Server. Das Formular
+     öffnet das Mailprogramm — die Adresse liegt dann in einem Postfach und
+     sonst nirgends. Soll später ein echter Endpunkt dazukommen, wird
+     NOTIFY_ENDPOINT gesetzt und dieser Zweig faellt weg. */
+  var NOTIFY_ENDPOINT = null;
+  var form = document.getElementById('notify');
+  form.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var mail = document.getElementById('mail').value.trim();
+    if (!mail) return;
+    if (NOTIFY_ENDPOINT){
+      form.action = NOTIFY_ENDPOINT; form.method = 'post'; form.submit(); return;
+    }
+    var de = root.getAttribute('data-lang') === 'de';
+    var subject = de ? 'BitDM — bei Veröffentlichung benachrichtigen'
+                     : 'BitDM — notify me at release';
+    var body = de ? 'Bitte gebt mir Bescheid, sobald BitDM verfügbar ist.\n\nMeine Adresse: ' + mail
+                  : 'Please let me know once BitDM is available.\n\nMy address: ' + mail;
+    window.location.href = 'mailto:kontakt@bitdm.net?subject=' +
+      encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+  });
+})();
+</script>
+</body>
+</html>

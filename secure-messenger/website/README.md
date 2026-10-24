@@ -211,7 +211,7 @@ stand es als `data:`-Bild im `<link rel="icon">`. Browser zeigen das, Google
 aber nicht: für die Suchergebnisse braucht es eine abrufbare Adresse, und
 `/favicon.ico` lieferte 404 (so in den Crawling-Statistiken der Search
 Console). Jetzt verweist jede Seite auf `/favicon.ico` (48 px, für Google) und
-`/favicon.svg`.
+`/favicon.svg`, jeweils mit `?v=2`: Cloudflare haelt beide bis zu 4 Stunden im Zwischenspeicher (`max-age=14400`), und nach dem Wechsel auf das Zeichen F1 (24.10.2026) lieferte es sonst das alte Zeichen aus. Bei einem neuen Zeichen die Zahl hochzaehlen.
 
 `/etc/nginx/conf.d/bitdm-noip-log.conf`:
 
