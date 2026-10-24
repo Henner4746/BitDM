@@ -4,9 +4,9 @@ Alle Fassungen der App BitDM. Details und Belege je Funktion:
 [`secure-messenger/docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSVERGLEICH.md).
 Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <https://bitdm.net>.
 
-## 2.0.1 (unveröffentlicht)
+## 2.0.1 (24.10.2026)
 
-**Erst den Relay aktualisieren, dann die App.** Der Relay dieser Fassung speichert eine zusätzliche Signatur je Gerät und prüft sie bei der Anmeldung (siehe Geräteliste unten). Das ist additiv: Ältere Apps schicken das Feld nicht und laufen weiter, ein älterer Relay ignoriert es. Neue Endpunkte gibt es nicht, an der nginx-Liste ändert sich nichts.
+**Erst den Relay aktualisieren, dann die App.** Der Relay dieser Fassung speichert eine zusätzliche Signatur je Gerät und prüft sie bei der Anmeldung (siehe Geräteliste unten). Das ist additiv: Ältere Apps schicken das Feld nicht und laufen weiter, ein älterer Relay ignoriert es. Neue Endpunkte gibt es nicht, an der nginx-Liste ändert sich nichts. Beim Relay selbst zuerst das Zwischenlager aktualisieren: Es zählt jetzt die Gesamtmenge der Anhänge (siehe unten).
 
 **App-Sperre: zwei Lücken aus der Sicherheitsprüfung vom 18.10.2026.**
 - **Einen Faktor hinzufügen verlangt jetzt eine frische Anmeldung**, genau wie das Entfernen. Bis 2.0.0 konnte jemand mit dem kurz entsperrten Telefon ein eigenes App-Passwort anlegen und sich damit ausweisen: für die zwölf Wörter, die Sperrfrist, die Fernlöschung und die Teilgeheimnisse. Dasselbe gilt für das Panik-Wort. Ein neu angelegter Faktor zählt erst nach dem nächsten Entsperren als Ausweis.
@@ -15,12 +15,23 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 **Geräteliste: ein Relay, der eine Abmeldung verschweigt** (Befund aus derselben Prüfung). Bis 2.0.0 bekamen Kontakte die signierte Geräteliste nur über den Relay. Nahm er eine neue Fassung an und lieferte weiter die alte aus, verschlüsselten die Kontakte weiter an das abgemeldete Gerät, und es konnte weiter als Besitzer schreiben. Protokoll und Grenzen: [`secure-messenger/docs/GERAETEABMELDUNG.md`](secure-messenger/docs/GERAETEABMELDUNG.md) §12.
 - **Die Liste geht jetzt auch Ende-zu-Ende.** Jede Nachricht trägt einen Stempel der eigenen Liste, und nach jeder Änderung geht die Liste selbst an die Kontakte. Wer einen neueren Stempel sieht, als seine Liste hergibt, schickt nur noch an Geräte, die diesen Stempel tragen, und nimmt nur von ihnen an.
 - **„Geräte verwalten“ warnt**, wenn der Relay die eigene letzte Änderung nicht ausliefert. Gibt es von einem Kontakt zwei widersprüchliche Listen, sagt der Chat das dazu.
-- **Sitzungen hängen am Geräteschlüssel.** Der signierte Prekey ist zusätzlich mit dem Geräteschlüssel signiert, und jede Erstnachricht trägt einen Nachweis. Ein abgemeldetes Gerät kann so auch mit Hilfe des Relays keine Sitzung unter der Kennung eines anderen Geräts aufbauen. Eine falsche Signatur wird nie angenommen. Eine fehlende wird erst ab 2.0.2 abgewiesen, damit Geräte mit älterer App bis dahin erreichbar bleiben.
+- **Sitzungen hängen am Geräteschlüssel.** Der signierte Prekey ist zusätzlich mit dem Geräteschlüssel signiert, und jede Erstnachricht trägt einen Nachweis. Eine falsche Signatur wird nie angenommen. Eine fehlende wird erst ab 2.0.2 abgewiesen, damit Geräte mit älterer App bis dahin erreichbar bleiben. Erst dann kann ein abgemeldetes Gerät auch mit Hilfe des Relays keine Sitzung unter der Kennung eines anderen Geräts mehr aufbauen.
 - **„Zielgerät unbekannt“ vom Relay löscht die Sitzung nicht mehr**, wenn das Gerät in der signierten Liste steht.
 - **Was bleibt:** Hat ein Kontakt seit der Abmeldung nichts vom Besitzer bekommen, weiß er nicht, dass ihm etwas fehlt. Verwirft der Relay alles vom Besitzer an einen Kontakt, sieht man das nur daran, dass die eigenen Nachrichten dort keinen zweiten Haken bekommen.
 
+**Relay: weitere Befunde aus dem Audit vom 16.10.2026**
+- **Anmeldung mit dem Namen des Relays (KR-2).** Nennt der Relay seinen Namen, signiert die App die Anmeldung zusammen mit ihm. Eine Anmeldung für einen Relay lässt sich so nicht bei einem anderen verwenden. Ältere Apps melden sich weiter wie bisher an.
+- **Neue Adressen sind je Herkunft und Tag begrenzt (SV-3).** Gescheiterte Versuche zählen nicht. Adressen, die nie verbunden waren, verschwinden nach 48 Stunden. Wer schon registriert ist, merkt davon nichts.
+- **Anhänge: Grenzen ohne Bremse für alle (SV-1, SV-2).** Die Tagesmenge je Adresse rechnet ohne Summe über den ganzen Relay, und die Gesamtmenge zählt das Zwischenlager nach den wirklich hochgeladenen Bytes. Ist es voll, sagt die App „Der Speicher ist gerade voll“.
+- **Push nur an saubere Adressen (SV-7, SV-8).** Ein Push-Endpunkt mit eigenem Port oder Benutzerangabe wird abgelehnt; je Gerät geht höchstens ein Anstoß gleichzeitig hinaus.
+- **Herkunft nur noch über nginx (SV-5, SV-10).** Eine selbst gesetzte `X-Forwarded-For` zählt nicht mehr. Bei Nonces und neuen Adressen zählt IPv6 je /48.
+- **Ehrlicher Hinweis** in `install.sh` und auf der Seite „Server selbst betreiben“ (SV-11).
+
 **Relay**
 - certifi auf 2026.10.23. Die bisher gesperrte Fassung 2026.7.22 hat eine kritische Lücke. Alle anderen Abhängigkeiten bleiben, wie sie waren.
+
+**App**
+- Kamera-Paket auf 0.12.1 (QR-Scanner), ohne sichtbare Änderung.
 
 ## 2.0.0 (18.10.2026)
 

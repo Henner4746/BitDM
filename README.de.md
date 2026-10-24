@@ -6,7 +6,7 @@ Diese Seite auf [Englisch](README.md).
 Konto. Deine Adresse *ist* dein öffentlicher Schlüssel.**
 
 [![Lizenz: AGPL v3](https://img.shields.io/badge/License-AGPL_3.0-6f62a8.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-2.0.0-6f62a8)
+![Version](https://img.shields.io/badge/version-2.0.1-6f62a8)
 ![Plattform](https://img.shields.io/badge/platform-Android_9%2B_%7C_Windows_%7C_Linux_%7C_Web-6f62a8)
 
 | Plattform | Zustand |
@@ -391,7 +391,7 @@ Kryptografie, und der eigentliche Dart-Code liegt in `data/app.so`. Gib den ganz
 Installationsprogramm statt eines Zip:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=2.0.0 windows\bitdm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=2.0.1 windows\bitdm.iss
 ```
 
 Tests:
