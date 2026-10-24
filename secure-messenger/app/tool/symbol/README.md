@@ -1,31 +1,37 @@
-# Das App-Symbol neu bauen
+# Das BitDM-Zeichen bauen
 
-Reihenfolge, sonst fehlt die Vorlage:
+Seit 24.10.2026 gilt Entwurf **F1, „Anzeigefenster“**: ein Displayfenster auf
+der Gerätefront, darin eine Punktmatrix, und DM leuchtet in Violett. Henrik hat
+es aus sechs Entwürfen und sechs Varianten gewählt. Es löst die Sprechblase mit
+dem B ab (`65fd2dc`), die schwarz-weiß war und neben dem Favicon ein zweites
+Zeichen bildete.
 
 ```bash
-py tool/symbol/01_gross.py       # icon_bitdm_1024.png  — Blase + Doto-B
-py tool/symbol/02_klein.py       # icon_bitdm_klein.png — kraeftiger, volles B
-py tool/symbol/03_verteilen.py   # Android, Web, Webseite
+py tool/symbol/verteilen.py
 ```
 
-Danach die `.ico` gemischt schreiben — klein bis 32, Punktmatrix ab 48:
+schreibt alles neu, aus einer einzigen Vorlage in `f1.py`:
 
-```python
-gr = Image.open('icon_bitdm_1024.png'); kl = Image.open('icon_bitdm_klein.png')
-t = [kl.resize((n, n)) for n in (16, 24, 32)] + \
-    [gr.resize((n, n)) for n in (48, 64, 128, 256)]
-t[-1].save('windows/runner/resources/app_icon.ico',
-           sizes=[x.size for x in t], append_images=t[:-1])
-```
+| Ziel | Fassung |
+|---|---|
+| Android `mipmap-*/ic_launcher.png` (48–192) | groß |
+| Windows `app_icon.ico` | 16–32 klein, 48–256 groß |
+| Web-App `web/favicon.png` (32) | klein |
+| Web-App `web/icons/Icon-*.png`, maskierbar | groß |
+| F-Droid `fastlane/.../images/icon.png` (512) | groß |
+| Website `bilder/icon-180.png`, `bilder/bitdm-zeichen.svg` | groß |
+| Website `favicon.ico` | 16/32 klein, 48 groß |
+| Website `favicon.svg` | klein |
 
-**Warum zwei Fassungen.** Gemessen an einer Groessenprobe: das Doto-B ist ab
-48 Pixeln lesbar, darunter verschmelzen die Punkte, und der Umriss wird bei 16
-Pixeln 0,75 Pixel dick — also grau statt weiss. Eine `.ico` darf pro Groesse
-ein eigenes Bild tragen, also traegt sie klein die kraeftige Fassung.
+**Warum zwei Fassungen.** Unter 48 Pixeln werden Fensterrahmen und
+unbeleuchtete Punkte zu grauem Brei, bei 16 Pixeln wäre ein Punkt 0,7 Pixel
+breit. Die Kleinfassung zeigt dasselbe DM ohne Fenster und Raster, mit Punkten,
+die fast aneinanderstoßen. So bleibt es bei 16 Pixeln eine lesbare Pixelschrift.
+Dieselbe Grenze galt schon für das alte Zeichen; damals gemessen an einer
+Größenprobe, jetzt erneut nachgesehen.
 
-**Was NICHT nochmal probiert werden muss** (alles am 30.07.2026 gebaut und
-verworfen): den gefalteten Rhombus der ersten Vorlage nachzuzeichnen — die
-Facetten werden bei 48 Pixeln Brei; Kreise mit Rechteck-Schnitt fuer die Drei —
-das beisst ein quadratisches Loch in die Form; `textbbox` zum Zentrieren von
-Doto — die Schrift meldet ihre Glyphenmasse ungenau, das B sass 19 Pixel zu
-weit links. Zentriert wird nach `getbbox()` der gezeichneten Tinte.
+**Maße.** Alles steht im 108er Raster eines Android-Symbols: Kachelradius 24,
+Fenster 10/22 bis 98/86 mit Radius 10, Raster 13 × 9 Punkte im Abstand 6,4. DM
+sitzt eine Zelle eingerückt auf demselben Raster, die leuchtenden Punkte liegen
+also genau über unbeleuchteten. Farben aus `DESIGN.md`: Grund `#0b0c12`, Linie
+`#3f424d`, Akzent `#b5abfc`, aus `#1f1d31`.

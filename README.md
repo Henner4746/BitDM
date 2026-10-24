@@ -461,7 +461,7 @@ secure-messenger/
   app/windows/           CMake, runner, and bitdm.iss for the installer
   app/linux/             runner; the release tar.gz comes from .github/workflows/linux.yml
   app/web/               shell for bitdm.net/app, built as in deploy/webapp/README.md
-  app/tool/symbol/       3 Python scripts that render and distribute the app icon
+  app/tool/symbol/       the BitDM mark (f1.py) and the script that writes every icon
   app/tool/*.py          checks for the main.dart split: pure move, name collisions
   server/                Python relay + blob store, 5,106 lines; tests 5,568 lines,
                          206 tests (18.10.2026)
