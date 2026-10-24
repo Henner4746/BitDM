@@ -477,18 +477,61 @@ async def main():
         await bob_n7.close()
         await asyncio.sleep(0.3)
 
-        # (g) Die Kennung steht NUR am gepufferten Rahmen. Der live
-        #     weitergereichte hat keine Zeile, die sich bestaetigen liesse —
-        #     ein `q` dort waere eine Einladung, fremde Kennungen zu loeschen.
+        # (g) Auch der live weitergereichte Rahmen traegt eine Kennung, wenn
+        #     die Gegenstelle den Nachweis kann. Der Relay legt die Zeile an,
+        #     BEVOR er live weiterreicht ("ERST IN DIE WARTESCHLANGE, DANN LIVE
+        #     SCHICKEN", relay_server.py): riss die Leitung des Empfaengers im
+        #     falschen Augenblick, war die Nachricht sonst weg, und der
+        #     Absender hatte sein `ack`. Die Apps 2.0.0 und 2.0.1 bestaetigen
+        #     genau dieses `q`. Es zeigt in Bobs EIGENE Warteschlange — fremde
+        #     loescht es nicht, siehe (f).
+        #
+        #     Bis 24.10.2026 verlangte dieser Punkt das Gegenteil ("traegt keine
+        #     Kennung") und meldete im Live-Lauf 56 von 57. Er kam im selben
+        #     Commit (18c4348) wie der Weg, den er pruefen sollte, und
+        #     beschrieb einen Zwischenstand. Ohne Kennung bleibt es nur fuer
+        #     eine Gegenstelle OHNE Nachweis — das prueft der letzte Teil.
         bob_live = await connect_authed(bob, nachweis=True)
+        await asyncio.sleep(0.3)
+        live_ct = b64(b"<live-mit-kennung>")
+        await alice_ws.send(json.dumps(
+            {"type": "message", "to": bob["user_id"], "ciphertext": live_ct}))
+        live = await expect(bob_live, "message")
+        check("Der live weitergereichte Rahmen traegt eine Kennung",
+              live["ciphertext"] == live_ct
+              and isinstance(live.get("q"), int)
+              and not isinstance(live.get("q"), bool))
+        # Unbestaetigt muss sie wiederkommen — sonst stuende hinter dem `q`
+        # gar keine Zeile, und es waere nur ein Etikett.
+        await bob_live.close()
+        await asyncio.sleep(0.3)
+        bob_live2 = await connect_authed(bob, nachweis=True)
+        nochmal = []
+        try:
+            while True:
+                nochmal.append(await expect(bob_live2, "message", timeout=1.5))
+        except asyncio.TimeoutError:
+            pass
+        check("Live weitergereicht und unbestaetigt kommt sie wieder",
+              any(m["ciphertext"] == live_ct and m.get("q") == live.get("q")
+                  for m in nochmal))
+        await bob_live2.send(json.dumps(
+            {"type": "empfangen", "ids": [m["q"] for m in nochmal if "q" in m]}))
+        await asyncio.sleep(0.4)
+        await bob_live2.close()
+        await asyncio.sleep(0.3)
+
+        # Eine Gegenstelle OHNE Nachweis (Apps von vor dem Nachweis) bekommt
+        # live weiter keine Kennung: fuer sie legt der Relay keine Zeile an.
+        bob_alt = await connect_authed(bob)
         await asyncio.sleep(0.3)
         await alice_ws.send(json.dumps(
             {"type": "message", "to": bob["user_id"],
              "ciphertext": b64(b"<live-ohne-kennung>")}))
-        live = await expect(bob_live, "message")
-        check("Der live weitergereichte Rahmen traegt keine Kennung",
-              "q" not in live)
-        await bob_live.close()
+        alt = await expect(bob_alt, "message")
+        check("Ohne Nachweis traegt der Live-Rahmen keine Kennung",
+              "q" not in alt)
+        await bob_alt.close()
         await asyncio.sleep(0.3)
 
         # -------------------------------------------------------- S4: Groesse
@@ -1628,10 +1671,13 @@ def test_mit_nachweis_ist_die_zeile_weg(relay):
 
 
 def test_die_kennung_steht_nur_am_gepufferten_rahmen(relay):
-    """Live weitergereicht gibt es keine Zeile, die man bestaetigen koennte.
+    """OHNE NACHWEIS gibt es live keine Zeile, die man bestaetigen koennte.
 
-    Ein `q` am Live-Rahmen waere schlimmer als nutzlos: es lieferte dem
-    Empfaenger eine fremde Kennung frei Haus.
+    Gilt fuer eine Gegenstelle, die den Nachweis nicht angekuendigt hat (Apps
+    von vor dem Nachweis): ihr reicht der Relay live weiter, ohne eine Zeile
+    anzulegen, und ein `q` daran waere eine Kennung ohne Zeile. Kann sie den
+    Nachweis, legt er die Zeile VOR dem Weiterreichen an, und der Live-Rahmen
+    traegt ihr `q` — siehe Pruefpunkt (g) in main().
     """
     rs = relay
     alice, bob = make_user(), make_user()
