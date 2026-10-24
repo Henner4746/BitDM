@@ -296,11 +296,36 @@ class RelayClient {
   final _zufall = Random();
 
   WsLeitung? _ws;
+
+  /// Die Leitung, auf der der Relay die Anmeldung bestaetigt hat.
+  ///
+  /// OFFEN IST NICHT ANGEMELDET. Bis zum 24.10.2026 war [isConnected] wahr,
+  /// sobald die WebSocket offen stand — vor der Challenge. Wer in diesem
+  /// Fenster fragte (die Wegwahl, `_wartAufVerbindung` fuer Anhaenge) und
+  /// gleich sendete, schickte seinen Rahmen VOR der Signatur. Der Relay liest
+  /// den ersten Rahmen nach der Challenge als Anmeldung, fand keine Signatur
+  /// und schloss mit 4403: die Verbindung war weg, die Nachricht lag, und
+  /// ohne Wiederverbindungszeitgeber blieb es dabei (CI-Lauf 40035524753,
+  /// real_core_test "eine Nachricht im Offline-Zustand geht spaeter raus").
+  ///
+  /// AN DIE LEITUNG GEBUNDEN und kein blosses Ja/Nein: eine spaete Antwort
+  /// auf eine schon geschlossene Leitung soll die naechste nicht vorzeitig
+  /// fuer angemeldet erklaeren.
+  WsLeitung? _angemeldetAuf;
+
   var _laufendeNummer = 0;
 
   Stream<RelayEvent> get events => _events.stream;
 
-  bool get isConnected => _ws?.offen ?? false;
+  /// Ob die Verbindung steht UND angemeldet ist. Siehe [_angemeldetAuf].
+  bool get isConnected => _angemeldeteLeitung?.offen ?? false;
+
+  /// Die Leitung fuer alles ausser der Signatur — null, solange die Anmeldung
+  /// nicht durch ist. Jeder Rahmen davor wuerde sie verderben.
+  WsLeitung? get _angemeldeteLeitung {
+    final ws = _ws;
+    return identical(ws, _angemeldetAuf) ? ws : null;
+  }
 
   String get address => identity.address;
 
@@ -495,7 +520,7 @@ class RelayClient {
 
     final angemeldet = Completer<void>();
     ws.rahmen.listen(
-      (roh) => _verarbeite(roh, angemeldet),
+      (roh) => _verarbeite(roh, angemeldet, ws),
       onDone: () {
         final code = ws.schlusscode;
         _ws = null;
@@ -531,7 +556,7 @@ class RelayClient {
           ? baseUri.path.substring(0, baseUri.path.length - 1)
           : baseUri.path;
 
-  void _verarbeite(dynamic roh, Completer<void> angemeldet) {
+  void _verarbeite(dynamic roh, Completer<void> angemeldet, WsLeitung ws) {
     // NACH `dispose()` KOMMT NOCH POST. `ws.close()` haelt Rahmen nicht auf,
     // die schon in der Leitung stecken; ein `add` auf den geschlossenen
     // Strom warf dann "Cannot add new events after calling close" (4 von 6
@@ -642,6 +667,9 @@ class RelayClient {
             _neuesteFassung = f;
             _events.add(RelayNeuesteFassung(f));
           }
+          // HIER und nicht erst nach dem `await` in [connect]: die naechsten
+          // Rahmen (die Warteschlange) koennen schon hinterherkommen.
+          if (identical(_ws, ws)) _angemeldetAuf = ws;
           if (!angemeldet.isCompleted) angemeldet.complete();
         } else if (!angemeldet.isCompleted) {
           angemeldet.completeError(
@@ -798,7 +826,7 @@ class RelayClient {
   /// Warteschlange, ohne Anstoss.
   Future<void> sendeFluechtig(
       String to, int? geraet, Uint8List ciphertext) async {
-    final ws = _ws;
+    final ws = _angemeldeteLeitung;
     if (ws == null) throw const RelayException('nicht verbunden');
     if (!_kannFluechtig) {
       throw const RelayException('dieser Relay kennt keine fluechtigen Rahmen');
@@ -836,7 +864,7 @@ class RelayClient {
   /// unterscheiden. Gegen den Relay selbst hilft das nicht — das waere ein
   /// Tarnverkehr, den er speichern muesste.
   void sendeGeraeusch() {
-    final ws = _ws;
+    final ws = _angemeldeteLeitung;
     if (ws == null) return;
     const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
     final to = String.fromCharCodes(
@@ -864,7 +892,7 @@ class RelayClient {
   /// Rahmen — siehe [geraeteKennung].
   Future<void> sendeAnGeraet(
       String to, int? geraet, Uint8List ciphertext) async {
-    final ws = _ws;
+    final ws = _angemeldeteLeitung;
     if (ws == null) throw const RelayException('nicht verbunden');
 
     final id = '${_laufendeNummer++}-${_zufall.nextInt(0x100000000)}';
@@ -906,7 +934,7 @@ class RelayClient {
   /// UEBER DIE BESTEHENDE VERBINDUNG, aus demselben Grund wie beim
   /// Anstoss-Endpunkt: hier ist schon nachgewiesen, wem diese Adresse gehoert.
   Future<BlobMarke> holeMarke(String kennung, int groesse) async {
-    final ws = _ws;
+    final ws = _angemeldeteLeitung;
     if (ws == null) throw const RelayException('nicht verbunden');
     if (!_kennungMuster.hasMatch(kennung)) {
       // Selbst pruefen, statt es dem Server zu ueberlassen: seine Absage auf
@@ -947,7 +975,7 @@ class RelayClient {
   /// er beschleunigt nur. Darauf zu warten hiesse, den Verbindungsaufbau von
   /// etwas abhaengig zu machen, das auch fehlschlagen darf.
   void setzePushEndpunkt(String? endpunkt) {
-    final ws = _ws;
+    final ws = _angemeldeteLeitung;
     if (ws == null) throw const RelayException('nicht verbunden');
     ws.sende(jsonEncode({
       'type': 'push_endpoint',
@@ -971,7 +999,7 @@ class RelayClient {
   /// hinausgeht, ist kein Fehler. Die Zeile bleibt beim Relay liegen und
   /// kommt noch einmal — genau die Richtung, in die der Irrtum fallen soll.
   void bestaetigeEmpfang(int q) {
-    final ws = _ws;
+    final ws = _angemeldeteLeitung;
     if (ws == null || !ws.offen) return;
     try {
       ws.sende(jsonEncode({

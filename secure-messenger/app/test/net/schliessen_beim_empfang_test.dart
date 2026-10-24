@@ -67,5 +67,11 @@ void main() {
         await ordner.delete(recursive: true);
       } catch (_) {}
     }
-  });
+    // 25 VOLLE KERNE, nicht einer: je Runde eine Identitaet mit Vorrat und
+    // zweimal PBKDF2 ueber die Woerter. Lokal 3 s, unter Last bis 10 s, jede
+    // Runde gleich lang (gemessen 24.10.2026) — reine Rechenzeit, kein Haenger.
+    // Auf dem Windows-Runner der CI reichten die voreingestellten 30 s nicht
+    // (Lauf 40035524753, zweiter Versuch); dieselbe Frist wie die anderen
+    // Tests, die echte Kerne aufbauen.
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }

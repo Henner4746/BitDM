@@ -479,6 +479,58 @@ void main() {
       expect(niemand.verbinden(), throwsA(isA<RelayException>()));
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    test('VERBUNDEN HEISST ANGEMELDET: wer waehrend der Anmeldung sendet, '
+        'verdirbt sie nicht', () async {
+      // DER FEHLER (CI-Lauf 40035524753, 23.10.2026): `isConnected` war wahr,
+      // sobald die WebSocket offen stand — vor der Challenge. Der Nachversand
+      // fragt genau das (Wegwahl, `_RelayAusgang.bereit`), und traf er dieses
+      // Fenster, ging ein Nachrichtenrahmen VOR der Signatur hinaus. Der Relay
+      // liest den ersten Rahmen nach der Challenge als Anmeldung, fand keine
+      // Signatur und schloss mit 4403. Die Nachricht blieb liegen, und ohne
+      // Wiederverbindungszeitgeber (der sitzt in der Oberflaeche) fuer immer.
+      //
+      // Die Schleife fragt so, wie die Wegwahl fragt: erst `isConnected`,
+      // dann senden — nach jeder Runde der Ereignisschleife, bis die
+      // Anmeldung durch ist.
+      final alice = await teilnehmer('alice');
+      final bob = await teilnehmer('bob');
+      addTearDown(alice.aufraeumen);
+      addTearDown(bob.aufraeumen);
+      await alice.anmelden();
+      await bob.anmelden();
+      await bob.verbinden();
+
+      final ziel = adr(bob.address);
+      await bauerVon(alice.store).processPreKeyBundle(
+          ziel, PreKeyBundleBridge.fromRelay(await alice.client.fetchBundle(
+              bob.address)));
+      final ct = await chiffreVon(alice.store)
+          .encrypt(ziel, Uint8List.fromList(utf8.encode('zu frueh')));
+      alice.repo.commit(alice.store);
+      final umschlag = Envelope.of(ct).toBytes();
+
+      var fertig = false;
+      var zuFrueh = 0;
+      final anmeldung =
+          alice.client.connect().whenComplete(() => fertig = true);
+      while (!fertig) {
+        if (alice.client.isConnected) {
+          zuFrueh++;
+          unawaited(alice.client
+              .send(bob.address, umschlag)
+              .catchError((Object _) {}));
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+      await anmeldung;
+
+      expect(zuFrueh, 0,
+          reason: 'isConnected war wahr, bevor die Anmeldung durch war');
+      expect(alice.client.isConnected, isTrue);
+      await alice.client.send(bob.address, umschlag);
+      expect(await bob.warteAufPost(1), ['zu frueh']);
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     test('ohne Empfangsnachweis kommt die Nachricht noch einmal', () async {
       // DER BEFUND, von der Clientseite aus. Vorher loeschte der Relay die
       // Zeile, sobald der Rahmen im Schreibpuffer stand — was danach abriss,

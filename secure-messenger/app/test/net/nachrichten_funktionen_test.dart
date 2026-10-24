@@ -7,6 +7,13 @@
 // der ANDEREN Seite ankommen — und dass nichts verloren geht, wenn gerade
 // keine Verbindung besteht.
 
+// DIE FRIST FUER JEDEN TEST DIESER DATEI, der keine eigene hat. Sie bauen
+// echte Kerne auf und reden ueber einen Relay; auf dem Windows-Runner der CI
+// brauchten solche Tests bis zu 35 s, voreingestellt sind 30 (CI-Laeufe bis
+// 24.10.2026). Dieselben 3 Minuten wie bei den Tests, die eine eigene haben.
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:io';
 
 import 'package:bitdm/core/messenger_core.dart';
@@ -195,6 +202,16 @@ void main() {
 
   test('EINE GEPLANTE NACHRICHT GEHT ERST ZUR ZEIT HINAUS', () async {
     final (:alice, :bob, erste: _) = await paar();
+    // DIE ANKUNFT WIRD MIT UHRZEIT MITGESCHRIEBEN, statt nach 1,5 s
+    // nachzusehen. Bis 24.10.2026 hiess es hier "1,5 s warten, dann darf sie
+    // noch nicht da sein" — bei 3 s bis zur geplanten Zeit. Brauchte das
+    // Wiederverbinden auf einem langsamen Runner mehr als 1,5 s, durfte sie
+    // bei der Probe schon da sein, und der Test war rot, ohne dass etwas
+    // falsch lief. Jetzt gilt die Regel selbst: nicht vor `um` angekommen.
+    final ankunft = <String, DateTime>{};
+    final abo = bob.core.incomingMessages
+        .listen((x) => ankunft.putIfAbsent(x.id, DateTime.now));
+    addTearDown(abo.cancel);
     final um = DateTime.now().add(const Duration(seconds: 3));
     final m = await alice.core.sendMessage(bob.core.myId, 'spaeter', um: um);
     expect(m.geplantFuer, isNotNull);
@@ -204,12 +221,11 @@ void main() {
     // bliebe gruen, auch wenn die Sperre fehlte (Mutationsprobe 25.09.2026).
     await alice.core.disconnect();
     await alice.core.connect();
-    await Future<void>.delayed(const Duration(milliseconds: 1500));
-    expect(bob.eingang.any((x) => x.id == m.id), isFalse,
-        reason: 'sie ging vor ihrer Zeit hinaus');
-    expect(await Nutzer.warteBis(() => bob.eingang.any((x) => x.id == m.id)),
-        isTrue,
+    expect(await Nutzer.warteBis(() => ankunft.containsKey(m.id)), isTrue,
         reason: 'sie ging zu ihrer Zeit nicht hinaus');
+    expect(ankunft[m.id]!.isBefore(um), isFalse,
+        reason: 'sie ging vor ihrer Zeit hinaus '
+            '(${um.difference(ankunft[m.id]!).inMilliseconds} ms zu frueh)');
     // Einsortiert zur geplanten Zeit, nicht zur Zeit des Tippens.
     final drueben = bob.eingang.firstWhere((x) => x.id == m.id);
     expect(drueben.timestamp.difference(um.toUtc()).inSeconds.abs(), lessThan(2));
