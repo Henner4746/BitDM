@@ -98,8 +98,9 @@ void main() {
     Color hintergrund(WidgetTester tester) =>
         tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor!;
 
-    testWidgets('EIN THEMA WAEHLEN: ERST DER SCHLEIER, DANN DIE NEUEN FARBEN',
-        (tester) async {
+    // SEIT 24.10.2026: kurz ueberblenden, kein Schleier. Bis dahin legte jede
+    // Wahl 2,8 s lang einen Chiffreschleier ueber den Bildschirm.
+    testWidgets('EIN THEMA WAEHLEN: KURZ UEBERBLENDEN, KEIN SCHLEIER', (tester) async {
       await tester.binding.setSurfaceSize(const Size(420, 1400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await bisZurListe(tester);
@@ -110,21 +111,34 @@ void main() {
       await warte(tester);
       await tester.ensureVisible(find.byKey(const ValueKey('thema-phosphor')));
       await tester.tap(find.byKey(const ValueKey('thema-phosphor')));
+      // Ein Bild nach der Wahl: der Wechsel laeuft, ohne Schleier.
+      await tester.runAsync(() async => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      expect(find.byType(ChiffreSchleier), findsNothing, reason: 'der Schleier ist wieder da');
+
+      // warte(…, 200) laesst 0,4 s vergehen: laenger darf es nicht dauern.
       await warte(tester, 200);
       expect(st.einstellungen.thema, 'phosphor', reason: 'die Wahl wurde nicht gespeichert');
-
-      // Mitten im Wechsel: der Schleier liegt ueber allem, die Farbe ist
-      // weder die alte noch die neue.
-      await tester.pump(const Duration(milliseconds: 1200));
-      expect(find.byType(ChiffreSchleier), findsOneWidget, reason: 'kein Schleier');
-      expect(hintergrund(tester), isNot(phosphor.pal.bg), reason: 'kein langsamer Wechsel');
-
-      for (var i = 0; i < 12; i++) {
-        await tester.pump(const Duration(milliseconds: 300));
-      }
-      expect(find.byType(ChiffreSchleier), findsNothing, reason: 'der Schleier bleibt liegen');
-      expect(hintergrund(tester), phosphor.pal.bg);
+      expect(hintergrund(tester), phosphor.pal.bg, reason: 'nach 0,4 s noch nicht im neuen Thema');
+      expect(find.byType(ChiffreSchleier), findsNothing);
       expect(anzeigeThema.value.id, 'phosphor', reason: 'Dialoge behielten das alte Thema');
+      anzeigeThema.value = bauThemen().first;
+    });
+
+    testWidgets('DAS GESPEICHERTE THEMA STEHT BEIM START SOFORT DA, OHNE WECHSEL',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(420, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await bisZurListe(tester);
+      final phosphor = bauThemen().firstWhere((t) => t.id == 'phosphor');
+      // Gespeichert, aber nicht in den Einstellungen gewaehlt: so sieht es
+      // fuer die Oberflaeche aus, wenn beim Start oder nach dem Entsperren
+      // die Einstellungen geladen werden.
+      await tester.runAsync(() => st.setzeEinstellungen(st.einstellungen.copyWith(thema: 'phosphor')));
+      await tester.pump();
+      expect(hintergrund(tester), phosphor.pal.bg, reason: 'das Thema glitt herein, statt dazustehen');
+      expect(find.byType(ChiffreSchleier), findsNothing);
+      expect(anzeigeThema.value.id, 'phosphor');
       anzeigeThema.value = bauThemen().first;
     });
 

@@ -10,12 +10,19 @@ extension _Thema on _HomeState {
   Thema get _schriftThema =>
       (_vonThema != null && _wechsel.value < 0.5) ? _vonThema! : _thema;
 
-  /// Wechselt langsam zu [neu]. Mitten in einem Wechsel geht es vom
-  /// Zwischenstand aus weiter, nicht mit einem Sprung zurueck.
-  void wechsleThema(Thema neu, {Duration dauer = const Duration(milliseconds: 2800)}) {
+  /// Wechselt zu [neu], als kurze Ueberblendung der Farben. Mitten in einem
+  /// Wechsel geht es vom Zwischenstand aus weiter, nicht mit einem Sprung
+  /// zurueck. Mit [sofort] ohne jede Bewegung.
+  ///
+  /// SEIT 24.10.2026 KURZ UND OHNE SCHLEIER. Vorher dauerte eine Wahl 2,8 s,
+  /// und ein Chiffreschleier zog dabei ueber den ganzen Bildschirm. Weil die
+  /// App beim Start in das gespeicherte Thema glitt, kam beides bei jedem
+  /// Neustart. Henrik: "zu viel des Guten".
+  void wechsleThema(Thema neu,
+      {Duration dauer = const Duration(milliseconds: 350), bool sofort = false}) {
     if (neu.id == _thema.id && _vonThema == null) return;
     final ohneBewegung = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    if (ohneBewegung) {
+    if (sofort || ohneBewegung) {
       _wechsel.stop();
       setState(() {
         _vonThema = null;
@@ -58,15 +65,20 @@ extension _Thema on _HomeState {
     });
   }
 
-  /// Uebernimmt, was in den Einstellungen steht — beim Start (nach dem
-  /// Entsperren gleitet die App in das gespeicherte Thema) und nach jeder
-  /// Aenderung.
+  /// Uebernimmt, was in den Einstellungen steht — beim Start, nach dem
+  /// Entsperren und nach jeder Aenderung.
+  ///
+  /// Uebergeblendet wird nur, wenn das Thema gerade in den Einstellungen
+  /// gewaehlt wurde. Beim Start und nach dem Entsperren steht das gespeicherte
+  /// Thema sofort da: das ist kein Wechsel, den jemand sehen wollte.
   void _uebernimmEinstellungen() {
     final e = st.einstellungen;
     if (e.thema != _gemeldetesThema) {
       _gemeldetesThema = e.thema;
+      final gewaehlt = _themaGewaehlt;
+      _themaGewaehlt = false;
       final ziel = _themen.firstWhere((t) => t.id == e.thema, orElse: () => _themen.first);
-      if (ziel.id != _thema.id) wechsleThema(ziel, dauer: const Duration(milliseconds: 3200));
+      if (ziel.id != _thema.id) wechsleThema(ziel, sofort: !gewaehlt);
     }
     if (e.themaWandern != _gemeldetesWandern) {
       _gemeldetesWandern = e.themaWandern;
@@ -128,7 +140,14 @@ extension _Thema on _HomeState {
       if (ziel.id != _thema.id || _vonThema != null) wechsleThema(ziel);
       return;
     }
-    await st.setzeEinstellungen(st.einstellungen.copyWith(thema: id));
+    _themaGewaehlt = true;
+    try {
+      await st.setzeEinstellungen(st.einstellungen.copyWith(thema: id));
+    } finally {
+      // Kam keine Aenderung an (etwa weil das Speichern scheiterte), darf
+      // die naechste, nicht gewaehlte nicht ueberblenden.
+      _themaGewaehlt = false;
+    }
   }
 
   /// Die Themen als Kacheln: jede zeigt ihre eigenen Farben und Schrift, nicht
