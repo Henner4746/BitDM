@@ -1,0 +1,10 @@
+[Unit]
+Description=BitDM: Google-Suche alle 6 Stunden pruefen
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:17:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
