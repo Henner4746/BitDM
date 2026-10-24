@@ -17,6 +17,7 @@ website/
 ├─ sitemap.xml     alle Seiten oben + llms.txt, je mit .html
 ├─ 1e0f…5274.txt   IndexNow-Schlüssel (öffentlich mit Absicht, siehe unten)
 ├─ favicon.ico     Seitenzeichen 16/32/48 px, favicon.svg dasselbe als Vektor
+├─ bilder/bitdm-zeichen.svg  das volle Zeichen als Vektor (app/tool/symbol)
 ├─ bilder/         App-Icon
 ├─ fonts/          Doto + Chivo Mono (SIL OFL, lokal eingebettet)
 └─ README.md

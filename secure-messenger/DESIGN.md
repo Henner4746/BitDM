@@ -59,6 +59,14 @@ Plattenbeschriftungen, 0.12em für Modulbezeichnungen, 0.08em für Zustände.
 - Tiefe entsteht durch **Versatz und weiche Streuung**, nie durch farbige Höfe
   ohne Versatz.
 
+## Zeichen
+
+Seit 24.10.2026: ein **Anzeigefenster** mit Punktmatrix, darin leuchtet **DM**
+im Akzent, die übrigen Punkte sind aus. Es ist dieselbe Welt wie die App: eine
+Gerätefront, die nur dort leuchtet, wo sie etwas anzeigt. Bis 32 Pixel gibt es
+eine Kleinfassung ohne Fenster und Raster. Vorlage, Maße und alle Ausgaben:
+`app/tool/symbol/` (`py tool/symbol/verteilen.py`).
+
 ## Grammatik der Frontplatte
 
 Neue Flächen erben diese Sprache:
