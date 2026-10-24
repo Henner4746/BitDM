@@ -1,8 +1,12 @@
 # Such-Waechter
 
 Prueft alle 6 Stunden vom Haupt-VPS aus, ob bitdm.net fuer Google richtig
-steht, und meldet ueber das eigene ntfy (`push.bitdm.net`, dasselbe Thema wie
-der Storage-Waechter), wenn nicht, und wenn es wieder stimmt.
+steht, und schreibt **per Mail an `henrik@bitdm.net`**, wenn nicht, und wenn es
+wieder stimmt. Eingeliefert wird bei mailcow auf demselben Server
+(`smtp://127.0.0.1:25`, ohne Anmeldung, Absender `waechter@bitdm.net`); die
+Weiterleitung nach Gmail macht mailcow. Mail statt nur ntfy, weil Henrik die
+ntfy-App nie eingerichtet hatte. Steht `NTFY_TOPIC` in `/etc/bitdm/waechter.env`,
+geht jede Meldung zusaetzlich dorthin.
 
 ## Anlass
 
@@ -43,9 +47,13 @@ Storage-Waechter. Dann nur:
     systemctl start bitdm-such-waechter.service
     journalctl -u bitdm-such-waechter -n 5 --no-pager     # "ok: 8 Seiten der Sitemap, ..."
 
-Ausprobieren ohne ntfy, auch am eigenen Rechner:
+Pruefen, dass die Mail ankommt (als der Nutzer, unter dem der Waechter laeuft):
 
-    TROCKEN=1 NTFY_TOPIC=x STATE_DIRECTORY=/tmp/sw ./bitdm-such-waechter.sh
+    sudo -u bitdm-waechter /usr/local/sbin/bitdm-such-waechter --test
+
+Ausprobieren ohne zu senden, auch am eigenen Rechner:
+
+    TROCKEN=1 STATE_DIRECTORY=/tmp/sw ./bitdm-such-waechter.sh
 
 ## Wenn er meldet
 

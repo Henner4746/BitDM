@@ -4,13 +4,13 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-# Derselbe eingeschraenkte Nutzer und dasselbe ntfy-Thema wie der
-# Storage-Waechter (siehe ../storage-waechter/README.md). Dieser Waechter
-# braucht weniger als jener: nur curl nach aussen und an ntfy auf 127.0.0.1,
-# keinen Schluessel.
+# Derselbe eingeschraenkte Nutzer wie der Storage-Waechter (siehe
+# ../storage-waechter/README.md). Dieser Waechter braucht weniger als jener:
+# nur curl nach aussen und an mailcow (Port 25) bzw. ntfy auf 127.0.0.1,
+# keinen Schluessel. waechter.env ist hier optional (ntfy zusaetzlich zur Mail).
 User=bitdm-waechter
 Group=bitdm-waechter
-EnvironmentFile=/etc/bitdm/waechter.env
+EnvironmentFile=-/etc/bitdm/waechter.env
 ExecStart=/usr/local/sbin/bitdm-such-waechter
 StateDirectory=bitdm-waechter
 UMask=0077

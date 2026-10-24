@@ -10,14 +10,22 @@
 # dass nichts die eigentlichen Seiten aus dem Index nimmt: noindex, ein
 # falscher Canonical, eine Fehlerseite, eine robots.txt, die alles sperrt.
 #
-# Meldet ueber dasselbe ntfy-Thema wie der Storage-Waechter (push.bitdm.net),
-# einmal, wenn etwas falsch wird, und einmal, wenn es wieder stimmt. Ein
-# Befund zaehlt erst, wenn er eine Minute spaeter noch da ist: ein einzelner
-# Aussetzer im Netz oder bei Cloudflare ist kein Fehler der Seite.
+# Meldet PER MAIL an henrik@bitdm.net, einmal, wenn etwas falsch wird, und
+# einmal, wenn es wieder stimmt. Eingeliefert wird bei mailcow auf diesem
+# Server (Port 25, ohne Anmeldung); die Weiterleitung nach Gmail macht mailcow.
+# Nicht ueber ntfy allein: die App hatte Henrik nie eingerichtet, Meldungen
+# dorthin waeren ungelesen geblieben. Ist NTFY_TOPIC gesetzt (aus der
+# waechter.env des Storage-Waechters), geht die Meldung zusaetzlich dorthin.
+# Ein Befund zaehlt erst, wenn er eine Minute spaeter noch da ist: ein
+# einzelner Aussetzer im Netz oder bei Cloudflare ist kein Fehler der Seite.
 #
-# Zum Ausprobieren ohne ntfy:  TROCKEN=1 NTFY_TOPIC=x ./bitdm-such-waechter.sh
+#   ./bitdm-such-waechter.sh --test     schickt nur eine Test-Mail
+#   TROCKEN=1 ./bitdm-such-waechter.sh  zeigt Meldungen an, statt sie zu senden
 set -u
-: "${NTFY_TOPIC:?NTFY_TOPIC fehlt (in /etc/bitdm/waechter.env)}"
+ALARM_MAIL="${ALARM_MAIL:-henrik@bitdm.net}"
+MAIL_VON="${MAIL_VON:-waechter@bitdm.net}"
+SMTP_URL="${SMTP_URL:-smtp://127.0.0.1:25}"
+NTFY_TOPIC="${NTFY_TOPIC:-}"
 NTFY_URL="${NTFY_URL:-http://127.0.0.1:2586}"
 SEITE="${SEITE:-https://bitdm.net}"
 WIEDERHOLEN_NACH="${WIEDERHOLEN_NACH:-60}"
@@ -26,11 +34,33 @@ mkdir -p "$STATE_DIR"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-melde() { # titel, text, prioritaet, tags
+melde() { # titel (nur ASCII: wird der Betreff), text, prioritaet, tags
   if [ -n "${TROCKEN:-}" ]; then printf 'MELDUNG [%s] %s\n%s\n' "$3" "$1" "$2"; return; fi
-  curl -fsS -m 15 -H "Title: $1" -H "Priority: $3" -H "Tags: $4" \
-       -d "$2" "$NTFY_URL/$NTFY_TOPIC" >/dev/null || echo "ntfy nicht erreichbar"
+  {
+    printf 'From: BitDM-Waechter <%s>\n' "$MAIL_VON"
+    printf 'To: %s\n' "$ALARM_MAIL"
+    printf 'Subject: %s\n' "$1"
+    printf 'Date: %s\n' "$(LC_ALL=C date -R)"
+    printf 'Message-ID: <such-waechter-%s-%s@bitdm.net>\n' "$(date +%s)" "$$"
+    printf 'MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: 8bit\n'
+    if [ "$3" = high ]; then printf 'X-Priority: 2\nImportance: high\n'; fi
+    printf '\n%s\n' "$2"
+  } > "$TMP/mail"
+  curl -sS -m 30 --url "$SMTP_URL" --mail-from "$MAIL_VON" --mail-rcpt "$ALARM_MAIL" \
+       --upload-file "$TMP/mail" >/dev/null || echo "Mail an $ALARM_MAIL nicht eingeliefert"
+  if [ -n "$NTFY_TOPIC" ]; then
+    curl -fsS -m 15 -H "Title: $1" -H "Priority: $3" -H "Tags: $4" \
+         -d "$2" "$NTFY_URL/$NTFY_TOPIC" >/dev/null || echo "ntfy nicht erreichbar"
+  fi
 }
+
+if [ "${1:-}" = --test ]; then
+  melde "BitDM: Such-Waechter (Test)" "Das ist eine Test-Mail des Such-Waechters auf dem Haupt-VPS.
+Er prueft alle 6 Stunden, ob bitdm.net fuer Google richtig steht, und schreibt nur,
+wenn etwas nicht stimmt und wenn es wieder stimmt." default "mag"
+  echo "Test-Mail an $ALARM_MAIL geschickt"
+  exit 0
+fi
 
 # Holt eine Adresse ohne Cloudflare-Zwischenspeicher (eigener Parameter je
 # Lauf) und legt Kopf und Inhalt in $TMP ab. Gibt den HTTP-Code aus.
