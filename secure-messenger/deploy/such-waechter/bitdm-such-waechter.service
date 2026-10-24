@@ -1,0 +1,45 @@
+[Unit]
+Description=BitDM: Waechter fuer die Google-Suche (bitdm.net)
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Derselbe eingeschraenkte Nutzer und dasselbe ntfy-Thema wie der
+# Storage-Waechter (siehe ../storage-waechter/README.md). Dieser Waechter
+# braucht weniger als jener: nur curl nach aussen und an ntfy auf 127.0.0.1,
+# keinen Schluessel.
+User=bitdm-waechter
+Group=bitdm-waechter
+EnvironmentFile=/etc/bitdm/waechter.env
+ExecStart=/usr/local/sbin/bitdm-such-waechter
+StateDirectory=bitdm-waechter
+UMask=0077
+
+# ══════ Haertung ══════
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @mount @swap @reboot @module @raw-io @debug @obsolete @cpu-emulation
+# Zwei Durchgaenge mit einer Minute Pause dazwischen, je bis zu 14 Abrufe.
+TimeoutStartSec=600
