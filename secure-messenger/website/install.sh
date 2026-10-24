@@ -53,10 +53,10 @@ TARGET="/opt/bitdm"
 #
 # BEI JEDEM RELEASE beide Zeilen hochziehen: erst das Tag setzen, dann hier
 # eintragen (`git rev-list -n1 vX.Y.Z`), dann die Seite ausrollen.
-# v2.0.0 plus die nginx-Vorlage fuer /geraeteliste (ohne sie bekaemen
-# 2.0.0-Apps an einem neu eingerichteten Relay 404).
-REF="v2.0.0"
-REF_COMMIT="02498a1731f2cec08d675864e68b49a4748ad413"
+# v2.0.1 (24.10.2026): Tag-Commit. Die nginx-Vorlage fuer /geraeteliste
+# steckt seit 02498a1 darin.
+REF="v2.0.1"
+REF_COMMIT="fa96092bf7fc507c392afdd733d9265c8105a7fc"
 
 red=$'\033[31m'; green=$'\033[32m'; yellow=$'\033[33m'; bold=$'\033[1m'; off=$'\033[0m'
 say()  { printf '%s\n' "$*"; }

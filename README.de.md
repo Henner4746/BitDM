@@ -203,8 +203,8 @@ Grenzen es gibt: [`docs/FUNKTIONSVERGLEICH.md`](secure-messenger/docs/FUNKTIONSV
 ### Android
 
 ```bash
-curl -fsSLO https://bitdm.net/bitdm-2.0.0.apk
-sha256sum bitdm-2.0.0.apk
+curl -fsSLO https://bitdm.net/bitdm-2.0.1.apk
+sha256sum bitdm-2.0.1.apk
 ```
 
 Android warnt beim Installieren. Es warnt bei **jeder** App, deren Zertifikat
@@ -213,11 +213,11 @@ Werte sagen etwas, und sie sind nicht dasselbe:
 
 | Was | Wert |
 |---|---|
-| **Diese Datei** (sha256 des APK) | `6354bc7d14eadbf6c2ebbb556f260a792fe2a88bf93eb033faa2fe448cac7b9d` |
+| **Diese Datei** (sha256 des APK) | `677230dd71c43520a50ba6404e9871e4705d9a98c29bc93b9ea864954dd1228e` |
 | **Signierschlüssel** (Zertifikatsabdruck) | `e325b01c08a1a679b6aac20ac9ae3ee255591b46b37dd92717f97085acc22063` |
 
 ```bash
-apksigner verify --print-certs bitdm-2.0.0.apk
+apksigner verify --print-certs bitdm-2.0.1.apk
 ```
 
 Der erste Wert deckt nur diese eine Datei. Der zweite deckt jede künftige
@@ -245,15 +245,15 @@ Testbau von 1.9.1 war bitgleich mit der APK oben.
 
 ### Windows
 
-Installer [`bitdm-windows-setup-2.0.0.exe`](https://bitdm.net/bitdm-windows-setup-2.0.0.exe)
-(14.421.001 Byte) oder [`bitdm-windows-2.0.0.zip`](https://bitdm.net/bitdm-windows-2.0.0.zip)
-(17.161.850 Byte, auspacken und `bitdm.exe` starten). Beide hängen auch am
-[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v2.0.0).
+Installer [`bitdm-windows-setup-2.0.1.exe`](https://bitdm.net/bitdm-windows-setup-2.0.1.exe)
+(14.435.528 Byte) oder [`bitdm-windows-2.0.1.zip`](https://bitdm.net/bitdm-windows-2.0.1.zip)
+(17.687.369 Byte, auspacken und `bitdm.exe` starten). Beide hängen auch am
+[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v2.0.1).
 
 | Was | Wert |
 |---|---|
-| **Installer** (sha256) | `6af884c40c2e0ff68cbefeb4e14b6bd0c49f93351c20969940387b7b5c2ee635` |
-| **Zip** (sha256) | `87d1b5056434e5d86b128d173d9c5ef279700b807642facb187b8cb17611d6ea` |
+| **Installer** (sha256) | `a79b6202ba9becfcdf58ce8a3e2516f7c81d7b713dc630a349a16146be1ba513` |
+| **Zip** (sha256) | `9c5e17c3d634a726bce34657b0fe531be2d362a4bace2960c4606ccb16c62305` |
 
 SmartScreen wird davor warnen, und daran ist hier nichts zu ändern: das
 Signieren von Windows-Programmen braucht ein Authenticode-Zertifikat von einer
@@ -276,18 +276,18 @@ legt keinen Autostart-Eintrag an.
 
 ### Linux
 
-`bitdm-linux-x64-2.0.0.tar.gz` am
-[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v2.0.0),
+`bitdm-linux-x64-2.0.1.tar.gz` am
+[GitHub-Release](https://github.com/Henner4746/BitDM/releases/tag/v2.0.1),
 gebaut von [`.github/workflows/linux.yml`](.github/workflows/linux.yml) auf
 Ubuntu 22.04 aus dem markierten Quellcode.
 
 | Was | Wert |
 |---|---|
-| **tar.gz** (sha256) | `e7bf90ba3359b25ba059f9b91c911ed3e20cae63ba559faf33014c2b001e2842` |
+| **tar.gz** (sha256) | `fda239671e05282bb7f0070f16a1a894c6ff774e7196d689c309ee5170bb62d2` |
 
 Am Release hängt außerdem ein Herkunftsnachweis:
-`gh attestation verify bitdm-linux-x64-2.0.0.tar.gz -R Henner4746/BitDM`
-prüft, dass die Datei aus genau diesem Workflow für das Tag `v2.0.0` stammt.
+`gh attestation verify bitdm-linux-x64-2.0.1.tar.gz -R Henner4746/BitDM`
+prüft, dass die Datei aus genau diesem Workflow für das Tag `v2.0.1` stammt.
 
 Auspacken und `./bitdm` starten. Gebraucht werden GTK 3, libsecret und
 dahinter ein entsperrter Schlüsselbund (GNOME Keyring oder ein anderer Secret
