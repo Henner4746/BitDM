@@ -2,8 +2,16 @@
 
 Prueft alle 5 Minuten vom Haupt-VPS aus, ob das Zwischenlager auf dem
 Storage-VPS lebt (Dienst, Platz, HTTPS von aussen), und meldet Ausfall,
-knappen Platz und Wiederkehr ueber das eigene ntfy (`push.bitdm.net`).
+knappen Platz und Wiederkehr **per Mail an `henrik@bitdm.net`** (eingeliefert
+bei mailcow auf demselben Server, `smtp://127.0.0.1:25`, ohne Anmeldung).
 Anlass: drei Tage unbemerkter Ausfall im September 2026 (Rechnung offen).
+
+Bis 24.10.2026 meldete er nur ueber das eigene ntfy (`push.bitdm.net`); die App
+dafuer war nie eingerichtet, die Meldungen waeren ungelesen geblieben. Steht
+`NTFY_TOPIC` in `/etc/bitdm/waechter.env`, geht jede Meldung zusaetzlich dorthin.
+Test: `sudo -u bitdm-waechter /usr/local/sbin/bitdm-storage-waechter --test`.
+Die ersten Test-Mails sortierte Gmail in den Spam; nach „Kein Spam“ landen sie
+im Posteingang.
 
 ## Rechte: kein root, auf keiner Seite (seit 25.09.2026)
 

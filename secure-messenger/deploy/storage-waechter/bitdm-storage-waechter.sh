@@ -3,9 +3,16 @@
 #
 # WARUM. Vom 23. bis 25.09.2026 war der Storage-VPS drei Tage weg (Rechnung
 # offen), und niemand hat es gemerkt: Anhaenge scheiterten still. Dieser
-# Waechter laeuft alle 5 Minuten auf dem Haupt-VPS und schickt ueber das eigene
-# ntfy (push.bitdm.net) eine Meldung — beim Ausfall, bei knappem Platz und wenn
-# es wieder laeuft. Nie zweimal dieselbe: der Zustand liegt in $STATE_DIR.
+# Waechter laeuft alle 5 Minuten auf dem Haupt-VPS und schickt eine Meldung —
+# beim Ausfall, bei knappem Platz und wenn es wieder laeuft. Nie zweimal
+# dieselbe: der Zustand liegt in $STATE_DIR.
+#
+# SEIT 24.10.2026 PER MAIL an henrik@bitdm.net (mailcow auf diesem Server,
+# Port 25, ohne Anmeldung). Bis dahin nur ueber ntfy (push.bitdm.net); die App
+# dafuer hatte Henrik nie eingerichtet, jede Meldung seit September waere
+# ungelesen geblieben. ntfy laeuft weiter mit, solange NTFY_TOPIC gesetzt ist.
+#
+#   bitdm-storage-waechter --test    schickt nur eine Test-Mail
 #
 # Drei Pruefungen, weil jede etwas anderes abdeckt:
 #   1. SSH + /health auf dem Storage-VPS selbst (Dienst laeuft, Platz frei)
@@ -13,7 +20,11 @@
 # Erst nach ZWEI Fehlschlaegen hintereinander wird gemeldet — ein einzelner
 # Aussetzer im Netz ist kein Ausfall.
 set -u
-: "${NTFY_TOPIC:?NTFY_TOPIC fehlt (in /etc/bitdm/waechter.env)}"
+ALARM_MAIL="${ALARM_MAIL:-henrik@bitdm.net}"
+MAIL_VON="${MAIL_VON:-waechter@bitdm.net}"
+# Der Pfad ist der Name fuer EHLO (sonst "mail": rspamd +1 Spampunkt).
+SMTP_URL="${SMTP_URL:-smtp://127.0.0.1:25/bitdm.net}"
+NTFY_TOPIC="${NTFY_TOPIC:-}"
 NTFY_URL="${NTFY_URL:-http://127.0.0.1:2586}"
 STORAGE_HOST="${STORAGE_HOST:-5.231.234.142}"
 # Eigener Schluessel und eigener Nutzer auf beiden Seiten (seit 25.09.2026,
@@ -27,10 +38,32 @@ MIN_FREI_GB="${MIN_FREI_GB:-80}"
 STATE_DIR="${STATE_DIRECTORY:-/var/lib/bitdm-waechter}"
 mkdir -p "$STATE_DIR"
 
-melde() { # titel, text, prioritaet, tags
-  curl -fsS -m 15 -H "Title: $1" -H "Priority: $3" -H "Tags: $4" \
-       -d "$2" "$NTFY_URL/$NTFY_TOPIC" >/dev/null || echo "ntfy nicht erreichbar"
+melde() { # titel (nur ASCII: wird der Betreff), text, prioritaet, tags
+  {
+    printf 'From: BitDM-Waechter <%s>\n' "$MAIL_VON"
+    printf 'To: %s\n' "$ALARM_MAIL"
+    printf 'Subject: %s\n' "$1"
+    printf 'Date: %s\n' "$(LC_ALL=C date -R)"
+    printf 'Message-ID: <storage-waechter-%s-%s@bitdm.net>\n' "$(date +%s)" "$$"
+    printf 'MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: 8bit\n'
+    printf 'Auto-Submitted: auto-generated\n'
+    case "$3" in urgent|high) printf 'X-Priority: 1\nImportance: high\n';; esac
+    printf '\n%s\n' "$2"
+  } | curl -sS -m 30 --url "$SMTP_URL" --mail-from "$MAIL_VON" --mail-rcpt "$ALARM_MAIL" \
+          --upload-file - >/dev/null || echo "Mail an $ALARM_MAIL nicht eingeliefert"
+  if [ -n "$NTFY_TOPIC" ]; then
+    curl -fsS -m 15 -H "Title: $1" -H "Priority: $3" -H "Tags: $4" \
+         -d "$2" "$NTFY_URL/$NTFY_TOPIC" >/dev/null || echo "ntfy nicht erreichbar"
+  fi
 }
+
+if [ "${1:-}" = --test ]; then
+  melde "BitDM: Storage-Waechter (Test)" "Das ist eine Test-Mail des Storage-Waechters auf dem Haupt-VPS.
+Er prueft alle 5 Minuten das Zwischenlager (Storage-VPS) und schreibt nur bei Ausfall,
+knappem Platz und wenn es wieder laeuft." default "white_check_mark"
+  echo "Test-Mail an $ALARM_MAIL geschickt"
+  exit 0
+fi
 
 fehler=""
 health=$(ssh -F /dev/null -i "$SSH_KEY" -o IdentitiesOnly=yes \
