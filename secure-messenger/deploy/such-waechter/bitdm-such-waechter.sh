@@ -24,7 +24,9 @@
 set -u
 ALARM_MAIL="${ALARM_MAIL:-henrik@bitdm.net}"
 MAIL_VON="${MAIL_VON:-waechter@bitdm.net}"
-SMTP_URL="${SMTP_URL:-smtp://127.0.0.1:25}"
+# Der Pfad ist der Name fuer EHLO: ohne ihn meldete sich curl als "mail", und
+# rspamd zaehlte das als nicht vollstaendigen Namen (+1 Spampunkt).
+SMTP_URL="${SMTP_URL:-smtp://127.0.0.1:25/bitdm.net}"
 NTFY_TOPIC="${NTFY_TOPIC:-}"
 NTFY_URL="${NTFY_URL:-http://127.0.0.1:2586}"
 SEITE="${SEITE:-https://bitdm.net}"
@@ -43,6 +45,7 @@ melde() { # titel (nur ASCII: wird der Betreff), text, prioritaet, tags
     printf 'Date: %s\n' "$(LC_ALL=C date -R)"
     printf 'Message-ID: <such-waechter-%s-%s@bitdm.net>\n' "$(date +%s)" "$$"
     printf 'MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: 8bit\n'
+    printf 'Auto-Submitted: auto-generated\n'
     if [ "$3" = high ]; then printf 'X-Priority: 2\nImportance: high\n'; fi
     printf '\n%s\n' "$2"
   } > "$TMP/mail"
