@@ -4,6 +4,13 @@
 // aber NICHT miteinander befreundet — der Fall, an dem sich zeigt, ob der
 // Fanout auch an Mitglieder geht, mit denen man nie eine Sitzung hatte.
 
+// DIE FRIST FUER JEDEN TEST DIESER DATEI, der keine eigene hat. Sie bauen
+// echte Kerne auf und reden ueber einen Relay; auf dem Windows-Runner der CI
+// brauchten solche Tests bis zu 35 s, voreingestellt sind 30 (CI-Laeufe bis
+// 24.10.2026). Dieselben 3 Minuten wie bei den Tests, die eine eigene haben.
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:io';
 
 import 'package:bitdm/core/messenger_core.dart';
@@ -56,14 +63,10 @@ void main() {
   Future<bool> kennt(Nutzer u, String gid) async =>
       (await u.core.getGruppen()).any((g) => g.id == gid && g.aktiv);
 
-  /// Wartet, bis [u] die Gruppe kennt — `warteBis` ist synchron, die Abfrage
-  /// nicht; deshalb ueber den Strom der Gruppenaenderungen.
+  /// Wartet, bis [u] die Gruppe kennt.
   Future<void> wartetAufGruppe(Nutzer u, String gid) async {
-    final ende = DateTime.now().add(const Duration(seconds: 20));
-    while (!await kennt(u, gid) && DateTime.now().isBefore(ende)) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-    expect(await kennt(u, gid), isTrue, reason: '${u.name} kennt die Gruppe nicht');
+    expect(await Nutzer.warteBis(() => kennt(u, gid)), isTrue,
+        reason: '${u.name} kennt die Gruppe nicht');
   }
 
   Future<({Nutzer anna, Nutzer bob, Nutzer carl, String gid})> gruppe() async {
@@ -130,7 +133,16 @@ void main() {
     addTearDown(abo.cancel);
 
     await bob.core.sendeLoeschanfrage(anna.core.myId);
-    await Future<void>.delayed(const Duration(seconds: 2));
+    // ERST ANGEKOMMEN, DANN GEPRUEFT. Bis 24.10.2026 stand hier eine feste
+    // Pause von 2 s; war die Anfrage danach noch unterwegs, war der Test rot.
+    // Eintragen und Ausloesen geschehen bei Anna im selben Schritt
+    // (`_nimmLoeschanfrage`) — steht sie drin, haette es schon ausgeloest.
+    expect(
+        await Nutzer.warteBis(() async => (await anna.core.getFernloeschung())
+            .anfragen
+            .containsKey(bob.core.myId)),
+        isTrue,
+        reason: 'Bobs Anfrage kam bei Anna nie an');
     expect(ausgeloest, isEmpty, reason: 'eine einzige Anfrage darf nichts ausloesen');
     expect((await anna.core.getFernloeschung()).anfragen.keys, [bob.core.myId]);
 
@@ -187,15 +199,28 @@ void main() {
         isTrue,
         reason: 'Carls Nachricht ging gar nicht erst hinaus — dann prueft der '
             'Rest nichts');
+    final verbunden = DateTime.now();
     await anna.core.connect();
-    await Future<void>.delayed(const Duration(seconds: 3));
+    // WAS ANKOMMEN MUSS, WIRD ABGEWARTET. Bis 24.10.2026 stand hier eine
+    // feste Pause von 3 s, danach wurde alles zugleich erwartet. Kam Annas
+    // neuer Stand auf einem langsamen Runner spaeter bei Carl und Bob an, war
+    // der Test rot, ohne dass etwas falsch lief.
+    expect(await Nutzer.warteBis(() async => !await kennt(carl, gid)), isTrue,
+        reason: 'Carl hat nicht erfahren, dass er entfernt wurde');
+    expect(
+        await Nutzer.warteBis(() async => !(await bob.core.getGruppen())
+            .single
+            .mitglieder
+            .contains(carl.core.myId)),
+        isTrue,
+        reason: 'Bob hat den neuen Stand nicht');
+    // WAS NICHT ANKOMMEN DARF, bekommt dieselben 3 s wie vorher — auf ein
+    // Ausbleiben laesst sich nicht warten, nur eine Zeit lang zusehen.
+    final rest =
+        const Duration(seconds: 3) - DateTime.now().difference(verbunden);
+    if (rest > Duration.zero) await Future<void>.delayed(rest);
     expect(anna.eingang.any((x) => x.id == m.id), isFalse,
         reason: 'Anna nahm eine Nachricht von einem Entfernten an');
-    expect(await kennt(carl, gid), isFalse,
-        reason: 'Carl hat nicht erfahren, dass er entfernt wurde');
-    // Bob hat den neuen Stand auch.
-    final beiBob = (await bob.core.getGruppen()).single;
-    expect(beiBob.mitglieder.contains(carl.core.myId), isFalse);
   });
 
   test('IN EINE GRUPPE STECKT EINEN NUR, WER KONTAKT IST', () async {

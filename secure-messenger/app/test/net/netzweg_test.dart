@@ -16,6 +16,7 @@ import 'package:bitdm/core/real_messenger_core.dart';
 import 'package:bitdm/core/secret_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/nutzer.dart';
 import '../support/relay_process.dart';
 
 class SpeicherImKopf implements SecretStore {
@@ -80,6 +81,65 @@ class ProbeSocks {
   }
 }
 
+/// Holt [uri] durch den Tunnel und gibt den Status zurueck, wenn der Rumpf
+/// gelesen ist.
+///
+/// MIT FRIST FUER DEN GANZEN WEG: Verbindung, SOCKS, TLS und Antwort. Bis
+/// 24.10.2026 lag die Frist nur auf der Antwort und war so lang wie die des
+/// ganzen Tests (30 s). Als bitdm.net auf dem CI-Runner nicht antwortete (Lauf
+/// 39145447288), lief der Test in seine eigene Frist, und die innere kam nie
+/// zum Zug.
+Future<int> statusDurchDenTunnel(Uri uri) async {
+  final c = Netzweg.httpClient();
+  try {
+    return await () async {
+      final antwort = await (await c.getUrl(uri)).close();
+      await antwort.drain<void>();
+      return antwort.statusCode;
+    }().timeout(const Duration(seconds: 20));
+  } finally {
+    c.close(force: true);
+  }
+}
+
+/// Ob bitdm.net OHNE Tunnel antwortet — gleich mit welchem Status.
+Future<bool> direktErreichbar() async {
+  final c = HttpClient();
+  try {
+    await () async {
+      final antwort = await (await c.getUrl(Uri.parse('https://bitdm.net/'))).close();
+      await antwort.drain<void>();
+    }().timeout(const Duration(seconds: 20));
+    return true;
+  } catch (_) {
+    return false;
+  } finally {
+    c.close(force: true);
+  }
+}
+
+/// DAS INTERNET IST NICHT DER PRUEFLING.
+///
+/// Wiederholt [abruf] hoechstens dreimal, wenn er an Netz oder Zeit scheitert.
+/// Scheitern alle, entscheidet der direkte Weg: antwortet bitdm.net auch so
+/// nicht, gibt es kein Netz — null, und der Test sagt das (wie bisher bei
+/// einer SocketException). Antwortet es direkt, liegt es am Tunnel, und der
+/// letzte Fehler fliegt.
+Future<T?> mitNetz<T>(Future<T> Function() abruf) async {
+  for (var versuch = 1;; versuch++) {
+    try {
+      return await abruf();
+    } on Object catch (e) {
+      final netz =
+          e is IOException || e is SocksException || e is TimeoutException;
+      if (!netz) rethrow;
+      if (versuch < 3) continue;
+      if (!await direktErreichbar()) return null;
+      rethrow;
+    }
+  }
+}
+
 void main() {
   late ProbeSocks socks;
   setUp(() async {
@@ -107,46 +167,51 @@ void main() {
   });
 
   test('HTTPS UEBER SOCKS5 mit echtem TLS (bitdm.net)', () async {
-    final c = Netzweg.httpClient();
-    try {
-      final antwort = await (await c.getUrl(Uri.parse('https://bitdm.net/'))).close()
-          .timeout(const Duration(seconds: 30));
-      expect(antwort.statusCode, 200);
-      expect(socks.verlangt, ['bitdm.net:443']);
-      await antwort.drain<void>();
-    } on SocketException {
+    final status =
+        await mitNetz(() => statusDurchDenTunnel(Uri.parse('https://bitdm.net/')));
+    if (status == null) {
       markTestSkipped('kein Netz');
-    } finally {
-      c.close();
+      return;
     }
-  });
+    expect(status, 200);
+    // Bei einer Wiederholung steht der Name mehrmals da — aber nur er.
+    expect(socks.verlangt.toSet(), {'bitdm.net:443'});
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   // DER RELAY ALS ONION-DIENST MIT TLS: der Name in der Adresse ist nicht der
   // im Zertifikat. Ohne Eintrag in zertifikatsName muss der Aufbau scheitern
   // (sonst prueft niemand etwas), mit Eintrag muss er gelingen.
   test('ONION MIT TLS: das Zertifikat wird gegen den eingetragenen Namen geprueft', () async {
     socks.umleitung['versteckt.onion'] = 'bitdm.net';
-    final c = Netzweg.httpClient();
-    try {
-      await expectLater(
-          () async => (await c.getUrl(Uri.parse('https://versteckt.onion/'))).close()
-              .timeout(const Duration(seconds: 30)),
-          throwsA(isA<HandshakeException>()),
-          reason: 'ohne Eintrag darf ein fremdes Zertifikat nicht durchgehen');
-      Netzweg.zertifikatsName['versteckt.onion'] = 'bitdm.net';
-      final antwort = await (await c.getUrl(Uri.parse('https://versteckt.onion/'))).close()
-          .timeout(const Duration(seconds: 30));
-      // Welcher Status, ist egal (Cloudflare kennt den Namen nicht) — dass
-      // eine HTTP-Antwort kommt, heisst: TLS stand, das Zertifikat passte.
-      expect(antwort.statusCode, greaterThan(0));
-      await antwort.drain<void>();
-    } on SocketException {
+    final onion = Uri.parse('https://versteckt.onion/');
+    addTearDown(() => Netzweg.zertifikatsName.remove('versteckt.onion'));
+
+    // Die Ablehnung ist hier das ERGEBNIS, kein Netzfehler — sie wird
+    // zurueckgegeben und nicht wiederholt.
+    final ohne = await mitNetz<Object>(() async {
+      try {
+        return await statusDurchDenTunnel(onion);
+      } on HandshakeException catch (e) {
+        return e;
+      }
+    });
+    if (ohne == null) {
       markTestSkipped('kein Netz');
-    } finally {
-      Netzweg.zertifikatsName.remove('versteckt.onion');
-      c.close();
+      return;
     }
-  });
+    expect(ohne, isA<HandshakeException>(),
+        reason: 'ohne Eintrag darf ein fremdes Zertifikat nicht durchgehen');
+
+    Netzweg.zertifikatsName['versteckt.onion'] = 'bitdm.net';
+    final mit = await mitNetz(() => statusDurchDenTunnel(onion));
+    if (mit == null) {
+      markTestSkipped('kein Netz');
+      return;
+    }
+    // Welcher Status, ist egal (Cloudflare kennt den Namen nicht) — dass
+    // eine HTTP-Antwort kommt, heisst: TLS stand, das Zertifikat passte.
+    expect(mit, greaterThan(0));
+  }, timeout: const Timeout(Duration(minutes: 4)));
 
   test('ein abweisender Proxy ist ein klarer Fehler, kein Haengen', () async {
     final c = Netzweg.httpClient();
@@ -189,10 +254,16 @@ void main() {
     final p = await kern.getPreferences();
     await kern.setPreferences(p.copyWith(tor: true, torPort: socks.port));
     await kern.connect();
-    final online = await kern.connectionStateChanges
-        .firstWhere((z) => z == ConnectionState.online)
-        .timeout(const Duration(seconds: 20), onTimeout: () => kern.connectionState);
-    expect(online, ConnectionState.online, reason: 'ueber den Proxy kam keine Verbindung zustande');
+    // AUF DEN ZUSTAND, NICHT AUF DAS EREIGNIS. Bis 24.10.2026 stand hier
+    // `connectionStateChanges.firstWhere(online)` mit 20 s Frist. Das
+    // Ereignis war beim Abonnieren aber meist schon vorbei — `connect()` kehrt
+    // erst danach zurueck —, und der Test lief jedes Mal die vollen 20 s, bis
+    // der Rueckfallwert ihn rettete (gemessen lokal und in der CI).
+    expect(
+        await Nutzer.warteBis(
+            () => kern.connectionState == ConnectionState.online),
+        isTrue,
+        reason: 'ueber den Proxy kam keine Verbindung zustande');
     expect(socks.verlangt.where((v) => v == 'localhost:${relay.uri.port}'), isNotEmpty,
         reason: 'mit Tor ging die Verbindung nicht an die Onion-Adresse');
   }, timeout: const Timeout(Duration(minutes: 2)));

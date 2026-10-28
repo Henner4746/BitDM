@@ -14,6 +14,7 @@
 //   * Ein Abbruch hinterlaesst keine halbe Datei, die ganz aussieht.
 //   * Verschluesseln und Hochladen laufen INEINANDER, nicht nacheinander.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -39,10 +40,9 @@ class EchtesLager {
   final bloecke = <String, Uint8List>{};
   final abgelehnt = <String>[];
 
-  /// Macht das Ablegen kuenstlich langsam. Nur fuer die Messung, ob
-  /// Verschluesseln und Hochladen ineinander laufen — bei einem Upload ueber
-  /// die Schleife ist der Unterschied sonst nicht zu sehen.
-  Duration? bremseBeimAblegen;
+  /// Laeuft vor jedem Ablegen, und das Ablegen wartet auf sie. Nur fuer die
+  /// Frage, ob Verschluesseln und Hochladen ineinander laufen — siehe dort.
+  Future<void> Function()? vorDemAblegen;
 
   static Future<EchtesLager> starte() async =>
       EchtesLager._(await HttpServer.bind(InternetAddress.loopbackIPv4, 0))
@@ -87,9 +87,8 @@ class EchtesLager {
             a.response.statusCode = 400;
             break;
           }
-          if (bremseBeimAblegen != null) {
-            await Future<void>.delayed(bremseBeimAblegen!);
-          }
+          final halt = vorDemAblegen;
+          if (halt != null) await halt();
           bloecke[k] = Uint8List.fromList(bytes);
           a.response.write('{"ok":true}');
 
@@ -436,39 +435,48 @@ void main() {
   });
 
   group('VERSCHLUESSELN UND HOCHLADEN LAUFEN INEINANDER', () {
-    test('vier Stuecke brauchen weniger als vier volle Runden', () async {
-      // BEIDE Seiten muessen kuenstlich langsam sein, sonst ist nichts zu
-      // sehen: ueber die Schleife dauert ein Upload wenige Millisekunden, und
-      // dann kostet fehlende Verschraenkung fast nichts. Mit je 100 ms:
+    test('das naechste Stueck wird verschluesselt, waehrend das vorige '
+        'hochlaedt', () async {
+      // GEWARTET WIRD AUF DIE BEDINGUNG, NICHT AUF DIE UHR. Bis zum 24.10.2026
+      // bremste dieser Test beide Seiten um je 100 ms und verlangte unter
+      // 700 ms (nacheinander 800, ineinander 500). Auf dem Windows-Runner der
+      // CI kamen auch ineinander 773 ms heraus (Laeufe 36275307028 und
+      // 37656819006) — gemessen wurde die Maschine, nicht die Verschraenkung.
       //
-      //   nacheinander:  4 x (100 + 100)          = 800 ms
-      //   ineinander:    100 + 4 x max(100, 100)  = 500 ms
-      //
-      // Der erste Durchgang laesst sich nicht verschraenken — es gibt noch
-      // nichts, womit. Deshalb 100 ms Vorlauf in der zweiten Zeile.
-      const bremse = Duration(milliseconds: 100);
-      lager.bremseBeimAblegen = bremse;
-      final langsam = AnhangVersand(
+      // Jetzt haelt das Lager das Ablegen von Stueck k offen, bis das
+      // Verschluesseln von Stueck k+1 begonnen hat. Laeuft der Versand
+      // ineinander, kommt dieser Anfang von selbst, gleich wie langsam die
+      // Maschine ist. Laeuft er nacheinander, kommt er nie: Stueck k+1 wird
+      // erst angefasst, wenn k abgelegt ist. Die Frist ist nur dafuer da, dass
+      // der Test dann scheitert, statt zu haengen.
+      final krypto = BeobachtetesKrypto();
+      var abgelegt = 0;
+      final nacheinander = <int>[];
+      lager.vorDemAblegen = () async {
+        final k = abgelegt++;
+        if (k + 1 >= 4) return; // nach dem letzten kommt keins mehr
+        try {
+          await krypto.begonnen(k + 1).timeout(const Duration(seconds: 10));
+        } on TimeoutException {
+          nacheinander.add(k);
+        }
+      };
+      final beobachtet = AnhangVersand(
         relay: relay,
         lager: client,
-        krypto: const LangsamesKrypto(bremse),
+        krypto: krypto,
         stueckGroesse: stueckGroesse,
       );
 
-      final uhr = Stopwatch()..start();
-      await langsam.schicke(await dateiMit(ordner, 4 * stueckGroesse));
-      uhr.stop();
+      await beobachtet.schicke(await dateiMit(ordner, 4 * stueckGroesse));
 
       expect(relay.ausgestellt, hasLength(4));
-      expect(uhr.elapsedMilliseconds, lessThan(700),
-          reason: 'gemessen: ${uhr.elapsedMilliseconds} ms — nacheinander '
-              'waeren es rund 800 ms, ineinander rund 500');
-      // Und die untere Schranke: schneller als 500 ms KANN es nicht sein.
-      // Waere es das, misst der Test etwas anderes als gedacht — zum
-      // Beispiel eine Bremse, die gar nicht greift.
-      expect(uhr.elapsedMilliseconds, greaterThan(400),
-          reason: 'unter 500 ms kann es nicht gehen; dann bremst etwas nicht');
-    }, timeout: const Timeout(Duration(seconds: 30)));
+      // Sonst haette das Lager oben gar nicht gefragt.
+      expect(abgelegt, 4);
+      expect(nacheinander, isEmpty,
+          reason: 'Stueck k+1 wurde erst verschluesselt, nachdem Stueck k '
+              'abgelegt war (k = $nacheinander)');
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 
   group('Ein Name von draussen', () {
@@ -498,12 +506,18 @@ void main() {
   });
 }
 
-/// Eine Verschluesselung mit eingebauter Bremse — nur fuer die Messung oben.
-class LangsamesKrypto extends StueckKrypto {
-  const LangsamesKrypto(this.dauer);
-  final Duration dauer;
+/// Eine Verschluesselung, die meldet, wann sie anfaengt — nur fuer die
+/// Verschraenkung oben.
+class BeobachtetesKrypto extends StueckKrypto {
+  BeobachtetesKrypto();
 
   static const _echt = GcmStueckKrypto();
+
+  final _begonnen = <int, Completer<void>>{};
+
+  /// Erfuellt, sobald das Verschluesseln von Stueck [nummer] angefangen hat.
+  Future<void> begonnen(int nummer) =>
+      _begonnen.putIfAbsent(nummer, Completer<void>.new).future;
 
   @override
   Future<Uint8List> verschluessle({
@@ -512,8 +526,9 @@ class LangsamesKrypto extends StueckKrypto {
     required Uint8List nonce,
     required int nummer,
     required int vonWievielen,
-  }) async {
-    await Future<void>.delayed(dauer);
+  }) {
+    final c = _begonnen.putIfAbsent(nummer, Completer<void>.new);
+    if (!c.isCompleted) c.complete();
     return _echt.verschluessle(
         klar: klar,
         schluessel: schluessel,
