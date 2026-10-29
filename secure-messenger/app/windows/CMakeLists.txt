@@ -106,3 +106,39 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Microsofts C++-Laufzeit neben bitdm.exe. bitdm.exe und die Plugin-DLLs
+# importieren MSVCP140.dll, VCRUNTIME140.dll und VCRUNTIME140_1.dll, und die
+# bringt ein frisches Windows nicht mit (anders als die UCRT, api-ms-win-crt-*,
+# die seit Windows 10 zum System gehoert). Ohne sie endet bitdm.exe sofort mit
+# 0xC0000135 STATUS_DLL_NOT_FOUND — so am 17.10.2026 in der winget-Pruefung auf
+# einer sauberen Windows-Sandbox (microsoft/winget-pkgs#453011). winget kann
+# die Laufzeit als Abhaengigkeit nachinstallieren, Installer und Zip von
+# bitdm.net und GitHub koennen das nicht. Also liegen die drei DLLs app-lokal
+# im Bau-Ausgang, und bitdm.iss und das Zip nehmen sie mit dem Ordner mit.
+#
+# Quelle ist der Redist-Ordner des Visual Studio, das auch baut
+# (VC\Redist\MSVC\<fassung>\x64\Microsoft.VC143.CRT), nicht System32 und nicht
+# das Netz: so passt die Laufzeit zum Compiler, und genau diese Dateien erlaubt
+# Microsoft weiterzugeben (redist.txt). Wer die Liste aendert, prueft vorher mit
+# `dumpbin /dependents` ueber bitdm.exe und alle DLLs im Release-Ordner, was
+# wirklich importiert wird. Fehlt eine der drei, bricht der Bau ab, statt still
+# eine App zu bauen, die auf frischen Rechnern nicht startet.
+#
+# Der Preis: app-lokal kommen Sicherheitsupdates der Laufzeit nur mit einem
+# neuen Bau auf aktuellem Visual Studio an, nicht ueber Windows Update — wie bei
+# sqlite3 und libsignal, die ebenfalls in diesem Ordner liegen.
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+include(InstallRequiredSystemLibraries)
+set(BITDM_VC_LAUFZEIT ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS})
+list(FILTER BITDM_VC_LAUFZEIT INCLUDE
+  REGEX "/(msvcp140|vcruntime140|vcruntime140_1)\\.dll$")
+list(LENGTH BITDM_VC_LAUFZEIT BITDM_VC_LAUFZEIT_ANZAHL)
+if(NOT BITDM_VC_LAUFZEIT_ANZAHL EQUAL 3)
+  message(FATAL_ERROR "VC++-Laufzeit (msvcp140, vcruntime140, vcruntime140_1) "
+    "nicht vollstaendig im Redist-Ordner '${MSVC_REDIST_DIR}' gefunden: "
+    "${BITDM_VC_LAUFZEIT}")
+endif()
+install(FILES ${BITDM_VC_LAUFZEIT} DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  CONFIGURATIONS Profile;Release
+  COMPONENT Runtime)

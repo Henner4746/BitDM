@@ -369,6 +369,10 @@ The Windows output is a directory, not a single file. `bitdm.exe` is 90 KiB and
 useless alone: `sqlite3mc.dll` is the encrypted database, `libsignal_frb.dll`
 (since 2.0.0) and `webcrypto.dll` the crypto, and the actual Dart code lives in
 `data/app.so`. Ship the whole folder.
+It also holds Microsoft's C++ runtime (`msvcp140.dll`, `vcruntime140.dll`,
+`vcruntime140_1.dll`), copied from your Visual Studio's redist folder by
+`windows/CMakeLists.txt`. A fresh Windows does not have it, and without it
+`bitdm.exe` does not start at all (0xC0000135).
 For an installer instead of a zip:
 
 ```powershell
