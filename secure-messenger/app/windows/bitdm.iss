@@ -67,6 +67,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; \
 ; Der ganze Bau-Ausgang. Die DLLs und `data\` MUESSEN neben der .exe liegen —
 ; sqlite3mc.dll ist die verschluesselte Datenbank, webcrypto.dll die Krypto,
 ; und in data\app.so steckt der eigentliche Dart-Code.
+;
+; Dazu gehoert Microsofts C++-Laufzeit: msvcp140.dll, vcruntime140.dll und
+; vcruntime140_1.dll. Ein frisches Windows hat sie nicht, und ohne sie startet
+; bitdm.exe gar nicht (0xC0000135, gesehen in der winget-Pruefung am
+; 17.10.2026). Der Installer fragt deshalb nicht nach vc_redist und braucht
+; dafuer keine Adminrechte: windows\CMakeLists.txt legt die drei DLLs beim
+; Bauen aus dem Visual-Studio-Redist-Ordner in den Bau-Ausgang, und die Zeile
+; unten nimmt sie mit. Warum genau diese drei, steht dort.
 Source: "..\build\windows\x64\runner\Release\{#ExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\windows\x64\runner\Release\*";          DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs

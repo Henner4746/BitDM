@@ -387,7 +387,11 @@ Einzelheiten in [`docs/LIBSIGNAL-UMSTIEG.md`](secure-messenger/docs/LIBSIGNAL-UM
 Die Windows-Ausgabe ist ein Verzeichnis und keine einzelne Datei. `bitdm.exe`
 ist 90 KiB groß und allein nutzlos: `sqlite3mc.dll` ist die verschlüsselte
 Datenbank, `libsignal_frb.dll` (seit 2.0.0) und `webcrypto.dll` die
-Kryptografie, und der eigentliche Dart-Code liegt in `data/app.so`. Gib den ganzen Ordner weiter. Für ein
+Kryptografie, und der eigentliche Dart-Code liegt in `data/app.so`. Gib den ganzen Ordner weiter.
+Dazu gehört Microsofts C++-Laufzeit (`msvcp140.dll`, `vcruntime140.dll`,
+`vcruntime140_1.dll`), die `windows/CMakeLists.txt` aus dem Redist-Ordner deines
+Visual Studio dazulegt. Ein frisches Windows hat sie nicht, und ohne sie startet
+`bitdm.exe` gar nicht (0xC0000135). Für ein
 Installationsprogramm statt eines Zip:
 
 ```powershell
