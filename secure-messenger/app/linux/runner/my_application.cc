@@ -6,6 +6,7 @@
 #endif
 
 #include "datei_kanal.h"
+#include "geheime_ablage.h"
 #include "flutter/generated_plugin_registrant.h"
 
 struct _MyApplication {
@@ -13,6 +14,9 @@ struct _MyApplication {
   char** dart_entrypoint_arguments;
   // Kanal "bitdm/dateien" — Dateiauswahl und Oeffnen, siehe datei_kanal.cc.
   FlMethodChannel* datei_kanal;
+  // Kanal "bitdm/ablage" — die zwoelf Woerter mit Verlaufs-Sperre in die
+  // Zwischenablage, siehe geheime_ablage.cc.
+  FlMethodChannel* geheime_ablage;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -79,6 +83,8 @@ static void my_application_activate(GApplication* application) {
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
   self->datei_kanal = datei_kanal_neu(
       fl_engine_get_binary_messenger(fl_view_get_engine(view)), window);
+  self->geheime_ablage = geheime_ablage_neu(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)));
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -127,6 +133,7 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->datei_kanal);
+  g_clear_object(&self->geheime_ablage);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

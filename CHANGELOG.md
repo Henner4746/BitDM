@@ -10,6 +10,14 @@ Downloads: [GitHub-Releases](https://github.com/Henner4746/BitDM/releases) und <
 
 **Neues App-Symbol.** Ein Anzeigefenster mit Punktmatrix, DM leuchtet im Akzent. Es ersetzt die schwarz-weiße Sprechblase.
 
+**Die zwölf Wörter lassen sich kopieren**, etwa in einen Passwortmanager: unter den Wörtern nach dem Anlegen und unter Einstellungen › Wiederherstellungswörter zeigen. Die App leert die Zwischenablage nach 60 s wieder, wenn dort noch die Wörter stehen, und sofort, wenn die Identität gelöscht wird. Was man inzwischen selbst kopiert hat, bleibt.
+- **Android** markiert sie als sensibel: Die Vorschau unten links (ab Android 13) zeigt Punkte statt der Wörter, und Tastaturen bieten sie nicht zum Einfügen an. Geleert wird auch, wenn die App gerade im Hintergrund ist. Lesen darf sie die Ablage dort nicht, also leert sie ohne Vergleich: Wer in dieser Minute in einer anderen App etwas kopiert hat, verliert es.
+- **Windows** nimmt sie aus dem Verlauf (Win+V) und aus der Cloud-Zwischenablage heraus.
+- **Linux** setzt den Hinweis, mit dem Klipper und andere Verläufe Passwörter auslassen.
+- **Im Browser** lässt sich die Zwischenablage nicht verlässlich leeren. Die App sagt das dort dazu.
+
+Die Teilgeheimnisse (Vertrauenskontakte) kopiert die App jetzt auf demselben Weg, weiter mit 30 s.
+
 ## 2.0.1 (24.10.2026)
 
 **Erst den Relay aktualisieren, dann die App.** Der Relay dieser Fassung speichert eine zusätzliche Signatur je Gerät und prüft sie bei der Anmeldung (siehe Geräteliste unten). Das ist additiv: Ältere Apps schicken das Feld nicht und laufen weiter, ein älterer Relay ignoriert es. Neue Endpunkte gibt es nicht, an der nginx-Liste ändert sich nichts. Beim Relay selbst zuerst das Zwischenlager aktualisieren: Es zählt jetzt die Gesamtmenge der Anhänge (siehe unten).

@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "datei_kanal.h"
+#include "geheime_ablage.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -38,6 +39,10 @@ class FlutterWindow : public Win32Window {
 
   // Kanal "bitdm/dateien" — Dateiauswahl und Oeffnen, siehe datei_kanal.cpp.
   std::unique_ptr<DateiKanal> datei_kanal_;
+
+  // Kanal "bitdm/ablage" — die zwoelf Woerter ohne Verlauf und Cloud in die
+  // Zwischenablage, siehe geheime_ablage.cpp.
+  std::unique_ptr<GeheimeAblage> geheime_ablage_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

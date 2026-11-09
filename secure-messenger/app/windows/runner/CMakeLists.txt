@@ -9,6 +9,7 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME} WIN32
   "datei_kanal.cpp"
   "flutter_window.cpp"
+  "geheime_ablage.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
