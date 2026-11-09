@@ -6,9 +6,8 @@
 // und zugriff.dart und sucht in den uebrigen Teilen nach frischBestaetigt.
 part of '../home.dart';
 
-/// Kopiert etwas Geheimes und raeumt die Zwischenablage nach 30 Sekunden
-/// wieder — aber nur, wenn dort noch GENAU das steht. Was der Nutzer
-/// inzwischen selbst kopiert hat, bleibt.
+/// Wie lange ein TEIL der zwoelf Woerter (wiederherstellung.dart) in der
+/// Zwischenablage bleibt. Die ganzen Woerter bleiben [GeheimeAblage.frist].
 ///
 /// Die Zwischenablage lesen andere Apps, Tastaturen und auf manchen
 /// Telefonen auch die Cloud-Synchronisation; ein Teil der zwoelf Woerter
@@ -23,7 +22,7 @@ extension _Identitaet on _HomeState {
   /// und wer sie nie zu sehen bekommt, verliert seine Identitaet beim ersten
   /// kaputten Bildschirm. Deshalb liegt jetzt ein Schritt dazwischen.
   Future<void> doCreate() async {
-    setState(() { screen = 'creating'; wiped = false; });
+    setState(() { screen = 'creating'; wiped = false; woerterKopiert = false; });
     await st.identitaetAnlegen();
     if (!mounted) return;
     setState(() => screen = 'phrase');
@@ -42,38 +41,47 @@ extension _Identitaet on _HomeState {
     }
     if (!mounted) return;
     await st.geheimnisSichtbar(true);
+    // Ob in DIESEM Dialog schon kopiert wurde — fuer den Hinweis darunter.
+    // Lokal und nicht im _HomeState: jedes Oeffnen faengt ohne an.
+    var kopiert = false;
     try {
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          key: const ValueKey('woerter-dialog'),
-          backgroundColor: p.surf,
-          title: Text(t('phraseTitle'), style: doto(size: 17, color: p.ink)),
-          content: SizedBox(
-            width: 340,
-            child: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(t('phraseShowWarn'), style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
-                const SizedBox(height: 12),
-                _zweiSpaltenGitter(
-                  woerter.length,
-                  (i) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-                    decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(4)),
-                    child: Row(children: [
-                      SizedBox(width: 20, child: Text('${i + 1}', style: mono(size: 10, color: p.dim))),
-                      Expanded(child: Text(woerter[i],
-                          style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 0.6))),
-                    ]),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, neu) => AlertDialog(
+            key: const ValueKey('woerter-dialog'),
+            backgroundColor: p.surf,
+            title: Text(t('phraseTitle'), style: doto(size: 17, color: p.ink)),
+            content: SizedBox(
+              width: 340,
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(t('phraseShowWarn'), style: mono(size: 11.5, color: p.tintInk, height: 1.5)),
+                  const SizedBox(height: 12),
+                  _zweiSpaltenGitter(
+                    woerter.length,
+                    (i) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                      decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(4)),
+                      child: Row(children: [
+                        SizedBox(width: 20, child: Text('${i + 1}', style: mono(size: 10, color: p.dim))),
+                        Expanded(child: Text(woerter[i],
+                            style: doto(size: 14, weight: FontWeight.w600, color: p.ink, spacing: 0.6))),
+                      ]),
+                    ),
                   ),
-                ),
-              ]),
+                  const SizedBox(height: 12),
+                  ..._woerterKopierknopf(woerter, kopiert, () {
+                    if (ctx.mounted) neu(() => kopiert = true);
+                  }),
+                ]),
+              ),
             ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('close'))),
+            ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t('close'))),
-          ],
         ),
       );
     } finally {
@@ -81,18 +89,54 @@ extension _Identitaet on _HomeState {
     }
   }
 
-  void _kopiereGeheim(String text) {
-    unawaited(Clipboard.setData(ClipboardData(text: text)));
-    Timer(ablageFrist, () async {
-      try {
-        final jetzt = await Clipboard.getData(Clipboard.kTextPlain);
-        if (jetzt?.text == text) {
-          await Clipboard.setData(const ClipboardData(text: ''));
-        }
-      } catch (_) {
-        // Keine Zwischenablage — dann gibt es auch nichts zu raeumen.
-      }
-    });
+  /// Der Knopf "Kopieren" unter den zwoelf Woertern, und nach dem Kopieren
+  /// der Hinweis darunter — auf 'phrase' und im Dialog der Einstellungen.
+  ///
+  /// DER HINWEIS STEHT AM KNOPF und nicht als Leiste am unteren Rand: im
+  /// Dialog laege die Leiste hinter dessen Abdunklung, und auf 'phrase' weit
+  /// weg von dem, worauf er sich bezieht. Er bleibt stehen, solange die
+  /// Woerter dastehen — er ist zugleich die Warnung, wohin sie NICHT gehoeren.
+  ///
+  /// NICHT HERVORGEHOBEN (accent: false): der Hauptweg bleibt Papier, und auf
+  /// 'phrase' ist der Hauptknopf "Habe ich notiert".
+  List<Widget> _woerterKopierknopf(
+      List<String> woerter, bool kopiert, VoidCallback danach) {
+    return [
+      KeyedSubtree(
+        key: const ValueKey('woerter-kopieren'),
+        child: _knopfBreite(outlineBtn(
+          t('copy'),
+          woerter.isEmpty
+              ? null
+              : () async {
+                  // Mit einfachen Leerzeichen, klein, ohne Nummern — so nimmt
+                  // sie jede Wiederherstellung an, auch die dieser App.
+                  final ok = await GeheimeAblage.kopiere(woerter.join(' '));
+                  if (!mounted) return;
+                  if (!ok) {
+                    _hinweis(t('copySecretFailed'));
+                    return;
+                  }
+                  danach();
+                },
+          accent: false,
+          padding: const EdgeInsets.all(11),
+          weight: FontWeight.w400,
+        )),
+      ),
+      if (kopiert) ...[
+        const SizedBox(height: 8),
+        Semantics(
+          liveRegion: true,
+          child: Text(
+            t(GeheimeAblage.leertSicher ? 'copiedWords' : 'copiedWordsWeb')
+                .replaceFirst('{s}', '${GeheimeAblage.frist.inSeconds}'),
+            key: const ValueKey('woerter-kopiert'),
+            style: mono(size: 11, color: p.tintInk, height: 1.5),
+          ),
+        ),
+      ],
+    ];
   }
 
   /// Die eigene Adresse, wie der Entwurf sie zeigt: Vierergruppen mit
@@ -337,6 +381,10 @@ extension _Identitaet on _HomeState {
         // zweiten Fall mit ab: zieht man das Fenster niedriger als etwa 350 px,
         // lief der Inhalt vorher in den gelb-schwarzen Ueberlaufbalken.
         if (_imFenster) gitter else Expanded(child: SingleChildScrollView(child: gitter)),
+        const SizedBox(height: 12),
+        ..._woerterKopierknopf(woerter, woerterKopiert, () {
+          setState(() => woerterKopiert = true);
+        }),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(12),

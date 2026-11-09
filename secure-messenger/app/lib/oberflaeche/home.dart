@@ -32,6 +32,7 @@ import '../core/crypto/wordlist_english.dart';
 import '../core/crypto/address.dart';
 import '../core/empfang.dart';
 import '../core/fenster.dart';
+import '../core/geheime_ablage.dart';
 import '../core/fern_codewort.dart';
 import '../core/push.dart';
 import '../core/qr_bild.dart';
@@ -192,6 +193,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
   String? chat;
 
   bool sheet = false, panic = false, wiped = false, copied = false;
+
+  /// Ob die zwoelf Woerter auf 'phrase' kopiert wurden — dann steht der
+  /// Hinweis unter dem Knopf (identitaet.dart, _woerterKopierknopf).
+  bool woerterKopiert = false;
 
   /// Was das letzte "Anfrage senden" bewirkt hat; null, solange es nichts zu
   /// sagen gibt. Bis 15.10.2026 ein bool, und "wahr" hiess immer "Anfrage
@@ -358,6 +363,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     _warGesperrt = gesperrtJetzt;
     _hatteIdentitaet = identitaetJetzt;
     if (gesperrtWorden || geloeschtWorden) _raeumeOberflaecheAuf();
+    // DIE IDENTITAET IST WEG — dann auch die Woerter aus der Zwischenablage,
+    // falls sie dort noch stehen. Nach einer Panik- oder Fernloeschung holten
+    // sie sonst genau das zurueck, was gerade geloescht wurde. Beim SPERREN
+    // nicht: die App sperrt im Hintergrund, und das ist der Moment, in dem
+    // jemand die Woerter in seinen Passwortmanager einfuegt.
+    if (geloeschtWorden) unawaited(GeheimeAblage.raeumeJetzt());
     if (geloeschtWorden) {
       // Filter und Suche der alten Identitaet gehoeren nicht zur neuen.
       _filter = 'alle';

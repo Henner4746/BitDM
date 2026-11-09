@@ -168,6 +168,12 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DateiKanal.KANAL)
             .setMethodCallHandler(dateiKanal)
 
+        // Die zwoelf Woerter in die Zwischenablage: als sensibel markiert und
+        // nach einer Frist wieder geleert, auch wenn die App dann im
+        // Hintergrund ist. Siehe GeheimeAblage.kt.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, GeheimeAblage.KANAL)
+            .setMethodCallHandler(GeheimeAblage(this))
+
         // "In der Naehe". Auf einer eigenen Warteschlange, nicht auf dem
         // Haupt-Thread: startScan und openGattServer gehen ueber den
         // Bluetooth-Dienst, und ein Binder-Aufruf zu einem beschaeftigten

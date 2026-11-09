@@ -73,6 +73,9 @@ bool FlutterWindow::OnCreate() {
   datei_kanal_ = std::make_unique<DateiKanal>(
       flutter_controller_->engine()->messenger(), [this]() { return GetHandle(); });
 
+  geheime_ablage_ = std::make_unique<GeheimeAblage>(
+      flutter_controller_->engine()->messenger(), [this]() { return GetHandle(); });
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });

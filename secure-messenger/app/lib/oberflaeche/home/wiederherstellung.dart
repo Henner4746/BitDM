@@ -75,9 +75,13 @@ extension _Wiederherstellung on _HomeState {
                   SelectableText(teile[i].alsText(), style: mono(size: 11, color: p.ink, height: 1.5)),
                   const SizedBox(height: 8),
                   Row(children: [
-                    Expanded(child: outlineBtn(t('copy'), () {
-                      _kopiereGeheim(teile[i].alsText());
-                      _hinweis(t('copiedSecret'));
+                    Expanded(child: outlineBtn(t('copy'), () async {
+                      // Derselbe Weg wie fuer die ganzen Woerter (als sensibel
+                      // markiert, aus dem Verlauf heraus), nur mit der
+                      // kuerzeren Frist, die hier schon immer galt.
+                      final ok = await GeheimeAblage.kopiere(teile[i].alsText(),
+                          frist: ablageFrist);
+                      _hinweis(t(ok ? 'copiedSecret' : 'copySecretFailed'));
                     }, padding: const EdgeInsets.all(8))),
                     const SizedBox(width: 8),
                     Expanded(child: outlineBtn(t('trustSend'), () => _sendeTeil(teile[i]),
