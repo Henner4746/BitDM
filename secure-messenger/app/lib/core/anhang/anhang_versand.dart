@@ -51,6 +51,14 @@ class AnhangZuGross implements Exception {
   String toString() => 'AnhangZuGross: $groesse Byte, erlaubt sind $grenze';
 }
 
+/// Der Nutzer hat den Versand abgebrochen ([AnhangVersand.schicke],
+/// `abgebrochen`). Kein Fehler, den jemand sehen muss.
+class AnhangAbgebrochen implements Exception {
+  const AnhangAbgebrochen();
+  @override
+  String toString() => 'AnhangAbgebrochen';
+}
+
 /// Wie weit der Versand ist. Fuer den Fortschrittsbalken.
 class VersandStand {
   const VersandStand({
@@ -135,6 +143,7 @@ class AnhangVersand {
     String? name,
     int? groesse,
     void Function(VersandStand)? fortschritt,
+    bool Function()? abgebrochen,
   }) async {
     // HEREINREICHBAR, weil der Pfad nicht immer einer ist. Der Dateiwaehler
     // liefert /proc/self/fd/<nr> — einen Zeiger des Kerns auf eine offene
@@ -180,6 +189,13 @@ class AnhangVersand {
 
     try {
       for (var i = 0; i < zahl; i++) {
+        // ABBRECHEN ZWISCHEN DEN STUECKEN. Bis 22.11.2026 liess sich ein
+        // laufender Versand gar nicht aufhalten: bei fuenf Gigabyte stand
+        // die Karte "Wird geschickt" eine Viertelstunde und mehr da, ohne
+        // Knopf (QA-Bericht vom 18.11.2026, T2-5GB). Was schon oben liegt,
+        // verfaellt im Lager von selbst — ohne Anleitung kann es niemand
+        // zusammensetzen.
+        if (abgebrochen?.call() ?? false) throw const AnhangAbgebrochen();
         final jetzt = await naechstes!;
         // ANSTOSSEN, NICHT ABWARTEN. Das ist die ganze Verschraenkung: der
         // await auf `naechstes` steht am Anfang des naechsten Durchlaufs,

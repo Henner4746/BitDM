@@ -4189,6 +4189,7 @@ class RealMessengerCore implements MessengerCore {
   Future<Message> sendeAnhang(String contactId, File datei,
       {String? name, int? groesse, bool einmal = false}) async {
     _fordereChat(contactId);
+    _anhangAbbruch = false;
 
     // EIN ANHANG BRAUCHT DEN SERVER, und zwar zweimal: der Relay stellt die
     // Marke aus, das Lager nimmt die Stuecke. Beides faellt weg, wenn nur
@@ -4269,11 +4270,14 @@ class RealMessengerCore implements MessengerCore {
       einmal: einmal,
     );
 
+    // Auch das Warten auf die Verbindung (oben) kann lang sein.
+    if (_anhangAbbruch) throw const AnhangAbgebrochen();
     final versand = AnhangVersand(relay: relay, lager: _lager());
     final Rezept rezept;
     try {
       rezept = await versand.schicke(datei,
           name: angezeigt, groesse: wirklicheGroesse,
+          abgebrochen: () => _anhangAbbruch,
           fortschritt: (s) => _anhangStand.add(AnhangFortschritt(
                 messageId: id,
                 chatId: contactId,
@@ -4302,6 +4306,12 @@ class RealMessengerCore implements MessengerCore {
 
     return nachricht;
   }
+
+  /// Siehe [brichAnhangVersandAb]. Faellt am Anfang jedes [sendeAnhang].
+  bool _anhangAbbruch = false;
+
+  @override
+  Future<void> brichAnhangVersandAb() async => _anhangAbbruch = true;
 
   @override
   Future<AnhangEintrag> holeAnhang(String contactId, String messageId) async {

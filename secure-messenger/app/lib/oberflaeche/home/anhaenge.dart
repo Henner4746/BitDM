@@ -477,7 +477,21 @@ extension _Anhaenge on _HomeState {
                     f?.gesamtBytes ?? 0,
                     statt: f == null ? t('attachSend') : null),
                 const SizedBox(height: Masse.innen),
-                SizedBox(width: 200, child: fortschrittsBalken(f?.anteil ?? 0)),
+                Row(children: [
+                  // Der Balken nimmt, was neben dem Knopf bleibt — fest 200
+                  // breit liefe die Zeile in der 252 breiten Karte ueber.
+                  Expanded(child: fortschrittsBalken(f?.anteil ?? 0)),
+                  // ABBRECHEN. Bis 22.11.2026 hatte die Karte keinen Knopf:
+                  // ein Versand von Gigabytes liess sich nur durch Beenden der
+                  // App aufhalten (QA-Bericht vom 18.11.2026, T2-5GB).
+                  IconButton(
+                    key: const ValueKey('anhang-abbrechen'),
+                    tooltip: t('attachCancel'),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: st.brichAnhangAb,
+                    icon: Text('×', style: TextStyle(color: p.muted, fontSize: 16)),
+                  ),
+                ]),
               ],
             ),
           ),
