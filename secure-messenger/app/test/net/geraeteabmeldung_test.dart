@@ -313,6 +313,76 @@ void main() {
           isTrue,
           reason: 'ersatz=${ersatz.eingang.map((x) => x.text)}');
     }, timeout: const Timeout(Duration(minutes: 3)));
+
+    // ═════════════════════ QA-Bericht vom 18.11.2026 (Mehrgeraete, T1/T3)
+    //
+    // Fall 4 oben setzt bei Anna die Geraetepruefung von Hand zurueck und
+    // verbindet sie neu. Ohne das bekam ein neues Geraet bis zu sechs Stunden
+    // lang nichts — genau das haben die Tester gesehen. Diese beiden Faelle
+    // lassen beides weg.
+
+    test(
+        '5) GEKOPPELT, NACHDEM ANNA SCHON SCHRIEB: das Tablet bekommt ihre '
+        'naechste Nachricht sofort', () async {
+      await aufbau();
+      // Anna hat Bob schon geschrieben — ihre Geraetepruefung ist frisch.
+      final vorher = await annaSchreibt('vor dem Koppeln');
+      expect(await Nutzer.warteBis(() => handy.eingang.any((x) => x.id == vorher)),
+          isTrue);
+      final listeVorher = anna.core.datenbankFuerTest.meta('geraeteliste:$bob');
+
+      await koppele(handy, tablet);
+      // Die neue Fassung kommt Ende-zu-Ende bei Anna an (§12.3 Regel 1).
+      expect(
+          await Nutzer.warteBis(() =>
+              anna.core.datenbankFuerTest.meta('geraeteliste:$bob') != listeVorher),
+          isTrue,
+          reason: 'Anna bekam Bobs neue Geraeteliste nicht');
+
+      final m = await annaSchreibt('gleich nach dem Koppeln');
+      expect(await Nutzer.warteBis(() => tablet.eingang.any((x) => x.id == m)),
+          isTrue,
+          reason: 'das neue Tablet blieb unbeliefert — '
+              'tablet=${tablet.eingang.map((x) => x.text).toList()}');
+      expect(await Nutzer.warteBis(() => handy.eingang.any((x) => x.id == m)),
+          isTrue,
+          reason: 'und das Handy darf dabei nicht herausfallen');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test(
+        '6) TELEFON VERLOREN, ZURUECKGESETZT: Anna erreicht das Ersatztelefon '
+        'ohne Neustart', () async {
+      await aufbau();
+      final vorher = await annaSchreibt('an das alte Telefon');
+      expect(await Nutzer.warteBis(() => handy.eingang.any((x) => x.id == vorher)),
+          isTrue);
+
+      // Das Ersatztelefon hat nur die Woerter, keine Kontakte — es kann
+      // die neue Liste niemandem schicken.
+      final ersatz = nutzer('bob-ersatz');
+      addTearDown(ersatz.aufraeumen);
+      await ersatz.starten();
+      expect(await ersatz.core.restoreIdentity(woerter), bob);
+      await ersatz.core.connect();
+      await ersatz.core.setzeZurueck();
+      expect(
+          await Nutzer.warteBis(() =>
+              ersatz.core.geraeteStand == ListenStand.mitglied &&
+              ersatz.core.connectionState == ConnectionState.online),
+          isTrue);
+      expect(
+          await Nutzer.warteBis(
+              () => handy.core.geraeteStand == ListenStand.abgemeldet),
+          isTrue);
+
+      // Anna schreibt an das alte Telefon, das es nicht mehr gibt. KEIN
+      // Zuruecksetzen ihrer Pruefung, KEIN Neuverbinden.
+      final m = await annaSchreibt('an das Ersatztelefon');
+      expect(await Nutzer.warteBis(() => ersatz.eingang.any((x) => x.id == m)),
+          isTrue,
+          reason: 'die Nachricht blieb liegen, bis Anna neu verbindet — '
+              'ersatz=${ersatz.eingang.map((x) => x.text).toList()}');
+    }, timeout: const Timeout(Duration(minutes: 3)));
   });
 }
 

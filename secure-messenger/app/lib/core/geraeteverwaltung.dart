@@ -595,6 +595,24 @@ extension Geraeteverwaltung on RealMessengerCore {
     final w = int.tryParse(_db?.meta('geraeteliste_widerspruch:$adresse') ?? '');
     if (w != null && neu.epoche > w) _loescheMeta('geraeteliste_widerspruch:$adresse');
     final store = _store;
+    // EIN NEUES GERAET DER GEGENSTELLE, MIT DEM ES NOCH KEINE SITZUNG GIBT:
+    // beim naechsten Versand sofort nachsehen statt erst nach
+    // [RealMessengerCore.geraeteFenster]. Bis 22.11.2026 kam die neue Liste
+    // zwar Ende-zu-Ende an (Regel 1), aber verschluesselt wurde weiter nur an
+    // die Geraete mit Sitzung — ein eben gekoppeltes oder per Zuruecksetzen
+    // uebernommenes Telefon bekam bis zu sechs Stunden lang nichts, auch nach
+    // einem Neustart nicht (QA-Bericht vom 18.11.2026). Die Pruefung selbst
+    // stempelt danach wieder ([_frischeGeraeteAuf]); eine Liste, deren
+    // Geraet nie eine Sitzung bekommt (alte App), kostet so EINE Nachfrage je
+    // Fassung und nicht eine je Nachricht.
+    if (adresse != myId && store != null) {
+      final mitSitzung = store.geraeteVon(adresse).toSet();
+      if (neu.kennungen.any((g) =>
+          !mitSitzung.contains(g) &&
+          (vorige == null || !vorige.kennungen.contains(g)))) {
+        _chats?.setzeGeraeteGeprueft(adresse, 0);
+      }
+    }
     if (store != null && vorige != null) {
       var weg = false;
       for (final e in vorige.geraete) {
@@ -913,7 +931,9 @@ extension Geraeteverwaltung on RealMessengerCore {
         }
         final relay = _relay;
         if (relay == null) return;
-        _nimmListe(adresse, await relay.holeGeraeteliste(adresse));
+        final vorige = _listeVon(adresse);
+        final neu = _nimmListe(adresse, await relay.holeGeraeteliste(adresse));
+        _liefereNeuemGeraetNach(adresse, neu, vorige);
       } catch (_) {
         // Dann eben mit dem naechsten Stempel oder der Verteilung.
       } finally {
@@ -922,6 +942,26 @@ extension Geraeteverwaltung on RealMessengerCore {
     });
     _listenAbrufe[adresse] = abruf;
     return abruf;
+  }
+
+  /// Bringt eine neue Fassung der Liste von [adresse] ein Geraet, das in
+  /// [vorige] fehlte, geht der Nachversand sofort los.
+  ///
+  /// DER FALL "TELEFON VERLOREN": das Ersatzgeraet setzt die Liste zurueck
+  /// und hat oft noch keine Kontakte, kann die neue Fassung also niemandem
+  /// schicken. Wer dann an das alte Geraet schreibt, bekommt vom Relay
+  /// "Zielgeraet unbekannt", und die Nachricht liegt. Die Liste wird darauf
+  /// nachgeladen ([_holeListeNach]) — aber geschickt wurde bis 22.11.2026
+  /// erst beim naechsten Verbinden wieder. Jetzt geht sie hinaus, sobald das
+  /// neue Geraet bekannt ist. Eine Gegenstelle ohne Liegengebliebenes kostet
+  /// das nur einen Blick in den Ausgang.
+  void _liefereNeuemGeraetNach(
+      String adresse, Geraeteliste? neu, Geraeteliste? vorige) {
+    if (adresse == myId || neu == null || identical(neu, vorige)) return;
+    if (neu.kennungen.every((g) => vorige?.kennungen.contains(g) ?? false)) {
+      return;
+    }
+    _stosseNachversandAn();
   }
 
   /// Schickt die eigene Liste an [an] nach (Regel 4). Best effort.
@@ -1020,6 +1060,7 @@ extension Geraeteverwaltung on RealMessengerCore {
     if (roh == null) return null;
     final vorige = _listeVon(von);
     final l = _nimmListe(von, roh);
+    if (von != myId) _liefereNeuemGeraetNach(von, l, vorige);
     if (von != myId || l == null || identical(l, vorige)) return null;
     final gs = _eigenerSchluesselOderNull();
     if (gs != null && l.enthaelt(geraetId, gs)) {
