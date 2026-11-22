@@ -239,6 +239,7 @@ class Gruppe {
     this.stumm = false,
     this.fristSekunden,
     this.verlassen = false,
+    this.aufgenommen = const {},
   });
 
   final String id;
@@ -262,8 +263,25 @@ class Gruppe {
   /// sein naechster Stand (etwa eine Umbenennung) fuehrte mich weiter als
   /// Mitglied. Bis 25.09.2026 machte mich genau das wieder aktiv. Eine
   /// Einladungsnachricht gibt es im Protokoll nicht; wer nach einem Austritt
-  /// wieder dabei sein will, kommt in eine NEUE Gruppe.
+  /// wieder dabei sein will, nimmt der Admin ihn ausdruecklich wieder auf
+  /// ([aufgenommen]).
   final bool verlassen;
+
+  /// In welcher Fassung der Admin ein Mitglied (zuletzt) aufgenommen hat —
+  /// nur fuer die, die NACH der Gruendung dazukamen; wer fehlt, war von
+  /// Anfang an dabei.
+  ///
+  /// DAS UNTERSCHEIDET EIN WIEDERAUFNEHMEN VON EINEM VERALTETEN STAND. Wer
+  /// selbst gegangen ist ([verlassen]), steht in jedem Stand weiter als
+  /// Mitglied, den ein Admin verkuendet, der den Austritt noch nicht kennt —
+  /// mit der Aufnahmefassung von damals, die nicht hoeher ist als die
+  /// Fassung, bei der er ging. Nimmt der Admin ihn nach dem Austritt wieder
+  /// auf, steht hier die neue Fassung, und die ist hoeher. Bis 22.11.2026 gab
+  /// es diese Angabe nicht: ein wieder Aufgenommener hielt sich fuer immer fuer
+  /// draussen, und alle Nachrichten an ihn blieben auf einem Haken (QA-Bericht
+  /// vom 18.11.2026, T1-GRP-003). Aeltere Fassungen ueberlesen das Feld; mit
+  /// einem alten Admin bleibt es beim bisherigen Verhalten.
+  final Map<String, int> aufgenommen;
 
   /// Die hoechste Fassung, die angenommen wird. Darueber waere es entweder
   /// ein Fehler oder der Versuch, die Gruppe mit einem Sprung ans Ende der
@@ -296,11 +314,15 @@ class Gruppe {
   static bool istGruppenId(String id) => _kennung.hasMatch(id);
 
   /// Was der Admin an alle Mitglieder verkuendet.
+  ///
+  /// `j` nur, wenn es etwas zu sagen gibt — dann sieht der Stand einer Gruppe
+  /// ohne spaeter Aufgenommene Zeichen fuer Zeichen aus wie bisher.
   String standText() => jsonEncode({
         'n': name,
         'a': admin,
         'm': mitglieder,
         'v': version,
+        if (aufgenommen.isNotEmpty) 'j': aufgenommen,
       });
 
   /// Liest einen verkuendeten Stand — oder null, wenn er nicht taugt. Kommt
@@ -341,8 +363,37 @@ class Gruppe {
       mitglieder.add(x);
     }
     if (!mitglieder.contains(a)) return null;
-    return Gruppe(id: id, name: n, admin: a, mitglieder: mitglieder, version: v);
+    // DIE AUFNAHMEFASSUNGEN, wenn es welche gibt. Nur fuer Mitglieder, nur
+    // ganze Zahlen von 1 bis zur Fassung dieses Stands — eine Aufnahme in
+    // einer Fassung, die es noch nicht gibt, kann kein ehrlicher Admin
+    // verkuenden.
+    final roh = j['j'];
+    final aufgenommen = <String, int>{};
+    if (roh != null) {
+      if (roh is! Map) return null;
+      for (final e in roh.entries) {
+        final k = e.key;
+        final w = e.value;
+        if (k is! String || !mitglieder.contains(k)) return null;
+        if (w is! int || w < 1 || w > v) return null;
+        aufgenommen[k] = w;
+      }
+    }
+    return Gruppe(
+        id: id,
+        name: n,
+        admin: a,
+        mitglieder: mitglieder,
+        version: v,
+        aufgenommen: aufgenommen);
   }
+
+  /// Die Fassung, in der [mitglied] aufgenommen wurde; 1 fuer die Gruender.
+  int aufgenommenIn(String mitglied) => aufgenommen[mitglied] ?? 1;
+
+  /// [aufgenommen] ohne Eintraege fuer Adressen, die nicht in [liste] stehen.
+  static Map<String, int> nurFuer(Map<String, int> aufgenommen, List<String> liste) =>
+      {for (final e in aufgenommen.entries) if (liste.contains(e.key)) e.key: e.value};
 
   /// Dieselbe Regel wie `BitdmAddress.normalize`, nur als Frage: steht die
   /// Adresse schon so da, wie sie nach dem Normalisieren aussaehe?
@@ -360,6 +411,7 @@ class Gruppe {
     bool? stumm,
     Object? fristSekunden = _unveraendert,
     bool? verlassen,
+    Map<String, int>? aufgenommen,
   }) =>
       Gruppe(
         id: id,
@@ -375,6 +427,7 @@ class Gruppe {
             ? this.fristSekunden
             : fristSekunden as int?,
         verlassen: verlassen ?? this.verlassen,
+        aufgenommen: aufgenommen ?? this.aufgenommen,
       );
 }
 
