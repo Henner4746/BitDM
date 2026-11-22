@@ -1844,8 +1844,26 @@ class AppState extends ChangeNotifier {
     return g.id;
   }
 
-  Future<void> fuegeZuGruppeHinzu(String id, List<String> neue) =>
-      _versuche(() => core.fuegeZuGruppeHinzu(id, neue));
+  /// DIE OBERGRENZE WIRD GESAGT. Der Kern weist ein Mitglied ueber
+  /// [Gruppe.maxMitglieder] mit einem ArgumentError ab; bis 22.11.2026 fiel
+  /// der an [_versuche] vorbei ins Leere, und der Dialog war einfach zu
+  /// (QA-Bericht vom 18.11.2026: "21st group member is rejected silently").
+  Future<void> fuegeZuGruppeHinzu(String id, List<String> neue) async {
+    final g = gruppeZu(id);
+    if (g != null &&
+        g.mitglieder.length + neue.where((n) => !g.mitglieder.contains(n)).length >
+            Gruppe.maxMitglieder) {
+      letzterFehler = 'gruppeVoll';
+      notifyListeners();
+      return;
+    }
+    try {
+      await _versuche(() => core.fuegeZuGruppeHinzu(id, neue));
+    } on ArgumentError {
+      letzterFehler = 'gruppeVoll';
+      notifyListeners();
+    }
+  }
   Future<void> entferneAusGruppe(String id, String mitglied) =>
       _versuche(() => core.entferneAusGruppe(id, mitglied));
   Future<void> benenneGruppe(String id, String name) =>

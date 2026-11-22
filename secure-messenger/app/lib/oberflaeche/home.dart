@@ -401,6 +401,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
     sheet = false;
     panic = false;
+    lockFehler = null;
     enroll = null;
     stickSchritt = null;
     laeuftZeile = null;
