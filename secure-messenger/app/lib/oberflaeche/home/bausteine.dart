@@ -471,6 +471,7 @@ extension _Bausteine on _HomeState {
             size: g, color: f, weight: fett ? FontWeight.w600 : FontWeight.w400),
         titel: (g, f) => doto(size: g, color: f, weight: FontWeight.w700),
         hinweis: (s, {warnend = true}) => _hinweisKasten(s, warnend: warnend),
+        frischBestaetigt: () => frischBestaetigt(),
       );
 
   /// Ein Kasten fuer etwas, das der Nutzer wissen muss.
