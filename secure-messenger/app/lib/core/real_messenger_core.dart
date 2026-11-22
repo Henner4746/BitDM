@@ -5078,7 +5078,8 @@ class RealMessengerCore implements MessengerCore {
         // ([_signalExklusiv]), damit kein Schnappschuss dazwischenfaehrt.
         final bescheid =
             await Wegwahl(
-              relay: _RelayAusgang(_relay, g),
+              relay: _RelayAusgang(_relay, g,
+                  ausdruecklich: _listeVon(an) != null),
               // DER NAHBEREICH BLEIBT GERAET 1 — und zwar auf beiden Seiten,
               // siehe [_darfFunken]. Der Funkumschlag traegt kein
               // Absendergeraet, jede Funkzustellung landet bei der Gegenstelle
@@ -6038,12 +6039,26 @@ class _KeinMitgliedMehr implements Exception {
 /// hielte, verboete der Naehe fuer immer das Einspringen. Genau das, wofuer
 /// sie gebaut ist.
 class _RelayAusgang implements Ausgang {
-  const _RelayAusgang(this._relay, this._geraet);
+  const _RelayAusgang(this._relay, this._geraet, {this.ausdruecklich = false});
 
   final RelayClient? _relay;
 
   /// An welches Geraet der Adresse dieser Umschlag geht.
   final int _geraet;
+
+  /// Auch Geraet 1 mit `to_device` — fuer eine Gegenstelle mit signierter
+  /// Geraeteliste, deren Relay die Angabe also kennt.
+  ///
+  /// OHNE DIE ANGABE NIMMT DER RELAY DAS KLEINSTE GERAET, das es gerade gibt
+  /// (relay_server.py, `ziel_geraet = kleinstes`) — der Rueckweg fuer alte
+  /// Clients. Hat die Gegenstelle ihr Telefon verloren und die Liste auf ein
+  /// Ersatzgeraet zurueckgesetzt, ist das kleinste Geraet das Ersatzgeraet:
+  /// der Relay stellte ihm die Nachricht aus der alten Sitzung zu und
+  /// bestaetigte sie, das Ersatzgeraet konnte sie nicht entschluesseln, und
+  /// der Absender sah "gesendet" (QA-Bericht vom 18.11.2026). Mit der Angabe
+  /// sagt der Relay "Zielgeraet unbekannt", die Liste wird nachgeladen, und
+  /// die Nachricht geht an das neue Geraet ([_liefereNeuemGeraetNach]).
+  final bool ausdruecklich;
 
   @override
   bool get bereit => _relay?.isConnected ?? false;
@@ -6053,7 +6068,8 @@ class _RelayAusgang implements Ausgang {
   bool bereitFuer(String an) => bereit;
 
   @override
-  Future<void> schicke(String an, Uint8List umschlag) => _geraet == 1
+  Future<void> schicke(String an, Uint8List umschlag) => _geraet == 1 &&
+          !ausdruecklich
       // GERAET 1 GEHT UEBER DEN HEUTIGEN WEG, ohne `to_device` im Rahmen —
       // siehe RelayClient `geraeteKennung`. Das ist nicht nur
       // Rueckwaertsverträglichkeit: es ist auch der einzige Weg, der in den
