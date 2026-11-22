@@ -303,7 +303,19 @@ extension _Einstellungen on _HomeState {
                 ),
               );
               if (mit == null) return;
-              final wo = await st.sichere(mitDateien: mit);
+              // EIN FEHLER WIRD GESAGT. Bis 22.11.2026 flog er hier still
+              // hinaus: der Dialog war zu, eine Datei gab es nicht, und
+              // niemand erfuhr warum (QA-Bericht vom 18.11.2026, T1-BAK-001).
+              final String? wo;
+              try {
+                wo = await st.sichere(mitDateien: mit);
+              } catch (_) {
+                if (mounted) {
+                  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                      SnackBar(content: Text(t('backupFailed'))));
+                }
+                return;
+              }
               if (wo != null && mounted) {
                 ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                     SnackBar(content: Text('${t('backupSaved')} $wo')));
