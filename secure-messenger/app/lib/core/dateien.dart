@@ -214,14 +214,57 @@ class Dateien {
           .invokeMethod<bool>('speichern', {'pfad': quelle, 'name': name});
       return ok == true ? name : null;
     } on MissingPluginException {
-      final ordner = await getDownloadsDirectory() ??
-          await getApplicationDocumentsDirectory();
+      final ordner = await ablageOrdner([
+        getDownloadsDirectory,
+        getApplicationDocumentsDirectory,
+        () async => _heimordner(),
+        getApplicationSupportDirectory,
+      ]);
       final ziel = '${ordner.path}${Platform.pathSeparator}$name';
       await File(quelle).copy(ziel);
       return ziel;
     } on PlatformException {
       return null;
     }
+  }
+
+  /// Der erste Ordner aus [kandidaten], den es gibt oder der sich anlegen
+  /// laesst. Ein Kandidat, der wirft oder null gibt, wird uebersprungen.
+  ///
+  /// UNTER LINUX FEHLT OFT `xdg-user-dir` (schlanke Installationen, Container,
+  /// manche Tiling-Desktops). Dann gibt `getDownloadsDirectory` null, und
+  /// `getApplicationDocumentsDirectory` wirft MissingPlatformDirectoryException
+  /// (path_provider_linux fragt dasselbe Werkzeug). Bis 22.11.2026 flog diese
+  /// Ausnahme bis zum Knopf durch: "Sicherung erstellen" schloss sich ohne
+  /// Meldung und ohne Datei (QA-Bericht vom 18.11.2026, T1-BAK-001). Danach
+  /// kommen das Heimatverzeichnis und der eigene Datenordner der App — der
+  /// letzte existiert immer, ist aber schwer zu finden, deshalb nur als
+  /// letzter Ausweg; die Meldung nennt den Pfad.
+  ///
+  /// Ein Ordner, den es (noch) nicht gibt — etwa ~/Downloads, das xdg nennt,
+  /// das aber nie angelegt wurde —, wird angelegt. Wirft erst, wenn kein
+  /// einziger Kandidat taugt; das sieht der Nutzer dann als Fehler.
+  @visibleForTesting
+  static Future<Directory> ablageOrdner(
+      List<Future<Directory?> Function()> kandidaten) async {
+    Object? letzter;
+    for (final k in kandidaten) {
+      try {
+        final d = await k();
+        if (d == null) continue;
+        if (!await d.exists()) await d.create(recursive: true);
+        return d;
+      } catch (e) {
+        letzter = e;
+      }
+    }
+    throw FileSystemException(
+        'kein Ordner zum Ablegen gefunden', letzter?.toString());
+  }
+
+  static Directory? _heimordner() {
+    final heim = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    return heim == null || heim.isEmpty ? null : Directory(heim);
   }
 
   /// Gibt den Zugang wieder frei. Wirft nie.
