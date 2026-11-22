@@ -231,6 +231,25 @@ class RealMessengerCore implements MessengerCore {
   /// und ein Tippfehler sie stillschweigend abschaltete.
   static const String zielgeraetUnbekannt = 'Zielgeraet unbekannt';
 
+  /// Der Fehlergrund des Relays, wenn er einen Absender bremst
+  /// (relay_server.py `msg_limit_ok`, `live_limit_ok`).
+  ///
+  /// Daran haengt der Wecker [_relayHatGebremst]. Als Konstante aus demselben
+  /// Grund wie [zielgeraetUnbekannt].
+  static const String relayBremst = 'zu viele Nachrichten';
+
+  /// Wie lange nach einer Bremse des Relays gewartet wird, bis der
+  /// Nachversand von selbst wieder anlaeuft — beim ersten Mal.
+  ///
+  /// GESETZT, NICHT GEMESSEN, aber an der Bremse ausgerichtet: der Eimer je
+  /// Absender fuellt sich mit 6 Rahmen je Sekunde nach (relay_server.py
+  /// `MSG_REFILL_PER_SEC`). Drei Sekunden sind 18 Rahmen — eine
+  /// Gruppennachricht an 18 Mitglieder.
+  static const Duration bremsPauseAnfang = Duration(seconds: 3);
+
+  /// Laenger wird nicht gewartet, auch wenn der Relay weiter bremst.
+  static const Duration bremsPauseHoechstens = Duration(minutes: 1);
+
   EncryptedDatabase? _db;
 
   /// NUR FUER TESTS: die offene Datenbank.
@@ -3518,6 +3537,39 @@ class RealMessengerCore implements MessengerCore {
 
   Timer? _geplantWecker;
 
+  /// Der Wecker nach einer Bremse des Relays. Siehe [_relayHatGebremst].
+  Timer? _bremsWecker;
+  Duration _bremsPause = bremsPauseAnfang;
+
+  /// Wen eine Gruppennutzlast schon erreicht hat: "gruppe:nachricht" ->
+  /// Mitglieder (und die eigene Adresse fuer den Spiegel), bei denen der
+  /// Relay sie angenommen hat. Siehe [_sendeAnGruppe].
+  ///
+  /// NUR IM SPEICHER. Nach einem Neustart geht der Nachversand wieder an
+  /// alle, die noch nicht quittiert haben — das ist das Verhalten von vor dem
+  /// 22.11.2026, und die Empfaenger verwerfen Wiederholungen am eindeutigen
+  /// Index. Die Liste spart Rahmen, sie entscheidet nichts.
+  final _gruppeDraussen = <String, Set<String>>{};
+
+  /// Der Relay hat gebremst: in [_bremsPause] von selbst nachschicken.
+  ///
+  /// BIS 22.11.2026 LIEF DER NACHVERSAND NUR BEIM VERBINDEN (und bei neuen
+  /// Sitzungen, Funknachbarn, geplanten Nachrichten). Eine Nachricht, die an
+  /// der Bremse liegenblieb, stand auf der Uhr, bis die App neu verband —
+  /// in einer Gruppe mit 20 Mitgliedern schon ab etwa zehn schnellen
+  /// Nachrichten, weil jede einen Rahmen je Mitgliedsgeraet kostet
+  /// (QA-Bericht vom 18.11.2026). Jetzt laeuft er nach einer Pause wieder an;
+  /// bremst der Relay weiter, verdoppelt sie sich bis [bremsPauseHoechstens].
+  /// Ein Wecker zur Zeit: viele gebremste Rahmen stellen ihn einmal.
+  void _relayHatGebremst() {
+    if (_bremsWecker?.isActive ?? false) return;
+    final pause = _bremsPause;
+    final naechste = pause * 2;
+    _bremsPause =
+        naechste > bremsPauseHoechstens ? bremsPauseHoechstens : naechste;
+    _bremsWecker = Timer(pause, _stosseNachversandAn);
+  }
+
   /// Stellt den Wecker auf die naechste geplante Nachricht.
   ///
   /// EIN WECKER FUER ALLE, gestellt auf die fruehste. Klingelt er, schickt
@@ -3834,30 +3886,46 @@ class RealMessengerCore implements MessengerCore {
     }
     if (!g.aktiv) throw const _KeinMitgliedMehr();
     final huelle = Payload.inGruppe(gid, p);
+    // NUR AN DIE, DIE SIE NOCH NICHT HABEN. Bis 22.11.2026 ging jeder
+    // Nachversand wieder an ALLE Mitglieder, auch an die, bei denen der Relay
+    // sie laengst angenommen hatte — und jeder dieser Rahmen kostete eine
+    // Marke derselben Bremse, an der die Nachricht liegengeblieben war. Bei
+    // einem Stoss in einer grossen Gruppe kam so ein Teil der Mitglieder nie
+    // dran (QA-Bericht vom 18.11.2026). Wer quittiert hat, hat sie sicher;
+    // wer beim Relay angenommen wurde, steht in [_gruppeDraussen].
+    final schluessel = '$gid:${p.messageId}';
+    final schon = _gruppeDraussen[schluessel] ??= <String>{};
+    final quittiert = _chats?.zugestelltAn(gid, p.messageId) ?? const <String>{};
     var liegt = false;
-    var draussen = false;
     for (final m in g.mitglieder) {
-      if (m == myId) continue;
+      if (m == myId || schon.contains(m) || quittiert.contains(m)) continue;
       try {
         final b = await _sendePayload(m, huelle, spiegeln: false);
         if (b.weg == Weg.liegt) {
           liegt = true;
         } else {
-          draussen = true;
+          schon.add(m);
         }
       } on RelayException catch (e) {
         // Das geloeschte Konto: blockierte sonst jede Nachricht der Gruppe.
-        if (e.statusCode != 404) liegt = true;
+        if (e.statusCode != 404) {
+          liegt = true;
+        } else {
+          schon.add(m);
+        }
       } catch (_) {
         liegt = true;
       }
     }
-    if (_bekannteGeraete(store, myId).isNotEmpty) {
+    if (!schon.contains(myId) && _bekannteGeraete(store, myId).isNotEmpty) {
       try {
-        await _sendePayload(myId, huelle, spiegeln: false);
+        final b = await _sendePayload(myId, huelle, spiegeln: false);
+        if (b.weg != Weg.liegt) schon.add(myId);
       } catch (_) {}
     }
     if (liegt) return const Wegbescheid(Weg.liegt, 'ein Mitglied liegt');
+    _gruppeDraussen.remove(schluessel);
+    final draussen = schon.any((m) => m != myId) || quittiert.isNotEmpty;
     return Wegbescheid(Weg.relay, draussen ? 'an alle' : 'an niemanden erreichbar');
   }
 
@@ -5146,6 +5214,15 @@ class RealMessengerCore implements MessengerCore {
       _signalRepo!.commit(store);
     }
 
+    // DIE BREMSE DES RELAYS: von selbst wiederkommen, nicht erst beim
+    // naechsten Verbinden ([_relayHatGebremst]). Ging dagegen etwas durch,
+    // faengt die Pause wieder klein an — der Eimer fuellt sich.
+    if (gruende.any((g) => g.contains(relayBremst))) {
+      _relayHatGebremst();
+    } else if (ueberRelay) {
+      _bremsPause = bremsPauseAnfang;
+    }
+
     // DRAUSSEN ERST, WENN JEDES ZIELGERAET ANGENOMMEN HAT.
     //
     // Hier stand "sobald EIN Geraet angenommen hat", begruendet mit "sonst
@@ -5852,6 +5929,8 @@ class RealMessengerCore implements MessengerCore {
   Future<void> wipeEverything() async {
     _beitrittsTimer?.cancel();
     _beitrittsTimer = null;
+    _bremsWecker?.cancel();
+    _gruppeDraussen.clear();
     beendeHinzufuegen();
     _infoSchluessel = null;
     _geraeteSchluessel = null;
@@ -5959,6 +6038,9 @@ class RealMessengerCore implements MessengerCore {
   Future<void> lock() async {
     _beitrittsTimer?.cancel();
     _beitrittsTimer = null;
+    _bremsWecker?.cancel();
+    _bremsPause = bremsPauseAnfang;
+    _gruppeDraussen.clear();
     beendeHinzufuegen();
     final info = _infoSchluessel;
     if (info != null) info.fillRange(0, info.length, 0);
@@ -6015,6 +6097,8 @@ class RealMessengerCore implements MessengerCore {
     await _status.close();
     await _contacts.close();
     _geplantWecker?.cancel();
+    _bremsWecker?.cancel();
+    _gruppeDraussen.clear();
     await _verlaufWechsel.close();
     await _tippen.close();
     await _gruppenWechsel.close();

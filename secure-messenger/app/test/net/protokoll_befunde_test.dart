@@ -477,6 +477,67 @@ void main() {
       expect(await statusNach(m.id), MessageStatus.sent);
     });
 
+    test('T2: GEBREMST BEI EINEM MITGLIED — NUR DIESES BEKOMMT SIE NOCH '
+        'EINMAL, UND ZWAR VON SELBST', () async {
+      // QA-Bericht vom 18.11.2026: ein Stoss in einer grossen Gruppe lief in
+      // die Bremse des Relays, und der Rest lag, bis die App neu verband —
+      // und dann ging die Nachricht wieder an ALLE, auch an die, die sie
+      // schon hatten, und lief damit erneut in dieselbe Bremse.
+      final a = await Absender.neu();
+      final b = await Absender.neu();
+      lage.buendel = (wen) => wen == a.adresse
+          ? a.karte()
+          : wen == b.adresse
+              ? b.karte()
+              : const {};
+      lage.bremseFuer[b.adresse] = 1;
+      kern.ablageFuerTest.speichereGruppe(Gruppe(
+          id: gid,
+          name: 'G',
+          admin: kern.myId,
+          mitglieder: [kern.myId, a.adresse, b.adresse]));
+      final m = await kern.sendMessage(gid, 'Stoss');
+      expect(await statusNach(m.id), MessageStatus.sending,
+          reason: 'bei B liegt sie, also liegt sie');
+
+      // KEIN Neuverbinden: der Wecker nach der Bremse schickt nach.
+      expect(
+          await warteBis(
+              () => lage.gesendet.any((x) => x.an == b.adresse),
+              frist: RealMessengerCore.bremsPauseAnfang * 3),
+          isTrue,
+          reason: 'B bekam sie erst beim naechsten Verbinden');
+      expect(
+          await warteBis(() =>
+              kern.ablageFuerTest.nachricht(gid, kern.myId, m.id)!.status ==
+              MessageStatus.sent),
+          isTrue);
+      expect(lage.gesendet.where((x) => x.an == a.adresse), hasLength(1),
+          reason: 'A hatte sie beim Relay schon — jede Wiederholung kostet '
+              'eine Marke derselben Bremse');
+      expect(lage.gesendet.where((x) => x.an == b.adresse), hasLength(1));
+    });
+
+    test('T2: AUCH EINE EINZELNACHRICHT AN DER BREMSE GEHT VON SELBST NOCH '
+        'EINMAL', () async {
+      final a = await Absender.neu();
+      lage.buendel = (wen) => wen == a.adresse ? a.karte() : const {};
+      kontakt(a);
+      lage.bremseFuer[a.adresse] = 1;
+      final m = await kern.sendMessage(a.adresse, 'einzeln');
+      expect(
+          await warteBis(
+              () => lage.gesendet.any((x) => x.an == a.adresse),
+              frist: RealMessengerCore.bremsPauseAnfang * 3),
+          isTrue,
+          reason: 'sie lag, bis die App neu verband');
+      expect(
+          await warteBis(() =>
+              kern.ablageFuerTest.nachricht(a.adresse, kern.myId, m.id)!.status ==
+              MessageStatus.sent),
+          isTrue);
+    });
+
     test('L2: IN EINER GRUPPE OHNE MICH WIRD NICHTS "GESENDET"', () async {
       kern.ablageFuerTest.speichereGruppe(Gruppe(
           id: gid,
