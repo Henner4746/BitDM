@@ -145,6 +145,9 @@ extension _Sperre on _HomeState {
 
   /// Fragt das App-Passwort ab und versucht damit zu oeffnen.
   Future<void> _fragePasswort() async {
+    // Ein neuer Versuch: der Fehler des letzten steht nicht mehr darueber,
+    // auch nicht, wenn dieser abgebrochen wird (QA-Bericht vom 18.11.2026).
+    setState(() => lockFehler = null);
     pwCtl.clear();
     final ok = await _frageGeheimnis(
         titel: t('unlockPw'), ctl: pwCtl, hinweis: t('pwUnlockHint'));
@@ -158,7 +161,13 @@ extension _Sperre on _HomeState {
     setState(() => lockFehler = null);
     try {
       final ok = await tun();
-      if (!ok && mounted) setState(() => lockFehler = t('unlockFailed'));
+      // NACH DEM PANIK-PASSWORT KEIN FEHLERTEXT. Die App ist dann geloescht
+      // und soll aussehen wie frisch installiert (AppState._entsperreMit);
+      // bis 22.11.2026 stand "Entsperren fehlgeschlagen" danach noch auf dem
+      // Einrichtungsbildschirm — ein Hinweis fuer den, der zugesehen hat.
+      if (!ok && mounted && st.hatIdentitaet) {
+        setState(() => lockFehler = t('unlockFailed'));
+      }
     } on UnlockFailedException {
       // ABSICHTLICH OHNE GRUND: falsches Passwort, abgebrochene Anmeldung und
       // beschaedigtes Fach sollen von aussen gleich aussehen. Ein Fehler, der

@@ -318,6 +318,7 @@ const Map<String, Map<String, String>> strings = {
     'groupNotMember': 'You are no longer a member of this group.',
     'groupNoContacts': 'No contacts to add yet.',
     'groupInvalid': 'A group needs a name and 1 to 19 other members.',
+    'groupFull': 'A group can have at most 20 members. Nobody was added.',
     'voiceSend': 'Send voice message', 'voiceDiscard': 'Discard recording', 'voicePlay': 'Play',
     'micDenied': 'BitDM needs the microphone for voice messages.',
     'micDeniedForever': 'The microphone is blocked. Allow it in the system settings for voice messages.',
@@ -800,6 +801,7 @@ const Map<String, Map<String, String>> strings = {
     'groupNotMember': 'Du bist nicht mehr Mitglied dieser Gruppe.',
     'groupNoContacts': 'Noch keine Kontakte zum Hinzufügen.',
     'groupInvalid': 'Eine Gruppe braucht einen Namen und 1 bis 19 weitere Mitglieder.',
+    'groupFull': 'Eine Gruppe hat höchstens 20 Mitglieder. Es wurde niemand hinzugefügt.',
     'voiceSend': 'Sprachnachricht senden', 'voiceDiscard': 'Aufnahme verwerfen', 'voicePlay': 'Abspielen',
     'micDenied': 'Für Sprachnachrichten braucht BitDM das Mikrofon.',
     'micDeniedForever': 'Das Mikrofon ist gesperrt. Für Sprachnachrichten in den Systemeinstellungen erlauben.',
@@ -1070,6 +1072,12 @@ const Map<String, Map<String, List<(String, String)>>> geraetErsetzungen = {
   'en': {
     'restoreLinkSub': [('your phone', 'your device')],
     'restoreIntro': [('your old phone', 'your old device')],
+    // Orbot gibt es nur auf Android (QA-Bericht vom 18.11.2026).
+    'torSub': [
+      ('goes through Orbot (SOCKS5', 'goes through Tor (SOCKS5'),
+      ('Orbot must be running;', 'Tor must be running on this computer, for example the tor service;'),
+    ],
+    'pruefTor': [('Tor proxy (Orbot)', 'Tor proxy')],
     'restoreNote': [('the old phone', 'the old device')],
     'phraseSub': [('this phone', 'this device')],
     'lockedSub': [
@@ -1103,6 +1111,11 @@ const Map<String, Map<String, List<(String, String)>>> geraetErsetzungen = {
   'de': {
     'restoreLinkSub': [('Telefon verloren', 'Gerät verloren')],
     'restoreIntro': [('dein altes Telefon', 'dein altes Gerät')],
+    'torSub': [
+      ('geht über Orbot (SOCKS5', 'geht über Tor (SOCKS5'),
+      ('Orbot muss laufen;', 'Tor muss auf diesem Rechner laufen, etwa als tor-Dienst;'),
+    ],
+    'pruefTor': [('Tor-Proxy (Orbot)', 'Tor-Proxy')],
     'restoreNote': [('dem alten Telefon', 'dem alten Gerät')],
     'phraseSub': [('dieses Telefon', 'dieses Gerät')],
     'lockedSub': [

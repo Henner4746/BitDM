@@ -46,6 +46,18 @@ extension _Unterhaltung on _HomeState {
     });
   }
 
+  /// Setzt an der Schreibmarke einen Zeilenumbruch ein (Umschalt+Eingabe).
+  void _neueZeile() {
+    final v = draftCtl.value;
+    final sel = v.selection.isValid
+        ? v.selection
+        : TextSelection.collapsed(offset: v.text.length);
+    draftCtl.value = TextEditingValue(
+      text: v.text.replaceRange(sel.start, sel.end, '\n'),
+      selection: TextSelection.collapsed(offset: sel.start + 1),
+    );
+  }
+
   Future<void> send() async {
     final d = draftCtl.text.trim();
     if (d.isEmpty || chat == null) return;
@@ -402,8 +414,27 @@ extension _Unterhaltung on _HomeState {
               alignment: Alignment.centerLeft,
               decoration: BoxDecoration(color: p.surf2, borderRadius: BorderRadius.circular(Masse.eingabeRund), border: Border.all(color: p.line)),
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: TextField(
+              child: CallbackShortcuts(
+                // UMSCHALT+EINGABE MACHT EINE NEUE ZEILE, die blanke Eingabe
+                // schickt. Bis 22.11.2026 war das Feld einzeilig: ein
+                // Zeilenumbruch liess sich nicht tippen, eingefuegte Umbrueche
+                // verschwanden, und Umschalt+Eingabe schickte ab (QA-Bericht
+                // vom 18.11.2026). Die blanke Eingabe bleibt beim Feld
+                // (`textInputAction: send`), damit Android seine Senden-Taste
+                // behaelt.
+                bindings: {
+                  const SingleActivator(LogicalKeyboardKey.enter, shift: true):
+                      _neueZeile,
+                  const SingleActivator(LogicalKeyboardKey.numpadEnter, shift: true):
+                      _neueZeile,
+                },
+                child: TextField(
                 controller: draftCtl,
+                // MEHRZEILIG, ABER ALS TEXT: mit `multiline` machte Android die
+                // Eingabetaste zum Umbruch und nahm die Senden-Taste weg.
+                minLines: 1,
+                maxLines: 6,
+                keyboardType: TextInputType.text,
                 // INKOGNITO-TASTATUR, wie bei Signal und Threema — hier immer:
                 // die Tastatur soll aus verschluesselten Unterhaltungen keine
                 // Woerter lernen und sie spaeter anderswo vorschlagen. Das
@@ -429,6 +460,7 @@ extension _Unterhaltung on _HomeState {
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => send(),
                 decoration: InputDecoration.collapsed(hintText: t('message'), hintStyle: mono(size: 14, color: p.dim)),
+              ),
               ),
             ),
           ),
@@ -564,6 +596,7 @@ extension _Unterhaltung on _HomeState {
     if (f == 'nurNahbereich') return t('nearOnlyNoAttach');
     if (f.startsWith('anhangZuGross:')) return t('attachTooBig');
     if (f == 'metaNichtEntfernt') return t('metaNotRemoved');
+    if (f == 'gruppeVoll') return t('groupFull');
     // Schluessel, die anderswo gesetzt werden, aber hier landen koennen —
     // roh stand dann "phraseUngueltig" ueber der Eingabezeile.
     if (f == 'phraseUngueltig') return t('phraseInvalid');
