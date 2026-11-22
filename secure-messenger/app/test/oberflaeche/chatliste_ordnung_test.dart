@@ -207,6 +207,15 @@ void main() {
     expect(textEgalWie('ADMIN'), findsOneWidget, reason: 'kein Gruppenblatt');
     await tester.tap(textEgalWie('Leave group'));
     await warte(tester);
+    // SEIT 22.11.2026 MIT RUECKFRAGE: ein Fehlgriff im Blatt tritt nicht
+    // mehr sofort aus. Erst nach "Leave group" im Dialog.
+    expect(textEgalWie('Leave this group?'), findsOneWidget,
+        reason: 'keine Rueckfrage vor dem Austreten');
+    expect(st.gruppen.single.aktiv, isTrue,
+        reason: 'ausgetreten, bevor jemand bestaetigt hat');
+    await tester.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.byType(TextButton)).last);
+    await warte(tester);
     expect(textEgalWie('no longer a member'), findsOneWidget,
         reason: 'nach dem Austritt steht noch die Eingabezeile da');
   });

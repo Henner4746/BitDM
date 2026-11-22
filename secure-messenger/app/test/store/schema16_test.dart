@@ -92,7 +92,7 @@ void main() {
 
     final db = EncryptedDatabase.open(pfad, ich.databaseKey);
     addTearDown(db.close);
-    expect(db.meta('schema_version'), '16');
+    expect(db.meta('schema_version'), '${EncryptedDatabase.schemaVersion}');
     expect(_kontakte(db.raw),
         [for (final k in vorher) {...k, 'braucht_neuere_app': 0}]);
   });
@@ -113,7 +113,7 @@ void main() {
 
     final db = EncryptedDatabase.open(pfad, ich.databaseKey);
     addTearDown(db.close);
-    expect(db.meta('schema_version'), '16');
+    expect(db.meta('schema_version'), '${EncryptedDatabase.schemaVersion}');
     final zeile = db.raw.select(
         "SELECT braucht_neuere_app FROM contacts WHERE address = 'bitdmaaaa'");
     expect(zeile.first['braucht_neuere_app'], 1,

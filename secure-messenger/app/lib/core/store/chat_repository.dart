@@ -1297,8 +1297,9 @@ class ChatRepository {
     db.transaction((raw) {
       raw.execute(
           'INSERT INTO gruppen (id, name, admin, mitglieder, version, aktiv, '
-          ' angeheftet, archiviert, stumm, frist, angelegt, verlassen) '
-          'VALUES (?,?,?,?,?,?,?,?,?,?,?,?) '
+          ' angeheftet, archiviert, stumm, frist, angelegt, verlassen, '
+          ' aufgenommen) '
+          'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) '
           // `admin` MIT: er aendert sich, wenn der alte austritt
           // (Gruppe.nachfolger). Fehlte er hier, rueckte der Nachfolger nur im
           // Speicher nach und nach dem naechsten Lesen wieder heraus.
@@ -1307,13 +1308,15 @@ class ChatRepository {
           ' mitglieder = excluded.mitglieder, version = excluded.version, '
           ' aktiv = excluded.aktiv, angeheftet = excluded.angeheftet, '
           ' archiviert = excluded.archiviert, stumm = excluded.stumm, '
-          ' frist = excluded.frist, verlassen = excluded.verlassen',
+          ' frist = excluded.frist, verlassen = excluded.verlassen, '
+          ' aufgenommen = excluded.aufgenommen',
           [
             g.id, g.name, g.admin, jsonEncode(g.mitglieder), g.version,
             g.aktiv ? 1 : 0, g.angeheftet ? 1 : 0, g.archiviert ? 1 : 0,
             g.stumm ? 1 : 0, g.fristSekunden,
             DateTime.now().toUtc().millisecondsSinceEpoch,
             g.verlassen ? 1 : 0,
+            g.aufgenommen.isEmpty ? null : jsonEncode(g.aufgenommen),
           ]);
       if (store != null) SignalStoreRepository.schreibeDelta(raw, store);
     });
@@ -1333,7 +1336,24 @@ class ChatRepository {
         stumm: (r['stumm'] as int) != 0,
         fristSekunden: r['frist'] as int?,
         verlassen: ((r['verlassen'] as int?) ?? 0) != 0,
+        aufgenommen: _aufgenommenAus(r['aufgenommen'] as String?),
       );
+
+  /// Liest `gruppen.aufgenommen`. Was nicht taugt, gilt als leer — wie bei
+  /// einer Zeile vor Stufe 17, also das bisherige Verhalten.
+  static Map<String, int> _aufgenommenAus(String? roh) {
+    if (roh == null) return const {};
+    try {
+      final j = jsonDecode(roh);
+      if (j is! Map) return const {};
+      return {
+        for (final e in j.entries)
+          if (e.key is String && e.value is int) e.key as String: e.value as int,
+      };
+    } on FormatException {
+      return const {};
+    }
+  }
 
   // ══════════════════════════════════════════════════════════ Sicherung
 

@@ -242,6 +242,37 @@ void main() {
       expect(lies(stand(admin: a, m: [a, b], v: Gruppe.maxVersion)), isNotNull);
       expect(lies(stand(admin: a, m: [a, b], v: Gruppe.maxVersion + 1)), isNull);
     });
+
+    // ════════════════════════════ T1-GRP-003 (QA-Bericht vom 18.11.2026)
+    String mitJ(Object? j, {int v = 3}) =>
+        jsonEncode({'n': 'G', 'a': a, 'm': [a, b], 'v': v, 'j': j});
+
+    test('T1-GRP-003: DIE AUFNAHMEFASSUNG REIST MIT UND KOMMT ZURUECK', () {
+      final g = Gruppe(
+          id: gid, name: 'G', admin: a, mitglieder: [a, b], version: 3,
+          aufgenommen: {b: 3});
+      final zurueck = lies(g.standText())!;
+      expect(zurueck.aufgenommen, {b: 3});
+      expect(zurueck.aufgenommenIn(b), 3);
+      expect(zurueck.aufgenommenIn(a), 1, reason: 'wer fehlt, ist Gruender');
+    });
+
+    test('T1-GRP-003: OHNE SPAETER AUFGENOMMENE BLEIBT DER STAND WIE BISHER', () {
+      // Zeichen fuer Zeichen: aeltere Fassungen bekommen denselben Text.
+      final g = Gruppe(id: gid, name: 'G', admin: a, mitglieder: [a, b]);
+      expect(g.standText(), stand(admin: a, m: [a, b]));
+    });
+
+    test('T1-GRP-003: EINE KAPUTTE AUFNAHMEFASSUNG MACHT DEN STAND UNGUELTIG', () {
+      expect(lies(mitJ({b: 3})), isNotNull);
+      expect(lies(mitJ([b])), isNull, reason: 'keine Abbildung');
+      expect(lies(mitJ({b: '3'})), isNull, reason: 'keine Zahl');
+      expect(lies(mitJ({b: 0})), isNull, reason: 'Fassung 0 gibt es nicht');
+      expect(lies(mitJ({b: 4})), isNull,
+          reason: 'eine Aufnahme in einer Fassung, die es noch nicht gibt');
+      final c = BitdmAddress.encode(Uint8List(32)..[0] = 2);
+      expect(lies(mitJ({c: 2})), isNull, reason: 'kein Mitglied');
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════ L1

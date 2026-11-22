@@ -2985,7 +2985,18 @@ class RealMessengerCore implements MessengerCore {
       // Admin kann den Austritt noch nicht verarbeitet haben; sein naechster
       // Stand fuehrt mich dann weiter als Mitglied und machte mich bis
       // 25.09.2026 wieder aktiv — mitsamt dem Zweitgeraet.
-      if (alt.verlassen) return;
+      //
+      // ES SEI DENN, DER ADMIN HAT MICH DANACH WIEDER AUFGENOMMEN. Das sagt
+      // die Aufnahmefassung (Gruppe.aufgenommen): ein veralteter Stand traegt
+      // die von damals, und die ist nicht hoeher als die Fassung, bei der ich
+      // ging — die steht hier in `alt.version`, denn solange ich draussen bin,
+      // nimmt diese Stelle keinen Stand mehr an. Bis 22.11.2026 kam hier jeder
+      // Stand zum Stehen: der Admin nahm mich wieder auf, sah keinen Fehler,
+      // und alles an mich blieb fuer immer auf einem Haken (T1-GRP-003).
+      final wiederAufgenommen = alt.verlassen &&
+          stand.mitglieder.contains(myId) &&
+          stand.aufgenommenIn(myId) > alt.version;
+      if (alt.verlassen && !wiederAufgenommen) return;
 
       // VOM ADMIN, DEN ICH KENNE — ODER VON SEINEM NACHFOLGER, wenn ich den
       // Austritt des alten Admins noch nicht gesehen habe. Austritt und neuer
@@ -3018,6 +3029,8 @@ class RealMessengerCore implements MessengerCore {
             mitglieder: stand.mitglieder,
             version: stand.version,
             aktiv: stand.mitglieder.contains(myId),
+            verlassen: wiederAufgenommen ? false : null,
+            aufgenommen: stand.aufgenommen,
           ),
           store: store);
     }
@@ -3033,6 +3046,7 @@ class RealMessengerCore implements MessengerCore {
     final rest = [...g.mitglieder]..remove(von);
     final neu = g.copyWith(
       mitglieder: rest,
+      aufgenommen: Gruppe.nurFuer(g.aufgenommen, rest),
       // Ging der Admin, rueckt der Naechste nach — auf allen Geraeten
       // derselbe, siehe Gruppe.nachfolger.
       admin: von == g.admin ? Gruppe.nachfolger(g.mitglieder, von) : null,
@@ -3947,8 +3961,14 @@ class RealMessengerCore implements MessengerCore {
     if (g.mitglieder.length + dazu.length > Gruppe.maxMitglieder) {
       throw ArgumentError.value(dazu.length, 'neue', 'zu viele Mitglieder');
     }
-    final neu =
-        g.copyWith(mitglieder: [...g.mitglieder, ...dazu], version: g.version + 1);
+    // MIT DER AUFNAHMEFASSUNG (Gruppe.aufgenommen). Fuer jemanden, der
+    // selbst ausgetreten war, ist sie der einzige Beleg, dass dieser Stand
+    // ihn wirklich zurueckholt und nicht bloss veraltet ist.
+    final fassung = g.version + 1;
+    final neu = g.copyWith(
+        mitglieder: [...g.mitglieder, ...dazu],
+        version: fassung,
+        aufgenommen: {...g.aufgenommen, for (final d in dazu) d: fassung});
     _chats!.speichereGruppe(neu);
     _verkuendeStand(neu);
     _gruppenWechsel.add(gruppeId);
@@ -3958,8 +3978,11 @@ class RealMessengerCore implements MessengerCore {
   Future<void> entferneAusGruppe(String gruppeId, String mitglied) async {
     final g = _fordereGruppe(gruppeId, nurAdmin: true);
     if (mitglied == myId || !g.mitglieder.contains(mitglied)) return;
+    final rest = [...g.mitglieder]..remove(mitglied);
     final neu = g.copyWith(
-        mitglieder: [...g.mitglieder]..remove(mitglied), version: g.version + 1);
+        mitglieder: rest,
+        version: g.version + 1,
+        aufgenommen: Gruppe.nurFuer(g.aufgenommen, rest));
     _chats!.speichereGruppe(neu);
     // Der Entfernte bekommt den neuen Stand auch — sonst schriebe er weiter in
     // eine Gruppe, die ihn laengst verworfen hat, und wunderte sich.
@@ -3996,11 +4019,13 @@ class RealMessengerCore implements MessengerCore {
               spiegeln: false)
           .catchError((Object _) => const Wegbescheid(Weg.liegt, '')));
     }
+    final rest = [...g.mitglieder]..remove(myId);
     _chats!.speichereGruppe(g.copyWith(
         aktiv: false,
         verlassen: true,
         admin: g.admin == myId ? Gruppe.nachfolger(g.mitglieder, myId) : null,
-        mitglieder: [...g.mitglieder]..remove(myId)));
+        mitglieder: rest,
+        aufgenommen: Gruppe.nurFuer(g.aufgenommen, rest)));
     _gruppenWechsel.add(gruppeId);
   }
 

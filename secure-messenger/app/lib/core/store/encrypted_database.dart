@@ -79,7 +79,7 @@ class EncryptedDatabase {
   CommonDatabase get raw => _db;
 
   /// Aktuelle Fassung des Schemas. Wird bei jeder Aenderung erhoeht.
-  static const int schemaVersion = 16;
+  static const int schemaVersion = 17;
 
   /// Verhindert, dass dieselbe Datei im selben Isolate zweimal offen ist.
   ///
@@ -284,6 +284,8 @@ class EncryptedDatabase {
             _schemaV15(db);
           case 16:
             _schemaV16(db);
+          case 17:
+            _schemaV17(db);
           default:
             throw StateError('keine Migration nach Schema $naechste');
         }
@@ -642,6 +644,27 @@ class EncryptedDatabase {
   static void _schemaV16(CommonDatabase db) {
     _spalteDazu(db, 'contacts', 'braucht_neuere_app',
         'INTEGER NOT NULL DEFAULT 0');
+  }
+
+  /// In welcher Fassung ein Gruppenmitglied aufgenommen wurde (Gruppe.aufgenommen).
+  ///
+  /// `gruppen.aufgenommen`: JSON-Objekt Adresse -> Fassung, nur fuer
+  /// Mitglieder, die nach der Gruendung dazukamen; NULL = keine. Daran
+  /// erkennt ein Mitglied, das selbst ausgetreten ist, dass der Admin es
+  /// AUSDRUECKLICH wieder aufgenommen hat — und nicht bloss den Austritt noch
+  /// nicht kennt. Bis Stufe 16 hielt es sich nach einem Wiederaufnehmen fuer
+  /// immer fuer draussen.
+  ///
+  /// Gespeichert bei JEDEM Mitglied, nicht nur beim Admin: wer nachrueckt
+  /// (Gruppe.nachfolger), verkuendet die Angaben weiter.
+  ///
+  /// BESTEHENDE ZEILEN BEKOMMEN NULL: wer vor dieser Stufe dazukam, gilt als
+  /// Gruender. Das ist das bisherige Verhalten — ein frueher Ausgetretener
+  /// bleibt draussen, bis der Admin ihn nach dieser Stufe wieder aufnimmt.
+  ///
+  /// WIEDERHOLBAR wie [_schemaV8].
+  static void _schemaV17(CommonDatabase db) {
+    _spalteDazu(db, 'gruppen', 'aufgenommen', 'TEXT');
   }
 
   /// GRUPPENHAKEN: welches Mitglied eine eigene Gruppennachricht schon hat.

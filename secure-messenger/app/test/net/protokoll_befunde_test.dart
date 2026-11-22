@@ -331,6 +331,112 @@ void main() {
       expect(jetztG.verlassen, isTrue);
     });
 
+    test('T1-GRP-003: WER SELBST GING, KOMMT ZURUECK, WENN DER ADMIN IHN '
+        'WIEDER AUFNIMMT', () async {
+      // QA-Bericht vom 18.11.2026: Austreten, der Admin nimmt wieder auf —
+      // und das Mitglied hielt sich fuer immer fuer draussen. Alles an es
+      // blieb auf einem Haken, der Admin sah keinen Fehler.
+      final admin = await Absender.neu();
+      final b = await Absender.neu();
+      kontakt(admin);
+      final g = Gruppe(
+          id: gid,
+          name: 'G',
+          admin: admin.adresse,
+          mitglieder: [admin.adresse, kern.myId, b.adresse],
+          version: 4);
+      kern.ablageFuerTest.speichereGruppe(g);
+      await kern.verlasseGruppe(gid);
+
+      // Der Admin hat den Austritt verarbeitet (Fassung 5, ohne mich) und
+      // nimmt mich in Fassung 6 ausdruecklich wieder auf.
+      await standVon(
+          admin,
+          g.copyWith(
+              version: 6,
+              mitglieder: [admin.adresse, b.adresse, kern.myId],
+              aufgenommen: {kern.myId: 6}),
+          q: 60);
+      expect(await warteBis(() => relay.bestaetigt.contains(60)), isTrue);
+      final jetztG = (await kern.getGruppen()).single;
+      expect(jetztG.aktiv, isTrue, reason: 'wieder aufgenommen und doch draussen');
+      expect(jetztG.verlassen, isFalse,
+          reason: 'sonst holte mich der naechste Stand nicht mehr zurueck');
+      expect(jetztG.version, 6);
+      expect(jetztG.aufgenommen, {kern.myId: 6});
+
+      // Und eine Nachricht des Admins kommt jetzt an und wird quittiert.
+      final da = kern.incomingMessages.first;
+      await wirfEin(
+          admin,
+          Payload.inGruppe(gid, Payload.text('wieder-1', 'Schoen, dass du da bist', jetzt())),
+          q: 61);
+      final m = await da.timeout(const Duration(seconds: 5));
+      expect(m.chatId, gid);
+      expect(m.text, 'Schoen, dass du da bist');
+    });
+
+    test('T1-GRP-003: EIN VERALTETER STAND MIT DER ALTEN AUFNAHMEFASSUNG '
+        'HOLT NIEMANDEN ZURUECK', () async {
+      // Wer in Fassung 3 dazukam und in Fassung 4 ging, bekommt vom Admin,
+      // der den Austritt noch nicht kennt, weiter "aufgenommen in 3".
+      final admin = await Absender.neu();
+      final b = await Absender.neu();
+      kontakt(admin);
+      final g = Gruppe(
+          id: gid,
+          name: 'G',
+          admin: admin.adresse,
+          mitglieder: [admin.adresse, b.adresse, kern.myId],
+          version: 4,
+          aufgenommen: {kern.myId: 3});
+      kern.ablageFuerTest.speichereGruppe(g);
+      await kern.verlasseGruppe(gid);
+
+      await standVon(admin, g.copyWith(name: 'Neu', version: 5), q: 62);
+      expect(await warteBis(() => relay.bestaetigt.contains(62)), isTrue);
+      var jetztG = (await kern.getGruppen()).single;
+      expect(jetztG.aktiv, isFalse);
+      expect(jetztG.verlassen, isTrue);
+
+      // Auch "aufgenommen in 4" reicht nicht: in 4 war ich noch dabei.
+      await standVon(
+          admin, g.copyWith(version: 6, aufgenommen: {kern.myId: 4}), q: 63);
+      expect(await warteBis(() => relay.bestaetigt.contains(63)), isTrue);
+      jetztG = (await kern.getGruppen()).single;
+      expect(jetztG.aktiv, isFalse);
+      expect(jetztG.version, 4, reason: 'draussen nimmt dieses Geraet keinen Stand an');
+    });
+
+    test('T1-GRP-003: NUR DER ADMIN KANN WIEDER AUFNEHMEN', () async {
+      final admin = await Absender.neu();
+      final b = await Absender.neu();
+      final c = await Absender.neu();
+      kontakt(admin);
+      kontakt(c);
+      final g = Gruppe(
+          id: gid,
+          name: 'G',
+          admin: admin.adresse,
+          mitglieder: [admin.adresse, kern.myId, b.adresse, c.adresse]);
+      kern.ablageFuerTest.speichereGruppe(g);
+      await kern.verlasseGruppe(gid);
+      // c (weder Admin noch Nachfolger, aber ein Kontakt) behauptet, Admin zu
+      // sein, und nimmt mich auf.
+      await standVon(
+          c,
+          Gruppe(
+              id: gid,
+              name: 'G',
+              admin: c.adresse,
+              mitglieder: [c.adresse, kern.myId],
+              version: 9,
+              aufgenommen: {kern.myId: 9}),
+          q: 64);
+      expect(await warteBis(() => relay.bestaetigt.contains(64)), isTrue);
+      expect((await kern.getGruppen()).single.aktiv, isFalse);
+    });
+
     test('(b) DER NACHFOLGER WIRD ANGENOMMEN, BEVOR DER AUSTRITT DA IST',
         () async {
       final admin = await Absender.neu();

@@ -308,7 +308,7 @@ extension _Gruppen on _HomeState {
                 if (g.aktiv)
                   outlineBtn(t('groupLeave'), () async {
                     Navigator.pop(ctx);
-                    await st.verlasseGruppe(gid);
+                    await _verlasseGruppeNachRueckfrage(gid);
                   }, accent: false, padding: const EdgeInsets.all(10)),
               ]),
             ),
@@ -316,6 +316,35 @@ extension _Gruppen on _HomeState {
         );
       }),
     );
+  }
+
+  /// Austreten — nach Rueckfrage.
+  ///
+  /// MIT RUECKFRAGE, weil es sich von hier aus nicht zuruecknehmen laesst:
+  /// wieder hinein kommt man nur, wenn der Admin einen erneut hinzufuegt.
+  /// Bis 22.11.2026 trat ein einziger Fehlgriff im Gruppenblatt sofort aus
+  /// (QA-Bericht vom 18.11.2026).
+  Future<void> _verlasseGruppeNachRueckfrage(String gid) async {
+    final ja = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surf,
+        title: Text(t('groupLeaveAsk'),
+            style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+        content: Text(t('groupLeaveBody'),
+            style: mono(size: 12.5, color: p.muted, height: 1.5)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(t('cancel'))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(t('groupLeave'))),
+        ],
+      ),
+    );
+    if (ja != true || !mounted) return;
+    await st.verlasseGruppe(gid);
   }
 
   Future<void> _fuegeMitgliederHinzuDialog(String gid) async {

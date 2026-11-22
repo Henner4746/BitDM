@@ -249,6 +249,44 @@ void main() {
     expect((await carl.core.getGruppen()).single.name, 'Wanderung ohne Anna');
   });
 
+  test('T1-GRP-003: AUSTRETEN UND WIEDER AUFNEHMEN — DANN KOMMT WIEDER ALLES AN',
+      () async {
+    // QA-Bericht vom 18.11.2026, von drei Testern unabhaengig bestaetigt:
+    // nach dem Wiederaufnehmen blieb alles an Bob auf einem Haken, Bob bekam
+    // nichts, und Anna sah keinen Fehler.
+    final (:anna, :bob, :carl, :gid) = await gruppe();
+    await bob.core.verlasseGruppe(gid);
+    final ende = DateTime.now().add(const Duration(seconds: 20));
+    while ((await anna.core.getGruppen()).single.mitglieder.contains(bob.core.myId) &&
+        DateTime.now().isBefore(ende)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    expect((await anna.core.getGruppen()).single.mitglieder,
+        isNot(contains(bob.core.myId)));
+
+    await anna.core.fuegeZuGruppeHinzu(gid, [bob.core.myId]);
+    await wartetAufGruppe(bob, gid);
+    final beiBob = (await bob.core.getGruppen()).single;
+    expect(beiBob.verlassen, isFalse);
+    expect(beiBob.mitglieder.toSet(),
+        {anna.core.myId, bob.core.myId, carl.core.myId});
+
+    // Anna schreibt: Bob bekommt es, und die Nachricht kommt auf zwei Haken.
+    final m = await anna.core.sendMessage(gid, 'Willkommen zurueck');
+    expect(await Nutzer.warteBis(() => bob.eingang.any((x) => x.id == m.id)),
+        isTrue, reason: 'Bob bekam nach dem Wiederaufnehmen nichts');
+    expect(
+        await Nutzer.warteBis(() => anna.statusEreignisse.any(
+            (u) => u.messageId == m.id && u.status == MessageStatus.delivered)),
+        isTrue,
+        reason: 'die Nachricht blieb auf einem Haken');
+
+    // Und Bob kann wieder schreiben — auch Carl bekommt es.
+    final antwort = await bob.core.sendMessage(gid, 'Danke');
+    expect(await Nutzer.warteBis(() => carl.eingang.any((x) => x.id == antwort.id)),
+        isTrue, reason: 'Carl nahm Bobs Nachricht nicht an');
+  });
+
   test('AUSTRETEN: DIE ANDEREN WISSEN ES, DER VERLAUF BLEIBT', () async {
     final (:anna, :bob, carl: _, :gid) = await gruppe();
     final vorher = await bob.core.sendMessage(gid, 'Ich bin dann mal weg');
