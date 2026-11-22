@@ -1161,6 +1161,17 @@ def init_db(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # GELOESCHT HEISST UEBERSCHRIEBEN. Ohne das laesst SQLite eine geloeschte
+    # Zeile als freien Platz in der Seite stehen, bis sie zufaellig neu
+    # beschrieben wird — und eine Zeile der Warteschlange sagt, wer wem wann
+    # geschrieben hat (sender, recipient, ts). Wer die Datei spaeter in die
+    # Hand bekommt, laese das noch Wochen nach der Zustellung heraus
+    # (QA-Bericht vom 18.11.2026). Die App tut dasselbe fuer ihre eigene
+    # Datenbank (encrypted_database.dart). Debian baut SQLite schon mit
+    # dieser Vorgabe (gemessen 22.11.2026, 3.46.1); hier steht es, damit es
+    # nicht vom Bau abhaengt. Kosten: jede Loeschung schreibt ihre Seite
+    # einmal mit Nullen. Das WAL raeumt [wal_leeren] auf.
+    conn.execute("PRAGMA secure_delete=ON")
     conn.executescript(SCHEMA)
 
     # Nachtraeglich hinzugekommene Spalten. `CREATE TABLE IF NOT EXISTS` laesst
@@ -1491,6 +1502,20 @@ def raeume_vergessene_geraete() -> int:
         kyber_zeilen_aendern(-entfernte_kyber)
     queue_zeilen_aendern(-entfernte_zeilen)
     return len(tot)
+
+
+def wal_leeren() -> None:
+    """Schreibt das WAL in die Datenbank zurueck und kuerzt es auf null.
+
+    `secure_delete` (init_db) ueberschreibt die Seite in der Datenbank. Im WAL
+    stehen aber noch die alten Abbilder derselben Seite, bis SQLite die
+    Rahmen irgendwann wiederverwendet — beim normalen Checkpoint wird die
+    Datei nicht kuerzer. Einmal je Stunde (janitor) und beim Start ist es
+    damit hoechstens eine Stunde lang lesbar. Scheitert es (ein Leser haelt
+    das WAL), dann eben beim naechsten Mal.
+    """
+    with schreibsperre:
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
 
 def purge_expired() -> int:
@@ -2500,6 +2525,7 @@ async def lifespan(app: FastAPI):
     queue_zeilen_neu_zaehlen()
     # Dasselbe fuer KYBER_OTK_MAX_GESAMT.
     kyber_zeilen_neu_zaehlen()
+    wal_leeren()
 
     async def janitor():
         while True:
@@ -2515,6 +2541,7 @@ async def lifespan(app: FastAPI):
                     print(f"[i] {vergessen} vergessene Geraete entfernt")
                 queue_zeilen_neu_zaehlen()
                 kyber_zeilen_neu_zaehlen()
+                wal_leeren()
             except sqlite3.Error as exc:
                 print(f"[!] Aufraeumen fehlgeschlagen: {exc}")
 

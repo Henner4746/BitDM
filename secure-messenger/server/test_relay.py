@@ -6041,3 +6041,38 @@ def test_ohne_relay_namen_sagt_der_start_das_auch(relay, monkeypatch, capsys):
     assert "[!] BITDM_RELAY_NAMEN" in aus
     assert "Keine Relay-Namen" in aus
     assert rs.relay_namen() == ()
+
+
+# ── Geloeschte Zeilen bleiben nicht lesbar (QA-Bericht vom 18.11.2026) ──────
+
+def test_eine_zugestellte_zeile_steht_danach_nicht_mehr_in_der_datei(relay, tmp_path):
+    """Wer wem geschrieben hat, darf nach dem Loeschen nicht in der Datei bleiben.
+
+    Ohne secure_delete stuende die geloeschte Zeile als freier Platz in ihrer
+    Seite, mitsamt Absender und Empfaenger (Debian schaltet es von Haus aus
+    ein). Und auch MIT ihm hielt das WAL das alte Seitenabbild, bis SQLite den
+    Rahmen wiederverwendete — gemessen am 22.11.2026: nach Loeschen und
+    gewoehnlichem Checkpoint stand der Absender noch im WAL.
+    """
+    import relay_server as rs
+
+    absender = "absender" + "q" * 48
+    empfaenger = "empfaenger" + "z" * 46
+    with rs.schreibsperre, rs.db:
+        rs.db.execute(
+            "INSERT INTO queue (recipient, recipient_device, sender,"
+            " sender_device, ciphertext, ts) VALUES (?,?,?,?,?,?)",
+            (empfaenger, 1, absender, 1, "c2NobmVl", 1.0))
+    rs.wal_leeren()
+    with rs.schreibsperre, rs.db:
+        rs.db.execute("DELETE FROM queue WHERE sender=?", (absender,))
+    rs.wal_leeren()
+
+    assert rs.db.execute("PRAGMA secure_delete").fetchone()[0] == 1
+    roh = b""
+    for name in ("relay.db", "relay.db-wal"):
+        datei = tmp_path / name
+        if datei.exists():
+            roh += datei.read_bytes()
+    assert absender.encode() not in roh, "der Absender steht noch in der Datei"
+    assert empfaenger.encode() not in roh, "der Empfaenger steht noch in der Datei"
