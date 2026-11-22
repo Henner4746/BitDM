@@ -86,6 +86,9 @@ class Relay {
           '--host', '127.0.0.1',
           '--port', '$port',
           '--log-level', 'warning',
+          // Wie im Betrieb (deploy/install-relay.sh): ohne Kompression. Mit
+          // ihr waere ein Tarnrahmen an der Groesse zu erkennen.
+          '--ws-per-message-deflate', 'false',
         ],
         environment: {
           'BITDM_DB': '${tmp.path}/relay.db',
