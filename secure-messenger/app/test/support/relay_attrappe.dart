@@ -111,6 +111,11 @@ class Relaylage {
 
   /// An diese Geraete antwortet der Relay "Zielgeraet unbekannt" (§12.5 c).
   Set<int> unbekannteGeraete = {};
+
+  /// So oft bremst der Relay noch Rahmen an diese Adresse ("zu viele
+  /// Nachrichten", wie relay_server.py `msg_limit_ok`). Der Zaehler laeuft
+  /// je abgewiesenem Rahmen herunter.
+  final bremseFuer = <String, int>{};
 }
 
 class RelayAttrappe implements RelayClient {
@@ -213,6 +218,12 @@ class RelayAttrappe implements RelayClient {
     lage.versucht.add((an: to, geraet: g));
     if (lage.sendeFehlerFuerGeraet.contains(g)) {
       throw RelayException('Zustellung an Geraet $g abgelehnt');
+    }
+    final bremse = lage.bremseFuer[to] ?? 0;
+    if (bremse > 0) {
+      lage.bremseFuer[to] = bremse - 1;
+      // Derselbe Text wie vom echten Relay (relay_server.py, Rahmen `error`).
+      throw const RelayException('zu viele Nachrichten');
     }
     if (lage.unbekannteGeraete.contains(g)) {
       // Derselbe Text wie vom echten Relay (relay_server.py, Rahmen `error`).
