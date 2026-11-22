@@ -159,11 +159,19 @@ Environment=BITDM_RELAY_NAMEN=$DOMAIN
 # 256 KiB sind grosszuegig: der groesste echte Rahmen ist eine Nachricht mit
 # 64 KiB Chiffretext, base64-kodiert also rund 87 KiB. Registrierungen gehen
 # ueber HTTP, nicht hierueber.
+#
+# --ws-per-message-deflate false: KEINE KOMPRESSION auf der WebSocket. Mit ihr
+# ist eine echte Quittung (bekannte Adresse, verdichtet sich) kleiner als die
+# eines Tarnrahmens (56 zufaellige Zeichen), und wer mitliest, trennt beide an
+# der Groesse (QA-Bericht vom 18.11.2026, T3-COVER). Die App bietet seit
+# 22.11.2026 keine Kompression mehr an; Browser tun es immer, deshalb muss der
+# Relay ablehnen.
 ExecStart=$APP/venv/bin/uvicorn relay_server:app \\
     --host 127.0.0.1 --port $PORT \\
     --no-access-log --log-level warning \\
     --proxy-headers --forwarded-allow-ips 127.0.0.1 \\
     --ws-max-size 262144 \\
+    --ws-per-message-deflate false \\
     --timeout-keep-alive 75
 
 Restart=on-failure

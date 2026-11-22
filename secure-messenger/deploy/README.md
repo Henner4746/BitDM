@@ -266,3 +266,37 @@ Millisekunden. Zurueck auf die alte Fassung geht ohne Weiteres: sie legt
 
 Der Dienst laeuft direkt aus dem Git-Verzeichnis, das ihm gehoert **nicht** —
 er kann seinen eigenen Code nicht veraendern. Das ist Absicht.
+
+### Aenderung vom 22.11.2026 (WebSocket ohne Kompression) aufspielen
+
+Neue Installationen bekommen `--ws-per-message-deflate false` mit
+`install-relay.sh`. Ein bestehender Relay braucht es per Drop-in, ohne die Unit
+neu zu schreiben (`install-relay.sh` NICHT erneut laufen lassen). Warum: mit
+permessage-deflate ist die Quittung eines echten Rahmens auf der Leitung
+kleiner als die eines Tarnrahmens (QA-Bericht vom 18.11.2026, T3-COVER).
+Die App bietet ab dieser Fassung keine Kompression mehr an, Browser tun es
+aber immer — nur der Relay kann sie dort abstellen.
+
+```bash
+# Die bestehende ExecStart-Zeile ansehen und GENAU SO uebernehmen, nur mit
+# dem zusaetzlichen Schalter. Ein Drop-in muss ExecStart erst leeren.
+systemctl cat bitdm-relay | sed -n '/^ExecStart=/,/[^\]$/p'
+systemctl edit bitdm-relay
+#   [Service]
+#   ExecStart=
+#   ExecStart=<die Zeile von oben> --ws-per-message-deflate false
+systemctl daemon-reload
+systemctl restart bitdm-relay
+journalctl -u bitdm-relay -n 20 --no-pager
+```
+
+Pruefen (vom eigenen Rechner): die Antwort auf den Handschlag darf keine
+`Sec-WebSocket-Extensions`-Zeile mehr enthalten.
+
+```bash
+curl -s -i -N --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  -H 'Sec-WebSocket-Extensions: permessage-deflate' \
+  https://relay.bitdm.net/ws --max-time 3 | grep -i '^sec-websocket-extensions' \
+  || echo 'keine Kompression'
+```
