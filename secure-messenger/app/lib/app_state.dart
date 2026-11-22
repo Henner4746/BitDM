@@ -1501,6 +1501,20 @@ class AppState extends ChangeNotifier {
       }))
       ..add(core.anhangFortschritt.listen((f) {
         fortschritt[f.messageId] = f;
+        // DIE KARTE DES LAUFENDEN VERSANDS. Sie kennt die Kennung des Kerns
+        // nicht — die Nachricht entsteht erst, wenn alles oben ist — und las
+        // bis 22.11.2026 unter ihrer eigenen Kennung, unter der nie etwas
+        // stand: der Balken blieb leer, bei fuenf Gigabyte eine Viertelstunde
+        // lang (QA-Bericht vom 18.11.2026, T2-5GB). Ein Fortschritt in
+        // derselben Unterhaltung fuer eine Kennung, die dort noch kein Anhang
+        // ist, ist dieser Versand.
+        final karte = schwebendeKennung;
+        if (karte != null &&
+            f.chatId == schwebenderChat &&
+            !(anhaenge[f.chatId]?.containsKey(f.messageId) ?? false)) {
+          fortschritt[karte] = f;
+          _schwebenderKern = f.messageId;
+        }
         // OHNE DROSSEL waere das mehrmals je Sekunde ein kompletter Neubau
         // des Bildschirms — bei einer 3-GB-Datei minutenlang. Gezeichnet wird
         // hoechstens alle 100 ms; die Zahl selbst ist immer die aktuelle.
@@ -2536,9 +2550,24 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    // DIE GROESSE ZUERST, vor jeder Rueckfrage und vor der Karte. Sonst
+    // fragte die App bei einem zu grossen Video erst, ob es ohne Bereinigung
+    // hinaus soll, und sagte danach "zu gross".
+    int? vorab;
+    try {
+      vorab = groesse ?? await datei.length();
+    } catch (_) {
+      vorab = null;
+    }
+    if (vorab != null && vorab > AnhangVersand.hoechstGroesse) {
+      letzterFehler = 'anhangZuGross:$vorab:${AnhangVersand.hoechstGroesse}';
+      notifyListeners();
+      return;
+    }
     schwebendeKennung = '${DateTime.now().microsecondsSinceEpoch}';
     schwebenderName = name ?? datei.uri.pathSegments.last;
     schwebenderChat = chatId;
+    _anhangAbgebrochen = false;
     notifyListeners();
     File? bereinigt;
     try {
@@ -2576,6 +2605,7 @@ class AppState extends ChangeNotifier {
           return;
         }
       }
+      if (_anhangAbgebrochen) return;
       final m = await core.sendeAnhang(chatId, datei,
           name: name, groesse: groesse, einmal: einmal);
       // EINE NEUE LISTE, KEIN `.add`: dieselbe Falle wie in [senden] — die
@@ -2585,6 +2615,8 @@ class AppState extends ChangeNotifier {
       // (gefunden am 25.09.2026 beim Test der Sprachnachrichten).
       _haengeEigeneAn(chatId, m);
       anhaenge[chatId] = await core.getAnhaenge(chatId);
+    } on AnhangAbgebrochen {
+      // Gewollt. Nichts zu melden.
     } on AnhangZuGross catch (e) {
       letzterFehler = 'anhangZuGross:${e.groesse}:${e.grenze}';
     } on LagerVoll {
@@ -2601,11 +2633,32 @@ class AppState extends ChangeNotifier {
         } catch (_) {}
       }
       fortschritt.remove(schwebendeKennung);
+      final kern = _schwebenderKern;
+      if (kern != null) fortschritt.remove(kern);
+      _schwebenderKern = null;
       schwebendeKennung = null;
       schwebenderName = null;
       schwebenderChat = null;
       notifyListeners();
     }
+  }
+
+  /// Die Kennung, unter der der Kern den laufenden Versand meldet — sobald
+  /// der erste Fortschritt da ist. Siehe den Strom in [_hoereZu].
+  String? _schwebenderKern;
+
+  /// Der Nutzer hat die Karte weggetippt, solange noch vorbereitet wurde.
+  bool _anhangAbgebrochen = false;
+
+  /// Bricht den laufenden Anhangversand ab (Knopf auf der Karte).
+  ///
+  /// Waehrend der Vorbereitung (Metadaten, Rueckfrage) geht er gar nicht erst
+  /// los; waehrend des Hochladens geht kein weiteres Stueck hinaus. Nichts
+  /// kommt in den Verlauf, und es gibt keine Fehlermeldung.
+  Future<void> brichAnhangAb() async {
+    if (schwebendeKennung == null) return;
+    _anhangAbgebrochen = true;
+    await core.brichAnhangVersandAb();
   }
 
   /// Fragt, ob eine Datei trotz verbliebener Metadaten hinausgehen soll.

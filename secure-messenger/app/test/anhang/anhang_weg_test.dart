@@ -422,6 +422,32 @@ void main() {
           versand.schicke(leer), throwsA(isA<AnhangZuGross>()));
     });
 
+    test('T2-5GB: ABGEBROCHEN ZWISCHEN DEN STUECKEN — kein weiteres geht hinaus',
+        () async {
+      // QA-Bericht vom 18.11.2026: ein Versand von Gigabytes liess sich nicht
+      // aufhalten. Hier bricht der Nutzer ab, nachdem das erste Stueck oben
+      // ist.
+      await expectLater(
+          versand.schicke(await dateiMit(ordner, 4 * stueckGroesse),
+              abgebrochen: () => relay.ausgestellt.isNotEmpty),
+          throwsA(isA<AnhangAbgebrochen>()));
+      expect(relay.ausgestellt, hasLength(1),
+          reason: 'nach dem Abbruch ging noch ein Stueck hinaus');
+    });
+
+    test('T2-5GB: GENAU AN DER GRENZE IST ES NICHT ZU GROSS', () async {
+      // "Exactly 5 GB file shows 'too large'": die Grenze selbst gilt.
+      final datei = await dateiMit(ordner, 1);
+      await expectLater(
+          versand.schicke(datei, groesse: AnhangVersand.hoechstGroesse + 1),
+          throwsA(isA<AnhangZuGross>()));
+      // Mit der Grenze selbst kommt KEIN AnhangZuGross (es scheitert hier
+      // erst am Lesen, weil die Datei in Wahrheit 1 Byte hat).
+      await expectLater(
+          versand.schicke(datei, groesse: AnhangVersand.hoechstGroesse),
+          throwsA(isNot(isA<AnhangZuGross>())));
+    });
+
     test('zu viele Stuecke faellt VOR der Uebertragung auf', () async {
       // Wer eines Tages die Stueckgroesse verkleinert, soll es hier merken —
       // und nicht daran, dass der letzte Umschlag beim Relay abprallt,

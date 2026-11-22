@@ -366,6 +366,11 @@ abstract class MessengerCore {
   Future<Message> sendeAnhang(String contactId, File datei,
       {String? name, int? groesse, bool einmal = false});
 
+  /// Haelt den laufenden [sendeAnhang] auf: es geht kein weiteres Stueck
+  /// hinaus, und [sendeAnhang] wirft `AnhangAbgebrochen`. Nichts kommt in den
+  /// Verlauf. Ohne laufenden Versand tut es nichts.
+  Future<void> brichAnhangVersandAb();
+
   /// Eine empfangene Einmal-Ansicht wurde angesehen: Datei loeschen, Zustand
   /// [AnhangZustand.verbraucht]. Tut nichts bei einem gewoehnlichen Anhang.
   Future<void> verbraucheEinmal(String contactId, String messageId);

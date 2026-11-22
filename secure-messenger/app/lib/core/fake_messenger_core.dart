@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'anhang/anhang_versand.dart' show AnhangAbgebrochen;
 import 'fern_codewort.dart';
 import 'messenger_core.dart'; // re-exports models.dart + errors.dart
 
@@ -286,6 +287,11 @@ class FakeMessengerCore implements MessengerCore {
     return Map.unmodifiable(_anhaenge[contactId] ?? const {});
   }
 
+  bool _anhangAbbruch = false;
+
+  @override
+  Future<void> brichAnhangVersandAb() async => _anhangAbbruch = true;
+
   @override
   Future<Message> sendeAnhang(String contactId, File datei,
       {String? name, int? groesse, bool einmal = false}) async {
@@ -300,8 +306,10 @@ class FakeMessengerCore implements MessengerCore {
     // In Schritten melden, nicht in einem Sprung. Ein Fortschrittsbalken, der
     // von 0 auf 100 springt, sieht in der Entwicklung richtig aus und auf dem
     // Geraet kaputt.
+    _anhangAbbruch = false;
     for (var i = 1; i <= 5; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 60));
+      if (_anhangAbbruch) throw const AnhangAbgebrochen();
       if (_anhangStandCtl.isClosed) break;
       _anhangStandCtl.add(AnhangFortschritt(
           messageId: id,

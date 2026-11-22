@@ -355,7 +355,7 @@ const Map<String, Map<String, String>> strings = {
     // "Holen" statt "Herunterladen": eine Datei kann drei Gigabyte gross sein,
     // und der Nutzer entscheidet ausdruecklich. Das Wort soll klingen wie eine
     // Entscheidung, nicht wie ein Automatismus.
-    'attach': 'Attach file', 'attachSend': 'Sending', 'attachGet': 'Get file',
+    'attach': 'Attach file', 'attachSend': 'Sending', 'attachCancel': 'Stop sending', 'attachGet': 'Get file',
     'attachAgain': 'Try again', 'attachOpen': 'Open', 'attachGone': 'No longer stored',
     'attachGoneWhy': 'Attachments are kept for 14 days, and vanish once fetched.',
     'attachHere': 'On this device',
@@ -834,7 +834,7 @@ const Map<String, Map<String, String>> strings = {
     'archived': 'Archiv', 'backToChats': 'Zurück zu den Chats', 'search': 'Nachrichten durchsuchen', 'noResults': 'Nichts gefunden',
 
     // ---- Anhaenge ----
-    'attach': 'Datei anhängen', 'attachSend': 'Wird geschickt', 'attachGet': 'Datei holen',
+    'attach': 'Datei anhängen', 'attachSend': 'Wird geschickt', 'attachCancel': 'Senden abbrechen', 'attachGet': 'Datei holen',
     'attachAgain': 'Nochmal versuchen', 'attachOpen': 'Öffnen', 'attachGone': 'Nicht mehr da',
     'attachGoneWhy': 'Anhänge liegen 14 Tage und verschwinden, sobald sie geholt wurden.',
     'attachHere': 'Auf diesem Gerät',
