@@ -28,6 +28,7 @@ class GeraeteStil {
     required this.text,
     required this.titel,
     required this.hinweis,
+    this.frischBestaetigt,
   });
 
   final Pal p;
@@ -35,6 +36,16 @@ class GeraeteStil {
   final TextStyle Function(double groesse, Color farbe, {bool fett}) text;
   final TextStyle Function(double groesse, Color farbe) titel;
   final Widget Function(String text, {bool warnend}) hinweis;
+
+  /// Die frische Anmeldung des Startbildschirms (sperre.dart
+  /// `frischBestaetigt`): Passwort, Fingerabdruck oder Sicherheitsschluessel,
+  /// wenn eine App-Sperre eingerichtet ist — sonst sofort ja.
+  ///
+  /// VOR DEM ABMELDEN EINES ANDEREN GERAETS. Bis 22.11.2026 genuegte ein
+  /// Tippen auf "Ja": wer ein entsperrtes Zweitgeraet einen Moment in der
+  /// Hand hatte, meldete damit das Telefon des Besitzers ab (QA-Bericht vom
+  /// 18.11.2026, T3-SIGNOUT). Dieselbe Huerde wie vor dem Zeigen der Woerter.
+  final Future<bool> Function()? frischBestaetigt;
 }
 
 /// Hoechstens so viele Geraete nimmt der Relay (GERAETE_MAX).
@@ -138,6 +149,10 @@ class _GeraeteInhalt extends StatelessWidget {
       ) ??
       false;
 
+  /// Ob weitergemacht werden darf — siehe [GeraeteStil.frischBestaetigt].
+  Future<bool> _ausgewiesen() async =>
+      await (stil.frischBestaetigt?.call() ?? Future<bool>.value(true));
+
   Future<void> _versuche(BuildContext context, Future<void> Function() tu) async {
     try {
       await tu();
@@ -205,7 +220,9 @@ class _GeraeteInhalt extends StatelessWidget {
                             t('geraeteAbmeldenFrage')
                                 .replaceFirst('{name}', geraeteName(g, t)),
                             t('geraeteAbmelden'));
-                        if (ja && context.mounted) {
+                        if (!ja || !context.mounted) return;
+                        if (!await _ausgewiesen()) return;
+                        if (context.mounted) {
                           await _versuche(context, () => st.meldeGeraetAb(g.id));
                         }
                       },
@@ -228,7 +245,9 @@ class _GeraeteInhalt extends StatelessWidget {
                     onPressed: () async {
                       final ja = await _frage(context,
                           t('geraeteAlleAnderenFrage'), t('geraeteAlleAnderen'));
-                      if (ja && context.mounted) {
+                      if (!ja || !context.mounted) return;
+                      if (!await _ausgewiesen()) return;
+                      if (context.mounted) {
                         await _versuche(context, st.meldeAlleAnderenAb);
                       }
                     },
