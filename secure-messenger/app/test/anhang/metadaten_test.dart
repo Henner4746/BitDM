@@ -276,6 +276,40 @@ void main() {
   // ob das Bereinigen gescheitert ist — im zweiten Fall geht die Datei MIT
   // Metadaten hinaus, und der Nutzer soll davon wissen.
 
+  group('SEC-M3: Arten, deren Metadaten hier NICHT entfernt werden', () {
+    Uint8List mit(List<int> anfang) =>
+        Uint8List.fromList([...anfang, ...List.filled(64, 0x20)]);
+
+    test('werden am Dateianfang erkannt, nicht an der Endung', () {
+      final arten = <String, List<int>>{
+        'PDF': '%PDF-1.7'.codeUnits,
+        'DOCX/ODT (ZIP)': [0x50, 0x4B, 0x03, 0x04],
+        'GIF': 'GIF89a'.codeUnits,
+        'TIFF II': [0x49, 0x49, 0x2A, 0x00],
+        'TIFF MM': [0x4D, 0x4D, 0x00, 0x2A],
+        'MP3 ID3': 'ID3'.codeUnits,
+        'MP3 Rahmen': [0xFF, 0xFB, 0x90, 0x00],
+        'MKV/WebM': [0x1A, 0x45, 0xDF, 0xA3],
+        'Ogg': 'OggS'.codeUnits,
+        'FLAC': 'fLaC'.codeUnits,
+        'WAV': [...'RIFF'.codeUnits, 0, 0, 0, 0, ...'WAVE'.codeUnits],
+        'M4A': [0, 0, 0, 0x18, ...'ftypM4A '.codeUnits],
+      };
+      for (final e in arten.entries) {
+        expect(traegtUnentfernteMetadaten(mit(e.value)), isTrue, reason: e.key);
+      }
+    });
+
+    test('was bereinigt wird oder keine Kennung hat, gilt nicht', () {
+      expect(traegtUnentfernteMetadaten(mit([0xFF, 0xD8, 0xFF, 0xE0])), isFalse,
+          reason: 'JPEG wird bereinigt');
+      expect(traegtUnentfernteMetadaten(mit([...'RIFF'.codeUnits, 0, 0, 0, 0, ...'WEBP'.codeUnits])),
+          isFalse, reason: 'WebP wird bereinigt');
+      expect(traegtUnentfernteMetadaten(mit('Hallo, das ist Text'.codeUnits)), isFalse);
+      expect(traegtUnentfernteMetadaten(Uint8List(0)), isFalse);
+    });
+  });
+
   group('bereinige', () {
     test('die vier Faelle', () {
       expect(bereinige(probe('mit_gps.jpg')), isA<Bereinigt>());

@@ -161,6 +161,40 @@ Uint8List? ohneMetadaten(Uint8List b, {bool vorOrt = false}) =>
 bool istBereinigbar(Uint8List b) =>
     _istJpeg(b) || _istPng(b) || _istWebp(b) || _isoArt(b) != null;
 
+/// Ob die Datei zu einer Art gehoert, die Metadaten traegt, die hier NICHT
+/// entfernt werden — erkannt am Dateianfang, nicht an der Endung.
+///
+/// PDF (Autor, Software, Zeiten), Office- und ODF-Dateien sowie ZIP
+/// (Autor, Bearbeiter, Zeiten, Pfade), GIF (Kommentare, XMP), TIFF (EXIF,
+/// auch GPS), MP3 (ID3), Matroska/WebM, Ogg, FLAC, WAV/AVI (INFO) und
+/// ISO-Dateien, deren Marke [bereinige] nicht kennt (etwa M4A). Bis
+/// 23.11.2026 gingen sie ohne ein Wort hinaus (Sicherheitsbewertung vom
+/// 23.11.2026, SEC-M3); jetzt fragt die App. Eine Datei ohne bekannte
+/// Kennung (Text, Rohdaten) bleibt ohne Rueckfrage.
+bool traegtUnentfernteMetadaten(Uint8List b) {
+  if (istBereinigbar(b)) return false;
+  bool beginnt(List<int> kennung, [int ab = 0]) {
+    if (b.length < ab + kennung.length) return false;
+    for (var i = 0; i < kennung.length; i++) {
+      if (b[ab + i] != kennung[i]) return false;
+    }
+    return true;
+  }
+
+  return beginnt(const [0x25, 0x50, 0x44, 0x46]) || // %PDF
+      beginnt(const [0x50, 0x4B, 0x03, 0x04]) || // ZIP: docx, xlsx, odt, ...
+      beginnt(const [0x47, 0x49, 0x46, 0x38]) || // GIF8
+      beginnt(const [0x49, 0x49, 0x2A, 0x00]) || // TIFF (II*)
+      beginnt(const [0x4D, 0x4D, 0x00, 0x2A]) || // TIFF (MM*)
+      beginnt(const [0x49, 0x44, 0x33]) || // MP3 mit ID3
+      (b.length > 1 && b[0] == 0xFF && (b[1] & 0xE0) == 0xE0 && !_istJpeg(b)) || // MPEG-Audio
+      beginnt(const [0x1A, 0x45, 0xDF, 0xA3]) || // Matroska / WebM
+      beginnt(const [0x4F, 0x67, 0x67, 0x53]) || // Ogg
+      beginnt(const [0x66, 0x4C, 0x61, 0x43]) || // FLAC
+      beginnt(const [0x52, 0x49, 0x46, 0x46]) || // RIFF (WAV, AVI; WebP ist bereinigbar)
+      beginnt(const [0x66, 0x74, 0x79, 0x70], 4); // ftyp, unbekannte Marke
+}
+
 /// Ob die Datei ein Video ist (MP4, MOV, 3GP, M4V). Dafuer reicht der
 /// Dateianfang — die ersten paar hundert Bytes mit dem ftyp-Kasten.
 bool istVideo(Uint8List b) => _isoArt(b) == _IsoArt.video;
