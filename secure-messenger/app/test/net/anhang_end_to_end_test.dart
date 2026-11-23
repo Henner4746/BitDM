@@ -218,8 +218,16 @@ void main() {
           reason: 'bytegleich, ueber zwei Kerne, zwei Server und die '
               'Signal-Sitzung dazwischen');
       expect(klar.path, isNot(fertig.pfad));
-      expect(klar.parent.path, endsWith('.klar'),
-          reason: 'die Klartextkopie gehoert in den privaten Unterordner');
+      // Unter Linux mit $XDG_RUNTIME_DIR im Arbeitsspeicher (SEC-M2), sonst im
+      // privaten Unterordner — auf jeden Fall dort, wo das Aufraeumen sucht.
+      final laufzeit = Platform.environment['XDG_RUNTIME_DIR'] ?? '';
+      if (Platform.isLinux && laufzeit.isNotEmpty && Directory(laufzeit).existsSync()) {
+        expect(klar.path, startsWith(laufzeit),
+            reason: 'unter Linux gehoert die Klartextkopie nicht auf die Platte');
+      } else {
+        expect(klar.parent.path, endsWith('.klar'),
+            reason: 'die Klartextkopie gehoert in den privaten Unterordner');
+      }
       expect(await bob.anhangInhalt(alice.myId, beiBob.id), vorher);
 
       // Freigeben loescht die Kopie, nicht den Anhang.
