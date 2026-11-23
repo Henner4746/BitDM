@@ -2650,7 +2650,14 @@ class AppState extends ChangeNotifier {
       // Versand selbst mit einer eigenen Meldung.
       return nichts;
     }
-    if (!istBereinigbar(kopf)) return nichts;
+    if (!istBereinigbar(kopf)) {
+      // NICHT STILL: eine Art, deren Metadaten hier nicht entfernt werden.
+      // Der Name bleibt (bei einem Dokument will man ihn meist), aber der
+      // Nutzer erfaehrt vorher, dass Autor, Zeiten und Name mitgehen.
+      return traegtUnentfernteMetadaten(kopf)
+          ? (datei: null, name: null, warnung: 'metaUnbekannt')
+          : nichts;
+    }
     final zufall = Random.secure().nextInt(0x10000);
     final neutral = neutralerBildname(kopf, zufall);
     final video = istVideo(kopf);

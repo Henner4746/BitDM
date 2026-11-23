@@ -321,6 +321,47 @@ void main() {
       expect(st.verlaufVon(c).last.text, matches(RegExp(r'^bild-[0-9a-f]{4}\.jpg$')));
     });
 
+    test('SEC-M3: EIN PDF GEHT NICHT MEHR OHNE WORT HINAUS', () async {
+      // Bis 23.11.2026: PDF, Office, GIF, TIFF (mit GPS), MP3, MKV/WebM
+      // behielten alle Metadaten und den Namen, ohne Hinweis.
+      final c = ersterKontakt();
+      await st.unterhaltungOeffnen(c);
+      final gruende = <String>[];
+      var antwort = false;
+      st.frageOhneBereinigung = (g) async {
+        gruende.add(g);
+        return antwort;
+      };
+      final f = File('${verzeichnis.path}/Vertrag.pdf')
+        ..writeAsBytesSync([...'%PDF-1.7 '.codeUnits, ...List.filled(300, 0x20)]);
+      final vorher = st.verlaufVon(c).length;
+      await st.anhangSenden(c, f, name: 'Vertrag.pdf');
+      expect(gruende, ['metaUnbekannt']);
+      expect(st.verlaufVon(c).length, vorher, reason: 'Nein schickt nichts');
+
+      antwort = true;
+      await st.anhangSenden(c, f, name: 'Vertrag.pdf');
+      expect(st.verlaufVon(c).last.text, 'Vertrag.pdf',
+          reason: 'bei einem Dokument bleibt der Name — der Nutzer weiss es jetzt');
+    });
+
+    test('SEC-M3: OHNE RUECKFRAGE GEHT EIN PDF NICHT HINAUS, ROHDATEN SCHON', () async {
+      final c = ersterKontakt();
+      await st.unterhaltungOeffnen(c);
+      final pdf = File('${verzeichnis.path}/a.pdf')
+        ..writeAsBytesSync([...'%PDF-1.4'.codeUnits, ...List.filled(300, 0x20)]);
+      await st.anhangSenden(c, pdf, name: 'a.pdf');
+      expect(st.letzterFehler, 'metaNichtEntfernt');
+
+      st.vergissFehler();
+      final roh = File('${verzeichnis.path}/daten.bin')
+        ..writeAsBytesSync(List.filled(400, 0x07));
+      final vorher = st.verlaufVon(c).length;
+      await st.anhangSenden(c, roh, name: 'daten.bin');
+      expect(st.letzterFehler, isNull, reason: 'Rohdaten ohne Kennung: keine Frage');
+      expect(st.verlaufVon(c).length, vorher + 1);
+    });
+
     test('zu gross zum Bereinigen: der Nutzer wird gefragt', () async {
       final c = ersterKontakt();
       final gruende = <String>[];

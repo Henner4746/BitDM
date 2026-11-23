@@ -715,7 +715,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
       builder: (ctx) => AlertDialog(
         key: const ValueKey('meta-frage'),
         title: Text(t('metaAskTitle')),
-        content: Text(grund == 'metaZuGross' ? t('metaTooBig') : t('metaFailed'),
+        content: Text(
+            switch (grund) {
+              'metaZuGross' => t('metaTooBig'),
+              'metaUnbekannt' => t('metaKept'),
+              _ => t('metaFailed'),
+            },
             style: mono(size: 12, color: p.muted, height: 1.5)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(t('cancel'))),
