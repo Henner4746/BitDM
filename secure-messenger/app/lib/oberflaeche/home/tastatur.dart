@@ -220,7 +220,7 @@ extension _Tastatur on _HomeState {
           st.phraseBestaetigt();
           go('secure');
         },
-      'secure' => () => go('id'),
+      'secure' => _weiterNachSchutz,
       'restore' => _stelleWieder,
       'add' => sendReq,
       'test' => st.testLaeuft ? null : () => st.verbindungPruefen(),
