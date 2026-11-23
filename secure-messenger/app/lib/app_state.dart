@@ -3044,6 +3044,17 @@ class AppState extends ChangeNotifier {
   /// zurueckgesetzt. Solange die App ein Entwurf war, fiel das nicht auf;
   /// sobald echte Nachrichten dahinterliegen, ist ein Knopf, der "alles
   /// geloescht" sagt und es nicht tut, schlimmer als gar keiner.
+  /// Die wiederhergestellten Woerter gehoeren zu einer Adresse, die der Relay
+  /// nicht kennt — vielleicht ein Tippfehler (SEC-H2). Siehe
+  /// RealMessengerCore.wiederhergestelltUnbekannt.
+  bool get wiederhergestelltUnbekannt => _echt?.wiederhergestelltUnbekannt ?? false;
+
+  /// "Die Woerter stimmen": der Hinweis verschwindet.
+  void wiederhergestelltStimmt() {
+    _echt?.vergissWiederhergestelltUnbekannt();
+    notifyListeners();
+  }
+
   Future<void> allesLoeschen() async {
     _wiederverbindung?.cancel();
     _wiederverbindung = null;
