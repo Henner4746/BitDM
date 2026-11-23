@@ -463,7 +463,25 @@ extension _Chatliste on _HomeState {
         padding: const EdgeInsets.all(11),
         decoration: BoxDecoration(color: p.tint, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.tintLine)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(shortId(adresseFormatiert(k.id)), style: doto(size: 13, weight: FontWeight.w600, color: p.tintInk, spacing: 0.8)),
+          // DIE GANZE ADRESSE UND DAS BILD DAZU, nicht nur 4…4 Zeichen. Hier
+          // entscheidet der Nutzer, wen er annimmt — und acht Zeichen (rund
+          // 40 Bit) laden zu einer nachgemachten Adresse ein, die vorne und
+          // hinten gleich aussieht (Sicherheitsbewertung vom 23.11.2026,
+          // SEC-M7). Das Identicon haengt an der ganzen Adresse; es ist
+          // dasselbe, das spaeter am Chat steht.
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Identicon(k.id, 36, avp, 7),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(shortId(adresseFormatiert(k.id)), style: doto(size: 13, weight: FontWeight.w600, color: p.tintInk, spacing: 0.8)),
+                const SizedBox(height: 3),
+                SelectableText(adresseFormatiert(k.id),
+                    key: ValueKey('anfrage-adresse-${k.id}'),
+                    style: mono(size: 10.5, color: p.tintInk, height: 1.45)),
+              ]),
+            ),
+          ]),
           const SizedBox(height: 6),
           Text(t('wantsChat'), style: mono(size: 11.5, color: p.muted)),
           const SizedBox(height: 8),
