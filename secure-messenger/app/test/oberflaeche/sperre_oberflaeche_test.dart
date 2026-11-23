@@ -142,6 +142,30 @@ void main() {
     expect(find.text('LOCKED'), findsOneWidget);
   });
 
+  testWidgets('SEC-M5: NACH DEM SPERREN STEHT DIE EINGETIPPTE ADRESSE NICHT MEHR IM FELD',
+      (tester) async {
+    await starte(tester);
+    await tester.runAsync(() => st.fuegePasswortHinzu(echtes));
+    await warte(tester);
+    await tester.tap(find.text('CHATS').first);
+    await warte(tester);
+    await tester.tap(find.text('+'));
+    await warte(tester);
+    const adresse = 'bitdmSEKRETdiesesFeldsollnachdemSperrenleersein000000';
+    await tester.enterText(find.byType(TextField).last, adresse);
+    await tester.pump();
+    expect(find.text(adresse), findsOneWidget);
+
+    await tester.runAsync(() => st.sperreWieder());
+    await warte(tester);
+    expect(st.gesperrt, isTrue);
+    await tester.runAsync(() => st.entsperreMitPasswort(echtes));
+    await bisDa(tester, find.text('+'));
+    await warte(tester);
+    expect(find.text(adresse), findsNothing,
+        reason: 'die Eingabe ueberlebte das Sperren im Feld und im Speicher');
+  });
+
   testWidgets('DIE ZWOELF WOERTER IN DEN EINSTELLUNGEN — MIT ERZWUNGENEM SCREENSHOT-SCHUTZ',
       (tester) async {
     await starte(tester);
