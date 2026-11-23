@@ -412,6 +412,17 @@ class _HomeState extends State<Home> with WidgetsBindingObserver, TickerProvider
     stickPinCtl.clear();
     pwCtl.clear();
     pwCtl2.clear();
+    // AUCH DIE ANDEREN EINGABEN mit Geheimem darin: eine eingetippte
+    // Kontaktadresse, das Codewort der Fernloeschung und — vor allem — die
+    // zwoelf Woerter auf dem Wiederherstellen-Bildschirm. Sie standen nach dem
+    // Sperren weiter im Feld und im Speicher (Sicherheitsbewertung vom
+    // 23.11.2026, SEC-M5). Der Nachrichtenentwurf (draftCtl) bleibt bewusst:
+    // eine Sperre nach einer Minute Pause soll keinen halben Absatz kosten.
+    // Was ein Dart-String einmal enthielt, laesst sich nicht ueberschreiben —
+    // hier geht es darum, dass keine Referenz mehr darauf zeigt.
+    addCtl.clear();
+    codeCtl.clear();
+    phraseCtl.clear();
     // DAS MIKROFON LAEUFT NICHT HINTER DER SPERRE WEITER.
     if (_aufnahmeSeit != null) unawaited(_verwirfAufnahme());
   }
