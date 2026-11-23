@@ -87,6 +87,10 @@ extension _Navigation on _HomeState {
         setState(() => sheet = false);
       case 'onboard':
         setState(() { screen = 'onboard'; restoreFehler = null; });
+      case 'id' when screen == 'secure':
+        // Zurueck vom Absicherungs-Bildschirm ist "ohne Schutz weiter" —
+        // mit derselben Rueckfrage wie die Knoepfe (SEC-H1).
+        unawaited(_weiterNachSchutz());
       default:
         go(ziel);
     }

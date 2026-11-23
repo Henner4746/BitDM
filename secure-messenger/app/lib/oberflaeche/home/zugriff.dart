@@ -276,6 +276,45 @@ extension _Zugriff on _HomeState {
     ));
   }
 
+  /// Weiter vom Absicherungs-Bildschirm — ohne Faktor erst nach Rueckfrage.
+  ///
+  /// OHNE FAKTOR LIEGT DIE IDENTITAET IM SCHLUESSELBUND DES SYSTEMS, und die
+  /// App oeffnet ohne Frage (main.dart, DeviceSecretStore). Wer an das Geraet
+  /// oder an Profilordner und Schluesselbund kommt, liest alles und uebernimmt
+  /// die Identitaet. Bis 22.11.2026 fuehrten "Spaeter", "Weiter", die
+  /// Eingabetaste und Zurueck kommentarlos daran vorbei, waehrend der Text
+  /// darueber von "bevor die App entsperrt" sprach (Sicherheitsbewertung vom
+  /// 23.11.2026, SEC-H1). Jetzt sagt die App, was das heisst, und laesst es
+  /// ausdruecklich bestaetigen. Ein Zwang ist es nicht — ob ein Faktor Pflicht
+  /// wird, ist eine eigene Entscheidung.
+  Future<void> _weiterNachSchutz() async {
+    if (st.faktoren.isNotEmpty) {
+      go('id');
+      return;
+    }
+    final ohne = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surf,
+        title: Text(t('secureSkipAsk'),
+            style: mono(size: 15, weight: FontWeight.w600, color: p.ink)),
+        content: Text(t('secureSkipBody'),
+            style: mono(size: 12.5, color: p.muted, height: 1.5)),
+        actions: [
+          TextButton(
+              key: const ValueKey('schutz-zurueck'),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(t('secureSkipBack'))),
+          TextButton(
+              key: const ValueKey('ohne-schutz-weiter'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(t('secureSkipYes'))),
+        ],
+      ),
+    );
+    if (ohne == true && mounted) go('id');
+  }
+
   Widget secureScreen() {
     // DER SPACER WAR DER AUFFAELLIGSTE EINZELNE GRUND, warum die Abfolgen im
     // Fenster nicht wie eine Desktop-App aussahen: auf dem Desktop bleibt von
@@ -292,19 +331,19 @@ extension _Zugriff on _HomeState {
     // ihre Textbreite und stehen links, wie alles andere auf diesem Bildschirm.
     final Widget knoepfe = _imFenster
         ? Row(mainAxisSize: MainAxisSize.min, children: [
-            outlineBtn(t('secureSkip'), () => go('id'),
+            outlineBtn(t('secureSkip'), _weiterNachSchutz,
                 accent: false,
                 padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
                 weight: FontWeight.w400),
             const SizedBox(width: 8),
-            outlineBtn(t('secureDone'), () => go('id'),
+            outlineBtn(t('secureDone'), _weiterNachSchutz,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 22, vertical: 13)),
           ])
         : Row(children: [
-            Expanded(child: outlineBtn(t('secureSkip'), () => go('id'), accent: false, padding: const EdgeInsets.all(13), weight: FontWeight.w400)),
+            Expanded(child: outlineBtn(t('secureSkip'), _weiterNachSchutz, accent: false, padding: const EdgeInsets.all(13), weight: FontWeight.w400)),
             const SizedBox(width: 8),
-            Expanded(child: outlineBtn(t('secureDone'), () => go('id'), padding: const EdgeInsets.all(13))),
+            Expanded(child: outlineBtn(t('secureDone'), _weiterNachSchutz, padding: const EdgeInsets.all(13))),
           ]);
 
     final Widget inhalt = Padding(

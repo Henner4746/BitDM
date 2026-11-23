@@ -54,6 +54,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('SKIP FOR NOW'));
     await tester.pump(const Duration(milliseconds: 400));
+    // Seit 23.11.2026 fragt die App, bevor es ohne Schutz weitergeht (SEC-H1).
+    await tester.tap(find.byKey(const ValueKey('ohne-schutz-weiter')));
+    await tester.pump(const Duration(milliseconds: 400));
     final kontakt = st.aktiveKontakte.first.id;
     final gid = (await tester.runAsync(() => st.legeGruppeAn('Wanderung', [kontakt])))!;
     await tester.tap(find.text('CHATS'));

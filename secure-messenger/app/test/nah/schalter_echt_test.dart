@@ -60,6 +60,7 @@ import 'package:bitdm/core/nah/funk.dart';
 import 'package:bitdm/main.dart';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show ValueKey;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -177,6 +178,9 @@ void main() {
     await tester.tap(find.text('I WROTE THEM DOWN'));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('SKIP FOR NOW'));
+    await tester.pump(const Duration(milliseconds: 400));
+    // Seit 23.11.2026 fragt die App, bevor es ohne Schutz weitergeht (SEC-H1).
+    await tester.tap(find.byKey(const ValueKey('ohne-schutz-weiter')));
     await tester.pump(const Duration(milliseconds: 400));
 
     await tester.tap(find.text('SETTINGS'));
