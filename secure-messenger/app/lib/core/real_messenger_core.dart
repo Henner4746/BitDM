@@ -676,8 +676,36 @@ class RealMessengerCore implements MessengerCore {
       await loescheDatenbank(databasePath);
       await _oeffne(entropie);
     }
+    // FUERS ERSTE VERBINDEN VORGEMERKT: kennt der Relay zu diesen Woertern
+    // gar kein Geraet, ist das oft ein Tippfehler — siehe
+    // [wiederhergestelltUnbekannt]. In der Datei, damit es auch gilt, wenn
+    // die App vor dem ersten Verbinden zugeht.
+    _db?.transaction((raw) => raw.execute(
+        'INSERT INTO meta (key, value) VALUES (?,?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['wiederherstellung_offen', '1']));
     return myId;
   }
+
+  /// Die eben wiederhergestellten Woerter gehoeren zu einer Adresse, unter der
+  /// der Relay KEIN Geraet kennt.
+  ///
+  /// DIE 12 WOERTER HABEN NUR VIER BIT PRUEFSUMME (BIP39): etwa jede
+  /// sechzehnte Verwechslung eines Wortes mit einem anderen aus der Liste geht
+  /// durch und ergibt still eine ganz andere Identitaet — ohne Kontakte,
+  /// ohne Verlauf, und wer schreibt, erreicht die echte (Sicherheitsbewertung
+  /// vom 23.11.2026, SEC-H2). Eine staerkere Pruefsumme passte nicht mehr zu
+  /// den Woertern, die es schon gibt. Was sich ohne Bruch sagen laesst: eine
+  /// Identitaet, die jemand benutzt hat, hat beim Relay ein Geraet. Fehlt es
+  /// (404 auf die Geraeteliste), sagt die Oberflaeche das — mit dem Hinweis,
+  /// dass es auch stimmen kann (lange unbenutzt, anderer Relay).
+  bool get wiederhergestelltUnbekannt =>
+      _db?.meta('wiederherstellung_unbekannt') == '1';
+
+  /// Der Nutzer hat den Hinweis gelesen und die Woerter fuer richtig befunden.
+  void vergissWiederhergestelltUnbekannt() => _db?.transaction((raw) => raw.execute(
+      "DELETE FROM meta WHERE key IN "
+      "('wiederherstellung_unbekannt', 'wiederherstellung_offen')"));
 
   @override
   bool isValidRecoveryPhrase(List<String> words) => Bip39.validate(words);
@@ -1271,7 +1299,18 @@ class RealMessengerCore implements MessengerCore {
       if (e.statusCode != 404) rethrow;
       liste = null;
       _relayKenntGeraete = true;
+      // NACH EINER WIEDERHERSTELLUNG ist "kein Geraet" verdaechtig: siehe
+      // [wiederhergestelltUnbekannt].
+      if (_db?.meta('wiederherstellung_offen') == '1') {
+        _db?.transaction((raw) => raw.execute(
+            'INSERT INTO meta (key, value) VALUES (?,?) '
+            'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+            ['wiederherstellung_unbekannt', '1']));
+      }
     }
+    // Die Frage ist beantwortet — so oder so.
+    _db?.transaction((raw) =>
+        raw.execute("DELETE FROM meta WHERE key = 'wiederherstellung_offen'"));
     _merkeGeraeteZahl(liste);
     _setzeGeraetId(liste == null || (liste.isEmpty && !umzug)
         ? 1

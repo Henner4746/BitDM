@@ -336,6 +336,9 @@ extension _Chatliste on _HomeState {
       if (st.geraeteStand == ListenStand.beitrittNoetig ||
           st.geraeteStand == ListenStand.wartetAufBestaetigung)
         BeitrittsKarte(st: st, stil: _geraeteStil),
+      // VERTIPPT? Zu den eben eingegebenen Woertern kennt der Relay kein
+      // Geraet (SEC-H2, RealMessengerCore.wiederhergestelltUnbekannt).
+      if (st.wiederhergestelltUnbekannt) unbekannteWoerterKarte(),
       // SOLANGE ES KEIN APP-PASSWORT GIBT, steht das hier, und zwar ohne
       // Knopf zum Wegklicken: die Identitaet ist in dem Zustand beim
       // naechsten Neuladen weg, und das ist keine Meldung, die man einmal
@@ -455,6 +458,25 @@ extension _Chatliste on _HomeState {
             decoration: BoxDecoration(borderRadius: BorderRadius.circular(4), border: Border.all(color: p.line)),
             child: Text(t('pending').toUpperCase(), style: mono(size: 10, color: p.dim, spacing: 1.2)),
           ),
+        ]),
+      );
+
+  Widget unbekannteWoerterKarte() => Padding(
+        key: const ValueKey('woerter-unbekannt'),
+        padding: const EdgeInsets.fromLTRB(22, 10, 22, 0),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _hinweisKasten(t('restoreUnknownId')),
+          const SizedBox(height: 6),
+          Wrap(spacing: 8, runSpacing: 6, children: [
+            outlineBtn(t('restoreUnknownAgain'), () async {
+              // Die eben angelegte Identitaet hat nichts: keine Kontakte,
+              // keinen Verlauf. Weg damit, und noch einmal eingeben.
+              await st.allesLoeschen();
+              if (mounted) setState(() => screen = 'restore');
+            }, padding: const EdgeInsets.all(9)),
+            outlineBtn(t('restoreUnknownOk'), st.wiederhergestelltStimmt,
+                accent: false, padding: const EdgeInsets.all(9)),
+          ]),
         ]),
       );
 
