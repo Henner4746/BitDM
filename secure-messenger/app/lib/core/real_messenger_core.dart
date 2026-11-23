@@ -2201,9 +2201,13 @@ class RealMessengerCore implements MessengerCore {
             // [_istFernCodewort]). Von jedem anderen ist es eine Nachricht.
             if (_istFernCodewort(von, payload)) {
               _nimmLoeschanfrage(von, payload);
-              // Quittiert wie jede Nachricht: der Absender sieht zwei Haken
-              // und sonst nichts Besonderes.
-              unawaited(_sendeQuittung(von, payload.messageId));
+              // Quittiert wie jede Nachricht: der Absender sieht zwei Haken.
+              // MIT DER BITTE UMS SCHWAERZEN: bis 23.11.2026 stand das
+              // Codewort danach im Klartext im Verlauf des Vertrauten — wer
+              // dessen Telefon in die Hand bekam, las es dort
+              // (Sicherheitsbewertung vom 23.11.2026, SEC-M8).
+              unawaited(_sendeQuittung(von, payload.messageId,
+                  text: Payload.quittungTilgen));
             } else {
               _legeEingangAb(von, payload, ueberNaehe);
             }
@@ -2219,7 +2223,8 @@ class RealMessengerCore implements MessengerCore {
             if (payload.gruppe != null) {
               _quittiereGruppe(von, payload.gruppe!, payload.refs);
             } else {
-              _quittiere(von, payload.refs, MessageStatus.delivered);
+              _quittiere(von, payload.refs, MessageStatus.delivered,
+                  tilgen: payload.text == Payload.quittungTilgen);
             }
           case PayloadKind.readReceipt:
             _quittiere(von, payload.refs, MessageStatus.read);
@@ -3102,7 +3107,8 @@ class RealMessengerCore implements MessengerCore {
       contactId: von,
       at: DateTime.now().toUtc()));
 
-  Future<void> _sendeQuittung(String an, String messageId) async {
+  Future<void> _sendeQuittung(String an, String messageId,
+      {String text = ''}) async {
     await Future<void>.delayed(quittungsVerzug());
     // KEINE PRUEFUNG MEHR, ob gerade ein Weg offen ist: die Quittung wartet im
     // Ausgang, bis einer aufgeht — Relay ODER Naehe (dann auch fuer eine
@@ -3111,7 +3117,7 @@ class RealMessengerCore implements MessengerCore {
         an,
         Payload.control(PayloadKind.deliveryReceipt, _neueId(),
             DateTime.now().toUtc(),
-            refs: [messageId]));
+            refs: [messageId], text: text));
   }
 
   /// Eine Kontaktanfrage. Was sie heisst, haengt davon ab, wo der Absender
@@ -3240,7 +3246,12 @@ class RealMessengerCore implements MessengerCore {
         an, Payload.control(art, _neueId(), DateTime.now().toUtc()));
   }
 
-  void _quittiere(String von, List<String> refs, MessageStatus status) {
+  /// [tilgen]: die Gegenstelle bittet, die quittierte Nachricht im eigenen
+  /// Verlauf zu schwaerzen — sie war ihr Fernloesch-Codewort
+  /// ([Payload.quittungTilgen]). Nur eigene Nachrichten an genau diese
+  /// Gegenstelle; mehr kann eine Quittung nicht treffen.
+  void _quittiere(String von, List<String> refs, MessageStatus status,
+      {bool tilgen = false}) {
     final chats = _chats!;
     for (final ref in refs) {
       final seq = chats.seqVon(von, ref, myId);
@@ -3253,7 +3264,7 @@ class RealMessengerCore implements MessengerCore {
       // ZUGESTELLT: eine geheime Nachricht wird jetzt aus dem eigenen Verlauf
       // geschwaerzt. Vorher nicht — bis zur Quittung braucht der Nachversand
       // den Text (auch der Relay-Nachschub nach einer Funkzustellung).
-      if (chats.geheimeNachrichten().contains(ref)) {
+      if (tilgen || chats.geheimeNachrichten().contains(ref)) {
         chats.schwaerze(von, myId, ref, _geschwaerzt);
         chats.setzeGeheim(ref, false);
         _verlaufWechsel.add(von);
