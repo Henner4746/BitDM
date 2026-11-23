@@ -421,8 +421,19 @@ class Payload {
   static const int reaktionMaxBytes = 64;
 
   factory Payload.control(PayloadKind kind, String messageId, DateTime sentAt,
-          {List<String> refs = const []}) =>
-      Payload(kind: kind, messageId: messageId, sentAt: sentAt, refs: refs);
+          {List<String> refs = const [], String text = ''}) =>
+      Payload(
+          kind: kind,
+          messageId: messageId,
+          sentAt: sentAt,
+          refs: refs,
+          text: text);
+
+  /// Der Text einer Zustellquittung, die zusaetzlich sagt: "schwaerze diese
+  /// Nachricht in deinem Verlauf" — fuer das Fernloesch-Codewort (siehe
+  /// RealMessengerCore._quittiere). Aeltere Fassungen lesen den Text einer
+  /// Quittung nicht und quittieren wie immer.
+  static const String quittungTilgen = 'tilgen';
 
   /// Ein Anhang: im Text steht die Anleitung, nicht die Datei.
   ///
