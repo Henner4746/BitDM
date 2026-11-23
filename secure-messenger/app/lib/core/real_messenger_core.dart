@@ -489,7 +489,58 @@ class RealMessengerCore implements MessengerCore {
   ///     wenigstens nicht der Sammelplatz fuer alles.
   /// Die Umstellung alter Dateien ([RuheDatei.stelleAltbestandUm]) sieht nur
   /// Dateien direkt in anhaenge/ an und laesst diesen Unterordner aus.
-  Directory get _klarOrdner => Directory('${_anhangOrdner.path}/.klar');
+  ///
+  /// UNTER LINUX IM ARBEITSSPEICHER, wenn es geht: siehe [klarOrdnerFuer].
+  /// Laesst sich der Ordner dort nicht anlegen (fremdes oder kaputtes
+  /// `XDG_RUNTIME_DIR`), bleibt es beim alten Ort — Oeffnen darf daran nicht
+  /// scheitern. Einmal gewaehlt, bleibt die Wahl fuer diesen Kern.
+  Directory get _klarOrdner {
+    final schon = _klarOrdnerWahl;
+    if (schon != null) return schon;
+    final linux = !_imBrowser && Platform.isLinux;
+    var d = klarOrdnerFuer(databasePath,
+        linux: linux, umgebung: linux ? Platform.environment : const {});
+    if (d.path != _alterKlarOrdner.path) {
+      try {
+        d.createSync(recursive: true);
+      } on FileSystemException {
+        d = _alterKlarOrdner;
+      }
+    }
+    return _klarOrdnerWahl = d;
+  }
+
+  Directory? _klarOrdnerWahl;
+
+  /// Wo die Kopien bis 23.11.2026 auch unter Linux lagen — und weiter auf
+  /// Android und Windows liegen.
+  Directory get _alterKlarOrdner => Directory('${_anhangOrdner.path}/.klar');
+
+  /// Der Ordner fuer entschluesselte Kopien zu [databasePath].
+  ///
+  /// LINUX: `$XDG_RUNTIME_DIR` (meist `/run/user/UID`) ist ein tmpfs, gehoert
+  /// nur dem Benutzer (0700) und verschwindet beim Abmelden und Neustart.
+  /// Bis 23.11.2026 lag die Kopie unter ~/.local/share/.../anhaenge/.klar auf
+  /// der Platte, und weil es unter Linux keinen Haken fuers Schliessen des
+  /// Fensters gibt, blieb sie dort bis zum naechsten Start der App
+  /// (Sicherheitsbewertung vom 23.11.2026, SEC-M2). Je Datenbank ein eigener
+  /// Unterordner, damit zwei Installationen (oder Tests) einander nicht
+  /// aufraeumen. Fehlt die Variable oder der Ordner, bleibt es beim alten Ort.
+  @visibleForTesting
+  static Directory klarOrdnerFuer(String databasePath,
+      {required bool linux, required Map<String, String> umgebung}) {
+    final laufzeit = umgebung['XDG_RUNTIME_DIR'] ?? '';
+    if (linux && laufzeit.isNotEmpty && Directory(laufzeit).existsSync()) {
+      // FNV-1a ueber den Pfad: nur ein stabiler, kurzer Name, kein Geheimnis.
+      var h = 0xcbf29ce4;
+      for (final b in utf8.encode(File(databasePath).absolute.path)) {
+        h = ((h ^ b) * 0x01000193) & 0xffffffff;
+      }
+      return Directory(
+          '$laufzeit/bitdm-klar-${h.toRadixString(16).padLeft(8, '0')}');
+    }
+    return Directory('${File(databasePath).parent.path}/anhaenge/.klar');
+  }
 
   /// Eine Kopie des Ablageschluessels fuer genau eine Arbeit. Wirft, wenn
   /// gesperrt.
@@ -522,20 +573,24 @@ class RealMessengerCore implements MessengerCore {
   void _raeumeKlartextAuf() {
     _klarDateien.clear();
     if (_imBrowser) return;
-    try {
-      final ordner = _klarOrdner;
-      if (!ordner.existsSync()) return;
-      for (final e in ordner.listSync(followLinks: false)) {
-        try {
-          e.deleteSync(recursive: true);
-        } on FileSystemException {
-          // naechstes Mal
+    // AUCH DER ALTE ORT: Kopien einer Fassung vor dem 23.11.2026 liegen unter
+    // Linux noch unter anhaenge/.klar, und dorthin schaute sonst niemand mehr.
+    for (final ordner in {_klarOrdner.path, _alterKlarOrdner.path}) {
+      try {
+        final d = Directory(ordner);
+        if (!d.existsSync()) continue;
+        for (final e in d.listSync(followLinks: false)) {
+          try {
+            e.deleteSync(recursive: true);
+          } on FileSystemException {
+            // naechstes Mal
+          }
         }
+      } on FileSystemException {
+        // naechstes Mal
+      } on UnsupportedError {
+        // kein Dateisystem
       }
-    } on FileSystemException {
-      // naechstes Mal
-    } on UnsupportedError {
-      // kein Dateisystem
     }
   }
 
@@ -5884,6 +5939,17 @@ class RealMessengerCore implements MessengerCore {
     //
     // Die Oberflaeche verspricht "Identitaet, Kontakte und Nachrichten sofort
     // und unwiderruflich loeschen". Der Anhang IST der Inhalt der Nachricht.
+    // Die Klartextkopien liegen unter Linux nicht mehr unter anhaenge/
+    // (siehe [klarOrdnerFuer]) und gingen sonst beim Loeschen nicht mit.
+    _raeumeKlartextAuf();
+    try {
+      final klar = _klarOrdner;
+      if (klar.existsSync()) klar.deleteSync(recursive: true);
+    } on FileSystemException {
+      // Weiter — der Rest ist wichtiger.
+    } on UnsupportedError {
+      // Im Browser gibt es keinen.
+    }
     try {
       final basis = File(databasePath).parent;
       // Dazu die Sprachaufnahmen (SprachKanal.kt legt sie unter
